@@ -144,6 +144,74 @@ export const issueLabels = pgTable(
   ]
 );
 
+export const pullRequests = pgTable(
+  "pull_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    number: serial("number"),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    authorId: uuid("author_id")
+      .notNull()
+      .references(() => users.id),
+    title: text("title").notNull(),
+    body: text("body"),
+    state: text("state").notNull().default("open"), // open, closed, merged
+    baseBranch: text("base_branch").notNull(),
+    headBranch: text("head_branch").notNull(),
+    mergedAt: timestamp("merged_at"),
+    mergedBy: uuid("merged_by").references(() => users.id),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+    closedAt: timestamp("closed_at"),
+  },
+  (table) => [
+    index("prs_repo_state").on(table.repositoryId, table.state),
+    index("prs_repo_number").on(table.repositoryId, table.number),
+  ]
+);
+
+export const prComments = pgTable(
+  "pr_comments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    pullRequestId: uuid("pull_request_id")
+      .notNull()
+      .references(() => pullRequests.id, { onDelete: "cascade" }),
+    authorId: uuid("author_id")
+      .notNull()
+      .references(() => users.id),
+    body: text("body").notNull(),
+    isAiReview: boolean("is_ai_review").default(false).notNull(),
+    filePath: text("file_path"),
+    lineNumber: integer("line_number"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [index("pr_comments_pr").on(table.pullRequestId)]
+);
+
+export const activityFeed = pgTable(
+  "activity_feed",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").references(() => users.id),
+    action: text("action").notNull(), // push, issue_open, issue_close, pr_open, pr_merge, star, comment
+    targetType: text("target_type"), // issue, pr, commit
+    targetId: text("target_id"),
+    metadata: text("metadata"), // JSON string for extra data
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("activity_repo").on(table.repositoryId),
+    index("activity_user").on(table.userId),
+  ]
+);
+
 export const sshKeys = pgTable("ssh_keys", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: uuid("user_id")
@@ -166,3 +234,6 @@ export type SshKey = typeof sshKeys.$inferSelect;
 export type Issue = typeof issues.$inferSelect;
 export type IssueComment = typeof issueComments.$inferSelect;
 export type Label = typeof labels.$inferSelect;
+export type PullRequest = typeof pullRequests.$inferSelect;
+export type PrComment = typeof prComments.$inferSelect;
+export type ActivityEntry = typeof activityFeed.$inferSelect;

@@ -511,6 +511,9 @@ const css = `
   }
   .badge-open { background: rgba(63, 185, 80, 0.15); color: var(--green); border: 1px solid var(--green); }
   .badge-closed { background: rgba(152, 110, 226, 0.15); color: #986ee2; border: 1px solid #986ee2; }
+  .badge-merged { background: rgba(152, 110, 226, 0.15); color: #986ee2; border: 1px solid #986ee2; }
+  .state-merged { color: #986ee2; }
+  .ai-review { border-color: var(--accent); }
 
   .issue-detail { max-width: 900px; }
   .issue-comment-box {

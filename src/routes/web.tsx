@@ -566,6 +566,11 @@ web.get("/:owner/:repo/blob/:ref{.+$}", async (c) => {
             <a href={`/${owner}/${repo}/blame/${ref}/${filePath}`} style="font-size: 12px">
               Blame
             </a>
+            {user && (
+              <a href={`/${owner}/${repo}/edit/${ref}/${filePath}`} style="font-size: 12px">
+                Edit
+              </a>
+            )}
           </span>
         </div>
         {blob.isBinary ? (

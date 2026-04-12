@@ -9,6 +9,8 @@ import settingsRoutes from "./routes/settings";
 import issueRoutes from "./routes/issues";
 import repoSettings from "./routes/repo-settings";
 import compareRoutes from "./routes/compare";
+import pullRoutes from "./routes/pulls";
+import editorRoutes from "./routes/editor";
 import webRoutes from "./routes/web";
 
 const app = new Hono();
@@ -37,6 +39,12 @@ app.route("/", compareRoutes);
 
 // Issue tracker
 app.route("/", issueRoutes);
+
+// Pull requests
+app.route("/", pullRoutes);
+
+// Web file editor
+app.route("/", editorRoutes);
 
 // Web UI (catch-all, must be last)
 app.route("/", webRoutes);

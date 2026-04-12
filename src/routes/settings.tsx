@@ -1,0 +1,309 @@
+/**
+ * User settings routes — profile, SSH keys.
+ */
+
+import { Hono } from "hono";
+import { eq } from "drizzle-orm";
+import { db } from "../db";
+import { users, sshKeys } from "../db/schema";
+import type { AuthEnv } from "../middleware/auth";
+import { requireAuth } from "../middleware/auth";
+import { Layout } from "../views/layout";
+
+const settings = new Hono<AuthEnv>();
+
+// Auth guard scoped to /settings paths only
+settings.use("/settings/*", requireAuth);
+settings.use("/settings", requireAuth);
+settings.use("/api/user/*", requireAuth);
+
+// Profile settings
+settings.get("/settings", (c) => {
+  const user = c.get("user")!;
+  const success = c.req.query("success");
+  return c.html(
+    <Layout title="Settings">
+      <div class="settings-container">
+        <h2>Profile settings</h2>
+        {success && (
+          <div class="auth-success">
+            {decodeURIComponent(success)}
+          </div>
+        )}
+        <form method="POST" action="/settings/profile">
+          <div class="form-group">
+            <label for="username">Username</label>
+            <input
+              type="text"
+              id="username"
+              value={user.username}
+              disabled
+              class="input-disabled"
+            />
+          </div>
+          <div class="form-group">
+            <label for="display_name">Display name</label>
+            <input
+              type="text"
+              id="display_name"
+              name="display_name"
+              value={user.displayName || ""}
+              placeholder="Your display name"
+            />
+          </div>
+          <div class="form-group">
+            <label for="bio">Bio</label>
+            <textarea
+              id="bio"
+              name="bio"
+              rows={3}
+              placeholder="Tell us about yourself"
+            >
+              {user.bio || ""}
+            </textarea>
+          </div>
+          <div class="form-group">
+            <label for="email">Email</label>
+            <input
+              type="email"
+              id="email"
+              name="email"
+              value={user.email}
+              required
+            />
+          </div>
+          <button type="submit" class="btn btn-primary">
+            Update profile
+          </button>
+        </form>
+      </div>
+    </Layout>
+  );
+});
+
+settings.post("/settings/profile", async (c) => {
+  const user = c.get("user")!;
+  const body = await c.req.parseBody();
+
+  await db
+    .update(users)
+    .set({
+      displayName: String(body.display_name || "").trim() || null,
+      bio: String(body.bio || "").trim() || null,
+      email: String(body.email || "").trim() || user.email,
+      updatedAt: new Date(),
+    })
+    .where(eq(users.id, user.id));
+
+  return c.redirect("/settings?success=Profile+updated");
+});
+
+// SSH Keys page
+settings.get("/settings/keys", async (c) => {
+  const user = c.get("user")!;
+  const success = c.req.query("success");
+  const error = c.req.query("error");
+
+  const keys = await db
+    .select()
+    .from(sshKeys)
+    .where(eq(sshKeys.userId, user.id));
+
+  return c.html(
+    <Layout title="SSH Keys">
+      <div class="settings-container">
+        <h2>SSH Keys</h2>
+        {success && (
+          <div class="auth-success">{decodeURIComponent(success)}</div>
+        )}
+        {error && (
+          <div class="auth-error">{decodeURIComponent(error)}</div>
+        )}
+        <div class="ssh-keys-list">
+          {keys.length === 0 ? (
+            <p style="color: var(--text-muted)">
+              No SSH keys yet. Add one below.
+            </p>
+          ) : (
+            keys.map((key) => (
+              <div class="ssh-key-item">
+                <div>
+                  <strong>{key.title}</strong>
+                  <div class="ssh-key-meta">
+                    <code>{key.fingerprint}</code>
+                    <span>
+                      Added{" "}
+                      {new Date(key.createdAt).toLocaleDateString("en-US", {
+                        month: "short",
+                        day: "numeric",
+                        year: "numeric",
+                      })}
+                    </span>
+                    {key.lastUsedAt && (
+                      <span>
+                        — Last used{" "}
+                        {new Date(key.lastUsedAt).toLocaleDateString()}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <form method="POST" action={`/settings/keys/${key.id}/delete`}>
+                  <button type="submit" class="btn btn-danger btn-sm">
+                    Delete
+                  </button>
+                </form>
+              </div>
+            ))
+          )}
+        </div>
+
+        <h3 style="margin-top: 24px">Add new SSH key</h3>
+        <form method="POST" action="/settings/keys">
+          <div class="form-group">
+            <label for="title">Title</label>
+            <input
+              type="text"
+              id="title"
+              name="title"
+              required
+              placeholder="e.g. My laptop"
+            />
+          </div>
+          <div class="form-group">
+            <label for="public_key">Public key</label>
+            <textarea
+              id="public_key"
+              name="public_key"
+              rows={4}
+              required
+              placeholder="ssh-ed25519 AAAA... or ssh-rsa AAAA..."
+              style="font-family: var(--font-mono); font-size: 12px"
+            />
+          </div>
+          <button type="submit" class="btn btn-primary">
+            Add SSH key
+          </button>
+        </form>
+      </div>
+    </Layout>
+  );
+});
+
+settings.post("/settings/keys", async (c) => {
+  const user = c.get("user")!;
+  const body = await c.req.parseBody();
+  const title = String(body.title || "").trim();
+  const publicKey = String(body.public_key || "").trim();
+
+  if (!title || !publicKey) {
+    return c.redirect("/settings/keys?error=Title+and+key+are+required");
+  }
+
+  // Basic validation
+  if (
+    !publicKey.startsWith("ssh-rsa ") &&
+    !publicKey.startsWith("ssh-ed25519 ") &&
+    !publicKey.startsWith("ecdsa-sha2-")
+  ) {
+    return c.redirect("/settings/keys?error=Invalid+SSH+public+key+format");
+  }
+
+  // Generate a simple fingerprint (hash of key data)
+  const keyData = publicKey.split(" ")[1] || "";
+  const hashBuffer = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(keyData)
+  );
+  const fingerprint =
+    "SHA256:" +
+    btoa(String.fromCharCode(...new Uint8Array(hashBuffer)))
+      .replace(/=+$/, "");
+
+  await db.insert(sshKeys).values({
+    userId: user.id,
+    title,
+    fingerprint,
+    publicKey,
+  });
+
+  return c.redirect("/settings/keys?success=SSH+key+added");
+});
+
+settings.post("/settings/keys/:id/delete", async (c) => {
+  const user = c.get("user")!;
+  const keyId = c.req.param("id");
+
+  // Verify ownership
+  const [key] = await db
+    .select()
+    .from(sshKeys)
+    .where(eq(sshKeys.id, keyId))
+    .limit(1);
+
+  if (!key || key.userId !== user.id) {
+    return c.redirect("/settings/keys?error=Key+not+found");
+  }
+
+  await db.delete(sshKeys).where(eq(sshKeys.id, keyId));
+  return c.redirect("/settings/keys?success=SSH+key+deleted");
+});
+
+// SSH Keys API
+settings.get("/api/user/keys", async (c) => {
+  const user = c.get("user")!;
+  const keys = await db
+    .select()
+    .from(sshKeys)
+    .where(eq(sshKeys.userId, user.id));
+  return c.json(keys);
+});
+
+settings.post("/api/user/keys", async (c) => {
+  const user = c.get("user")!;
+  const body = await c.req.json<{ title: string; public_key: string }>();
+
+  if (!body.title || !body.public_key) {
+    return c.json({ error: "title and public_key are required" }, 400);
+  }
+
+  const keyData = body.public_key.split(" ")[1] || "";
+  const hashBuffer = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(keyData)
+  );
+  const fingerprint =
+    "SHA256:" +
+    btoa(String.fromCharCode(...new Uint8Array(hashBuffer))).replace(/=+$/, "");
+
+  const [key] = await db
+    .insert(sshKeys)
+    .values({
+      userId: user.id,
+      title: body.title,
+      fingerprint,
+      publicKey: body.public_key,
+    })
+    .returning();
+
+  return c.json(key, 201);
+});
+
+settings.delete("/api/user/keys/:id", async (c) => {
+  const user = c.get("user")!;
+  const keyId = c.req.param("id");
+
+  const [key] = await db
+    .select()
+    .from(sshKeys)
+    .where(eq(sshKeys.id, keyId))
+    .limit(1);
+
+  if (!key || key.userId !== user.id) {
+    return c.json({ error: "Key not found" }, 404);
+  }
+
+  await db.delete(sshKeys).where(eq(sshKeys.id, keyId));
+  return c.json({ deleted: true });
+});
+
+export default settings;

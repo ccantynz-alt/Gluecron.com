@@ -1,9 +1,10 @@
 import type { FC, PropsWithChildren } from "hono/jsx";
+import type { User } from "../db/schema";
+import { hljsThemeCss } from "../lib/highlight";
 
-export const Layout: FC<PropsWithChildren<{ title?: string }>> = ({
-  children,
-  title,
-}) => {
+export const Layout: FC<
+  PropsWithChildren<{ title?: string; user?: User | null }>
+> = ({ children, title, user }) => {
   return (
     <html lang="en">
       <head>
@@ -11,6 +12,7 @@ export const Layout: FC<PropsWithChildren<{ title?: string }>> = ({
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>{title ? `${title} — gluecron` : "gluecron"}</title>
         <style>{css}</style>
+        <style>{hljsThemeCss}</style>
       </head>
       <body>
         <header>
@@ -18,6 +20,33 @@ export const Layout: FC<PropsWithChildren<{ title?: string }>> = ({
             <a href="/" class="logo">
               gluecron
             </a>
+            <div class="nav-right">
+              {user ? (
+                <>
+                  <a href="/new" class="btn btn-sm btn-primary">
+                    + New
+                  </a>
+                  <a href={`/${user.username}`} class="nav-user">
+                    {user.displayName || user.username}
+                  </a>
+                  <a href="/settings" class="nav-link">
+                    Settings
+                  </a>
+                  <a href="/logout" class="nav-link">
+                    Sign out
+                  </a>
+                </>
+              ) : (
+                <>
+                  <a href="/login" class="nav-link">
+                    Sign in
+                  </a>
+                  <a href="/register" class="btn btn-sm btn-primary">
+                    Register
+                  </a>
+                </>
+              )}
+            </div>
           </nav>
         </header>
         <main>{children}</main>
@@ -69,9 +98,21 @@ const css = `
     background: var(--bg-secondary);
   }
 
-  header nav { display: flex; align-items: center; gap: 20px; max-width: 1200px; margin: 0 auto; }
+  header nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
   .logo { font-size: 20px; font-weight: 700; color: var(--text); }
   .logo:hover { text-decoration: none; color: var(--text-link); }
+
+  .nav-right { display: flex; align-items: center; gap: 16px; }
+  .nav-link { color: var(--text-muted); font-size: 14px; }
+  .nav-link:hover { color: var(--text); text-decoration: none; }
+  .nav-user { color: var(--text); font-weight: 600; font-size: 14px; }
+  .nav-user:hover { color: var(--text-link); text-decoration: none; }
 
   main { max-width: 1200px; margin: 0 auto; padding: 24px; flex: 1; width: 100%; }
 
@@ -83,6 +124,91 @@ const css = `
     font-size: 13px;
   }
 
+  /* Buttons */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    border-radius: var(--radius);
+    font-size: 14px;
+    font-weight: 500;
+    border: 1px solid var(--border);
+    background: var(--bg-tertiary);
+    color: var(--text);
+    cursor: pointer;
+    text-decoration: none;
+    line-height: 1.4;
+  }
+  .btn:hover { background: var(--border); text-decoration: none; }
+  .btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn-primary:hover { background: var(--accent-hover); }
+  .btn-danger { background: transparent; border-color: var(--red); color: var(--red); }
+  .btn-danger:hover { background: rgba(248, 81, 73, 0.15); }
+  .btn-sm { padding: 4px 12px; font-size: 13px; }
+
+  /* Forms */
+  .form-group { margin-bottom: 16px; }
+  .form-group label { display: block; font-size: 14px; font-weight: 500; margin-bottom: 6px; color: var(--text); }
+  .form-group input, .form-group textarea, .form-group select {
+    width: 100%;
+    padding: 8px 12px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-size: 14px;
+    font-family: var(--font-sans);
+  }
+  .form-group input:focus, .form-group textarea:focus, .form-group select:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(31, 111, 235, 0.3);
+  }
+  .input-disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* Auth */
+  .auth-container { max-width: 400px; margin: 40px auto; }
+  .auth-container h2 { margin-bottom: 20px; font-size: 24px; }
+  .auth-error {
+    background: rgba(248, 81, 73, 0.1);
+    border: 1px solid var(--red);
+    color: var(--red);
+    padding: 8px 12px;
+    border-radius: var(--radius);
+    margin-bottom: 16px;
+    font-size: 14px;
+  }
+  .auth-success {
+    background: rgba(63, 185, 80, 0.1);
+    border: 1px solid var(--green);
+    color: var(--green);
+    padding: 8px 12px;
+    border-radius: var(--radius);
+    margin-bottom: 16px;
+    font-size: 14px;
+  }
+  .auth-switch { margin-top: 16px; font-size: 14px; color: var(--text-muted); }
+
+  /* Settings */
+  .settings-container { max-width: 600px; }
+  .settings-container h2 { margin-bottom: 20px; font-size: 24px; }
+  .settings-container h3 { font-size: 18px; margin-bottom: 12px; }
+  .ssh-keys-list { margin-bottom: 24px; }
+  .ssh-key-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 8px;
+    background: var(--bg-secondary);
+  }
+  .ssh-key-meta { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+  .ssh-key-meta code { font-size: 11px; background: var(--bg-tertiary); padding: 1px 6px; border-radius: 3px; margin-right: 8px; }
+
+  /* Repo header */
   .repo-header {
     display: flex;
     align-items: center;
@@ -93,6 +219,7 @@ const css = `
   .repo-header .owner { color: var(--text-link); }
   .repo-header .separator { color: var(--text-muted); }
   .repo-header .name { color: var(--text-link); font-weight: 600; }
+  .repo-header-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
 
   .repo-nav {
     display: flex;
@@ -132,6 +259,9 @@ const css = `
     border-bottom: 1px solid var(--border);
     font-size: 13px;
     color: var(--text-muted);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
   }
   .blob-code {
     overflow-x: auto;
@@ -243,7 +373,39 @@ const css = `
     font-size: 13px;
     color: var(--text);
     margin-bottom: 12px;
+    position: relative;
   }
+
+  .branch-dropdown {
+    position: relative;
+    display: inline-block;
+    margin-bottom: 12px;
+  }
+  .branch-dropdown-content {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    z-index: 10;
+    min-width: 200px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-top: 4px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  }
+  .branch-dropdown:hover .branch-dropdown-content,
+  .branch-dropdown:focus-within .branch-dropdown-content { display: block; }
+  .branch-dropdown-content a {
+    display: block;
+    padding: 8px 12px;
+    font-size: 13px;
+    color: var(--text);
+    border-bottom: 1px solid var(--border);
+  }
+  .branch-dropdown-content a:last-child { border-bottom: none; }
+  .branch-dropdown-content a:hover { background: var(--bg-tertiary); text-decoration: none; }
+  .branch-dropdown-content a.active-branch { color: var(--text-link); font-weight: 600; }
 
   .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; }
   .card {
@@ -251,7 +413,66 @@ const css = `
     border-radius: var(--radius);
     padding: 16px;
     background: var(--bg-secondary);
+    transition: border-color 0.15s;
   }
+  .card:hover { border-color: var(--text-muted); }
   .card h3 { font-size: 16px; margin-bottom: 4px; }
+  .card h3 a { color: var(--text-link); }
   .card p { font-size: 13px; color: var(--text-muted); }
+  .card-meta { display: flex; gap: 16px; margin-top: 12px; font-size: 12px; color: var(--text-muted); }
+  .card-meta span { display: flex; align-items: center; gap: 4px; }
+
+  .star-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .star-btn:hover { background: var(--border); text-decoration: none; }
+  .star-btn.starred { color: var(--yellow); border-color: var(--yellow); }
+
+  .user-profile {
+    display: flex;
+    gap: 32px;
+    margin-bottom: 32px;
+  }
+  .user-avatar {
+    width: 96px;
+    height: 96px;
+    border-radius: 50%;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 40px;
+    color: var(--text-muted);
+    flex-shrink: 0;
+  }
+  .user-info h2 { font-size: 24px; margin-bottom: 2px; }
+  .user-info .username { font-size: 16px; color: var(--text-muted); }
+  .user-info .bio { font-size: 14px; color: var(--text-muted); margin-top: 8px; }
+
+  .new-repo-form { max-width: 600px; }
+  .new-repo-form h2 { margin-bottom: 20px; }
+  .visibility-options { display: flex; gap: 12px; margin-bottom: 16px; }
+  .visibility-option {
+    flex: 1;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-secondary);
+    cursor: pointer;
+    text-align: center;
+  }
+  .visibility-option:has(input:checked) { border-color: var(--accent); background: rgba(31, 111, 235, 0.1); }
+  .visibility-option input { display: none; }
+  .visibility-option .vis-label { font-size: 14px; font-weight: 500; }
+  .visibility-option .vis-desc { font-size: 12px; color: var(--text-muted); }
 `;

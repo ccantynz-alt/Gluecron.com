@@ -7,6 +7,7 @@ import { eq, and } from "drizzle-orm";
 import { db } from "../db";
 import { users, repositories } from "../db/schema";
 import { initBareRepo, repoExists } from "../git/repository";
+import { hashPassword } from "../lib/auth";
 
 const api = new Hono().basePath("/api");
 
@@ -119,7 +120,7 @@ api.post("/setup", async (c) => {
       .values({
         username: body.username,
         email: body.email,
-        passwordHash: "placeholder", // TODO: real auth
+        passwordHash: await hashPassword("changeme"),
       })
       .returning();
   }

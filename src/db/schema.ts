@@ -20,6 +20,16 @@ export const users = pgTable("users", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+export const sessions = pgTable("sessions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  token: text("token").notNull().unique(),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const repositories = pgTable(
   "repositories",
   {
@@ -41,11 +51,26 @@ export const repositories = pgTable(
   (table) => [uniqueIndex("repos_owner_name").on(table.ownerId, table.name)]
 );
 
+export const stars = pgTable(
+  "stars",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [uniqueIndex("stars_user_repo").on(table.userId, table.repositoryId)]
+);
+
 export const sshKeys = pgTable("ssh_keys", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: uuid("user_id")
     .notNull()
-    .references(() => users.id),
+    .references(() => users.id, { onDelete: "cascade" }),
   title: text("title").notNull(),
   fingerprint: text("fingerprint").notNull(),
   publicKey: text("public_key").notNull(),
@@ -57,3 +82,6 @@ export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Repository = typeof repositories.$inferSelect;
 export type NewRepository = typeof repositories.$inferInsert;
+export type Session = typeof sessions.$inferSelect;
+export type Star = typeof stars.$inferSelect;
+export type SshKey = typeof sshKeys.$inferSelect;

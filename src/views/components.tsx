@@ -42,11 +42,17 @@ export const RepoHeader: FC<{
 export const RepoNav: FC<{
   owner: string;
   repo: string;
-  active: "code" | "commits";
+  active: "code" | "commits" | "issues";
 }> = ({ owner, repo, active }) => (
   <div class="repo-nav">
     <a href={`/${owner}/${repo}`} class={active === "code" ? "active" : ""}>
       Code
+    </a>
+    <a
+      href={`/${owner}/${repo}/issues`}
+      class={active === "issues" ? "active" : ""}
+    >
+      Issues
     </a>
     <a
       href={`/${owner}/${repo}/commits`}

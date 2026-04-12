@@ -475,4 +475,58 @@ const css = `
   .visibility-option input { display: none; }
   .visibility-option .vis-label { font-size: 14px; font-weight: 500; }
   .visibility-option .vis-desc { font-size: 12px; color: var(--text-muted); }
+
+  /* Issues */
+  .issue-tabs { display: flex; gap: 16px; }
+  .issue-tabs a { color: var(--text-muted); font-size: 14px; font-weight: 500; }
+  .issue-tabs a:hover { color: var(--text); text-decoration: none; }
+  .issue-tabs a.active { color: var(--text); }
+
+  .issue-list { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  .issue-item {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .issue-item:last-child { border-bottom: none; }
+  .issue-item:hover { background: var(--bg-secondary); }
+  .issue-state-icon { font-size: 16px; padding-top: 2px; }
+  .state-open { color: var(--green); }
+  .state-closed { color: #986ee2; }
+  .issue-title { font-size: 15px; font-weight: 600; }
+  .issue-title a { color: var(--text); }
+  .issue-title a:hover { color: var(--text-link); }
+  .issue-meta { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+
+  .issue-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 500;
+  }
+  .badge-open { background: rgba(63, 185, 80, 0.15); color: var(--green); border: 1px solid var(--green); }
+  .badge-closed { background: rgba(152, 110, 226, 0.15); color: #986ee2; border: 1px solid #986ee2; }
+
+  .issue-detail { max-width: 900px; }
+  .issue-comment-box {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 16px;
+    overflow: hidden;
+  }
+  .comment-header {
+    background: var(--bg-secondary);
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+
+  /* Search */
+  .search-results .diff-file { margin-bottom: 12px; }
 `;

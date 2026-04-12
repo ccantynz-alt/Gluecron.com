@@ -312,6 +312,120 @@ export async function getDiff(
   return { files, raw };
 }
 
+export interface BlameLine {
+  sha: string;
+  author: string;
+  date: string;
+  lineNum: number;
+  content: string;
+}
+
+export async function getBlame(
+  owner: string,
+  name: string,
+  ref: string,
+  filePath: string
+): Promise<BlameLine[]> {
+  const path = repoPath(owner, name);
+  const { stdout, exitCode } = await exec(
+    ["git", "blame", "--porcelain", ref, "--", filePath],
+    { cwd: path }
+  );
+  if (exitCode !== 0) return [];
+
+  const lines: BlameLine[] = [];
+  const commits: Record<string, { author: string; date: string }> = {};
+  let currentSha = "";
+  let currentLineNum = 0;
+
+  for (const line of stdout.split("\n")) {
+    // Header line: <sha> <orig-line> <final-line> [<group-lines>]
+    const headerMatch = line.match(
+      /^([0-9a-f]{40}) \d+ (\d+)/
+    );
+    if (headerMatch) {
+      currentSha = headerMatch[1];
+      currentLineNum = parseInt(headerMatch[2], 10);
+      continue;
+    }
+
+    if (line.startsWith("author ")) {
+      if (!commits[currentSha]) commits[currentSha] = { author: "", date: "" };
+      commits[currentSha].author = line.slice(7);
+    } else if (line.startsWith("author-time ")) {
+      if (!commits[currentSha]) commits[currentSha] = { author: "", date: "" };
+      commits[currentSha].date = new Date(
+        parseInt(line.slice(12), 10) * 1000
+      ).toISOString();
+    } else if (line.startsWith("\t")) {
+      const info = commits[currentSha] || { author: "unknown", date: "" };
+      lines.push({
+        sha: currentSha,
+        author: info.author,
+        date: info.date,
+        lineNum: currentLineNum,
+        content: line.slice(1),
+      });
+    }
+  }
+
+  return lines;
+}
+
+export async function getRawBlob(
+  owner: string,
+  name: string,
+  ref: string,
+  filePath: string
+): Promise<Uint8Array | null> {
+  const path = repoPath(owner, name);
+  const proc = Bun.spawn(["git", "show", `${ref}:${filePath}`], {
+    cwd: path,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const data = await new Response(proc.stdout).arrayBuffer();
+  const exitCode = await proc.exited;
+  if (exitCode !== 0) return null;
+  return new Uint8Array(data);
+}
+
+export async function searchCode(
+  owner: string,
+  name: string,
+  ref: string,
+  query: string,
+  maxResults = 50
+): Promise<Array<{ file: string; lineNum: number; line: string }>> {
+  const path = repoPath(owner, name);
+  const { stdout, exitCode } = await exec(
+    ["git", "grep", "-n", "-I", `--max-count=${maxResults}`, query, ref],
+    { cwd: path }
+  );
+  if (exitCode !== 0) return [];
+
+  return stdout
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .slice(0, maxResults)
+    .map((line) => {
+      // Format: <ref>:<file>:<lineNum>:<content>
+      const refPrefix = ref + ":";
+      const rest = line.startsWith(refPrefix) ? line.slice(refPrefix.length) : line;
+      const colonIdx = rest.indexOf(":");
+      if (colonIdx === -1) return null;
+      const file = rest.slice(0, colonIdx);
+      const afterFile = rest.slice(colonIdx + 1);
+      const numColonIdx = afterFile.indexOf(":");
+      if (numColonIdx === -1) return null;
+      const lineNum = parseInt(afterFile.slice(0, numColonIdx), 10);
+      const content = afterFile.slice(numColonIdx + 1);
+      return { file, lineNum, line: content };
+    })
+    .filter((r): r is { file: string; lineNum: number; line: string } => r !== null);
+}
+
 export async function getReadme(
   owner: string,
   name: string,

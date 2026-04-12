@@ -4,6 +4,7 @@
  */
 
 import { Hono } from "hono";
+import { html } from "hono/html";
 import { eq, and, desc } from "drizzle-orm";
 import { db } from "../db";
 import { users, repositories, stars } from "../db/schema";
@@ -32,7 +33,11 @@ import {
   listBranches,
   repoExists,
   initBareRepo,
+  getBlame,
+  getRawBlob,
+  searchCode,
 } from "../git/repository";
+import { renderMarkdown, markdownCss } from "../lib/markdown";
 import { highlightCode } from "../lib/highlight";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
@@ -429,14 +434,18 @@ git push -u gluecron main`}</pre>
         ref={defaultBranch}
         path=""
       />
-      {readme && (
-        <div class="blob-view" style="margin-top: 20px">
-          <div class="blob-header">README.md</div>
-          <div style="padding: 16px; white-space: pre-wrap; font-size: 14px;">
-            {readme}
+      {readme && (() => {
+        const readmeHtml = renderMarkdown(readme);
+        return (
+          <div class="blob-view" style="margin-top: 20px">
+            <div class="blob-header">README.md</div>
+            <style>{markdownCss}</style>
+            <div class="markdown-body">
+              {html([readmeHtml] as unknown as TemplateStringsArray)}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </Layout>
   );
 });
@@ -550,6 +559,14 @@ web.get("/:owner/:repo/blob/:ref{.+$}", async (c) => {
       <div class="blob-view">
         <div class="blob-header">
           <span>{fileName} — {blob.size} bytes</span>
+          <span style="display: flex; gap: 12px">
+            <a href={`/${owner}/${repo}/raw/${ref}/${filePath}`} style="font-size: 12px">
+              Raw
+            </a>
+            <a href={`/${owner}/${repo}/blame/${ref}/${filePath}`} style="font-size: 12px">
+              Blame
+            </a>
+          </span>
         </div>
         {blob.isBinary ? (
           <div style="padding: 16px; color: var(--text-muted)">
@@ -676,6 +693,215 @@ web.get("/:owner/:repo/commit/:sha", async (c) => {
         </div>
       </div>
       <DiffView raw={raw} files={files} />
+    </Layout>
+  );
+});
+
+// Raw file download
+web.get("/:owner/:repo/raw/:ref{.+$}", async (c) => {
+  const { owner, repo } = c.req.param();
+  const refAndPath = c.req.param("ref");
+
+  const branches = await listBranches(owner, repo);
+  let ref = "";
+  let filePath = "";
+
+  for (const branch of branches) {
+    if (refAndPath.startsWith(branch + "/")) {
+      ref = branch;
+      filePath = refAndPath.slice(branch.length + 1);
+      break;
+    }
+  }
+
+  if (!ref) {
+    const slashIdx = refAndPath.indexOf("/");
+    if (slashIdx === -1) return c.text("Not found", 404);
+    ref = refAndPath.slice(0, slashIdx);
+    filePath = refAndPath.slice(slashIdx + 1);
+  }
+
+  const data = await getRawBlob(owner, repo, ref, filePath);
+  if (!data) return c.text("Not found", 404);
+
+  const fileName = filePath.split("/").pop() || "file";
+  return new Response(data, {
+    headers: {
+      "Content-Type": "application/octet-stream",
+      "Content-Disposition": `attachment; filename="${fileName}"`,
+      "Cache-Control": "no-cache",
+    },
+  });
+});
+
+// Blame view
+web.get("/:owner/:repo/blame/:ref{.+$}", async (c) => {
+  const { owner, repo } = c.req.param();
+  const user = c.get("user");
+  const refAndPath = c.req.param("ref");
+
+  const branches = await listBranches(owner, repo);
+  let ref = "";
+  let filePath = "";
+
+  for (const branch of branches) {
+    if (refAndPath.startsWith(branch + "/")) {
+      ref = branch;
+      filePath = refAndPath.slice(branch.length + 1);
+      break;
+    }
+  }
+
+  if (!ref) {
+    const slashIdx = refAndPath.indexOf("/");
+    if (slashIdx === -1) return c.text("Not found", 404);
+    ref = refAndPath.slice(0, slashIdx);
+    filePath = refAndPath.slice(slashIdx + 1);
+  }
+
+  const blameLines = await getBlame(owner, repo, ref, filePath);
+  if (blameLines.length === 0) {
+    return c.html(
+      <Layout title="Not Found" user={user}>
+        <div class="empty-state">
+          <h2>File not found</h2>
+        </div>
+      </Layout>,
+      404
+    );
+  }
+
+  const fileName = filePath.split("/").pop() || filePath;
+
+  return c.html(
+    <Layout title={`Blame: ${filePath} — ${owner}/${repo}`} user={user}>
+      <RepoHeader owner={owner} repo={repo} />
+      <RepoNav owner={owner} repo={repo} active="code" />
+      <Breadcrumb owner={owner} repo={repo} ref={ref} path={filePath} />
+      <div class="blob-view">
+        <div class="blob-header">
+          <span>{fileName} — blame</span>
+          <a href={`/${owner}/${repo}/blob/${ref}/${filePath}`} style="font-size: 12px">
+            Normal view
+          </a>
+        </div>
+        <div class="blob-code" style="overflow-x: auto">
+          <table style="width: 100%; border-collapse: collapse; font-size: 13px; font-family: var(--font-mono)">
+            <tbody>
+              {blameLines.map((line, i) => {
+                const showInfo =
+                  i === 0 || blameLines[i - 1].sha !== line.sha;
+                return (
+                  <tr style="border-bottom: 1px solid var(--border)">
+                    <td
+                      style={`width: 200px; padding: 0 8px; font-size: 11px; color: var(--text-muted); white-space: nowrap; vertical-align: top; ${showInfo ? "border-top: 1px solid var(--border)" : ""}`}
+                    >
+                      {showInfo && (
+                        <>
+                          <a
+                            href={`/${owner}/${repo}/commit/${line.sha}`}
+                            style="color: var(--text-link); font-family: var(--font-mono)"
+                          >
+                            {line.sha.slice(0, 7)}
+                          </a>{" "}
+                          <span>{line.author}</span>
+                        </>
+                      )}
+                    </td>
+                    <td class="line-num">{line.lineNum}</td>
+                    <td class="line-content">{line.content}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </Layout>
+  );
+});
+
+// Search
+web.get("/:owner/:repo/search", async (c) => {
+  const { owner, repo } = c.req.param();
+  const user = c.get("user");
+  const q = c.req.query("q") || "";
+
+  if (!(await repoExists(owner, repo))) return c.notFound();
+
+  const defaultBranch = (await getDefaultBranch(owner, repo)) || "main";
+  let results: Array<{ file: string; lineNum: number; line: string }> = [];
+
+  if (q.trim()) {
+    results = await searchCode(owner, repo, defaultBranch, q.trim());
+  }
+
+  return c.html(
+    <Layout title={`Search — ${owner}/${repo}`} user={user}>
+      <RepoHeader owner={owner} repo={repo} />
+      <RepoNav owner={owner} repo={repo} active="code" />
+      <form
+        method="GET"
+        action={`/${owner}/${repo}/search`}
+        style="margin-bottom: 20px"
+      >
+        <div style="display: flex; gap: 8px">
+          <input
+            type="text"
+            name="q"
+            value={q}
+            placeholder="Search code..."
+            style="flex: 1; padding: 8px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); font-size: 14px"
+          />
+          <button type="submit" class="btn btn-primary">
+            Search
+          </button>
+        </div>
+      </form>
+      {q && (
+        <p style="font-size: 14px; color: var(--text-muted); margin-bottom: 16px">
+          {results.length} result{results.length !== 1 ? "s" : ""} for{" "}
+          <strong style="color: var(--text)">"{q}"</strong>
+        </p>
+      )}
+      {results.length > 0 && (
+        <div class="search-results">
+          {(() => {
+            // Group by file
+            const grouped: Record<
+              string,
+              Array<{ lineNum: number; line: string }>
+            > = {};
+            for (const r of results) {
+              if (!grouped[r.file]) grouped[r.file] = [];
+              grouped[r.file].push({ lineNum: r.lineNum, line: r.line });
+            }
+            return Object.entries(grouped).map(([file, matches]) => (
+              <div class="diff-file" style="margin-bottom: 12px">
+                <div class="diff-file-header">
+                  <a
+                    href={`/${owner}/${repo}/blob/${defaultBranch}/${file}`}
+                  >
+                    {file}
+                  </a>
+                </div>
+                <div class="blob-code">
+                  <table>
+                    <tbody>
+                      {matches.map((m) => (
+                        <tr>
+                          <td class="line-num">{m.lineNum}</td>
+                          <td class="line-content">{m.line}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ));
+          })()}
+        </div>
+      )}
     </Layout>
   );
 });

@@ -16,6 +16,7 @@ import webhookRoutes from "./routes/webhooks";
 import exploreRoutes from "./routes/explore";
 import tokenRoutes from "./routes/tokens";
 import contributorRoutes from "./routes/contributors";
+import healthRoutes from "./routes/health";
 import webRoutes from "./routes/web";
 
 const app = new Hono();
@@ -62,6 +63,9 @@ app.route("/", editorRoutes);
 
 // Contributors
 app.route("/", contributorRoutes);
+
+// Health dashboard
+app.route("/", healthRoutes);
 
 // Explore page
 app.route("/", exploreRoutes);

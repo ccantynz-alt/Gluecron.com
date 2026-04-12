@@ -1,0 +1,26 @@
+{
+  "name": "gluecron",
+  "version": "0.1.0",
+  "description": "AI-native code intelligence platform — git hosting, automated CI, and green ecosystem enforcement",
+  "type": "module",
+  "scripts": {
+    "dev": "bun run --hot src/index.ts",
+    "start": "bun run src/index.ts",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "bun run src/db/migrate.ts",
+    "db:studio": "drizzle-kit studio",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "hono": "^4.7.0",
+    "@hono/node-server": "^1.13.0",
+    "drizzle-orm": "^0.39.0",
+    "@neondatabase/serverless": "^0.10.0",
+    "highlight.js": "^11.11.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.0",
+    "drizzle-kit": "^0.30.0",
+    "typescript": "^5.7.0"
+  }
+}

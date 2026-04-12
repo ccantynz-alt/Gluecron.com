@@ -26,6 +26,9 @@ export const Layout: FC<
               </a>
               {user ? (
                 <>
+                  <a href="/dashboard" class="nav-link" style="font-weight: 600">
+                    Dashboard
+                  </a>
                   <a href="/new" class="btn btn-sm btn-primary">
                     + New
                   </a>
@@ -566,5 +569,44 @@ const css = `
     border: 1px solid var(--border);
     border-radius: var(--radius);
     padding: 12px 16px;
+  }
+
+  /* Toggle switch */
+  .toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 44px;
+    height: 24px;
+    flex-shrink: 0;
+    margin-left: 16px;
+  }
+  .toggle-switch input { opacity: 0; width: 0; height: 0; }
+  .toggle-slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    transition: 0.2s;
+  }
+  .toggle-slider::before {
+    content: '';
+    position: absolute;
+    height: 18px;
+    width: 18px;
+    left: 2px;
+    bottom: 2px;
+    background: var(--text-muted);
+    border-radius: 50%;
+    transition: 0.2s;
+  }
+  .toggle-switch input:checked + .toggle-slider {
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+  .toggle-switch input:checked + .toggle-slider::before {
+    transform: translateX(20px);
+    background: #fff;
   }
 `;

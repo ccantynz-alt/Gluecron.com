@@ -18,6 +18,7 @@ import tokenRoutes from "./routes/tokens";
 import contributorRoutes from "./routes/contributors";
 import healthRoutes from "./routes/health";
 import insightRoutes from "./routes/insights";
+import dashboardRoutes from "./routes/dashboard";
 import webRoutes from "./routes/web";
 
 const app = new Hono();
@@ -70,6 +71,9 @@ app.route("/", healthRoutes);
 
 // Insights (time-travel, dependencies, rollback)
 app.route("/", insightRoutes);
+
+// Command center dashboard
+app.route("/", dashboardRoutes);
 
 // Explore page
 app.route("/", exploreRoutes);

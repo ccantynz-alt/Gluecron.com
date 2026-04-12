@@ -57,7 +57,14 @@ export const Layout: FC<
         </header>
         <main>{children}</main>
         <footer>
-          <span>gluecron — AI-native code intelligence</span>
+          <span>
+            &copy; {new Date().getFullYear()} gluecron — AI-native code intelligence
+          </span>
+          <div style="margin-top: 6px; display: flex; gap: 16px; justify-content: center; font-size: 12px">
+            <a href="/terms" style="color: var(--text-muted)">Terms</a>
+            <a href="/privacy" style="color: var(--text-muted)">Privacy</a>
+            <a href="/acceptable-use" style="color: var(--text-muted)">Acceptable Use</a>
+          </div>
         </footer>
       </body>
     </html>

@@ -19,6 +19,7 @@ import contributorRoutes from "./routes/contributors";
 import healthRoutes from "./routes/health";
 import insightRoutes from "./routes/insights";
 import dashboardRoutes from "./routes/dashboard";
+import legalRoutes from "./routes/legal";
 import webRoutes from "./routes/web";
 
 const app = new Hono();
@@ -74,6 +75,9 @@ app.route("/", insightRoutes);
 
 // Command center dashboard
 app.route("/", dashboardRoutes);
+
+// Legal pages (terms, privacy, AUP)
+app.route("/", legalRoutes);
 
 // Explore page
 app.route("/", exploreRoutes);

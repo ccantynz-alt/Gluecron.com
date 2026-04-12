@@ -15,6 +15,7 @@ import forkRoutes from "./routes/fork";
 import webhookRoutes from "./routes/webhooks";
 import exploreRoutes from "./routes/explore";
 import tokenRoutes from "./routes/tokens";
+import contributorRoutes from "./routes/contributors";
 import webRoutes from "./routes/web";
 
 const app = new Hono();
@@ -58,6 +59,9 @@ app.route("/", forkRoutes);
 
 // Web file editor
 app.route("/", editorRoutes);
+
+// Contributors
+app.route("/", contributorRoutes);
 
 // Explore page
 app.route("/", exploreRoutes);

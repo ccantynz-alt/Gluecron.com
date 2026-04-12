@@ -11,6 +11,10 @@ import repoSettings from "./routes/repo-settings";
 import compareRoutes from "./routes/compare";
 import pullRoutes from "./routes/pulls";
 import editorRoutes from "./routes/editor";
+import forkRoutes from "./routes/fork";
+import webhookRoutes from "./routes/webhooks";
+import exploreRoutes from "./routes/explore";
+import tokenRoutes from "./routes/tokens";
 import webRoutes from "./routes/web";
 
 const app = new Hono();
@@ -31,8 +35,14 @@ app.route("/", authRoutes);
 // Settings routes (profile, SSH keys)
 app.route("/", settingsRoutes);
 
+// API tokens
+app.route("/", tokenRoutes);
+
 // Repo settings (description, visibility, delete)
 app.route("/", repoSettings);
+
+// Webhooks management
+app.route("/", webhookRoutes);
 
 // Compare view (branch diffs)
 app.route("/", compareRoutes);
@@ -43,8 +53,14 @@ app.route("/", issueRoutes);
 // Pull requests
 app.route("/", pullRoutes);
 
+// Fork
+app.route("/", forkRoutes);
+
 // Web file editor
 app.route("/", editorRoutes);
+
+// Explore page
+app.route("/", exploreRoutes);
 
 // Web UI (catch-all, must be last)
 app.route("/", webRoutes);

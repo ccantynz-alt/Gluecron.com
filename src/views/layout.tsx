@@ -21,6 +21,9 @@ export const Layout: FC<
               gluecron
             </a>
             <div class="nav-right">
+              <a href="/explore" class="nav-link">
+                Explore
+              </a>
               {user ? (
                 <>
                   <a href="/new" class="btn btn-sm btn-primary">

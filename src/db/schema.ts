@@ -44,6 +44,9 @@ export const repositories = pgTable(
     isPrivate: boolean("is_private").default(false).notNull(),
     defaultBranch: text("default_branch").default("main").notNull(),
     diskPath: text("disk_path").notNull(),
+    forkedFromId: uuid("forked_from_id").references(() => repositories.id, {
+      onDelete: "set null",
+    }),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
     pushedAt: timestamp("pushed_at"),
@@ -212,6 +215,53 @@ export const activityFeed = pgTable(
   ]
 );
 
+export const webhooks = pgTable(
+  "webhooks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    url: text("url").notNull(),
+    secret: text("secret"),
+    events: text("events").notNull().default("push"), // comma-separated: push,issue,pr
+    isActive: boolean("is_active").default(true).notNull(),
+    lastDeliveredAt: timestamp("last_delivered_at"),
+    lastStatus: integer("last_status"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [index("webhooks_repo").on(table.repositoryId)]
+);
+
+export const apiTokens = pgTable("api_tokens", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  tokenHash: text("token_hash").notNull(),
+  tokenPrefix: text("token_prefix").notNull(), // first 8 chars for display
+  scopes: text("scopes").notNull().default("repo"), // comma-separated
+  lastUsedAt: timestamp("last_used_at"),
+  expiresAt: timestamp("expires_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const repoTopics = pgTable(
+  "repo_topics",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    topic: text("topic").notNull(),
+  },
+  (table) => [
+    uniqueIndex("repo_topics_unique").on(table.repositoryId, table.topic),
+    index("topics_name").on(table.topic),
+  ]
+);
+
 export const sshKeys = pgTable("ssh_keys", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: uuid("user_id")
@@ -237,3 +287,6 @@ export type Label = typeof labels.$inferSelect;
 export type PullRequest = typeof pullRequests.$inferSelect;
 export type PrComment = typeof prComments.$inferSelect;
 export type ActivityEntry = typeof activityFeed.$inferSelect;
+export type Webhook = typeof webhooks.$inferSelect;
+export type ApiToken = typeof apiTokens.$inferSelect;
+export type RepoTopic = typeof repoTopics.$inferSelect;

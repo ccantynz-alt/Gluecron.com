@@ -8,17 +8,35 @@ export const RepoHeader: FC<{
   repo: string;
   starCount?: number;
   starred?: boolean;
+  forkCount?: number;
   currentUser?: string | null;
-}> = ({ owner, repo, starCount, starred, currentUser }) => (
+  forkedFrom?: string | null;
+}> = ({ owner, repo, starCount, starred, forkCount, currentUser, forkedFrom }) => (
   <div class="repo-header">
-    <a href={`/${owner}`} class="owner">
-      {owner}
-    </a>
-    <span class="separator">/</span>
-    <a href={`/${owner}/${repo}`} class="name">
-      {repo}
-    </a>
+    <div>
+      <div style="display: flex; align-items: center; gap: 8px; font-size: 20px">
+        <a href={`/${owner}`} class="owner">
+          {owner}
+        </a>
+        <span class="separator">/</span>
+        <a href={`/${owner}/${repo}`} class="name">
+          {repo}
+        </a>
+      </div>
+      {forkedFrom && (
+        <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px">
+          forked from <a href={`/${forkedFrom}`}>{forkedFrom}</a>
+        </div>
+      )}
+    </div>
     <div class="repo-header-actions">
+      {currentUser && currentUser !== owner && (
+        <form method="POST" action={`/${owner}/${repo}/fork`} style="display:inline">
+          <button type="submit" class="star-btn">
+            {"\u2442"} Fork {forkCount !== undefined && forkCount > 0 ? forkCount : ""}
+          </button>
+        </form>
+      )}
       {starCount !== undefined && (
         currentUser ? (
           <form method="POST" action={`/${owner}/${repo}/star`} style="display:inline">

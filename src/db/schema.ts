@@ -665,3 +665,101 @@ export const savedReplies = pgTable(
 );
 
 export type SavedReply = typeof savedReplies.$inferSelect;
+
+/**
+ * Organizations (Block B1) — multi-user namespaces. Distinct from `users`.
+ * An org has members (with org-level roles) and may contain teams.
+ * Repos can be owned by an org via `repositories.orgId` (added in Block B2).
+ *
+ * Slug is globally unique against itself; collision with a username is
+ * checked at create time in the route handler (no DB-level cross-table
+ * uniqueness in Postgres).
+ */
+export const organizations = pgTable("organizations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  slug: text("slug").notNull().unique(),
+  name: text("name").notNull(),
+  description: text("description"),
+  avatarUrl: text("avatar_url"),
+  billingEmail: text("billing_email"),
+  createdById: uuid("created_by_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "restrict" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+/**
+ * Org membership. Roles: owner (full control, billing), admin (manage
+ * members + teams + repos), member (default; can be added to teams).
+ */
+export const orgMembers = pgTable(
+  "org_members",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    role: text("role").notNull().default("member"), // owner | admin | member
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("org_members_unique").on(table.orgId, table.userId),
+    index("org_members_user").on(table.userId),
+  ]
+);
+
+/**
+ * Teams within an org. Slug is unique within an org.
+ * `parentTeamId` allows nesting (GitHub-style child teams). Optional.
+ */
+export const teams = pgTable(
+  "teams",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    slug: text("slug").notNull(),
+    name: text("name").notNull(),
+    description: text("description"),
+    parentTeamId: uuid("parent_team_id"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [uniqueIndex("teams_org_slug").on(table.orgId, table.slug)]
+);
+
+/**
+ * Team membership. Roles: maintainer (can edit team), member (default).
+ * A user can belong to many teams; team membership requires org membership
+ * but that invariant is enforced at the route layer, not the DB layer.
+ */
+export const teamMembers = pgTable(
+  "team_members",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    teamId: uuid("team_id")
+      .notNull()
+      .references(() => teams.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    role: text("role").notNull().default("member"), // maintainer | member
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("team_members_unique").on(table.teamId, table.userId),
+    index("team_members_user").on(table.userId),
+  ]
+);
+
+export type Organization = typeof organizations.$inferSelect;
+export type OrgMember = typeof orgMembers.$inferSelect;
+export type Team = typeof teams.$inferSelect;
+export type TeamMember = typeof teamMembers.$inferSelect;
+export type OrgRole = "owner" | "admin" | "member";
+export type TeamRole = "maintainer" | "member";

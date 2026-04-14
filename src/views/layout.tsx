@@ -959,6 +959,21 @@ const css = `
   .reaction-picker form { display: inline; }
   .reaction-count { font-size: 11px; font-weight: 600; }
 
+  /* Saved replies */
+  .saved-replies-list { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  .saved-reply-item { border-bottom: 1px solid var(--border); background: var(--bg); }
+  .saved-reply-item:last-child { border-bottom: none; }
+  .saved-reply-item > summary {
+    padding: 10px 16px;
+    cursor: pointer;
+    list-style: none;
+    display: flex;
+    align-items: center;
+  }
+  .saved-reply-item > summary::-webkit-details-marker { display: none; }
+  .saved-reply-item > summary:hover { background: var(--bg-secondary); }
+  .saved-reply-item code { font-family: var(--font-mono); font-size: 12px; color: var(--text-link); }
+
   /* Draft PR */
   .draft-badge {
     background: rgba(139, 148, 158, 0.15);

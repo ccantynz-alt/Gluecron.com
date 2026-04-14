@@ -17,6 +17,7 @@ import { Layout } from "../views/layout";
 import { RepoHeader, RepoNav } from "../views/components";
 import { ReactionsBar } from "../views/reactions";
 import { summariseReactions } from "../lib/reactions";
+import { loadIssueTemplate } from "../lib/templates";
 import { renderMarkdown } from "../lib/markdown";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
@@ -165,6 +166,7 @@ issueRoutes.get(
     const { owner: ownerName, repo: repoName } = c.req.param();
     const user = c.get("user")!;
     const error = c.req.query("error");
+    const template = await loadIssueTemplate(ownerName, repoName);
 
     return c.html(
       <Layout title={`New issue — ${ownerName}/${repoName}`} user={user}>
@@ -172,6 +174,11 @@ issueRoutes.get(
         <IssueNav owner={ownerName} repo={repoName} active="issues" />
         <div style="max-width: 800px">
           <h2 style="margin-bottom: 16px">New issue</h2>
+          {template && (
+            <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px">
+              Using <code>ISSUE_TEMPLATE.md</code> from the default branch.
+            </div>
+          )}
           {error && (
             <div class="auth-error">{decodeURIComponent(error)}</div>
           )}
@@ -191,7 +198,9 @@ issueRoutes.get(
                 rows={12}
                 placeholder="Leave a comment... (Markdown supported)"
                 style="font-family: var(--font-mono); font-size: 13px"
-              />
+              >
+                {template || ""}
+              </textarea>
             </div>
             <button type="submit" class="btn btn-primary">
               Submit new issue

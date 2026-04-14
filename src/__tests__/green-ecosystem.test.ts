@@ -21,6 +21,8 @@ import {
   ALLOWED_EMOJIS,
   EMOJI_GLYPH,
 } from "../lib/reactions";
+import { sendEmail, absoluteUrl } from "../lib/email";
+import { __internal as notifyInternal } from "../lib/notify";
 
 describe("secret scanner", () => {
   it("detects AWS access keys", () => {
@@ -316,6 +318,85 @@ describe("reactions", () => {
 describe("audit log UI", () => {
   it("GET /settings/audit redirects unauthenticated users to /login", async () => {
     const res = await app.request("/settings/audit");
+    expect([301, 302, 303, 307]).toContain(res.status);
+    const loc = res.headers.get("location") || "";
+    expect(loc.startsWith("/login")).toBe(true);
+  });
+});
+
+describe("email", () => {
+  it("sendEmail in log mode never throws and returns ok", async () => {
+    const prev = process.env.EMAIL_PROVIDER;
+    process.env.EMAIL_PROVIDER = "log";
+    const res = await sendEmail({
+      to: "test@gluecron.local",
+      subject: "hello",
+      text: "body",
+    });
+    expect(res.ok).toBe(true);
+    expect(res.provider).toBe("log");
+    if (prev === undefined) delete process.env.EMAIL_PROVIDER;
+    else process.env.EMAIL_PROVIDER = prev;
+  });
+
+  it("sendEmail rejects invalid recipient without throwing", async () => {
+    const res = await sendEmail({
+      to: "not-an-email",
+      subject: "x",
+      text: "y",
+    });
+    expect(res.ok).toBe(false);
+    expect(res.skipped).toBeTruthy();
+  });
+
+  it("sendEmail rejects empty subject/body without throwing", async () => {
+    const res = await sendEmail({ to: "a@b.co", subject: "", text: "" });
+    expect(res.ok).toBe(false);
+  });
+
+  it("absoluteUrl joins paths against APP_BASE_URL", () => {
+    const prev = process.env.APP_BASE_URL;
+    process.env.APP_BASE_URL = "https://gluecron.example/";
+    expect(absoluteUrl("/x")).toBe("https://gluecron.example/x");
+    expect(absoluteUrl("x")).toBe("https://gluecron.example/x");
+    expect(absoluteUrl("https://other/y")).toBe("https://other/y");
+    if (prev === undefined) delete process.env.APP_BASE_URL;
+    else process.env.APP_BASE_URL = prev;
+  });
+
+  it("notify email-eligible set only includes user-opt-in kinds", () => {
+    // Any kind in EMAIL_ELIGIBLE must map to a preference column
+    for (const k of notifyInternal.EMAIL_ELIGIBLE) {
+      expect(notifyInternal.prefFor(k)).not.toBeNull();
+    }
+    // gate_passed is not eligible (too spammy; only gate_failed is)
+    expect(notifyInternal.EMAIL_ELIGIBLE.has("gate_passed" as any)).toBe(false);
+    expect(notifyInternal.EMAIL_ELIGIBLE.has("deploy_failed" as any)).toBe(
+      false
+    );
+  });
+
+  it("notify email subject is tagged and truncated", () => {
+    const subj = notifyInternal.subjectFor("gate_failed", "x".repeat(300));
+    expect(subj.startsWith("[gate failed]")).toBe(true);
+    expect(subj.length).toBeLessThanOrEqual(180);
+  });
+});
+
+describe("settings email preferences", () => {
+  it("GET /settings redirects unauthenticated users to /login", async () => {
+    const res = await app.request("/settings");
+    expect([301, 302, 303, 307]).toContain(res.status);
+    const loc = res.headers.get("location") || "";
+    expect(loc.startsWith("/login")).toBe(true);
+  });
+
+  it("POST /settings/notifications redirects unauthenticated users to /login", async () => {
+    const res = await app.request("/settings/notifications", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: "notify_email_on_mention=1",
+    });
     expect([301, 302, 303, 307]).toContain(res.status);
     const loc = res.headers.get("location") || "";
     expect(loc.startsWith("/login")).toBe(true);

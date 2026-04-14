@@ -92,9 +92,9 @@ Legend: ✅ shipped · 🟡 partial · ❌ not built
 | Reactions (emoji) | ✅ | 8 reactions, toggle via `POST /api/reactions/:t/:id/:emoji/toggle` on issues + PRs + comments |
 | Mentions + notifications | ✅ | `src/routes/notifications.tsx` |
 | Code owners | ✅ | `src/lib/codeowners.ts` |
-| Issue templates | ❌ | |
-| PR templates | ❌ | |
-| Saved replies | ❌ | |
+| Issue templates | ✅ | `.github/ISSUE_TEMPLATE.md` auto-prefills new issues; frontmatter stripped; `src/lib/templates.ts` |
+| PR templates | ✅ | `.github/PULL_REQUEST_TEMPLATE.md` auto-prefills new PRs; `src/lib/templates.ts` |
+| Saved replies | ✅ | per-user canned comments, unique-shortcut, `/settings/replies`, `/api/user/replies` |
 | Discussions / forums | ❌ | |
 | Wikis | ❌ | |
 | Projects / kanban | ❌ | |
@@ -142,7 +142,7 @@ Legend: ✅ shipped · 🟡 partial · ❌ not built
 | Gists | ❌ | |
 | Sponsors | ❌ | |
 | Marketplace | ❌ | |
-| Environments / deployment tracking | 🟡 | `deployments` table, no UI |
+| Environments / deployment tracking | ✅ | `src/routes/deployments.tsx` — grouped by env, success-rate rollup, per-deploy detail |
 | Merge queues | ❌ | |
 | Required checks matrix | 🟡 | branch_protection has single flag, no matrix |
 
@@ -155,7 +155,7 @@ Legend: ✅ shipped · 🟡 partial · ❌ not built
 | Audit log (table) | ✅ | `audit_log` table |
 | Audit log UI | ✅ | `/settings/audit` (personal) + `/:owner/:repo/settings/audit` (per-repo, owner-only) |
 | Traffic analytics per repo | ❌ | |
-| Email notifications | ❌ | in-app only |
+| Email notifications | ✅ | opt-in per kind (mention/assign/gate-fail) via `/settings`; provider-pluggable `src/lib/email.ts` (log default, resend in prod) |
 | Email digest | ❌ | |
 | Mobile PWA | 🟡 | responsive CSS, no manifest |
 | Native mobile apps | ❌ | |
@@ -176,10 +176,12 @@ Polish what's shipped before adding more. **Priority: do this first if parity ga
 - **A2** — Audit log UI page (`/settings/audit` + `/:owner/:repo/settings/audit`) ✅
 - **A3** — Reactions UI on issues / PRs / comments (data exists) ✅
 - **A4** — Draft PR toggle + filter ✅
-- **A5** — Issue + PR templates (`.github/*_TEMPLATE.md` auto-prefill)
-- **A6** — Saved replies per user
-- **A7** — Environments + deployment history UI (`deployments` table)
-- **A8** — Email notifications (opt-in, SMTP via env)
+- **A5** — Issue + PR templates (`.github/*_TEMPLATE.md` auto-prefill) ✅
+- **A6** — Saved replies per user ✅
+- **A7** — Environments + deployment history UI (`deployments` table) ✅
+- **A8** — Email notifications (opt-in, provider-pluggable) ✅
+
+**BLOCK A COMPLETE.** Next: BLOCK B (Identity + orgs).
 
 ### BLOCK B — Identity + orgs
 - **B1** — Organizations (schema: `organizations`, `org_members`, `teams`, `team_members`)
@@ -273,7 +275,9 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `src/lib/merge-resolver.ts` — AI merge conflict resolution
 
 ### 4.5 Platform (locked)
-- `src/lib/notify.ts` — notification creation + audit log (swallow-failures pattern)
+- `src/lib/notify.ts` — notification creation + audit log (swallow-failures pattern). Also fans out email to opted-in recipients for `mention|review_requested|assigned|gate_failed`. Exports `__internal` for tests.
+- `src/lib/email.ts` — provider-pluggable email sender (`log`|`resend`). `sendEmail()` never throws. `absoluteUrl()` joins paths against `APP_BASE_URL`.
+- `src/lib/templates.ts` — `loadIssueTemplate` / `loadPrTemplate`. Checks standard paths (`.github/`, `.gluecron/`, root, `docs/`) on the default branch, strips YAML frontmatter, 16KB cap, returns null on any failure.
 - `src/lib/unread.ts` — unread count helper (never throws)
 - `src/lib/repo-bootstrap.ts` — green defaults on repo creation
 - `src/lib/gate.ts` — gate orchestration + persistence
@@ -286,6 +290,8 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `src/routes/hooks.ts` — `POST /api/hooks/gatetest` (bearer/HMAC), `GET /api/hooks/ping`, `POST /api/v1/gate-runs` (PAT backup), `GET /api/v1/gate-runs`. See `GATETEST_HOOK.md`.
 - `src/routes/theme.ts` — `GET /theme/toggle`, `GET /theme/set?mode=`. Writes `theme` cookie (`dark`|`light`, 1-year). Layout reads via pre-paint inline script.
 - `src/routes/audit.tsx` — `GET /settings/audit` (personal) + `GET /:owner/:repo/settings/audit` (owner-only).
+- `src/routes/saved-replies.tsx` — `GET/POST /settings/replies`, `POST /settings/replies/:id`, `POST /settings/replies/:id/delete`, `GET /api/user/replies`. Unique constraint `saved_replies_user_shortcut`.
+- `src/routes/deployments.tsx` — `GET /:owner/:repo/deployments` (grouped by env, success-rate rollup), `GET /:owner/:repo/deployments/:id` (detail).
 - `src/routes/reactions.ts` — `POST /api/reactions/:targetType/:targetId/:emoji/toggle` (authed, form- or fetch-compatible), `GET /api/reactions/:targetType/:targetId`. Targets: `issue|pr|issue_comment|pr_comment`. Emojis: 8 canonical.
 - `src/routes/auth.tsx` — register / login / logout
 - `src/routes/web.tsx` — home / new / browse / blob / commits / raw / blame / star / search / profile
@@ -293,7 +299,7 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `src/routes/pulls.tsx` — PR CRUD + review + merge + close
 - `src/routes/editor.tsx` — web file editor
 - `src/routes/compare.tsx` — base...head diff
-- `src/routes/settings.tsx` — profile + password
+- `src/routes/settings.tsx` — profile + password + email notification preferences (`POST /settings/notifications`)
 - `src/routes/repo-settings.tsx` — repo settings + delete
 - `src/routes/webhooks.tsx` — webhook CRUD + test + `fireWebhooks`
 - `src/routes/fork.ts` — fork
@@ -330,6 +336,9 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - Theme routes live outside `/settings/*` (they must work for logged-out visitors). Cookie name: `theme`, values: `dark|light`.
 - Draft PRs cannot be merged — `/pulls/:n/merge` returns a redirect with the draft error when `pr.isDraft=true`.
 - Reactions API accepts only `ALLOWED_EMOJIS` and `ALLOWED_TARGETS`. Toggle is idempotent per (user, target, emoji).
+- `sendEmail()` never throws — always resolves to `{ ok, provider, ... }`. Email failures never break notification delivery or the primary request path.
+- Email fan-out in `notify()` is scoped to kinds in `EMAIL_ELIGIBLE` (mention / review_requested / assigned / gate_failed). Each eligible kind maps to exactly one user preference column.
+- Issue + PR template loading must return `null` on any git-subprocess failure (templates are a convenience, not a requirement). Forms always render.
 
 ---
 
@@ -339,7 +348,7 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 ```bash
 bun install
 bun dev          # hot reload
-bun test         # 91 tests currently pass
+bun test         # 99 tests currently pass
 bun run db:migrate
 ```
 
@@ -348,6 +357,10 @@ bun run db:migrate
 - `ANTHROPIC_API_KEY` — unlocks AI features
 - `GIT_REPOS_PATH` — default `./repos`
 - `PORT` — default 3000
+- `EMAIL_PROVIDER` — `log` (default, stderr-only) or `resend`
+- `EMAIL_FROM` — sender address for outbound mail
+- `RESEND_API_KEY` — required when `EMAIL_PROVIDER=resend`
+- `APP_BASE_URL` — canonical URL used to build absolute links in emails
 
 ### 5.3 Models
 - `claude-sonnet-4-20250514` — code review, security, chat

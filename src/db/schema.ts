@@ -18,6 +18,10 @@ export const users = pgTable("users", {
   passwordHash: text("password_hash").notNull(),
   avatarUrl: text("avatar_url"),
   bio: text("bio"),
+  // Email notification preferences (Block A8). Default on; opt-out via /settings.
+  notifyEmailOnMention: boolean("notify_email_on_mention").default(true).notNull(),
+  notifyEmailOnAssign: boolean("notify_email_on_assign").default(true).notNull(),
+  notifyEmailOnGateFail: boolean("notify_email_on_gate_fail").default(true).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -638,3 +642,26 @@ export type CodeOwner = typeof codeOwners.$inferSelect;
 export type AiChat = typeof aiChats.$inferSelect;
 export type AuditLogEntry = typeof auditLog.$inferSelect;
 export type Deployment = typeof deployments.$inferSelect;
+
+/**
+ * Saved replies — per-user canned responses, insertable into any
+ * issue / PR comment textarea. Shortcut name must be unique per user.
+ */
+export const savedReplies = pgTable(
+  "saved_replies",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    shortcut: text("shortcut").notNull(),
+    body: text("body").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("saved_replies_user_shortcut").on(table.userId, table.shortcut),
+  ]
+);
+
+export type SavedReply = typeof savedReplies.$inferSelect;

@@ -76,9 +76,71 @@ settings.get("/settings", (c) => {
             Update profile
           </button>
         </form>
+
+        <h3 style="margin-top: 32px; font-size: 16px">Email notifications</h3>
+        <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 12px">
+          Opt out of individual email categories. In-app notifications are
+          unaffected and continue to appear in your inbox.
+        </p>
+        <form method="POST" action="/settings/notifications">
+          <label
+            style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px; font-size: 14px"
+          >
+            <input
+              type="checkbox"
+              name="notify_email_on_mention"
+              value="1"
+              checked={user.notifyEmailOnMention}
+            />
+            <span>
+              Someone <code>@mentions</code> me or requests a review
+            </span>
+          </label>
+          <label
+            style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px; font-size: 14px"
+          >
+            <input
+              type="checkbox"
+              name="notify_email_on_assign"
+              value="1"
+              checked={user.notifyEmailOnAssign}
+            />
+            <span>I am assigned to an issue or PR</span>
+          </label>
+          <label
+            style="display: flex; gap: 8px; align-items: center; margin-bottom: 12px; font-size: 14px"
+          >
+            <input
+              type="checkbox"
+              name="notify_email_on_gate_fail"
+              value="1"
+              checked={user.notifyEmailOnGateFail}
+            />
+            <span>A gate fails on one of my repositories</span>
+          </label>
+          <button type="submit" class="btn btn-primary">
+            Save preferences
+          </button>
+        </form>
       </div>
     </Layout>
   );
+});
+
+settings.post("/settings/notifications", async (c) => {
+  const user = c.get("user")!;
+  const body = await c.req.parseBody();
+  await db
+    .update(users)
+    .set({
+      notifyEmailOnMention: String(body.notify_email_on_mention || "") === "1",
+      notifyEmailOnAssign: String(body.notify_email_on_assign || "") === "1",
+      notifyEmailOnGateFail:
+        String(body.notify_email_on_gate_fail || "") === "1",
+      updatedAt: new Date(),
+    })
+    .where(eq(users.id, user.id));
+  return c.redirect("/settings?success=Email+preferences+updated");
 });
 
 settings.post("/settings/profile", async (c) => {

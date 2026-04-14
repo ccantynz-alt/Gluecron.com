@@ -15,6 +15,7 @@ import { Layout } from "../views/layout";
 import { RepoHeader, DiffView } from "../views/components";
 import { ReactionsBar } from "../views/reactions";
 import { summariseReactions } from "../lib/reactions";
+import { loadPrTemplate } from "../lib/templates";
 import { renderMarkdown } from "../lib/markdown";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
@@ -227,6 +228,7 @@ pulls.get(
     const branches = await listBranches(ownerName, repoName);
     const error = c.req.query("error");
     const defaultBase = branches.includes("main") ? "main" : branches[0] || "";
+    const template = await loadPrTemplate(ownerName, repoName);
 
     return c.html(
       <Layout title={`New PR — ${ownerName}/${repoName}`} user={user}>
@@ -234,6 +236,11 @@ pulls.get(
         <PrNav owner={ownerName} repo={repoName} active="pulls" />
         <div style="max-width: 800px">
           <h2 style="margin-bottom: 16px">Open a pull request</h2>
+          {template && (
+            <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px">
+              Using <code>PULL_REQUEST_TEMPLATE.md</code> from the default branch.
+            </div>
+          )}
           {error && (
             <div class="auth-error">{decodeURIComponent(error)}</div>
           )}
@@ -271,7 +278,9 @@ pulls.get(
                 rows={8}
                 placeholder="Description (Markdown supported)"
                 style="font-family: var(--font-mono); font-size: 13px"
-              />
+              >
+                {template || ""}
+              </textarea>
             </div>
             <div style="display: flex; gap: 8px">
               <button type="submit" class="btn btn-primary">

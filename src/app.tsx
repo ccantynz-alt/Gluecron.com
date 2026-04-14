@@ -31,6 +31,8 @@ import hookRoutes from "./routes/hooks";
 import themeRoutes from "./routes/theme";
 import auditRoutes from "./routes/audit";
 import reactionRoutes from "./routes/reactions";
+import savedReplyRoutes from "./routes/saved-replies";
+import deploymentRoutes from "./routes/deployments";
 import webRoutes from "./routes/web";
 
 const app = new Hono();
@@ -76,6 +78,12 @@ app.route("/", auditRoutes);
 
 // Reactions API (issues, PRs, comments)
 app.route("/", reactionRoutes);
+
+// Saved replies (per-user canned comment templates)
+app.route("/", savedReplyRoutes);
+
+// Environments + deployment history UI
+app.route("/", deploymentRoutes);
 
 // API tokens
 app.route("/", tokenRoutes);

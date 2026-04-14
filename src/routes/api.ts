@@ -59,6 +59,15 @@ api.post("/repos", async (c) => {
     })
     .returning();
 
+  // Green-ecosystem bootstrap: settings, protection, labels, welcome issue
+  if (repo) {
+    const { bootstrapRepository } = await import("../lib/repo-bootstrap");
+    await bootstrapRepository({
+      repositoryId: repo.id,
+      ownerUserId: owner.id,
+    });
+  }
+
   return c.json(repo, 201);
 });
 
@@ -128,12 +137,22 @@ api.post("/setup", async (c) => {
   // Create repo if not exists
   if (!(await repoExists(body.username, body.repoName))) {
     const diskPath = await initBareRepo(body.username, body.repoName);
-    await db.insert(repositories).values({
-      name: body.repoName,
-      ownerId: user.id,
-      description: body.description || null,
-      diskPath,
-    });
+    const [repo] = await db
+      .insert(repositories)
+      .values({
+        name: body.repoName,
+        ownerId: user.id,
+        description: body.description || null,
+        diskPath,
+      })
+      .returning();
+    if (repo) {
+      const { bootstrapRepository } = await import("../lib/repo-bootstrap");
+      await bootstrapRepository({
+        repositoryId: repo.id,
+        ownerUserId: user.id,
+      });
+    }
   }
 
   return c.json({ user: user.username, repo: body.repoName, status: "ready" });

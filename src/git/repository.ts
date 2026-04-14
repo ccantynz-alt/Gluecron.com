@@ -128,6 +128,101 @@ export async function resolveRef(
   return stdout.trim();
 }
 
+/**
+ * List all tags (newest first by commit date).
+ * Returns array of { name, sha, date }.
+ */
+export async function listTags(
+  owner: string,
+  name: string
+): Promise<Array<{ name: string; sha: string; date: string }>> {
+  const path = repoPath(owner, name);
+  const { stdout, exitCode } = await exec(
+    [
+      "git",
+      "for-each-ref",
+      "--sort=-creatordate",
+      "--format=%(refname:short)%00%(objectname)%00%(creatordate:iso-strict)",
+      "refs/tags/",
+    ],
+    { cwd: path }
+  );
+  if (exitCode !== 0) return [];
+  return stdout
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => {
+      const [tname, sha, date] = line.split("\0");
+      return { name: tname, sha, date };
+    });
+}
+
+/**
+ * Create a lightweight git tag pointing at a commit.
+ */
+export async function createTag(
+  owner: string,
+  name: string,
+  tag: string,
+  sha: string,
+  annotation?: string
+): Promise<boolean> {
+  const path = repoPath(owner, name);
+  const args = annotation
+    ? ["git", "tag", "-a", tag, sha, "-m", annotation]
+    : ["git", "tag", tag, sha];
+  const { exitCode } = await exec(args, { cwd: path });
+  return exitCode === 0;
+}
+
+/**
+ * Delete a tag.
+ */
+export async function deleteTag(
+  owner: string,
+  name: string,
+  tag: string
+): Promise<boolean> {
+  const path = repoPath(owner, name);
+  const { exitCode } = await exec(["git", "tag", "-d", tag], { cwd: path });
+  return exitCode === 0;
+}
+
+/**
+ * List commits between two refs (excluding `from`, including `to`).
+ */
+export async function commitsBetween(
+  owner: string,
+  name: string,
+  from: string | null,
+  to: string
+): Promise<GitCommit[]> {
+  const path = repoPath(owner, name);
+  const format = "%H%x00%s%x00%an%x00%ae%x00%aI%x00%P";
+  const range = from ? `${from}..${to}` : to;
+  const { stdout, exitCode } = await exec(
+    ["git", "log", `--format=${format}`, "-500", range],
+    { cwd: path }
+  );
+  if (exitCode !== 0) return [];
+  return stdout
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => {
+      const [sha, message, author, authorEmail, date, parents] = line.split("\0");
+      return {
+        sha,
+        message,
+        author,
+        authorEmail,
+        date,
+        parentShas: parents ? parents.split(" ").filter(Boolean) : [],
+      };
+    });
+}
+
 export async function getCommit(
   owner: string,
   name: string,

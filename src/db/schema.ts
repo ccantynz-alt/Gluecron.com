@@ -42,6 +42,7 @@ export const repositories = pgTable(
       .references(() => users.id),
     description: text("description"),
     isPrivate: boolean("is_private").default(false).notNull(),
+    isArchived: boolean("is_archived").default(false).notNull(),
     defaultBranch: text("default_branch").default("main").notNull(),
     diskPath: text("disk_path").notNull(),
     forkedFromId: uuid("forked_from_id").references(() => repositories.id, {
@@ -55,6 +56,338 @@ export const repositories = pgTable(
     issueCount: integer("issue_count").default(0).notNull(),
   },
   (table) => [uniqueIndex("repos_owner_name").on(table.ownerId, table.name)]
+);
+
+/**
+ * Per-repository gate + auto-repair configuration.
+ * Every new repo is created with all gates ENABLED by default —
+ * the "full green ecosystem" default. Owners can manually opt-out per setting.
+ */
+export const repoSettings = pgTable("repo_settings", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  repositoryId: uuid("repository_id")
+    .notNull()
+    .unique()
+    .references(() => repositories.id, { onDelete: "cascade" }),
+  // Gates
+  gateTestEnabled: boolean("gate_test_enabled").default(true).notNull(),
+  aiReviewEnabled: boolean("ai_review_enabled").default(true).notNull(),
+  secretScanEnabled: boolean("secret_scan_enabled").default(true).notNull(),
+  securityScanEnabled: boolean("security_scan_enabled").default(true).notNull(),
+  dependencyScanEnabled: boolean("dependency_scan_enabled").default(true).notNull(),
+  lintEnabled: boolean("lint_enabled").default(true).notNull(),
+  typeCheckEnabled: boolean("type_check_enabled").default(true).notNull(),
+  testEnabled: boolean("test_enabled").default(true).notNull(),
+  // Auto-repair
+  autoFixEnabled: boolean("auto_fix_enabled").default(true).notNull(),
+  autoMergeResolveEnabled: boolean("auto_merge_resolve_enabled").default(true).notNull(),
+  autoFormatEnabled: boolean("auto_format_enabled").default(true).notNull(),
+  // AI features
+  aiCommitMessagesEnabled: boolean("ai_commit_messages_enabled").default(true).notNull(),
+  aiPrSummaryEnabled: boolean("ai_pr_summary_enabled").default(true).notNull(),
+  aiChangelogEnabled: boolean("ai_changelog_enabled").default(true).notNull(),
+  // Deploy
+  autoDeployEnabled: boolean("auto_deploy_enabled").default(true).notNull(),
+  deployRequireAllGreen: boolean("deploy_require_all_green").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+/**
+ * Branch protection rules — enforced on push and merge.
+ * Every repo's default branch gets a protection rule on creation.
+ */
+export const branchProtection = pgTable(
+  "branch_protection",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    pattern: text("pattern").notNull(), // branch name or glob (e.g. "main", "release/*")
+    requirePullRequest: boolean("require_pull_request").default(true).notNull(),
+    requireGreenGates: boolean("require_green_gates").default(true).notNull(),
+    requireAiApproval: boolean("require_ai_approval").default(true).notNull(),
+    requireHumanReview: boolean("require_human_review").default(false).notNull(),
+    requiredApprovals: integer("required_approvals").default(0).notNull(),
+    allowForcePush: boolean("allow_force_push").default(false).notNull(),
+    allowDeletion: boolean("allow_deletion").default(false).notNull(),
+    dismissStaleReviews: boolean("dismiss_stale_reviews").default(true).notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("branch_protection_repo_pattern").on(
+      table.repositoryId,
+      table.pattern
+    ),
+  ]
+);
+
+/**
+ * Gate run history. Every push + every PR creates gate_runs entries —
+ * one per configured gate. Serves as the source of truth for "is this green?".
+ */
+export const gateRuns = pgTable(
+  "gate_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    pullRequestId: uuid("pull_request_id").references(() => pullRequests.id, {
+      onDelete: "cascade",
+    }),
+    commitSha: text("commit_sha").notNull(),
+    ref: text("ref").notNull(),
+    gateName: text("gate_name").notNull(), // e.g. "GateTest", "AI Review", "Secret Scan", "Type Check"
+    status: text("status").notNull(), // pending, running, passed, failed, skipped, repaired
+    summary: text("summary"),
+    details: text("details"), // JSON: per-check output, affected files, etc
+    repairAttempted: boolean("repair_attempted").default(false).notNull(),
+    repairSucceeded: boolean("repair_succeeded").default(false).notNull(),
+    repairCommitSha: text("repair_commit_sha"),
+    durationMs: integer("duration_ms"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    completedAt: timestamp("completed_at"),
+  },
+  (table) => [
+    index("gate_runs_repo_sha").on(table.repositoryId, table.commitSha),
+    index("gate_runs_pr").on(table.pullRequestId),
+    index("gate_runs_created").on(table.createdAt),
+  ]
+);
+
+/**
+ * In-app notifications. Powered by the activity feed + explicit mentions.
+ */
+export const notifications = pgTable(
+  "notifications",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    repositoryId: uuid("repository_id").references(() => repositories.id, {
+      onDelete: "cascade",
+    }),
+    kind: text("kind").notNull(), // mention, review_requested, pr_merged, pr_closed, gate_failed, gate_repaired, ai_review, assigned, security_alert, deploy_success, deploy_failed
+    title: text("title").notNull(),
+    body: text("body"),
+    url: text("url"), // link to the relevant page
+    readAt: timestamp("read_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("notifications_user_unread").on(table.userId, table.readAt),
+    index("notifications_user_created").on(table.userId, table.createdAt),
+  ]
+);
+
+/**
+ * Releases — named snapshots of a repo at a tag/commit.
+ * AI-generated changelogs bundled in notes field.
+ */
+export const releases = pgTable(
+  "releases",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    authorId: uuid("author_id")
+      .notNull()
+      .references(() => users.id),
+    tag: text("tag").notNull(),
+    name: text("name").notNull(),
+    body: text("body"), // AI-generated release notes + changelog
+    targetCommit: text("target_commit").notNull(),
+    isDraft: boolean("is_draft").default(false).notNull(),
+    isPrerelease: boolean("is_prerelease").default(false).notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    publishedAt: timestamp("published_at"),
+  },
+  (table) => [
+    uniqueIndex("releases_repo_tag").on(table.repositoryId, table.tag),
+  ]
+);
+
+/**
+ * Milestones — group issues + PRs toward a shared goal.
+ */
+export const milestones = pgTable(
+  "milestones",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    description: text("description"),
+    state: text("state").notNull().default("open"), // open, closed
+    dueDate: timestamp("due_date"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    closedAt: timestamp("closed_at"),
+  },
+  (table) => [index("milestones_repo_state").on(table.repositoryId, table.state)]
+);
+
+/**
+ * Reactions on issues, PRs, and comments. Universal target pointer.
+ */
+export const reactions = pgTable(
+  "reactions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    targetType: text("target_type").notNull(), // issue, pr, issue_comment, pr_comment
+    targetId: uuid("target_id").notNull(),
+    emoji: text("emoji").notNull(), // thumbs_up, thumbs_down, rocket, heart, eyes, laugh, hooray, confused
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("reactions_unique").on(
+      table.userId,
+      table.targetType,
+      table.targetId,
+      table.emoji
+    ),
+    index("reactions_target").on(table.targetType, table.targetId),
+  ]
+);
+
+/**
+ * PR reviews (formal approve/request-changes).
+ * Separate from inline comments in pr_comments.
+ */
+export const prReviews = pgTable(
+  "pr_reviews",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    pullRequestId: uuid("pull_request_id")
+      .notNull()
+      .references(() => pullRequests.id, { onDelete: "cascade" }),
+    reviewerId: uuid("reviewer_id")
+      .notNull()
+      .references(() => users.id),
+    state: text("state").notNull(), // approved, changes_requested, commented
+    body: text("body"),
+    isAi: boolean("is_ai").default(false).notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [index("pr_reviews_pr").on(table.pullRequestId)]
+);
+
+/**
+ * Code owners — who owns which paths (auto-request review on PR).
+ * Parsed from a CODEOWNERS file at the root of the default branch.
+ */
+export const codeOwners = pgTable(
+  "code_owners",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    pathPattern: text("path_pattern").notNull(),
+    ownerUsernames: text("owner_usernames").notNull(), // comma-separated
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [index("code_owners_repo").on(table.repositoryId)]
+);
+
+/**
+ * Per-repo AI chat sessions — conversational repo assistant.
+ */
+export const aiChats = pgTable(
+  "ai_chats",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    repositoryId: uuid("repository_id").references(() => repositories.id, {
+      onDelete: "cascade",
+    }),
+    title: text("title"),
+    messages: text("messages").notNull().default("[]"), // JSON array of {role, content}
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("ai_chats_user").on(table.userId),
+    index("ai_chats_repo").on(table.repositoryId),
+  ]
+);
+
+/**
+ * Audit log — every sensitive action. Who did what, when, from where.
+ */
+export const auditLog = pgTable(
+  "audit_log",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    repositoryId: uuid("repository_id").references(() => repositories.id, {
+      onDelete: "set null",
+    }),
+    action: text("action").notNull(), // repo.create, repo.delete, repo.transfer, token.create, token.revoke, merge, force_push, branch_protection.update, deploy, ...
+    targetType: text("target_type"),
+    targetId: text("target_id"),
+    ip: text("ip"),
+    userAgent: text("user_agent"),
+    metadata: text("metadata"), // JSON for extra context
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("audit_log_user").on(table.userId),
+    index("audit_log_repo").on(table.repositoryId),
+    index("audit_log_created").on(table.createdAt),
+  ]
+);
+
+/**
+ * Deployments — tracks every deploy to downstream systems (Crontech, etc).
+ * Each deploy is gated on ALL green gates passing.
+ */
+export const deployments = pgTable(
+  "deployments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    environment: text("environment").notNull().default("production"),
+    commitSha: text("commit_sha").notNull(),
+    ref: text("ref").notNull(),
+    status: text("status").notNull(), // pending, running, success, failed, blocked
+    blockedReason: text("blocked_reason"),
+    target: text("target"), // e.g. "crontech", "fly.io"
+    triggeredBy: uuid("triggered_by").references(() => users.id),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    completedAt: timestamp("completed_at"),
+  },
+  (table) => [
+    index("deployments_repo").on(table.repositoryId),
+    index("deployments_created").on(table.createdAt),
+  ]
+);
+
+/**
+ * Rate-limit buckets — in-memory or persisted counter per IP / token / route.
+ */
+export const rateLimitBuckets = pgTable(
+  "rate_limit_buckets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    bucketKey: text("bucket_key").notNull().unique(), // "ip:1.2.3.4:api" or "token:abc:api"
+    count: integer("count").default(0).notNull(),
+    windowStart: timestamp("window_start").defaultNow().notNull(),
+    expiresAt: timestamp("expires_at").notNull(),
+  },
+  (table) => [index("rate_limit_expires").on(table.expiresAt)]
 );
 
 export const stars = pgTable(
@@ -163,6 +496,9 @@ export const pullRequests = pgTable(
     state: text("state").notNull().default("open"), // open, closed, merged
     baseBranch: text("base_branch").notNull(),
     headBranch: text("head_branch").notNull(),
+    isDraft: boolean("is_draft").default(false).notNull(),
+    mergeStrategy: text("merge_strategy").default("merge").notNull(), // merge, squash, rebase
+    milestoneId: uuid("milestone_id"),
     mergedAt: timestamp("merged_at"),
     mergedBy: uuid("merged_by").references(() => users.id),
     createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -290,3 +626,15 @@ export type ActivityEntry = typeof activityFeed.$inferSelect;
 export type Webhook = typeof webhooks.$inferSelect;
 export type ApiToken = typeof apiTokens.$inferSelect;
 export type RepoTopic = typeof repoTopics.$inferSelect;
+export type RepoSettings = typeof repoSettings.$inferSelect;
+export type BranchProtection = typeof branchProtection.$inferSelect;
+export type GateRun = typeof gateRuns.$inferSelect;
+export type Notification = typeof notifications.$inferSelect;
+export type Release = typeof releases.$inferSelect;
+export type Milestone = typeof milestones.$inferSelect;
+export type Reaction = typeof reactions.$inferSelect;
+export type PrReview = typeof prReviews.$inferSelect;
+export type CodeOwner = typeof codeOwners.$inferSelect;
+export type AiChat = typeof aiChats.$inferSelect;
+export type AuditLogEntry = typeof auditLog.$inferSelect;
+export type Deployment = typeof deployments.$inferSelect;

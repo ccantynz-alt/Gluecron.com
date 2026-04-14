@@ -27,6 +27,7 @@ import gateRoutes from "./routes/gates";
 import insightsRoutes from "./routes/insights";
 import searchRoutes from "./routes/search";
 import healthRoutes from "./routes/health";
+import hookRoutes from "./routes/hooks";
 import webRoutes from "./routes/web";
 
 const app = new Hono();
@@ -51,6 +52,9 @@ app.route("/", gitRoutes);
 
 // Health + metrics
 app.route("/", healthRoutes);
+
+// Inbound API hooks (GateTest callback + backup PAT-authed /api/v1/gate-runs)
+app.route("/", hookRoutes);
 
 // REST API
 app.route("/", apiRoutes);

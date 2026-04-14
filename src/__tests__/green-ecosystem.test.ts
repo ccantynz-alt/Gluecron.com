@@ -156,3 +156,70 @@ describe("shortcuts + search page", () => {
     expect(html).toContain("Users");
   });
 });
+
+describe("GateTest inbound hook", () => {
+  it("GET /api/hooks/ping is unauthenticated and reports service", async () => {
+    const res = await app.request("/api/hooks/ping");
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.service).toBe("gluecron");
+    expect(Array.isArray(body.hooks)).toBe(true);
+  });
+
+  it("POST /api/hooks/gatetest rejects when no secret configured", async () => {
+    const prev = process.env.GATETEST_CALLBACK_SECRET;
+    const prevH = process.env.GATETEST_HMAC_SECRET;
+    delete process.env.GATETEST_CALLBACK_SECRET;
+    delete process.env.GATETEST_HMAC_SECRET;
+    const res = await app.request("/api/hooks/gatetest", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ repository: "a/b", sha: "x", status: "passed" }),
+    });
+    expect(res.status).toBe(401);
+    if (prev) process.env.GATETEST_CALLBACK_SECRET = prev;
+    if (prevH) process.env.GATETEST_HMAC_SECRET = prevH;
+  });
+
+  it("POST /api/hooks/gatetest rejects bad bearer token", async () => {
+    const prev = process.env.GATETEST_CALLBACK_SECRET;
+    process.env.GATETEST_CALLBACK_SECRET = "real-secret-abc123";
+    const res = await app.request("/api/hooks/gatetest", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer wrong-token",
+      },
+      body: JSON.stringify({ repository: "a/b", sha: "x", status: "passed" }),
+    });
+    expect(res.status).toBe(401);
+    if (prev === undefined) delete process.env.GATETEST_CALLBACK_SECRET;
+    else process.env.GATETEST_CALLBACK_SECRET = prev;
+  });
+
+  it("POST /api/hooks/gatetest rejects malformed payload even when authed", async () => {
+    const prev = process.env.GATETEST_CALLBACK_SECRET;
+    process.env.GATETEST_CALLBACK_SECRET = "real-secret-abc123";
+    const res = await app.request("/api/hooks/gatetest", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer real-secret-abc123",
+      },
+      body: "not-json",
+    });
+    expect(res.status).toBe(400);
+    if (prev === undefined) delete process.env.GATETEST_CALLBACK_SECRET;
+    else process.env.GATETEST_CALLBACK_SECRET = prev;
+  });
+
+  it("POST /api/v1/gate-runs (backup) rejects without bearer", async () => {
+    const res = await app.request("/api/v1/gate-runs", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ repository: "a/b", sha: "x", status: "passed" }),
+    });
+    expect(res.status).toBe(401);
+  });
+});

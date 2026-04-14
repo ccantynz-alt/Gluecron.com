@@ -102,7 +102,9 @@ Legend: ✅ shipped · 🟡 partial · ❌ not built
 ### 2.4 Automation + AI
 | Feature | Status | Notes |
 |---|---|---|
-| Webhooks | ✅ | HMAC signed |
+| Webhooks (outbound, HMAC signed) | ✅ | `src/routes/webhooks.tsx` |
+| GateTest inbound callback | ✅ | `POST /api/hooks/gatetest`, bearer or HMAC |
+| Backup PAT-auth gate ingest | ✅ | `POST /api/v1/gate-runs` |
 | Gate runs (test / secret / AI review) | ✅ | `gate_runs` table, `src/routes/gates.tsx` |
 | Branch protection | ✅ | `branch_protection` table + UI |
 | Auto-repair engine | ✅ | `src/lib/auto-repair.ts` |
@@ -280,6 +282,7 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 ### 4.6 Routes (locked endpoints — behaviour must be preserved)
 - `src/routes/git.ts` — Smart HTTP (clone/push)
 - `src/routes/api.ts` — REST (`POST /api/repos`, `GET /api/users/:u/repos`, `GET /api/repos/:o/:n`, `POST /api/setup`)
+- `src/routes/hooks.ts` — `POST /api/hooks/gatetest` (bearer/HMAC), `GET /api/hooks/ping`, `POST /api/v1/gate-runs` (PAT backup), `GET /api/v1/gate-runs`. See `GATETEST_HOOK.md`.
 - `src/routes/auth.tsx` — register / login / logout
 - `src/routes/web.tsx` — home / new / browse / blob / commits / raw / blame / star / search / profile
 - `src/routes/issues.tsx` — issue CRUD + comments + labels + lock

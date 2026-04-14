@@ -13,6 +13,8 @@ import {
 } from "../db/schema";
 import { Layout } from "../views/layout";
 import { RepoHeader, DiffView } from "../views/components";
+import { ReactionsBar } from "../views/reactions";
+import { summariseReactions } from "../lib/reactions";
 import { renderMarkdown } from "../lib/markdown";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
@@ -91,6 +93,15 @@ pulls.get("/:owner/:repo/pulls", softAuth, async (c) => {
   const resolved = await resolveRepo(ownerName, repoName);
   if (!resolved) return c.notFound();
 
+  // "draft" is a virtual filter — rows are state='open' + isDraft=true.
+  const stateFilter =
+    state === "draft"
+      ? and(
+          eq(pullRequests.state, "open"),
+          eq(pullRequests.isDraft, true)
+        )
+      : eq(pullRequests.state, state);
+
   const prList = await db
     .select({
       pr: pullRequests,
@@ -99,16 +110,14 @@ pulls.get("/:owner/:repo/pulls", softAuth, async (c) => {
     .from(pullRequests)
     .innerJoin(users, eq(pullRequests.authorId, users.id))
     .where(
-      and(
-        eq(pullRequests.repositoryId, resolved.repo.id),
-        eq(pullRequests.state, state)
-      )
+      and(eq(pullRequests.repositoryId, resolved.repo.id), stateFilter)
     )
     .orderBy(desc(pullRequests.createdAt));
 
   const [counts] = await db
     .select({
       open: sql<number>`count(*) filter (where ${pullRequests.state} = 'open')`,
+      draft: sql<number>`count(*) filter (where ${pullRequests.state} = 'open' and ${pullRequests.isDraft} = true)`,
       closed: sql<number>`count(*) filter (where ${pullRequests.state} = 'closed')`,
       merged: sql<number>`count(*) filter (where ${pullRequests.state} = 'merged')`,
     })
@@ -126,6 +135,12 @@ pulls.get("/:owner/:repo/pulls", softAuth, async (c) => {
             class={state === "open" ? "active" : ""}
           >
             {counts?.open ?? 0} Open
+          </a>
+          <a
+            href={`/${ownerName}/${repoName}/pulls?state=draft`}
+            class={state === "draft" ? "active" : ""}
+          >
+            {counts?.draft ?? 0} Draft
           </a>
           <a
             href={`/${ownerName}/${repoName}/pulls?state=merged`}
@@ -155,32 +170,46 @@ pulls.get("/:owner/:repo/pulls", softAuth, async (c) => {
         </div>
       ) : (
         <div class="issue-list">
-          {prList.map(({ pr, author }) => (
-            <div class="issue-item">
-              <div
-                class={`issue-state-icon ${pr.state === "open" ? "state-open" : pr.state === "merged" ? "state-merged" : "state-closed"}`}
-              >
-                {pr.state === "open"
-                  ? "\u25CB"
-                  : pr.state === "merged"
-                    ? "\u2B8C"
-                    : "\u2713"}
-              </div>
-              <div>
-                <div class="issue-title">
-                  <a href={`/${ownerName}/${repoName}/pulls/${pr.number}`}>
-                    {pr.title}
-                  </a>
+          {prList.map(({ pr, author }) => {
+            const isDraft = pr.state === "open" && pr.isDraft;
+            const stateClass = isDraft
+              ? "state-draft"
+              : pr.state === "open"
+                ? "state-open"
+                : pr.state === "merged"
+                  ? "state-merged"
+                  : "state-closed";
+            const stateIcon = isDraft
+              ? "\u270E"
+              : pr.state === "open"
+                ? "\u25CB"
+                : pr.state === "merged"
+                  ? "\u2B8C"
+                  : "\u2713";
+            return (
+              <div class="issue-item">
+                <div class={`issue-state-icon ${stateClass}`}>{stateIcon}</div>
+                <div>
+                  <div class="issue-title">
+                    <a href={`/${ownerName}/${repoName}/pulls/${pr.number}`}>
+                      {pr.title}
+                    </a>
+                    {isDraft && (
+                      <span class="issue-badge draft-badge" style="margin-left: 8px; font-size: 11px; padding: 2px 8px">
+                        Draft
+                      </span>
+                    )}
+                  </div>
+                  <div class="issue-meta">
+                    #{pr.number}{" "}
+                    {pr.headBranch} → {pr.baseBranch}{" "}
+                    by {author.username}{" "}
+                    {formatRelative(pr.createdAt)}
+                  </div>
                 </div>
-                <div class="issue-meta">
-                  #{pr.number}{" "}
-                  {pr.headBranch} → {pr.baseBranch}{" "}
-                  by {author.username}{" "}
-                  {formatRelative(pr.createdAt)}
-                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </Layout>
@@ -244,9 +273,20 @@ pulls.get(
                 style="font-family: var(--font-mono); font-size: 13px"
               />
             </div>
-            <button type="submit" class="btn btn-primary">
-              Create pull request
-            </button>
+            <div style="display: flex; gap: 8px">
+              <button type="submit" class="btn btn-primary">
+                Create pull request
+              </button>
+              <button
+                type="submit"
+                name="draft"
+                value="1"
+                class="btn"
+                title="Create a draft PR — skips AI review and cannot be merged until marked ready"
+              >
+                Create draft
+              </button>
+            </div>
           </form>
         </div>
       </Layout>
@@ -283,6 +323,8 @@ pulls.post(
     const resolved = await resolveRepo(ownerName, repoName);
     if (!resolved) return c.redirect(`/${ownerName}/${repoName}`);
 
+    const isDraft = String(body.draft || "") === "1";
+
     const [pr] = await db
       .insert(pullRequests)
       .values({
@@ -292,11 +334,12 @@ pulls.post(
         body: prBody || null,
         baseBranch,
         headBranch,
+        isDraft,
       })
       .returning();
 
-    // Trigger AI code review asynchronously
-    if (isAiReviewEnabled()) {
+    // Skip AI review on drafts — it runs again when the PR is marked ready.
+    if (!isDraft && isAiReviewEnabled()) {
       triggerAiReview(ownerName, repoName, pr.id, title, prBody, baseBranch, headBranch).catch(
         (err) => console.error("[ai-review] Failed:", err)
       );
@@ -344,6 +387,14 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, async (c) => {
     .innerJoin(users, eq(prComments.authorId, users.id))
     .where(eq(prComments.pullRequestId, pr.id))
     .orderBy(asc(prComments.createdAt));
+
+  // Reactions for the PR body + each comment, in parallel.
+  const [prReactions, ...prCommentReactions] = await Promise.all([
+    summariseReactions("pr", pr.id, user?.id),
+    ...comments.map((row) =>
+      summariseReactions("pr_comment", row.comment.id, user?.id)
+    ),
+  ]);
 
   const canManage =
     user &&
@@ -417,15 +468,21 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, async (c) => {
           </span>
         </h2>
         <div style="margin: 8px 0 20px; display: flex; align-items: center; gap: 8px">
-          <span
-            class={`issue-badge ${pr.state === "open" ? "badge-open" : pr.state === "merged" ? "badge-merged" : "badge-closed"}`}
-          >
-            {pr.state === "open"
-              ? "\u25CB Open"
-              : pr.state === "merged"
-                ? "\u2B8C Merged"
-                : "\u2713 Closed"}
-          </span>
+          {pr.state === "open" && pr.isDraft ? (
+            <span class="issue-badge draft-badge">
+              {"\u270E Draft"}
+            </span>
+          ) : (
+            <span
+              class={`issue-badge ${pr.state === "open" ? "badge-open" : pr.state === "merged" ? "badge-merged" : "badge-closed"}`}
+            >
+              {pr.state === "open"
+                ? "\u25CB Open"
+                : pr.state === "merged"
+                  ? "\u2B8C Merged"
+                  : "\u2713 Closed"}
+            </span>
+          )}
           <span style="color: var(--text-muted); font-size: 14px">
             <strong style="color: var(--text)">
               {author?.username}
@@ -463,10 +520,18 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, async (c) => {
                 <div class="markdown-body">
                   {html([renderMarkdown(pr.body)] as unknown as TemplateStringsArray)}
                 </div>
+                <div style="padding: 0 16px 12px">
+                  <ReactionsBar
+                    targetType="pr"
+                    targetId={pr.id}
+                    summaries={prReactions}
+                    canReact={!!user}
+                  />
+                </div>
               </div>
             )}
 
-            {comments.map(({ comment, author: commentAuthor }) => (
+            {comments.map(({ comment, author: commentAuthor }, i) => (
               <div
                 class={`issue-comment-box ${comment.isAiReview ? "ai-review" : ""}`}
               >
@@ -488,6 +553,14 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, async (c) => {
                 </div>
                 <div class="markdown-body">
                   {html([renderMarkdown(comment.body)] as unknown as TemplateStringsArray)}
+                </div>
+                <div style="padding: 0 16px 12px">
+                  <ReactionsBar
+                    targetType="pr_comment"
+                    targetId={comment.id}
+                    summaries={prCommentReactions[i] || []}
+                    canReact={!!user}
+                  />
                 </div>
               </div>
             ))}
@@ -541,18 +614,40 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, async (c) => {
                     </button>
                     {canManage && (
                       <>
-                        <button
-                          type="submit"
-                          formaction={`/${ownerName}/${repoName}/pulls/${pr.number}/merge`}
-                          class="btn"
-                          style={`background: ${gateChecks.every((c) => c.passed) ? "rgba(63, 185, 80, 0.15)" : "rgba(248, 81, 73, 0.1)"}; border-color: ${gateChecks.every((c) => c.passed) ? "var(--green)" : "var(--red)"}; color: ${gateChecks.every((c) => c.passed) ? "var(--green)" : "var(--red)"}`}
-                        >
-                          {gateChecks.every((c) => c.passed)
-                            ? "Merge pull request"
-                            : gateChecks.some((c) => !c.passed && c.name === "Merge check")
-                              ? "Merge with auto-resolve"
-                              : "Merge pull request"}
-                        </button>
+                        {pr.isDraft ? (
+                          <button
+                            type="submit"
+                            formaction={`/${ownerName}/${repoName}/pulls/${pr.number}/ready`}
+                            class="btn"
+                            style="background: rgba(63, 185, 80, 0.15); border-color: var(--green); color: var(--green)"
+                            title="Mark this draft PR as ready for review — triggers AI review"
+                          >
+                            Ready for review
+                          </button>
+                        ) : (
+                          <>
+                            <button
+                              type="submit"
+                              formaction={`/${ownerName}/${repoName}/pulls/${pr.number}/merge`}
+                              class="btn"
+                              style={`background: ${gateChecks.every((c) => c.passed) ? "rgba(63, 185, 80, 0.15)" : "rgba(248, 81, 73, 0.1)"}; border-color: ${gateChecks.every((c) => c.passed) ? "var(--green)" : "var(--red)"}; color: ${gateChecks.every((c) => c.passed) ? "var(--green)" : "var(--red)"}`}
+                            >
+                              {gateChecks.every((c) => c.passed)
+                                ? "Merge pull request"
+                                : gateChecks.some((c) => !c.passed && c.name === "Merge check")
+                                  ? "Merge with auto-resolve"
+                                  : "Merge pull request"}
+                            </button>
+                            <button
+                              type="submit"
+                              formaction={`/${ownerName}/${repoName}/pulls/${pr.number}/draft`}
+                              class="btn"
+                              title="Convert back to draft"
+                            >
+                              Convert to draft
+                            </button>
+                          </>
+                        )}
                         <button
                           type="submit"
                           formaction={`/${ownerName}/${repoName}/pulls/${pr.number}/close`}
@@ -641,6 +736,15 @@ pulls.post(
 
     if (!pr || pr.state !== "open") {
       return c.redirect(`/${ownerName}/${repoName}/pulls/${prNum}`);
+    }
+
+    // Draft PRs cannot be merged — must be marked ready first.
+    if (pr.isDraft) {
+      return c.redirect(
+        `/${ownerName}/${repoName}/pulls/${prNum}?error=${encodeURIComponent(
+          "This PR is a draft. Mark it as ready for review before merging."
+        )}`
+      );
     }
 
     // Resolve head SHA
@@ -747,6 +851,100 @@ pulls.post(
         updatedAt: new Date(),
       })
       .where(eq(pullRequests.id, pr.id));
+
+    return c.redirect(`/${ownerName}/${repoName}/pulls/${prNum}`);
+  }
+);
+
+// Toggle draft state — mark a PR as "ready for review". Triggers AI review if it
+// hasn't run yet on this PR.
+pulls.post(
+  "/:owner/:repo/pulls/:number/ready",
+  softAuth,
+  requireAuth,
+  async (c) => {
+    const { owner: ownerName, repo: repoName } = c.req.param();
+    const prNum = parseInt(c.req.param("number"), 10);
+    const user = c.get("user")!;
+
+    const resolved = await resolveRepo(ownerName, repoName);
+    if (!resolved) return c.redirect(`/${ownerName}/${repoName}`);
+
+    const [pr] = await db
+      .select()
+      .from(pullRequests)
+      .where(
+        and(
+          eq(pullRequests.repositoryId, resolved.repo.id),
+          eq(pullRequests.number, prNum)
+        )
+      )
+      .limit(1);
+    if (!pr) return c.redirect(`/${ownerName}/${repoName}/pulls`);
+
+    // Only the author or repo owner can toggle draft state.
+    if (pr.authorId !== user.id && resolved.owner.id !== user.id) {
+      return c.redirect(`/${ownerName}/${repoName}/pulls/${prNum}`);
+    }
+
+    if (pr.state === "open" && pr.isDraft) {
+      await db
+        .update(pullRequests)
+        .set({ isDraft: false, updatedAt: new Date() })
+        .where(eq(pullRequests.id, pr.id));
+
+      if (isAiReviewEnabled()) {
+        triggerAiReview(
+          ownerName,
+          repoName,
+          pr.id,
+          pr.title,
+          pr.body,
+          pr.baseBranch,
+          pr.headBranch
+        ).catch((err) => console.error("[ai-review] ready trigger failed:", err));
+      }
+    }
+
+    return c.redirect(`/${ownerName}/${repoName}/pulls/${prNum}`);
+  }
+);
+
+// Convert a PR back to draft.
+pulls.post(
+  "/:owner/:repo/pulls/:number/draft",
+  softAuth,
+  requireAuth,
+  async (c) => {
+    const { owner: ownerName, repo: repoName } = c.req.param();
+    const prNum = parseInt(c.req.param("number"), 10);
+    const user = c.get("user")!;
+
+    const resolved = await resolveRepo(ownerName, repoName);
+    if (!resolved) return c.redirect(`/${ownerName}/${repoName}`);
+
+    const [pr] = await db
+      .select()
+      .from(pullRequests)
+      .where(
+        and(
+          eq(pullRequests.repositoryId, resolved.repo.id),
+          eq(pullRequests.number, prNum)
+        )
+      )
+      .limit(1);
+    if (!pr) return c.redirect(`/${ownerName}/${repoName}/pulls`);
+
+    if (pr.authorId !== user.id && resolved.owner.id !== user.id) {
+      return c.redirect(`/${ownerName}/${repoName}/pulls/${prNum}`);
+    }
+
+    if (pr.state === "open" && !pr.isDraft) {
+      await db
+        .update(pullRequests)
+        .set({ isDraft: true, updatedAt: new Date() })
+        .where(eq(pullRequests.id, pr.id));
+    }
 
     return c.redirect(`/${ownerName}/${repoName}/pulls/${prNum}`);
   }

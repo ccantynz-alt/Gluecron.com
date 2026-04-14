@@ -28,6 +28,9 @@ import insightsRoutes from "./routes/insights";
 import searchRoutes from "./routes/search";
 import healthRoutes from "./routes/health";
 import hookRoutes from "./routes/hooks";
+import themeRoutes from "./routes/theme";
+import auditRoutes from "./routes/audit";
+import reactionRoutes from "./routes/reactions";
 import webRoutes from "./routes/web";
 
 const app = new Hono();
@@ -64,6 +67,15 @@ app.route("/", authRoutes);
 
 // Settings routes (profile, SSH keys)
 app.route("/", settingsRoutes);
+
+// Theme toggle (dark/light cookie)
+app.route("/", themeRoutes);
+
+// Audit log UI
+app.route("/", auditRoutes);
+
+// Reactions API (issues, PRs, comments)
+app.route("/", reactionRoutes);
 
 // API tokens
 app.route("/", tokenRoutes);

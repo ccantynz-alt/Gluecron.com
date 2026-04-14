@@ -88,8 +88,8 @@ Legend: ✅ shipped · 🟡 partial · ❌ not built
 | Milestones | ✅ | `src/routes/insights.tsx` |
 | Pull requests (CRUD / review / merge) | ✅ | |
 | PR inline comments | ✅ | file+line anchored |
-| Draft PRs | 🟡 | schema flag, no UI toggle |
-| Reactions (emoji) | 🟡 | table exists, no UI |
+| Draft PRs | ✅ | create as draft, ready-for-review toggle, dedicated tab, merge blocked until ready |
+| Reactions (emoji) | ✅ | 8 reactions, toggle via `POST /api/reactions/:t/:id/:emoji/toggle` on issues + PRs + comments |
 | Mentions + notifications | ✅ | `src/routes/notifications.tsx` |
 | Code owners | ✅ | `src/lib/codeowners.ts` |
 | Issue templates | ❌ | |
@@ -153,14 +153,14 @@ Legend: ✅ shipped · 🟡 partial · ❌ not built
 | Request-ID tracing | ✅ | `src/middleware/request-context.ts` |
 | Health / readiness / metrics | ✅ | `/healthz` `/readyz` `/metrics` |
 | Audit log (table) | ✅ | `audit_log` table |
-| Audit log UI | ❌ | data only |
+| Audit log UI | ✅ | `/settings/audit` (personal) + `/:owner/:repo/settings/audit` (per-repo, owner-only) |
 | Traffic analytics per repo | ❌ | |
 | Email notifications | ❌ | in-app only |
 | Email digest | ❌ | |
 | Mobile PWA | 🟡 | responsive CSS, no manifest |
 | Native mobile apps | ❌ | |
-| Dark mode | ✅ | only mode |
-| Light-mode toggle | ❌ | |
+| Dark mode | ✅ | default |
+| Light-mode toggle | ✅ | `/theme/toggle` + `theme` cookie, pre-paint script avoids FOUC, nav sun/moon icon |
 | Keyboard shortcuts | ✅ | `/shortcuts` page |
 | Command palette | 🟡 | Cmd+K → Ask AI, no generic palette |
 
@@ -172,10 +172,10 @@ Each block is a self-contained unit. Order matters for dependencies. Each block 
 
 ### BLOCK A — Hardening the current surface
 Polish what's shipped before adding more. **Priority: do this first if parity gaps are minor.**
-- **A1** — Dark/light theme toggle (cookie, CSS variable swap)
-- **A2** — Audit log UI page (`/settings/audit` + `/:owner/:repo/settings/audit`)
-- **A3** — Reactions UI on issues / PRs / comments (data exists)
-- **A4** — Draft PR toggle + filter
+- **A1** — Dark/light theme toggle (cookie, CSS variable swap) ✅
+- **A2** — Audit log UI page (`/settings/audit` + `/:owner/:repo/settings/audit`) ✅
+- **A3** — Reactions UI on issues / PRs / comments (data exists) ✅
+- **A4** — Draft PR toggle + filter ✅
 - **A5** — Issue + PR templates (`.github/*_TEMPLATE.md` auto-prefill)
 - **A6** — Saved replies per user
 - **A7** — Environments + deployment history UI (`deployments` table)
@@ -278,11 +278,15 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `src/lib/repo-bootstrap.ts` — green defaults on repo creation
 - `src/lib/gate.ts` — gate orchestration + persistence
 - `src/lib/cache.ts` — LRU cache, git-cache invalidation
+- `src/lib/reactions.ts` — `summariseReactions`, `toggleReaction`, `ALLOWED_EMOJIS`, `EMOJI_GLYPH`, `isAllowedEmoji`, `isAllowedTarget`
 
 ### 4.6 Routes (locked endpoints — behaviour must be preserved)
 - `src/routes/git.ts` — Smart HTTP (clone/push)
 - `src/routes/api.ts` — REST (`POST /api/repos`, `GET /api/users/:u/repos`, `GET /api/repos/:o/:n`, `POST /api/setup`)
 - `src/routes/hooks.ts` — `POST /api/hooks/gatetest` (bearer/HMAC), `GET /api/hooks/ping`, `POST /api/v1/gate-runs` (PAT backup), `GET /api/v1/gate-runs`. See `GATETEST_HOOK.md`.
+- `src/routes/theme.ts` — `GET /theme/toggle`, `GET /theme/set?mode=`. Writes `theme` cookie (`dark`|`light`, 1-year). Layout reads via pre-paint inline script.
+- `src/routes/audit.tsx` — `GET /settings/audit` (personal) + `GET /:owner/:repo/settings/audit` (owner-only).
+- `src/routes/reactions.ts` — `POST /api/reactions/:targetType/:targetId/:emoji/toggle` (authed, form- or fetch-compatible), `GET /api/reactions/:targetType/:targetId`. Targets: `issue|pr|issue_comment|pr_comment`. Emojis: 8 canonical.
 - `src/routes/auth.tsx` — register / login / logout
 - `src/routes/web.tsx` — home / new / browse / blob / commits / raw / blame / star / search / profile
 - `src/routes/issues.tsx` — issue CRUD + comments + labels + lock
@@ -308,7 +312,8 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 ### 4.7 Views (locked contracts)
 - `src/views/layout.tsx` — `Layout` accepts `title`, `user`, `notificationCount`
 - `src/views/components.tsx` — `RepoHeader`, `RepoNav` (active: `code|issues|pulls|commits|releases|gates|insights|...`), `RepoCard`, etc.
-- Nav links: logo · search · Explore · Ask · Notifications · New · Profile (or Sign in / Register)
+- `src/views/reactions.tsx` — `ReactionsBar` (no-JS compatible, form-per-emoji)
+- Nav links: logo · search · theme-toggle · Explore · Ask · Notifications · New · Profile (or Sign in / Register)
 - Keyboard chords: `/`, `Cmd+K`, `?`, `n`, `g d`, `g n`, `g e`, `g a`
 
 ### 4.8 Tests (locked)
@@ -322,6 +327,9 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `c.header("X-Request-Id", ...)` set by request-context on every response.
 - Secret scanner skips binary/lock paths (`shouldSkipPath`).
 - `SECRET_PATTERNS` is an exported array. Its shape is `{ type, regex, severity }`.
+- Theme routes live outside `/settings/*` (they must work for logged-out visitors). Cookie name: `theme`, values: `dark|light`.
+- Draft PRs cannot be merged — `/pulls/:n/merge` returns a redirect with the draft error when `pr.isDraft=true`.
+- Reactions API accepts only `ALLOWED_EMOJIS` and `ALLOWED_TARGETS`. Toggle is idempotent per (user, target, emoji).
 
 ---
 
@@ -331,7 +339,7 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 ```bash
 bun install
 bun dev          # hot reload
-bun test         # 76 tests currently pass
+bun test         # 91 tests currently pass
 bun run db:migrate
 ```
 

@@ -15,6 +15,8 @@ import {
 } from "../db/schema";
 import { Layout } from "../views/layout";
 import { RepoHeader, RepoNav } from "../views/components";
+import { ReactionsBar } from "../views/reactions";
+import { summariseReactions } from "../lib/reactions";
 import { renderMarkdown } from "../lib/markdown";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
@@ -301,6 +303,14 @@ issueRoutes.get("/:owner/:repo/issues/:number", softAuth, async (c) => {
     .where(eq(issueComments.issueId, issue.id))
     .orderBy(asc(issueComments.createdAt));
 
+  // Load reactions for the issue + each comment in parallel.
+  const [issueReactions, ...commentReactions] = await Promise.all([
+    summariseReactions("issue", issue.id, user?.id),
+    ...comments.map((row) =>
+      summariseReactions("issue_comment", row.comment.id, user?.id)
+    ),
+  ]);
+
   const canManage =
     user &&
     (user.id === resolved.owner.id || user.id === issue.authorId);
@@ -342,10 +352,18 @@ issueRoutes.get("/:owner/:repo/issues/:number", softAuth, async (c) => {
             <div class="markdown-body">
               {html([renderMarkdown(issue.body)] as unknown as TemplateStringsArray)}
             </div>
+            <div style="padding: 0 16px 12px">
+              <ReactionsBar
+                targetType="issue"
+                targetId={issue.id}
+                summaries={issueReactions}
+                canReact={!!user}
+              />
+            </div>
           </div>
         )}
 
-        {comments.map(({ comment, author: commentAuthor }) => (
+        {comments.map(({ comment, author: commentAuthor }, i) => (
           <div class="issue-comment-box">
             <div class="comment-header">
               <strong>{commentAuthor.username}</strong> commented{" "}
@@ -353,6 +371,14 @@ issueRoutes.get("/:owner/:repo/issues/:number", softAuth, async (c) => {
             </div>
             <div class="markdown-body">
               {html([renderMarkdown(comment.body)] as unknown as TemplateStringsArray)}
+            </div>
+            <div style="padding: 0 16px 12px">
+              <ReactionsBar
+                targetType="issue_comment"
+                targetId={comment.id}
+                summaries={commentReactions[i] || []}
+                canReact={!!user}
+              />
             </div>
           </div>
         ))}

@@ -15,6 +15,12 @@ import {
 } from "../lib/codeowners";
 import { generateCommitMessage } from "../lib/ai-generators";
 import { isAiAvailable } from "../lib/ai-client";
+import {
+  isAllowedEmoji,
+  isAllowedTarget,
+  ALLOWED_EMOJIS,
+  EMOJI_GLYPH,
+} from "../lib/reactions";
 
 describe("secret scanner", () => {
   it("detects AWS access keys", () => {
@@ -221,5 +227,97 @@ describe("GateTest inbound hook", () => {
       body: JSON.stringify({ repository: "a/b", sha: "x", status: "passed" }),
     });
     expect(res.status).toBe(401);
+  });
+});
+
+describe("theme toggle", () => {
+  it("GET /theme/toggle sets a cookie and redirects", async () => {
+    const res = await app.request("/theme/toggle");
+    // 302 redirect; no cookie yet means we flip from the default (dark) → light
+    expect([301, 302, 303, 307]).toContain(res.status);
+    const setCookie = res.headers.get("set-cookie") || "";
+    expect(/theme=light/.test(setCookie)).toBe(true);
+  });
+
+  it("GET /theme/toggle flips an existing 'light' cookie back to dark", async () => {
+    const res = await app.request("/theme/toggle", {
+      headers: { cookie: "theme=light" },
+    });
+    const setCookie = res.headers.get("set-cookie") || "";
+    expect(/theme=dark/.test(setCookie)).toBe(true);
+  });
+
+  it("GET /theme/set?mode=light returns JSON when asked", async () => {
+    const res = await app.request("/theme/set?mode=light", {
+      headers: { accept: "application/json" },
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.theme).toBe("light");
+  });
+
+  it("GET /theme/set rejects unknown modes", async () => {
+    const res = await app.request("/theme/set?mode=neon", {
+      headers: { accept: "application/json" },
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("home page includes the pre-paint theme script + data-theme attribute", async () => {
+    const res = await app.request("/");
+    const html = await res.text();
+    expect(html).toContain("data-theme");
+    expect(html).toContain("theme-icon-");
+    // The pre-paint script reads the cookie.
+    expect(html).toContain("document.cookie");
+  });
+});
+
+describe("reactions", () => {
+  it("allowed emojis and targets are self-consistent", () => {
+    expect(ALLOWED_EMOJIS.length).toBeGreaterThanOrEqual(6);
+    for (const e of ALLOWED_EMOJIS) {
+      expect(isAllowedEmoji(e)).toBe(true);
+      expect(EMOJI_GLYPH[e]).toBeTruthy();
+    }
+    expect(isAllowedEmoji("nope")).toBe(false);
+    expect(isAllowedTarget("issue")).toBe(true);
+    expect(isAllowedTarget("martian")).toBe(false);
+  });
+
+  it("POST /api/reactions/.../toggle requires auth", async () => {
+    const res = await app.request(
+      "/api/reactions/issue/00000000-0000-0000-0000-000000000000/thumbs_up/toggle",
+      { method: "POST" }
+    );
+    // Unauthenticated -> redirect to /login (302)
+    expect([301, 302, 303, 307]).toContain(res.status);
+  });
+
+  it("GET /api/reactions/:type/:id returns empty summary when no reactions exist", async () => {
+    const res = await app.request(
+      "/api/reactions/issue/00000000-0000-0000-0000-000000000000"
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(Array.isArray(body.reactions)).toBe(true);
+  });
+
+  it("rejects unknown target type on the listing endpoint", async () => {
+    const res = await app.request(
+      "/api/reactions/martian/00000000-0000-0000-0000-000000000000"
+    );
+    expect(res.status).toBe(400);
+  });
+});
+
+describe("audit log UI", () => {
+  it("GET /settings/audit redirects unauthenticated users to /login", async () => {
+    const res = await app.request("/settings/audit");
+    expect([301, 302, 303, 307]).toContain(res.status);
+    const loc = res.headers.get("location") || "";
+    expect(loc.startsWith("/login")).toBe(true);
   });
 });

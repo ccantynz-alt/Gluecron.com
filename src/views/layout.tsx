@@ -7,14 +7,17 @@ export const Layout: FC<
     title?: string;
     user?: User | null;
     notificationCount?: number;
+    theme?: "dark" | "light";
   }>
-> = ({ children, title, user, notificationCount }) => {
+> = ({ children, title, user, notificationCount, theme }) => {
+  const initialTheme = theme === "light" ? "light" : "dark";
   return (
-    <html lang="en">
+    <html lang="en" data-theme={initialTheme}>
       <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>{title ? `${title} — gluecron` : "gluecron"}</title>
+        <script>{themeInitScript}</script>
         <style>{css}</style>
         <style>{hljsThemeCss}</style>
       </head>
@@ -35,6 +38,15 @@ export const Layout: FC<
               </form>
             </div>
             <div class="nav-right">
+              <a
+                href="/theme/toggle"
+                class="nav-link nav-theme"
+                title="Toggle theme"
+                aria-label="Toggle theme"
+              >
+                <span class="theme-icon-dark">{"\u263E"}</span>
+                <span class="theme-icon-light">{"\u2600"}</span>
+              </a>
               <a href="/explore" class="nav-link">
                 Explore
               </a>
@@ -91,6 +103,19 @@ export const Layout: FC<
   );
 };
 
+// Runs before paint — reads the theme cookie and flips data-theme so there's
+// no dark-to-light flash on load. SSR default is dark.
+const themeInitScript = `
+  (function(){
+    try {
+      var m = document.cookie.match(/(?:^|; )theme=([^;]+)/);
+      var t = m ? decodeURIComponent(m[1]) : 'dark';
+      if (t !== 'light' && t !== 'dark') t = 'dark';
+      document.documentElement.setAttribute('data-theme', t);
+    } catch(_){}
+  })();
+`;
+
 const navScript = `
   (function(){
     var chord = null;
@@ -135,7 +160,7 @@ const navScript = `
 `;
 
 const css = `
-  :root {
+  :root, :root[data-theme='dark'] {
     --bg: #0d1117;
     --bg-secondary: #161b22;
     --bg-tertiary: #21262d;
@@ -152,6 +177,26 @@ const css = `
     --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
     --radius: 6px;
   }
+
+  :root[data-theme='light'] {
+    --bg: #ffffff;
+    --bg-secondary: #f6f8fa;
+    --bg-tertiary: #eaeef2;
+    --border: #d0d7de;
+    --text: #1f2328;
+    --text-muted: #656d76;
+    --text-link: #0969da;
+    --accent: #0969da;
+    --accent-hover: #0550ae;
+    --green: #1a7f37;
+    --red: #cf222e;
+    --yellow: #9a6700;
+  }
+
+  /* Theme toggle — show the icon for the *opposite* theme so users see what they'll switch to. */
+  .nav-theme { display: inline-flex; align-items: center; font-size: 16px; line-height: 1; }
+  :root[data-theme='dark'] .theme-icon-dark { display: none; }
+  :root[data-theme='light'] .theme-icon-light { display: none; }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -838,6 +883,89 @@ const css = `
   .search-hit h4 { font-size: 14px; margin-bottom: 4px; }
   .search-hit .hit-path { font-size: 12px; color: var(--text-muted); font-family: var(--font-mono); }
   .search-hit pre { margin-top: 8px; font-size: 12px; }
+
+  /* Audit log */
+  .audit-log {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow-x: auto;
+    background: var(--bg-secondary);
+  }
+  .audit-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .audit-table th, .audit-table td {
+    text-align: left;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  .audit-table th {
+    background: var(--bg-tertiary);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+    font-weight: 600;
+  }
+  .audit-table tr:last-child td { border-bottom: none; }
+  .audit-when { white-space: nowrap; color: var(--text-muted); }
+  .audit-muted { color: var(--text-muted); font-style: italic; }
+  .audit-action {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    padding: 1px 6px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    color: var(--text-link);
+  }
+  .audit-ip, .audit-meta code {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  .audit-target code {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  /* Reactions */
+  .reactions {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+  }
+  .reaction-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 12px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-size: 12px;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .reaction-btn:hover { background: var(--border); }
+  .reaction-btn.active { background: rgba(31, 111, 235, 0.15); border-color: var(--accent); color: var(--accent); }
+  .reaction-picker {
+    display: inline-flex;
+    gap: 4px;
+    align-items: center;
+  }
+  .reaction-picker form { display: inline; }
+  .reaction-count { font-size: 11px; font-weight: 600; }
+
+  /* Draft PR */
+  .draft-badge {
+    background: rgba(139, 148, 158, 0.15);
+    color: var(--text-muted);
+    border: 1px solid var(--text-muted);
+  }
+  .state-draft { color: var(--text-muted); }
 
   /* Toasts (prepared for future UI hooks) */
   .toast-container {

@@ -60,7 +60,14 @@ export const RepoHeader: FC<{
 export const RepoNav: FC<{
   owner: string;
   repo: string;
-  active: "code" | "commits" | "issues" | "pulls";
+  active:
+    | "code"
+    | "commits"
+    | "issues"
+    | "pulls"
+    | "releases"
+    | "gates"
+    | "insights";
 }> = ({ owner, repo, active }) => (
   <div class="repo-nav">
     <a href={`/${owner}/${repo}`} class={active === "code" ? "active" : ""}>
@@ -83,6 +90,27 @@ export const RepoNav: FC<{
       class={active === "commits" ? "active" : ""}
     >
       Commits
+    </a>
+    <a
+      href={`/${owner}/${repo}/releases`}
+      class={active === "releases" ? "active" : ""}
+    >
+      Releases
+    </a>
+    <a
+      href={`/${owner}/${repo}/gates`}
+      class={active === "gates" ? "active" : ""}
+    >
+      {"\u25CF"} Gates
+    </a>
+    <a
+      href={`/${owner}/${repo}/insights`}
+      class={active === "insights" ? "active" : ""}
+    >
+      Insights
+    </a>
+    <a href={`/${owner}/${repo}/ask`} style="margin-left: auto; color: #bc8cff">
+      {"\u2728"} Ask AI
     </a>
   </div>
 );

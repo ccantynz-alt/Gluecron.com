@@ -67,17 +67,31 @@ fork.post("/:owner/:repo/fork", requireAuth, async (c) => {
   await proc.exited;
 
   // Insert into DB
-  await db.insert(repositories).values({
-    name: repoName,
-    ownerId: user.id,
-    description: sourceRepo.description
-      ? `Fork of ${ownerName}/${repoName} — ${sourceRepo.description}`
-      : `Fork of ${ownerName}/${repoName}`,
-    isPrivate: false,
-    defaultBranch: sourceRepo.defaultBranch,
-    diskPath: destPath,
-    forkedFromId: sourceRepo.id,
-  });
+  const [newRepo] = await db
+    .insert(repositories)
+    .values({
+      name: repoName,
+      ownerId: user.id,
+      description: sourceRepo.description
+        ? `Fork of ${ownerName}/${repoName} — ${sourceRepo.description}`
+        : `Fork of ${ownerName}/${repoName}`,
+      isPrivate: false,
+      defaultBranch: sourceRepo.defaultBranch,
+      diskPath: destPath,
+      forkedFromId: sourceRepo.id,
+    })
+    .returning();
+
+  // Bootstrap the fork with green-by-default settings, protection, labels
+  if (newRepo) {
+    const { bootstrapRepository } = await import("../lib/repo-bootstrap");
+    await bootstrapRepository({
+      repositoryId: newRepo.id,
+      ownerUserId: user.id,
+      defaultBranch: sourceRepo.defaultBranch,
+      skipWelcomeIssue: true, // forks don't need a welcome issue
+    });
+  }
 
   // Update fork count
   await db

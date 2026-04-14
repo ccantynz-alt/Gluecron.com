@@ -3,6 +3,8 @@ import { logger } from "hono/logger";
 import { cors } from "hono/cors";
 import { compress } from "hono/compress";
 import { Layout } from "./views/layout";
+import { requestContext } from "./middleware/request-context";
+import { rateLimit } from "./middleware/rate-limit";
 import gitRoutes from "./routes/git";
 import apiRoutes from "./routes/api";
 import authRoutes from "./routes/auth";
@@ -17,10 +19,20 @@ import webhookRoutes from "./routes/webhooks";
 import exploreRoutes from "./routes/explore";
 import tokenRoutes from "./routes/tokens";
 import contributorRoutes from "./routes/contributors";
+import notificationRoutes from "./routes/notifications";
+import dashboardRoutes from "./routes/dashboard";
+import askRoutes from "./routes/ask";
+import releaseRoutes from "./routes/releases";
+import gateRoutes from "./routes/gates";
+import insightsRoutes from "./routes/insights";
+import searchRoutes from "./routes/search";
+import healthRoutes from "./routes/health";
 import webRoutes from "./routes/web";
 
 const app = new Hono();
 
+// Request context (request ID, start time) runs before everything else
+app.use("*", requestContext);
 // Middleware — compression first (wraps all responses)
 app.use("*", compress());
 // Logger only on non-git routes to avoid overhead on clone/push
@@ -29,9 +41,16 @@ app.use("*", async (c, next) => {
   return logger()(c, next);
 });
 app.use("/api/*", cors());
+// Rate-limit API + auth endpoints (generous default)
+app.use("/api/*", rateLimit({ windowMs: 60_000, max: 120 }));
+app.use("/login", rateLimit({ windowMs: 60_000, max: 20 }));
+app.use("/register", rateLimit({ windowMs: 60_000, max: 10 }));
 
 // Git Smart HTTP protocol routes (must be before web routes)
 app.route("/", gitRoutes);
+
+// Health + metrics
+app.route("/", healthRoutes);
 
 // REST API
 app.route("/", apiRoutes);
@@ -44,6 +63,18 @@ app.route("/", settingsRoutes);
 
 // API tokens
 app.route("/", tokenRoutes);
+
+// Notifications inbox
+app.route("/", notificationRoutes);
+
+// Dashboard (/dashboard)
+app.route("/", dashboardRoutes);
+
+// AI assistant — /ask + /:owner/:repo/ask
+app.route("/", askRoutes);
+
+// Global search
+app.route("/", searchRoutes);
 
 // Repo settings (description, visibility, delete)
 app.route("/", repoSettings);
@@ -68,6 +99,15 @@ app.route("/", editorRoutes);
 
 // Contributors
 app.route("/", contributorRoutes);
+
+// Releases
+app.route("/", releaseRoutes);
+
+// Gates (history + settings + branch protection)
+app.route("/", gateRoutes);
+
+// Insights + milestones
+app.route("/", insightsRoutes);
 
 // Explore page
 app.route("/", exploreRoutes);

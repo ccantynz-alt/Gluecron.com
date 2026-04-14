@@ -52,35 +52,8 @@ web.get("/", async (c) => {
   const user = c.get("user");
 
   if (user) {
-    // Show user's repos
-    const repos = await db
-      .select()
-      .from(repositories)
-      .where(eq(repositories.ownerId, user.id))
-      .orderBy(desc(repositories.updatedAt));
-
-    return c.html(
-      <Layout title="Dashboard" user={user}>
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px">
-          <h2>Your repositories</h2>
-          <a href="/new" class="btn btn-primary">
-            + New repository
-          </a>
-        </div>
-        {repos.length === 0 ? (
-          <div class="empty-state">
-            <h2>No repositories yet</h2>
-            <p>Create your first repository to get started.</p>
-          </div>
-        ) : (
-          <div class="card-grid">
-            {repos.map((repo) => (
-              <RepoCard repo={repo} ownerName={user.username} />
-            ))}
-          </div>
-        )}
-      </Layout>
-    );
+    const { renderDashboard } = await import("./dashboard");
+    return renderDashboard(c);
   }
 
   return c.html(
@@ -186,13 +159,25 @@ web.post("/new", requireAuth, async (c) => {
 
   const diskPath = await initBareRepo(user.username, name);
 
-  await db.insert(repositories).values({
-    name,
-    ownerId: user.id,
-    description: description || null,
-    isPrivate,
-    diskPath,
-  });
+  const [newRepo] = await db
+    .insert(repositories)
+    .values({
+      name,
+      ownerId: user.id,
+      description: description || null,
+      isPrivate,
+      diskPath,
+    })
+    .returning();
+
+  if (newRepo) {
+    const { bootstrapRepository } = await import("../lib/repo-bootstrap");
+    await bootstrapRepository({
+      repositoryId: newRepo.id,
+      ownerUserId: user.id,
+      defaultBranch: "main",
+    });
+  }
 
   return c.redirect(`/${user.username}/${name}`);
 });

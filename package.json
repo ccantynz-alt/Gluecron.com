@@ -12,6 +12,7 @@
     "test": "bun test"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.88.0",
     "@hono/node-server": "^1.13.0",
     "@neondatabase/serverless": "^0.10.0",
     "drizzle-orm": "^0.39.0",

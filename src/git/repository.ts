@@ -1,6 +1,7 @@
 import { join } from "path";
 import { mkdir } from "fs/promises";
 import { config } from "../lib/config";
+import { gitCache, cached } from "../lib/cache";
 
 export interface GitCommit {
   sha: string;
@@ -87,26 +88,30 @@ export async function listBranches(
   owner: string,
   name: string
 ): Promise<string[]> {
-  const path = repoPath(owner, name);
-  const { stdout, exitCode } = await exec(
-    ["git", "for-each-ref", "--format=%(refname:short)", "refs/heads/"],
-    { cwd: path }
-  );
-  if (exitCode !== 0) return [];
-  return stdout.trim().split("\n").filter(Boolean);
+  return cached(gitCache as any, `${owner}/${name}:branches`, async () => {
+    const path = repoPath(owner, name);
+    const { stdout, exitCode } = await exec(
+      ["git", "for-each-ref", "--format=%(refname:short)", "refs/heads/"],
+      { cwd: path }
+    );
+    if (exitCode !== 0) return [];
+    return stdout.trim().split("\n").filter(Boolean);
+  });
 }
 
 export async function getDefaultBranch(
   owner: string,
   name: string
 ): Promise<string | null> {
-  const path = repoPath(owner, name);
-  const { stdout, exitCode } = await exec(
-    ["git", "symbolic-ref", "--short", "HEAD"],
-    { cwd: path }
-  );
-  if (exitCode !== 0) return null;
-  return stdout.trim() || null;
+  return cached(gitCache as any, `${owner}/${name}:defaultBranch`, async () => {
+    const path = repoPath(owner, name);
+    const { stdout, exitCode } = await exec(
+      ["git", "symbolic-ref", "--short", "HEAD"],
+      { cwd: path }
+    );
+    if (exitCode !== 0) return null;
+    return stdout.trim() || null;
+  });
 }
 
 export async function resolveRef(
@@ -167,36 +172,38 @@ export async function listCommits(
   limit = 30,
   offset = 0
 ): Promise<GitCommit[]> {
-  const path = repoPath(owner, name);
-  const format = "%H%x00%s%x00%an%x00%ae%x00%aI%x00%P";
-  const { stdout, exitCode } = await exec(
-    [
-      "git",
-      "log",
-      `--format=${format}`,
-      `--skip=${offset}`,
-      `-${limit}`,
-      ref,
-    ],
-    { cwd: path }
-  );
-  if (exitCode !== 0) return [];
-  return stdout
-    .trim()
-    .split("\n")
-    .filter(Boolean)
-    .map((line) => {
-      const [sha, message, author, authorEmail, date, parents] =
-        line.split("\0");
-      return {
-        sha,
-        message,
-        author,
-        authorEmail,
-        date,
-        parentShas: parents ? parents.split(" ").filter(Boolean) : [],
-      };
-    });
+  return cached(gitCache as any, `${owner}/${name}:commits:${ref}:${limit}:${offset}`, async () => {
+    const path = repoPath(owner, name);
+    const format = "%H%x00%s%x00%an%x00%ae%x00%aI%x00%P";
+    const { stdout, exitCode } = await exec(
+      [
+        "git",
+        "log",
+        `--format=${format}`,
+        `--skip=${offset}`,
+        `-${limit}`,
+        ref,
+      ],
+      { cwd: path }
+    );
+    if (exitCode !== 0) return [];
+    return stdout
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => {
+        const [sha, message, author, authorEmail, date, parents] =
+          line.split("\0");
+        return {
+          sha,
+          message,
+          author,
+          authorEmail,
+          date,
+          parentShas: parents ? parents.split(" ").filter(Boolean) : [],
+        };
+      });
+  });
 }
 
 export async function getTree(
@@ -205,39 +212,41 @@ export async function getTree(
   ref: string,
   treePath = ""
 ): Promise<GitTreeEntry[]> {
-  const path = repoPath(owner, name);
-  const treeish = treePath ? `${ref}:${treePath}` : `${ref}`;
-  const { stdout, exitCode } = await exec(
-    ["git", "ls-tree", "-l", treeish],
-    { cwd: path }
-  );
-  if (exitCode !== 0) return [];
-  return stdout
-    .trim()
-    .split("\n")
-    .filter(Boolean)
-    .map((line) => {
-      // format: <mode> <type> <sha>\t<size>\t<name>
-      // Actually: <mode> SP <type> SP <sha> SP <size> TAB <name>
-      const match = line.match(
-        /^(\d+)\s+(blob|tree|commit)\s+([0-9a-f]+)\s+(-|\d+)\t(.+)$/
-      );
-      if (!match) return null;
-      return {
-        mode: match[1],
-        type: match[2] as "blob" | "tree" | "commit",
-        sha: match[3],
-        size: match[4] === "-" ? undefined : parseInt(match[4], 10),
-        name: match[5],
-      };
-    })
-    .filter((e): e is GitTreeEntry => e !== null)
-    .sort((a, b) => {
-      // directories first, then files
-      if (a.type === "tree" && b.type !== "tree") return -1;
-      if (a.type !== "tree" && b.type === "tree") return 1;
-      return a.name.localeCompare(b.name);
-    });
+  return cached(gitCache as any, `${owner}/${name}:tree:${ref}:${treePath}`, async () => {
+    const path = repoPath(owner, name);
+    const treeish = treePath ? `${ref}:${treePath}` : `${ref}`;
+    const { stdout, exitCode } = await exec(
+      ["git", "ls-tree", "-l", treeish],
+      { cwd: path }
+    );
+    if (exitCode !== 0) return [];
+    return stdout
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => {
+        // format: <mode> <type> <sha>\t<size>\t<name>
+        // Actually: <mode> SP <type> SP <sha> SP <size> TAB <name>
+        const match = line.match(
+          /^(\d+)\s+(blob|tree|commit)\s+([0-9a-f]+)\s+(-|\d+)\t(.+)$/
+        );
+        if (!match) return null;
+        return {
+          mode: match[1],
+          type: match[2] as "blob" | "tree" | "commit",
+          sha: match[3],
+          size: match[4] === "-" ? undefined : parseInt(match[4], 10),
+          name: match[5],
+        };
+      })
+      .filter((e): e is GitTreeEntry => e !== null)
+      .sort((a, b) => {
+        // directories first, then files
+        if (a.type === "tree" && b.type !== "tree") return -1;
+        if (a.type !== "tree" && b.type === "tree") return 1;
+        return a.name.localeCompare(b.name);
+      });
+  });
 }
 
 export async function getBlob(
@@ -431,11 +440,13 @@ export async function getReadme(
   name: string,
   ref: string
 ): Promise<string | null> {
-  const tree = await getTree(owner, name, ref);
-  const readme = tree.find((e) =>
-    /^readme(\.(md|txt|rst))?$/i.test(e.name)
-  );
-  if (!readme) return null;
-  const blob = await getBlob(owner, name, ref, readme.name);
-  return blob?.content || null;
+  return cached(gitCache as any, `${owner}/${name}:readme:${ref}`, async () => {
+    const tree = await getTree(owner, name, ref);
+    const readme = tree.find((e) =>
+      /^readme(\.(md|txt|rst))?$/i.test(e.name)
+    );
+    if (!readme) return null;
+    const blob = await getBlob(owner, name, ref, readme.name);
+    return blob?.content || null;
+  });
 }

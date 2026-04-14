@@ -19,9 +19,13 @@ import type { AuthEnv } from "../middleware/auth";
 import {
   listBranches,
   getRepoPath,
+  resolveRef,
 } from "../git/repository";
 import type { GitDiffFile } from "../git/repository";
 import { html } from "hono/html";
+import { reviewDiff, isAiReviewEnabled } from "../lib/ai-review";
+import { mergeWithAutoResolve } from "../lib/merge-resolver";
+import { runAllGateChecks, type GateCheckResult } from "../lib/gate";
 
 const pulls = new Hono<AuthEnv>();
 
@@ -291,6 +295,13 @@ pulls.post(
       })
       .returning();
 
+    // Trigger AI code review asynchronously
+    if (isAiReviewEnabled()) {
+      triggerAiReview(ownerName, repoName, pr.id, title, prBody, baseBranch, headBranch).catch(
+        (err) => console.error("[ai-review] Failed:", err)
+      );
+    }
+
     return c.redirect(`/${ownerName}/${repoName}/pulls/${pr.number}`);
   }
 );
@@ -337,6 +348,24 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, async (c) => {
   const canManage =
     user &&
     (user.id === resolved.owner.id || user.id === pr.authorId);
+
+  const error = c.req.query("error");
+
+  // Get gate check status for open PRs
+  let gateChecks: GateCheckResult[] = [];
+  if (pr.state === "open") {
+    const headSha = await resolveRef(ownerName, repoName, pr.headBranch);
+    if (headSha) {
+      const aiComments = comments.filter(({ comment }) => comment.isAiReview);
+      const aiApproved = aiComments.length === 0 || aiComments.some(
+        ({ comment }) => comment.body.includes("**Approved**")
+      );
+      const gateResult = await runAllGateChecks(
+        ownerName, repoName, pr.baseBranch, pr.headBranch, headSha, aiApproved
+      );
+      gateChecks = gateResult.checks;
+    }
+  }
 
   // Get diff for "Files changed" tab
   let diffRaw = "";
@@ -463,6 +492,34 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, async (c) => {
               </div>
             ))}
 
+            {error && (
+              <div class="auth-error" style="margin-top: 16px; padding: 12px; background: rgba(248, 81, 73, 0.1); border: 1px solid var(--red); border-radius: var(--radius); color: var(--red)">
+                {decodeURIComponent(error)}
+              </div>
+            )}
+
+            {pr.state === "open" && gateChecks.length > 0 && (
+              <div style="margin-top: 20px; padding: 16px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius)">
+                <h3 style="margin: 0 0 12px; font-size: 14px">Gate Checks</h3>
+                {gateChecks.map((check) => (
+                  <div style="display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--border)">
+                    <span style={`font-size: 16px; color: ${check.passed ? "var(--green)" : "var(--red)"}`}>
+                      {check.passed ? "\u2713" : "\u2717"}
+                    </span>
+                    <strong style="font-size: 13px">{check.name}</strong>
+                    <span style="font-size: 12px; color: var(--text-muted); margin-left: auto">{check.details}</span>
+                  </div>
+                ))}
+                <div style="margin-top: 8px; font-size: 12px; color: var(--text-muted)">
+                  {gateChecks.every((c) => c.passed)
+                    ? "All checks passed — ready to merge"
+                    : gateChecks.some((c) => !c.passed && c.name === "Merge check")
+                      ? "Conflicts detected — GlueCron AI will attempt auto-resolution on merge"
+                      : "Some checks failed — resolve issues before merging"}
+                </div>
+              </div>
+            )}
+
             {user && pr.state === "open" && (
               <div style="margin-top: 20px">
                 <form
@@ -488,9 +545,13 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, async (c) => {
                           type="submit"
                           formaction={`/${ownerName}/${repoName}/pulls/${pr.number}/merge`}
                           class="btn"
-                          style="background: rgba(63, 185, 80, 0.15); border-color: var(--green); color: var(--green)"
+                          style={`background: ${gateChecks.every((c) => c.passed) ? "rgba(63, 185, 80, 0.15)" : "rgba(248, 81, 73, 0.1)"}; border-color: ${gateChecks.every((c) => c.passed) ? "var(--green)" : "var(--red)"}; color: ${gateChecks.every((c) => c.passed) ? "var(--green)" : "var(--red)"}`}
                         >
-                          Merge pull request
+                          {gateChecks.every((c) => c.passed)
+                            ? "Merge pull request"
+                            : gateChecks.some((c) => !c.passed && c.name === "Merge check")
+                              ? "Merge with auto-resolve"
+                              : "Merge pull request"}
                         </button>
                         <button
                           type="submit"
@@ -554,7 +615,7 @@ pulls.post(
   }
 );
 
-// Merge PR
+// Merge PR — with green gate enforcement and auto conflict resolution
 pulls.post(
   "/:owner/:repo/pulls/:number/merge",
   softAuth,
@@ -582,38 +643,99 @@ pulls.post(
       return c.redirect(`/${ownerName}/${repoName}/pulls/${prNum}`);
     }
 
-    // Perform git merge
+    // Resolve head SHA
+    const headSha = await resolveRef(ownerName, repoName, pr.headBranch);
+    if (!headSha) {
+      return c.redirect(
+        `/${ownerName}/${repoName}/pulls/${prNum}?error=${encodeURIComponent("Head branch not found")}`
+      );
+    }
+
+    // Check if AI review approved this PR
+    const aiComments = await db
+      .select()
+      .from(prComments)
+      .where(
+        and(
+          eq(prComments.pullRequestId, pr.id),
+          eq(prComments.isAiReview, true)
+        )
+      );
+    const aiApproved = aiComments.length === 0 || aiComments.some(
+      (c) => c.body.includes("**Approved**") || c.body.includes("approved: true") || c.body.toLowerCase().includes("lgtm")
+    );
+
+    // Run all green gate checks (GateTest + mergeability + AI review)
+    const gateResult = await runAllGateChecks(
+      ownerName,
+      repoName,
+      pr.baseBranch,
+      pr.headBranch,
+      headSha,
+      aiApproved
+    );
+
+    // If GateTest or AI review failed (hard blocks), reject the merge
+    const hardFailures = gateResult.checks.filter(
+      (check) => !check.passed && check.name !== "Merge check"
+    );
+    if (hardFailures.length > 0) {
+      const errorMsg = hardFailures
+        .map((f) => `${f.name}: ${f.details}`)
+        .join("; ");
+      return c.redirect(
+        `/${ownerName}/${repoName}/pulls/${prNum}?error=${encodeURIComponent(errorMsg)}`
+      );
+    }
+
+    // Attempt the merge — with auto conflict resolution if needed
     const repoDir = getRepoPath(ownerName, repoName);
-    const mergeProc = Bun.spawn(
-      [
-        "git",
-        "merge-base",
-        "--is-ancestor",
+    const mergeCheck = gateResult.checks.find((c) => c.name === "Merge check");
+    const hasConflicts = mergeCheck && !mergeCheck.passed;
+
+    if (hasConflicts && isAiReviewEnabled()) {
+      // Use Claude to auto-resolve conflicts
+      const mergeResult = await mergeWithAutoResolve(
+        ownerName,
+        repoName,
         pr.baseBranch,
         pr.headBranch,
-      ],
-      { cwd: repoDir, stdout: "pipe", stderr: "pipe" }
-    );
-    await mergeProc.exited;
-
-    // Use git update-ref for fast-forward or create merge commit
-    const ffProc = Bun.spawn(
-      [
-        "git",
-        "update-ref",
-        `refs/heads/${pr.baseBranch}`,
-        `refs/heads/${pr.headBranch}`,
-      ],
-      { cwd: repoDir, stdout: "pipe", stderr: "pipe" }
-    );
-    const ffExit = await ffProc.exited;
-
-    if (ffExit !== 0) {
-      // Fallback: try creating a merge commit via a temporary checkout
-      // For now, just report the error
-      return c.redirect(
-        `/${ownerName}/${repoName}/pulls/${prNum}?error=merge_conflict`
+        `Merge pull request #${pr.number}: ${pr.title}`
       );
+
+      if (!mergeResult.success) {
+        return c.redirect(
+          `/${ownerName}/${repoName}/pulls/${prNum}?error=${encodeURIComponent(mergeResult.error || "Auto-merge failed")}`
+        );
+      }
+
+      // Post a comment about the auto-resolution
+      if (mergeResult.resolvedFiles.length > 0) {
+        await db.insert(prComments).values({
+          pullRequestId: pr.id,
+          authorId: user.id,
+          body: `**Auto-resolved merge conflicts** in:\n${mergeResult.resolvedFiles.map((f) => `- \`${f}\``).join("\n")}\n\nConflicts were automatically resolved by GlueCron AI.`,
+          isAiReview: true,
+        });
+      }
+    } else {
+      // Standard merge — fast-forward or clean merge
+      const ffProc = Bun.spawn(
+        [
+          "git",
+          "update-ref",
+          `refs/heads/${pr.baseBranch}`,
+          `refs/heads/${pr.headBranch}`,
+        ],
+        { cwd: repoDir, stdout: "pipe", stderr: "pipe" }
+      );
+      const ffExit = await ffProc.exited;
+
+      if (ffExit !== 0) {
+        return c.redirect(
+          `/${ownerName}/${repoName}/pulls/${prNum}?error=${encodeURIComponent("Merge failed — unable to update branch ref")}`
+        );
+      }
     }
 
     await db
@@ -659,6 +781,90 @@ pulls.post(
     return c.redirect(`/${ownerName}/${repoName}/pulls/${prNum}`);
   }
 );
+
+/**
+ * Trigger AI code review asynchronously after PR creation.
+ * Runs the diff through Claude and posts review comments.
+ */
+async function triggerAiReview(
+  ownerName: string,
+  repoName: string,
+  prId: string,
+  title: string,
+  body: string | null,
+  baseBranch: string,
+  headBranch: string
+): Promise<void> {
+  const repoDir = getRepoPath(ownerName, repoName);
+
+  // Get the diff between branches
+  const proc = Bun.spawn(
+    ["git", "diff", `${baseBranch}...${headBranch}`],
+    { cwd: repoDir, stdout: "pipe", stderr: "pipe" }
+  );
+  const diffText = await new Response(proc.stdout).text();
+  await proc.exited;
+
+  if (!diffText.trim()) return;
+
+  const result = await reviewDiff(
+    `${ownerName}/${repoName}`,
+    title,
+    body,
+    baseBranch,
+    headBranch,
+    diffText
+  );
+
+  // We need a system user for AI reviews — use the PR author for now
+  // Get the PR to find the author
+  const [pr] = await db
+    .select()
+    .from(pullRequests)
+    .where(eq(pullRequests.id, prId))
+    .limit(1);
+
+  if (!pr) return;
+
+  // Post summary comment
+  const statusEmoji = result.approved ? "**Approved**" : "**Changes Requested**";
+  let commentBody = `## AI Code Review ${statusEmoji}\n\n${result.summary}`;
+
+  if (result.comments.length > 0) {
+    commentBody += "\n\n### Issues Found\n";
+    for (const comment of result.comments) {
+      const location = comment.filePath
+        ? `\`${comment.filePath}${comment.lineNumber ? `:${comment.lineNumber}` : ""}\``
+        : "";
+      commentBody += `\n---\n${location}\n\n${comment.body}\n`;
+    }
+  }
+
+  await db.insert(prComments).values({
+    pullRequestId: prId,
+    authorId: pr.authorId,
+    body: commentBody,
+    isAiReview: true,
+  });
+
+  // Post individual file-level comments
+  for (const comment of result.comments) {
+    if (comment.filePath) {
+      await db.insert(prComments).values({
+        pullRequestId: prId,
+        authorId: pr.authorId,
+        body: comment.body,
+        isAiReview: true,
+        filePath: comment.filePath,
+        lineNumber: comment.lineNumber,
+      });
+    }
+  }
+
+  console.log(
+    `[ai-review] Review posted for PR ${prId}: ${result.approved ? "approved" : "changes requested"}, ${result.comments.length} comments`
+  );
+}
 
 function formatRelative(date: Date | string): string {
   const d = typeof date === "string" ? new Date(date) : date;

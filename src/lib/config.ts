@@ -13,10 +13,16 @@ export const config = {
   get gatetestUrl() {
     return process.env.GATETEST_URL || "https://gatetest.ai/api/scan/run";
   },
+  get gatetestApiKey() {
+    return process.env.GATETEST_API_KEY || "";
+  },
   get crontechDeployUrl() {
     return (
       process.env.CRONTECH_DEPLOY_URL ||
       "https://crontech.ai/api/trpc/tenant.deploy"
     );
+  },
+  get anthropicApiKey() {
+    return process.env.ANTHROPIC_API_KEY || "";
   },
 };

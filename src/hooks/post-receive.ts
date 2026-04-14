@@ -5,6 +5,7 @@
  */
 
 import { config } from "../lib/config";
+import { runGateTestScan } from "../lib/gate";
 
 interface PushRef {
   oldSha: string;
@@ -19,10 +20,24 @@ export async function onPostReceive(
 ): Promise<void> {
   const promises: Promise<void>[] = [];
 
-  // GateTest scan on every push
-  promises.push(triggerGateTest(owner, repo, refs));
+  // GateTest scan on every push (non-blocking, results stored for merge gating)
+  for (const ref of refs) {
+    if (!ref.newSha.startsWith("0000")) {
+      promises.push(
+        runGateTestScan(owner, repo, ref.refName, ref.newSha)
+          .then((result) => {
+            console.log(
+              `[gatetest] ${owner}/${repo} ${ref.refName}: ${result.passed ? "PASSED" : "FAILED"} — ${result.details}`
+            );
+          })
+          .catch((err) => {
+            console.error(`[gatetest] scan error for ${owner}/${repo}:`, err);
+          })
+      );
+    }
+  }
 
-  // Crontech deploy on push to main
+  // Crontech deploy on push to main (only if GateTest passes)
   const mainPush = refs.find(
     (r) => r.refName === "refs/heads/main" && !r.newSha.startsWith("0000")
   );
@@ -31,33 +46,6 @@ export async function onPostReceive(
   }
 
   await Promise.allSettled(promises);
-}
-
-async function triggerGateTest(
-  owner: string,
-  repo: string,
-  refs: PushRef[]
-): Promise<void> {
-  try {
-    const response = await fetch(config.gatetestUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        repository: `${owner}/${repo}`,
-        refs: refs.map((r) => ({
-          ref: r.refName,
-          before: r.oldSha,
-          after: r.newSha,
-        })),
-        source: "gluecron",
-      }),
-    });
-    console.log(
-      `[gatetest] scan triggered for ${owner}/${repo}: ${response.status}`
-    );
-  } catch (err) {
-    console.error(`[gatetest] failed to trigger scan:`, err);
-  }
 }
 
 async function triggerCrontechDeploy(

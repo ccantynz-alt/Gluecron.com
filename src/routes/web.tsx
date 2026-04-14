@@ -342,32 +342,34 @@ web.get("/:owner/:repo", async (c) => {
     );
   }
 
-  const defaultBranch = (await getDefaultBranch(owner, repo)) || "main";
-  const branches = await listBranches(owner, repo);
-  const tree = await getTree(owner, repo, defaultBranch);
-
-  // Get star info if user logged in
-  let starCount = 0;
-  let starred = false;
-  try {
-    const [ownerUser] = await db
-      .select()
-      .from(users)
-      .where(eq(users.username, owner))
-      .limit(1);
-    if (ownerUser) {
-      const [repoRow] = await db
-        .select()
-        .from(repositories)
-        .where(
-          and(
-            eq(repositories.ownerId, ownerUser.id),
-            eq(repositories.name, repo)
+  // Parallelize all independent operations
+  const [defaultBranch, branches] = await Promise.all([
+    getDefaultBranch(owner, repo).then((b) => b || "main"),
+    listBranches(owner, repo),
+  ]);
+  const [tree, starInfo] = await Promise.all([
+    getTree(owner, repo, defaultBranch),
+    // Star info fetched in parallel with tree
+    (async () => {
+      try {
+        const [ownerUser] = await db
+          .select()
+          .from(users)
+          .where(eq(users.username, owner))
+          .limit(1);
+        if (!ownerUser) return { starCount: 0, starred: false };
+        const [repoRow] = await db
+          .select()
+          .from(repositories)
+          .where(
+            and(
+              eq(repositories.ownerId, ownerUser.id),
+              eq(repositories.name, repo)
+            )
           )
-        )
-        .limit(1);
-      if (repoRow) {
-        starCount = repoRow.starCount;
+          .limit(1);
+        if (!repoRow) return { starCount: 0, starred: false };
+        let starred = false;
         if (user) {
           const [star] = await db
             .select()
@@ -381,11 +383,13 @@ web.get("/:owner/:repo", async (c) => {
             .limit(1);
           starred = !!star;
         }
+        return { starCount: repoRow.starCount, starred };
+      } catch {
+        return { starCount: 0, starred: false };
       }
-    }
-  } catch {
-    // DB not available
-  }
+    })(),
+  ]);
+  const { starCount, starred } = starInfo;
 
   if (tree.length === 0) {
     return c.html(
@@ -641,7 +645,12 @@ web.get("/:owner/:repo/commit/:sha", async (c) => {
   const { owner, repo, sha } = c.req.param();
   const user = c.get("user");
 
-  const commit = await getCommit(owner, repo, sha);
+  // Fetch commit, full message, and diff in parallel
+  const [commit, fullMessage, diffResult] = await Promise.all([
+    getCommit(owner, repo, sha),
+    getCommitFullMessage(owner, repo, sha),
+    getDiff(owner, repo, sha),
+  ]);
   if (!commit) {
     return c.html(
       <Layout title="Not Found" user={user}>
@@ -653,8 +662,7 @@ web.get("/:owner/:repo/commit/:sha", async (c) => {
     );
   }
 
-  const fullMessage = await getCommitFullMessage(owner, repo, sha);
-  const { files, raw } = await getDiff(owner, repo, sha);
+  const { files, raw } = diffResult;
 
   return c.html(
     <Layout title={`${commit.message} — ${owner}/${repo}`} user={user}>
@@ -734,7 +742,7 @@ web.get("/:owner/:repo/raw/:ref{.+$}", async (c) => {
     headers: {
       "Content-Type": "application/octet-stream",
       "Content-Disposition": `attachment; filename="${fileName}"`,
-      "Cache-Control": "no-cache",
+      "Cache-Control": "public, max-age=300, stale-while-revalidate=60",
     },
   });
 });

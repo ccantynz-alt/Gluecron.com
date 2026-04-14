@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { logger } from "hono/logger";
 import { cors } from "hono/cors";
+import { compress } from "hono/compress";
 import { Layout } from "./views/layout";
 import gitRoutes from "./routes/git";
 import apiRoutes from "./routes/api";
@@ -20,8 +21,13 @@ import webRoutes from "./routes/web";
 
 const app = new Hono();
 
-// Middleware
-app.use("*", logger());
+// Middleware — compression first (wraps all responses)
+app.use("*", compress());
+// Logger only on non-git routes to avoid overhead on clone/push
+app.use("*", async (c, next) => {
+  if (c.req.path.includes(".git/")) return next();
+  return logger()(c, next);
+});
 app.use("/api/*", cors());
 
 // Git Smart HTTP protocol routes (must be before web routes)

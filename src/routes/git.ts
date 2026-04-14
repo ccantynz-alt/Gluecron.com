@@ -8,6 +8,7 @@ import { Hono } from "hono";
 import { getInfoRefs, serviceRpc } from "../git/protocol";
 import { repoExists } from "../git/repository";
 import { onPostReceive } from "../hooks/post-receive";
+import { invalidateRepoCache } from "../lib/cache";
 
 const git = new Hono();
 
@@ -63,6 +64,9 @@ git.post("/:owner/:repo.git/git-receive-pack", async (c) => {
     "git-receive-pack",
     bodyBuffer
   );
+
+  // Invalidate cached git data for this repo immediately
+  invalidateRepoCache(owner, repo);
 
   // Fire post-receive hooks asynchronously (don't block response)
   // We parse updated refs from the pkt-line protocol in the request

@@ -4,6 +4,8 @@ import { cors } from "hono/cors";
 import { Layout } from "./views/layout";
 import gitRoutes from "./routes/git";
 import apiRoutes from "./routes/api";
+import apiV2Routes from "./routes/api-v2";
+import apiDocsRoutes from "./routes/api-docs";
 import authRoutes from "./routes/auth";
 import settingsRoutes from "./routes/settings";
 import issueRoutes from "./routes/issues";
@@ -17,6 +19,7 @@ import exploreRoutes from "./routes/explore";
 import tokenRoutes from "./routes/tokens";
 import contributorRoutes from "./routes/contributors";
 import webRoutes from "./routes/web";
+import { authRateLimit } from "./middleware/rate-limit";
 
 const app = new Hono();
 
@@ -24,11 +27,21 @@ const app = new Hono();
 app.use("*", logger());
 app.use("/api/*", cors());
 
+// Rate limit auth routes
+app.use("/login", authRateLimit);
+app.use("/register", authRateLimit);
+
 // Git Smart HTTP protocol routes (must be before web routes)
 app.route("/", gitRoutes);
 
-// REST API
+// REST API v1 (legacy)
 app.route("/", apiRoutes);
+
+// REST API v2 (comprehensive, token-authenticated)
+app.route("/", apiV2Routes);
+
+// API documentation
+app.route("/", apiDocsRoutes);
 
 // Auth routes (register, login, logout)
 app.route("/", authRoutes);

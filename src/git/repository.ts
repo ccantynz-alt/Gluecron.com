@@ -216,22 +216,21 @@ export async function getTree(
     .trim()
     .split("\n")
     .filter(Boolean)
-    .map((line) => {
-      // format: <mode> <type> <sha>\t<size>\t<name>
-      // Actually: <mode> SP <type> SP <sha> SP <size> TAB <name>
+    .reduce<GitTreeEntry[]>((acc, line) => {
       const match = line.match(
         /^(\d+)\s+(blob|tree|commit)\s+([0-9a-f]+)\s+(-|\d+)\t(.+)$/
       );
-      if (!match) return null;
-      return {
-        mode: match[1],
-        type: match[2] as "blob" | "tree" | "commit",
-        sha: match[3],
-        size: match[4] === "-" ? undefined : parseInt(match[4], 10),
-        name: match[5],
-      };
-    })
-    .filter((e): e is GitTreeEntry => e !== null)
+      if (match) {
+        acc.push({
+          mode: match[1],
+          type: match[2] as "blob" | "tree" | "commit",
+          sha: match[3],
+          size: match[4] === "-" ? undefined : parseInt(match[4], 10),
+          name: match[5],
+        });
+      }
+      return acc;
+    }, [])
     .sort((a, b) => {
       // directories first, then files
       if (a.type === "tree" && b.type !== "tree") return -1;

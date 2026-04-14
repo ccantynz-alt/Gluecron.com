@@ -48,7 +48,7 @@ api.post("/repos", async (c) => {
   const diskPath = await initBareRepo(body.owner, body.name);
 
   // Insert into DB
-  const [repo] = await db
+  const result = await db
     .insert(repositories)
     .values({
       name: body.name,
@@ -59,7 +59,7 @@ api.post("/repos", async (c) => {
     })
     .returning();
 
-  return c.json(repo, 201);
+  return c.json(result[0], 201);
 });
 
 // List user's repositories

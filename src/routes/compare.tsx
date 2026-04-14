@@ -49,7 +49,7 @@ compare.get("/:owner/:repo/compare/:spec?", async (c) => {
         <IssueNav owner={owner} repo={repo} active="code" />
         <h2 style="margin-bottom: 16px">Compare changes</h2>
         <form
-          method="GET"
+          method="get"
           action={`/${owner}/${repo}/compare`}
           style="display: flex; gap: 12px; align-items: center; margin-bottom: 20px"
         >

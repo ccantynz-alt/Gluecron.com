@@ -30,7 +30,7 @@ settings.get("/settings", (c) => {
             {decodeURIComponent(success)}
           </div>
         )}
-        <form method="POST" action="/settings/profile">
+        <form method="post" action="/settings/profile">
           <div class="form-group">
             <label for="username">Username</label>
             <input
@@ -147,7 +147,7 @@ settings.get("/settings/keys", async (c) => {
                     )}
                   </div>
                 </div>
-                <form method="POST" action={`/settings/keys/${key.id}/delete`}>
+                <form method="post" action={`/settings/keys/${key.id}/delete`}>
                   <button type="submit" class="btn btn-danger btn-sm">
                     Delete
                   </button>
@@ -158,7 +158,7 @@ settings.get("/settings/keys", async (c) => {
         </div>
 
         <h3 style="margin-top: 24px">Add new SSH key</h3>
-        <form method="POST" action="/settings/keys">
+        <form method="post" action="/settings/keys">
           <div class="form-group">
             <label for="title">Title</label>
             <input

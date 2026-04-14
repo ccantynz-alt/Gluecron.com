@@ -84,7 +84,7 @@ webhookRoutes.get(
                     </div>
                   </div>
                   <form
-                    method="POST"
+                    method="post"
                     action={`/${ownerName}/${repoName}/settings/webhooks/${hook.id}/delete`}
                   >
                     <button type="submit" class="btn btn-danger btn-sm">
@@ -98,7 +98,7 @@ webhookRoutes.get(
 
           <h3 style="margin-bottom: 12px">Add webhook</h3>
           <form
-            method="POST"
+            method="post"
             action={`/${ownerName}/${repoName}/settings/webhooks`}
           >
             <div class="form-group">

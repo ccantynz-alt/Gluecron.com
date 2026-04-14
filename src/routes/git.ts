@@ -11,9 +11,18 @@ import { onPostReceive } from "../hooks/post-receive";
 
 const git = new Hono();
 
+/** Extract repo name from the ":repo.git" param Hono generates. */
+function gitParams(c: any): { owner: string; repo: string } {
+  const params = c.req.param();
+  const owner: string = params.owner;
+  const raw: string = params["repo.git"] ?? params.repo ?? "";
+  const repo = raw.replace(/\.git$/, "");
+  return { owner, repo };
+}
+
 // Discovery: GET /:owner/:repo.git/info/refs?service=...
 git.get("/:owner/:repo.git/info/refs", async (c) => {
-  const { owner, repo } = c.req.param();
+  const { owner, repo } = gitParams(c);
   const service = c.req.query("service");
 
   if (!service || !["git-upload-pack", "git-receive-pack"].includes(service)) {
@@ -29,7 +38,7 @@ git.get("/:owner/:repo.git/info/refs", async (c) => {
 
 // GET /:owner/:repo.git/HEAD
 git.get("/:owner/:repo.git/HEAD", async (c) => {
-  const { owner, repo } = c.req.param();
+  const { owner, repo } = gitParams(c);
   if (!(await repoExists(owner, repo))) {
     return c.text("Repository not found", 404);
   }
@@ -41,7 +50,7 @@ git.get("/:owner/:repo.git/HEAD", async (c) => {
 
 // Upload pack (clone/fetch)
 git.post("/:owner/:repo.git/git-upload-pack", async (c) => {
-  const { owner, repo } = c.req.param();
+  const { owner, repo } = gitParams(c);
   if (!(await repoExists(owner, repo))) {
     return c.text("Repository not found", 404);
   }
@@ -50,7 +59,7 @@ git.post("/:owner/:repo.git/git-upload-pack", async (c) => {
 
 // Receive pack (push)
 git.post("/:owner/:repo.git/git-receive-pack", async (c) => {
-  const { owner, repo } = c.req.param();
+  const { owner, repo } = gitParams(c);
   if (!(await repoExists(owner, repo))) {
     return c.text("Repository not found", 404);
   }

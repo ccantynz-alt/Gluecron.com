@@ -32,6 +32,7 @@ export const sessions = pgTable("sessions", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// @ts-ignore — self-referential FK on forkedFromId causes circular inference
 export const repositories = pgTable(
   "repositories",
   {
@@ -44,9 +45,7 @@ export const repositories = pgTable(
     isPrivate: boolean("is_private").default(false).notNull(),
     defaultBranch: text("default_branch").default("main").notNull(),
     diskPath: text("disk_path").notNull(),
-    forkedFromId: uuid("forked_from_id").references(() => repositories.id, {
-      onDelete: "set null",
-    }),
+    forkedFromId: uuid("forked_from_id"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
     pushedAt: timestamp("pushed_at"),

@@ -67,7 +67,7 @@ repoSettings.get("/:owner/:repo/settings", requireAuth, async (c) => {
         )}
 
         <form
-          method="POST"
+          method="post"
           action={`/${ownerName}/${repoName}/settings`}
         >
           <div class="form-group">
@@ -132,7 +132,7 @@ repoSettings.get("/:owner/:repo/settings", requireAuth, async (c) => {
             Permanently delete this repository and all its data.
           </p>
           <form
-            method="POST"
+            method="post"
             action={`/${ownerName}/${repoName}/settings/delete`}
             onsubmit="return confirm('Are you sure? This cannot be undone.')"
           >

@@ -823,3 +823,57 @@ export const userRecoveryCodes = pgTable(
 
 export type UserTotp = typeof userTotp.$inferSelect;
 export type UserRecoveryCode = typeof userRecoveryCodes.$inferSelect;
+
+/**
+ * WebAuthn passkeys (Block B5).
+ *
+ * Each row is one registered authenticator. The `credentialId` is the
+ * globally-unique identifier the browser returns; `publicKey` is the
+ * COSE-encoded public key we use to verify signatures. `counter` tracks
+ * the authenticator's signature counter for replay-protection.
+ *
+ * `transports` is a JSON array (stored as text) of the
+ * AuthenticatorTransport values ("usb" | "nfc" | "ble" | "internal" | "hybrid").
+ */
+export const userPasskeys = pgTable(
+  "user_passkeys",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    credentialId: text("credential_id").notNull().unique(),
+    publicKey: text("public_key").notNull(), // base64url of COSE key
+    counter: integer("counter").default(0).notNull(),
+    transports: text("transports"), // JSON array string
+    name: text("name").notNull().default("Passkey"),
+    lastUsedAt: timestamp("last_used_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [index("passkeys_user").on(table.userId)]
+);
+
+/**
+ * Short-lived WebAuthn challenges. A row is written when we issue options
+ * (registration or authentication) and deleted after the verify step or when
+ * it expires (5 min). Keeping them in the DB lets us verify without sticky
+ * sessions or client-side state.
+ */
+export const webauthnChallenges = pgTable(
+  "webauthn_challenges",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
+    // For passwordless login we don't know the user yet, so userId is nullable
+    // and we bind the challenge to a short-lived cookie token instead.
+    sessionKey: text("session_key").notNull().unique(),
+    challenge: text("challenge").notNull(),
+    kind: text("kind").notNull(), // "register" | "authenticate"
+    expiresAt: timestamp("expires_at").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [index("webauthn_challenges_expires").on(table.expiresAt)]
+);
+
+export type UserPasskey = typeof userPasskeys.$inferSelect;
+export type WebauthnChallenge = typeof webauthnChallenges.$inferSelect;

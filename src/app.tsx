@@ -35,6 +35,7 @@ import reactionRoutes from "./routes/reactions";
 import savedReplyRoutes from "./routes/saved-replies";
 import deploymentRoutes from "./routes/deployments";
 import orgRoutes from "./routes/orgs";
+import passkeyRoutes from "./routes/passkeys";
 import webRoutes from "./routes/web";
 
 const app = new Hono();
@@ -74,6 +75,9 @@ app.route("/", settingsRoutes);
 
 // 2FA / TOTP settings (Block B4)
 app.route("/", settings2faRoutes);
+
+// WebAuthn / passkey routes (Block B5)
+app.route("/", passkeyRoutes);
 
 // Theme toggle (dark/light cookie)
 app.route("/", themeRoutes);

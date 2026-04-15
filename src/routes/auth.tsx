@@ -193,9 +193,105 @@ auth.get("/login", (c) => {
             Sign in
           </button>
         </form>
+        <div
+          style="margin: 16px 0; text-align: center; color: var(--text-muted); font-size: 12px"
+        >
+          — or —
+        </div>
+        <div style="text-align: center">
+          <button
+            type="button"
+            id="pk-signin-btn"
+            class="btn"
+            style="width: 100%"
+          >
+            Sign in with passkey
+          </button>
+          <div
+            id="pk-signin-status"
+            style="margin-top: 8px; color: var(--text-muted); font-size: 12px; min-height: 16px"
+          />
+        </div>
         <p class="auth-switch">
           New to gluecron? <a href="/register">Create an account</a>
         </p>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: /* js */ `
+              (function () {
+                const btn = document.getElementById('pk-signin-btn');
+                const status = document.getElementById('pk-signin-status');
+                const userInput = document.getElementById('username');
+                const redirect = ${JSON.stringify(redirect || "/")};
+                if (!btn) return;
+                function b64uToBuf(s) {
+                  s = s.replace(/-/g,'+').replace(/_/g,'/');
+                  while (s.length % 4) s += '=';
+                  const bin = atob(s);
+                  const buf = new Uint8Array(bin.length);
+                  for (let i=0;i<bin.length;i++) buf[i] = bin.charCodeAt(i);
+                  return buf.buffer;
+                }
+                function bufToB64u(buf) {
+                  const bytes = new Uint8Array(buf);
+                  let bin = '';
+                  for (let i=0;i<bytes.length;i++) bin += String.fromCharCode(bytes[i]);
+                  return btoa(bin).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,'');
+                }
+                btn.addEventListener('click', async function () {
+                  if (!window.PublicKeyCredential) {
+                    status.textContent = 'Passkeys not supported in this browser.';
+                    return;
+                  }
+                  status.textContent = 'Preparing…';
+                  try {
+                    const username = (userInput && userInput.value || '').trim();
+                    const optsRes = await fetch('/api/passkeys/auth/options', {
+                      method: 'POST',
+                      headers: { 'content-type': 'application/json' },
+                      body: JSON.stringify(username ? { username: username } : {})
+                    });
+                    if (!optsRes.ok) throw new Error('options failed');
+                    const { options, sessionKey } = await optsRes.json();
+                    options.challenge = b64uToBuf(options.challenge);
+                    if (options.allowCredentials) {
+                      options.allowCredentials = options.allowCredentials.map(function (c) {
+                        return Object.assign({}, c, { id: b64uToBuf(c.id) });
+                      });
+                    }
+                    status.textContent = 'Touch your authenticator…';
+                    const cred = await navigator.credentials.get({ publicKey: options });
+                    const resp = {
+                      id: cred.id,
+                      rawId: bufToB64u(cred.rawId),
+                      type: cred.type,
+                      response: {
+                        clientDataJSON: bufToB64u(cred.response.clientDataJSON),
+                        authenticatorData: bufToB64u(cred.response.authenticatorData),
+                        signature: bufToB64u(cred.response.signature),
+                        userHandle: cred.response.userHandle ? bufToB64u(cred.response.userHandle) : null
+                      },
+                      clientExtensionResults: cred.getClientExtensionResults ? cred.getClientExtensionResults() : {}
+                    };
+                    const verifyRes = await fetch('/api/passkeys/auth/verify', {
+                      method: 'POST',
+                      headers: { 'content-type': 'application/json' },
+                      body: JSON.stringify({ sessionKey: sessionKey, response: resp })
+                    });
+                    if (!verifyRes.ok) {
+                      const j = await verifyRes.json().catch(function () { return {}; });
+                      throw new Error(j.error || 'verify failed');
+                    }
+                    status.textContent = 'Signed in. Redirecting…';
+                    window.location.href = redirect;
+                  } catch (e) {
+                    status.textContent = 'Error: ' + (e && e.message ? e.message : e);
+                  }
+                });
+              })();
+            `,
+          }}
+        />
       </div>
     </Layout>
   );

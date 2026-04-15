@@ -744,3 +744,53 @@ describe("2FA routes (B4)", () => {
     expect(loc.startsWith("/login")).toBe(true);
   });
 });
+
+describe("passkeys routes (B5)", () => {
+  it("GET /settings/passkeys redirects unauthenticated users to /login", async () => {
+    const res = await app.request("/settings/passkeys");
+    expect([301, 302, 303, 307]).toContain(res.status);
+    const loc = res.headers.get("location") || "";
+    expect(loc.startsWith("/login")).toBe(true);
+  });
+
+  it("POST /api/passkeys/register/options redirects unauthenticated users to /login", async () => {
+    const res = await app.request("/api/passkeys/register/options", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    expect([301, 302, 303, 307]).toContain(res.status);
+    const loc = res.headers.get("location") || "";
+    expect(loc.startsWith("/login")).toBe(true);
+  });
+
+  it("POST /api/passkeys/auth/verify returns 400 when body is invalid", async () => {
+    const res = await app.request("/api/passkeys/auth/verify", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "not json",
+    });
+    // Either 400 (bad JSON) or 503 (DB down) — never a 500.
+    expect([400, 503]).toContain(res.status);
+  });
+
+  it("POST /api/passkeys/auth/verify rejects missing fields", async () => {
+    const res = await app.request("/api/passkeys/auth/verify", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    expect([400, 503]).toContain(res.status);
+  });
+
+  it("POST /settings/passkeys/:id/delete redirects unauthenticated users to /login", async () => {
+    const res = await app.request("/settings/passkeys/abc/delete", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: "",
+    });
+    expect([301, 302, 303, 307]).toContain(res.status);
+    const loc = res.headers.get("location") || "";
+    expect(loc.startsWith("/login")).toBe(true);
+  });
+});

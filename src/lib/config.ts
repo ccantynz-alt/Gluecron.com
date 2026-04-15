@@ -45,4 +45,25 @@ export const config = {
       ""
     );
   },
+  /**
+   * WebAuthn relying-party ID (domain only, no scheme/port). Derived from
+   * appBaseUrl unless overridden. Passkeys issued for one RP ID can't be
+   * replayed against another, so this must be stable.
+   */
+  get webauthnRpId() {
+    if (process.env.WEBAUTHN_RP_ID) return process.env.WEBAUTHN_RP_ID;
+    try {
+      return new URL(this.appBaseUrl).hostname;
+    } catch {
+      return "localhost";
+    }
+  },
+  /** WebAuthn expected origin (must include scheme + port). */
+  get webauthnOrigin() {
+    return process.env.WEBAUTHN_ORIGIN || this.appBaseUrl;
+  },
+  /** Human-facing RP name shown by the browser. */
+  get webauthnRpName() {
+    return process.env.WEBAUTHN_RP_NAME || "gluecron";
+  },
 };

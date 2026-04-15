@@ -87,6 +87,7 @@ import branchRenameRoutes from "./routes/branch-rename";
 import responseTimeRoutes from "./routes/response-time";
 import branchAgeRoutes from "./routes/branch-age";
 import issueSimilarityRoutes from "./routes/issue-similarity";
+import prLeadTimeRoutes from "./routes/pr-lead-time";
 import webRoutes from "./routes/web";
 
 const app = new Hono();
@@ -315,6 +316,10 @@ app.route("/", responseTimeRoutes);
 // Must be mounted BEFORE webRoutes so the static `/branches/age` path wins
 // over the `/:owner/:repo/tree/:branch` dynamic web catch-all.
 app.route("/", branchAgeRoutes);
+
+// PR lead-time metric — /:owner/:repo/insights/lead-time (Block J29)
+// Mounted alongside response-time before insightsRoutes.
+app.route("/", prLeadTimeRoutes);
 
 // Insights + milestones
 app.route("/", insightsRoutes);

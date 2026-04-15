@@ -159,6 +159,12 @@ insights.get("/:owner/:repo/insights", async (c) => {
             Response time &rarr;
           </a>
           <a
+            href={`/${owner}/${repo}/insights/lead-time`}
+            style="font-size: 12px; color: var(--accent)"
+          >
+            Lead time &rarr;
+          </a>
+          <a
             href={`/${owner}/${repo}/pulse`}
             style="font-size: 12px; color: var(--accent)"
           >

@@ -144,12 +144,12 @@ Legend: ✅ shipped · 🟡 partial · ❌ not built
 | Enterprise SAML / SSO | ❌ | |
 | 2FA / TOTP | ✅ | `src/routes/settings-2fa.tsx`, `src/lib/totp.ts`; `user_totp` + `user_recovery_codes` tables |
 | Passkeys / WebAuthn | ✅ | `src/routes/passkeys.tsx`, `src/lib/webauthn.ts`; `user_passkeys` + `webauthn_challenges` tables |
-| Packages registry (npm / docker / etc) | ❌ | |
-| Pages / static hosting | ❌ | |
+| Packages registry (npm / docker / etc) | ✅ | `src/lib/packages.ts`, `src/routes/packages-api.ts`, `src/routes/packages.tsx`; npm protocol (packument, tarball, publish, yank); PAT (`glc_`) auth via Authorization header; container registry deferred |
+| Pages / static hosting | ✅ | `src/lib/pages.ts`, `src/routes/pages.tsx`; serves blobs from bare git at latest `gh-pages` commit; per-repo settings (source branch/dir, custom domain); short-cache headers |
 | Gists | ❌ | |
 | Sponsors | ❌ | |
 | Marketplace | ❌ | |
-| Environments / deployment tracking | ✅ | `src/routes/deployments.tsx` — grouped by env, success-rate rollup, per-deploy detail |
+| Environments / deployment tracking | ✅ | `src/routes/deployments.tsx` — grouped by env, success-rate rollup, per-deploy detail. Protected environments (`src/routes/environments.tsx`, `src/lib/environments.ts`) with reviewer-gated approval, branch-glob restrictions, approve/reject decisions recorded in `deployment_approvals` |
 | Merge queues | ❌ | |
 | Required checks matrix | 🟡 | branch_protection has single flag, no matrix |
 
@@ -208,9 +208,18 @@ Polish what's shipped before adding more. **Priority: do this first if parity ga
   - Background worker (`src/lib/workflow-runner.ts`) — Bun.spawn, size-capped logs, SIGTERM→SIGKILL timeouts
   - Auto-discovery from `.gluecron/workflows/*.yml` on default-branch push
   - UI at `/:owner/:repo/actions` with manual trigger + cancel
-- **C2** — Package registry (npm + container protocol)
-- **C3** — Pages / static hosting (`gh-pages` branch → served at `<owner>.<repo>.pages.gluecron.com`)
-- **C4** — Environments (prod/staging/preview) with protected approvals
+- **C2** — Package registry (npm protocol) → ✅ shipped
+  - Packument + tarball + publish + yank via `PUT /npm/<name>` + `GET /npm/<name>`
+  - PAT (`glc_`) bearer auth for CLI clients; add `//host/npm/:_authToken=<PAT>` to .npmrc
+  - Container registry deferred (schema ready for it)
+- **C3** — Pages / static hosting → ✅ shipped
+  - Serves `/:owner/:repo/pages/*` from the latest successful `pages_deployments` row
+  - Auto-records on push to the repo's configured source branch (default `gh-pages`)
+  - Settings UI at `/:owner/:repo/settings/pages` + manual redeploy
+- **C4** — Environments with protected approvals → ✅ shipped
+  - Per-repo `environments` with reviewer list + branch-glob allowlist
+  - Auto-deploy on main is gated by `requiresApprovalFor()`; pending rows show status `pending_approval`
+  - Approve/reject at `POST /:owner/:repo/deployments/:id/approve|reject`
 
 ### BLOCK D — AI-native differentiation
 This is where GlueCron beats GitHub outright. **Priority: ship these loud.**
@@ -268,6 +277,9 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `drizzle/0006_webauthn_passkeys.sql` (Block B5) — migration, never edited in place
 - `drizzle/0007_oauth_provider.sql` (Block B6) — migration, never edited in place
 - `drizzle/0008_workflows.sql` (Block C1) — migration, never edited in place
+- `drizzle/0009_packages.sql` (Block C2) — migration, never edited in place
+- `drizzle/0010_pages.sql` (Block C3) — migration, never edited in place
+- `drizzle/0011_environments.sql` (Block C4) — migration, never edited in place
 
 ### 4.2 Git layer (locked)
 - `src/git/repository.ts` — tree / blob / commits / diff / branches / blame / search / raw / tags / commitsBetween
@@ -276,7 +288,7 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 
 ### 4.3 Auth + security (locked)
 - `src/lib/auth.ts` — bcrypt, session tokens
-- `src/middleware/auth.ts` — softAuth + requireAuth
+- `src/middleware/auth.ts` — softAuth + requireAuth. Accepts three auth inputs: session cookie (web), OAuth access token (`glct_` prefix, Block B6), and personal access token (`glc_` prefix, Block C2). Invalid bearer → 401 JSON. Cookie flow → /login redirect.
 - `src/middleware/rate-limit.ts` — fixed-window limiter
 - `src/middleware/request-context.ts` — request-ID
 - `src/lib/security-scan.ts` — `SECRET_PATTERNS` (exported) + `scanForSecrets` + `aiSecurityScan`
@@ -286,6 +298,9 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `src/lib/oauth.ts` (Block B6) — OAuth 2.0 provider: authorization code grant, token issuance, scope enforcement
 - `src/lib/workflow-parser.ts` (Block C1) — YAML subset parser for `.gluecron/workflows/*.yml`. Exports `parseWorkflow(src)` returning `{ ok, workflow | error }`. Never throws.
 - `src/lib/workflow-runner.ts` (Block C1) — shell executor. Exports `executeRun`, `drainOneRun`, `enqueueRun`, `startWorker`. Clones repo to tmpdir, runs each job via `Bun.spawn(["bash","-c",step.run])` with SIGTERM→SIGKILL timeouts, size-capped stdout/stderr, cleans up in `finally`.
+- `src/lib/packages.ts` (Block C2) — npm protocol helpers: `parsePackageName`, `computeShasum` (sha1), `computeIntegrity` (sha512 base64), `buildPackument`, `resolveRepoFromPackageJson`, `parseRepoUrl`, `tarballFilename`. Pure functions.
+- `src/lib/pages.ts` (Block C3) — `onPagesPush` (never throws), `resolvePagesPath` (probe list including pretty URLs + traversal strip), `contentTypeFor` (MIME).
+- `src/lib/environments.ts` (Block C4) — `matchGlob`, `listEnvironments`, `getOrCreateEnvironment`, `getEnvironmentByName`, `isReviewer`, `reviewerIdsOf`, `allowedBranchesOf`, `computeApprovalState`, `reduceApprovalState`, `recordApproval`, `requiresApprovalFor`. Empty reviewers list → repo owner approves. Any rejection hard-stops.
 
 ### 4.4 AI layer (locked)
 - `src/lib/ai-client.ts` — Anthropic client + model constants
@@ -342,6 +357,10 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `src/routes/oauth.tsx` (Block B6) — OAuth 2.0 authorize + token + userinfo endpoints.
 - `src/routes/developer-apps.tsx` (Block B6) — developer-facing OAuth app CRUD (`/settings/developer/apps`), client secret rotation, audit-logged.
 - `src/routes/workflows.tsx` (Block C1) — Actions UI. `GET /:owner/:repo/actions`, `GET /:owner/:repo/actions/runs/:runId`, `POST /:owner/:repo/actions/:workflowId/run` (auth+owner), `POST /:owner/:repo/actions/runs/:runId/cancel` (auth+owner). Manual runs are `event=manual`, ref=default branch.
+- `src/routes/packages-api.ts` (Block C2) — npm protocol: `GET/PUT/DELETE /npm/*` (packument, tarball, publish, yank); JSON helpers at `/api/packages/:owner/:repo/...`. PAT (`glc_`) bearer auth.
+- `src/routes/packages.tsx` (Block C2) — UI: `/:owner/:repo/packages` list + `/:owner/:repo/packages/:pkgName` detail.
+- `src/routes/pages.tsx` (Block C3) — `GET /:owner/:repo/pages/*` serves static files from latest gh-pages commit (binary via `getRawBlob`, text via `getBlob`). `GET/POST /:owner/:repo/settings/pages` settings + redeploy.
+- `src/routes/environments.tsx` (Block C4) — settings CRUD at `/:owner/:repo/settings/environments`; approval endpoints at `/:owner/:repo/deployments/:id/{approve,reject}`.
 
 ### 4.7 Views (locked contracts)
 - `src/views/layout.tsx` — `Layout` accepts `title`, `user`, `notificationCount`

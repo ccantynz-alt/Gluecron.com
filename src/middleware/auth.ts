@@ -11,7 +11,7 @@ import { createMiddleware } from "hono/factory";
 import { getCookie } from "hono/cookie";
 import { eq, gt } from "drizzle-orm";
 import { db } from "../db";
-import { sessions, users, oauthAccessTokens } from "../db/schema";
+import { sessions, users, oauthAccessTokens, apiTokens } from "../db/schema";
 import type { User } from "../db/schema";
 import { sessionCache } from "../lib/cache";
 import { sha256Hex } from "../lib/oauth";
@@ -62,6 +62,44 @@ async function loadUserFromBearer(
 }
 
 /**
+ * C2: Personal access tokens (`glc_` prefix) for CLI clients like `npm publish`.
+ * PAT storage lives in `api_tokens`; token body is stored as SHA-256 hex.
+ * Scopes are comma-separated in the row; return as array so callers can check.
+ */
+async function loadUserFromPat(
+  token: string
+): Promise<{ user: User; scopes: string[] } | null> {
+  if (!token.startsWith("glc_")) return null;
+  try {
+    const hash = await sha256Hex(token);
+    const [row] = await db
+      .select()
+      .from(apiTokens)
+      .where(eq(apiTokens.tokenHash, hash))
+      .limit(1);
+    if (!row) return null;
+    if (row.expiresAt && new Date(row.expiresAt) < new Date()) return null;
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(eq(users.id, row.userId))
+      .limit(1);
+    if (!user) return null;
+    db
+      .update(apiTokens)
+      .set({ lastUsedAt: new Date() })
+      .where(eq(apiTokens.id, row.id))
+      .catch(() => {});
+    return {
+      user,
+      scopes: row.scopes ? row.scopes.split(/[,\s]+/).filter(Boolean) : [],
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Soft auth — sets c.get("user") to the current user or null.
  * Does NOT block unauthenticated requests.
  * Caches session->user mapping for 2 minutes to avoid DB roundtrip per request.
@@ -77,6 +115,14 @@ export const softAuth = createMiddleware<AuthEnv>(async (c, next) => {
         c.set("user", result.user);
         c.set("oauthScopes", result.scopes);
         c.set("oauthAppId", result.appId);
+        return next();
+      }
+    } else if (bearer.startsWith("glc_")) {
+      // C2: Personal access tokens for CLI clients (npm, git HTTP, etc.).
+      const result = await loadUserFromPat(bearer);
+      if (result) {
+        c.set("user", result.user);
+        c.set("oauthScopes", result.scopes);
         return next();
       }
     }
@@ -146,6 +192,16 @@ export const requireAuth = createMiddleware<AuthEnv>(async (c, next) => {
       }
       // Bearer token was presented but invalid — return 401 instead of
       // redirecting to /login (API clients don't follow HTML redirects).
+      return c.json({ error: "Invalid or expired token" }, 401);
+    }
+    if (bearer.startsWith("glc_")) {
+      // C2: Personal access tokens for CLI clients.
+      const result = await loadUserFromPat(bearer);
+      if (result) {
+        c.set("user", result.user);
+        c.set("oauthScopes", result.scopes);
+        return next();
+      }
       return c.json({ error: "Invalid or expired token" }, 401);
     }
   }

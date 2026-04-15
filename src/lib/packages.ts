@@ -107,12 +107,11 @@ export function parseRepoUrl(
   // Strip a "git+" prefix ("git+https://..."").
   if (url.startsWith("git+")) url = url.slice(4);
 
-  // Shorthand "github:owner/repo" — we accept any "host:owner/repo" form and
-  // treat the bit after ':' as "owner/repo" if it contains a slash.
-  if (/^[a-z0-9_-]+:/i.test(url) && !url.startsWith("http")) {
-    const colon = url.indexOf(":");
+  // SCP-style: "user@host:owner/repo.git" — everything after the colon is
+  // the path we want. Accept either "git@host:a/b" or just "host:a/b".
+  if (!url.includes("://") && url.includes(":") && url.includes("/")) {
+    const colon = url.lastIndexOf(":");
     const tail = url.slice(colon + 1);
-    // SCP-style git@host:owner/repo.git
     if (tail.includes("/")) {
       return splitOwnerRepo(tail);
     }

@@ -27,9 +27,11 @@ import { getOrCreateSettings } from "../lib/repo-bootstrap";
 import { getBlob, getDefaultBranch, getTree } from "../git/repository";
 import { parseCodeowners, syncCodeowners } from "../lib/codeowners";
 import { notify } from "../lib/notify";
-import { workflows } from "../db/schema";
+import { workflows, pagesSettings } from "../db/schema";
 import { parseWorkflow } from "../lib/workflow-parser";
 import { enqueueRun } from "../lib/workflow-runner";
+import { onPagesPush } from "../lib/pages";
+import { requiresApprovalFor } from "../lib/environments";
 
 interface PushRef {
   oldSha: string;
@@ -209,6 +211,42 @@ export async function onPostReceive(
     }
   }
 
+  // --- 2c. Pages (Block C3) ---
+  // On any push, if the ref matches the configured pages source branch,
+  // record a pages_deployments row. Fire-and-forget; onPagesPush never throws.
+  if (repoRow) {
+    let pagesBranch = "gh-pages";
+    try {
+      const [pSettings] = await db
+        .select()
+        .from(pagesSettings)
+        .where(eq(pagesSettings.repositoryId, repoRow.id))
+        .limit(1);
+      if (pSettings) {
+        if (pSettings.enabled === false) pagesBranch = "";
+        else pagesBranch = pSettings.sourceBranch || "gh-pages";
+      }
+    } catch {
+      /* fall back to default */
+    }
+
+    if (pagesBranch) {
+      for (const ref of refs) {
+        if (ref.newSha.startsWith("0000")) continue;
+        if (ref.refName === `refs/heads/${pagesBranch}`) {
+          void onPagesPush({
+            ownerLogin: owner,
+            repoName: repo,
+            repositoryId: repoRow.id,
+            ref: ref.refName,
+            newSha: ref.newSha,
+            triggeredByUserId: ownerRow?.id || null,
+          });
+        }
+      }
+    }
+  }
+
   // --- 3. Gates ---
   const settings = repoRow ? await getOrCreateSettings(repoRow.id) : null;
 
@@ -263,8 +301,34 @@ export async function onPostReceive(
   }
 
   // --- 4. Auto-deploy (only on default branch + green settings) ---
+  // Block C4: if a "production" environment is configured with approval
+  // required, insert a pending_approval deployment row instead of firing.
   if (mainRef && settings?.autoDeployEnabled !== false && repoRow) {
-    promises.push(triggerCrontechDeploy(owner, repo, mainRef.newSha, repoRow.id));
+    const gate = await requiresApprovalFor(
+      repoRow.id,
+      "production",
+      mainRef.refName
+    ).catch(() => ({ required: false, env: null as null }));
+
+    if (gate.required && gate.env) {
+      try {
+        await db.insert(deployments).values({
+          repositoryId: repoRow.id,
+          environment: "production",
+          commitSha: mainRef.newSha,
+          ref: mainRef.refName,
+          status: "pending_approval",
+          target: "crontech",
+          blockedReason: `awaiting approval for environment '${gate.env.name}'`,
+        });
+      } catch (err) {
+        console.error("[post-receive] pending_approval insert:", err);
+      }
+    } else {
+      promises.push(
+        triggerCrontechDeploy(owner, repo, mainRef.newSha, repoRow.id)
+      );
+    }
   }
 
   // --- 5. Webhook fan-out ---

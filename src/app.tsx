@@ -39,6 +39,10 @@ import passkeyRoutes from "./routes/passkeys";
 import oauthRoutes from "./routes/oauth";
 import developerAppsRoutes from "./routes/developer-apps";
 import workflowRoutes from "./routes/workflows";
+import packagesApiRoutes from "./routes/packages-api";
+import packagesUiRoutes from "./routes/packages";
+import pagesRoutes from "./routes/pages";
+import environmentsRoutes from "./routes/environments";
 import webRoutes from "./routes/web";
 
 const app = new Hono();
@@ -151,6 +155,16 @@ app.route("/", gateRoutes);
 
 // Actions-equivalent workflow runner (Block C1)
 app.route("/", workflowRoutes);
+
+// Package registry — npm protocol + UI (Block C2)
+app.route("/", packagesApiRoutes);
+app.route("/", packagesUiRoutes);
+
+// Pages / static hosting (Block C3)
+app.route("/", pagesRoutes);
+
+// Environments with protected approvals (Block C4)
+app.route("/", environmentsRoutes);
 
 // Insights + milestones
 app.route("/", insightsRoutes);

@@ -167,7 +167,7 @@ queue.get("/:owner/:repo/queue", async (c) => {
                 </div>
                 {isOwner && active.length > 0 && (
                   <form
-                    method="POST"
+                    method="post"
                     action={`/${owner}/${repo}/queue/process-next?base=${encodeURIComponent(branch)}`}
                   >
                     <button type="submit" class="btn btn-sm btn-primary">
@@ -216,7 +216,7 @@ queue.get("/:owner/:repo/queue", async (c) => {
                     user &&
                     (isOwner || user.id === it.enqueuedBy) && (
                       <form
-                        method="POST"
+                        method="post"
                         action={`/${owner}/${repo}/queue/${it.id}/dequeue`}
                         onsubmit="return confirm('Remove from queue?')"
                       >

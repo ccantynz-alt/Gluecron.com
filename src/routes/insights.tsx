@@ -316,7 +316,7 @@ insights.get("/:owner/:repo/milestones", async (c) => {
                 <div style="display: flex; gap: 4px">
                   {m.state === "open" ? (
                     <form
-                      method="POST"
+                      method="post"
                       action={`/${owner}/${repo}/milestones/${m.id}/close`}
                     >
                       <button type="submit" class="btn btn-sm">
@@ -325,7 +325,7 @@ insights.get("/:owner/:repo/milestones", async (c) => {
                     </form>
                   ) : (
                     <form
-                      method="POST"
+                      method="post"
                       action={`/${owner}/${repo}/milestones/${m.id}/reopen`}
                     >
                       <button type="submit" class="btn btn-sm">
@@ -334,7 +334,7 @@ insights.get("/:owner/:repo/milestones", async (c) => {
                     </form>
                   )}
                   <form
-                    method="POST"
+                    method="post"
                     action={`/${owner}/${repo}/milestones/${m.id}/delete`}
                     onsubmit="return confirm('Delete this milestone?')"
                   >
@@ -352,7 +352,7 @@ insights.get("/:owner/:repo/milestones", async (c) => {
       {user && user.id === repoRow.ownerId && (
         <form
           id="new"
-          method="POST"
+          method="post"
           action={`/${owner}/${repo}/milestones`}
           class="panel"
           style="padding: 16px"

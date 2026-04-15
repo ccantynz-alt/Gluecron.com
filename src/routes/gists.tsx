@@ -133,7 +133,7 @@ gistRoutes.get("/gists/new", requireAuth, async (c) => {
     <Layout title="New gist" user={user}>
       <h1 style="margin-top: 20px;">Create a gist</h1>
       <form
-        method="POST"
+        method="post"
         action="/gists"
         style="display: flex; flex-direction: column; gap: 12px; margin-top: 16px;"
       >
@@ -331,7 +331,7 @@ gistRoutes.get("/gists/:slug", softAuth, async (c) => {
         <div style="display: flex; gap: 8px;">
           {user && !isOwner && (
             <form
-              method="POST"
+              method="post"
               action={`/gists/${slug}/star`}
               style="display: inline;"
             >
@@ -355,7 +355,7 @@ gistRoutes.get("/gists/:slug", softAuth, async (c) => {
                 Edit
               </a>
               <form
-                method="POST"
+                method="post"
                 action={`/gists/${slug}/delete`}
                 style="display: inline;"
                 onsubmit="return confirm('Delete this gist?')"
@@ -416,7 +416,7 @@ gistRoutes.get("/gists/:slug/edit", requireAuth, async (c) => {
     <Layout title={`Edit ${gist.slug}`} user={user}>
       <h1 style="margin-top: 20px;">Edit gist</h1>
       <form
-        method="POST"
+        method="post"
         action={`/gists/${slug}/edit`}
         style="display: flex; flex-direction: column; gap: 12px; margin-top: 16px;"
       >

@@ -83,6 +83,7 @@ import feedRoutes from "./routes/feeds";
 import staleIssuesRoutes from "./routes/stale-issues";
 import codeownersLintRoutes from "./routes/codeowners-lint";
 import codeSuggestionsRoutes from "./routes/code-suggestions";
+import branchRenameRoutes from "./routes/branch-rename";
 import webRoutes from "./routes/web";
 
 const app = new Hono();
@@ -294,6 +295,9 @@ app.route("/", codeownersLintRoutes);
 
 // Code review suggestion blocks — apply ```suggestion fences to head branch (Block J22)
 app.route("/", codeSuggestionsRoutes);
+
+// Branch rename — owner-only /:owner/:repo/settings/branches (Block J24)
+app.route("/", branchRenameRoutes);
 
 // Insights + milestones
 app.route("/", insightsRoutes);

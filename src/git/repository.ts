@@ -190,6 +190,70 @@ export async function deleteTag(
 }
 
 /**
+ * Rename a branch (refs/heads/<from> → refs/heads/<to>). Preserves the
+ * commit SHA. Writes the new ref first, then deletes the old one (so a
+ * mid-op crash never leaves the branch unreachable). Returns true on
+ * success. Caller is responsible for any semantics around the default
+ * branch (HEAD symbolic-ref update) + cache invalidation — we flush
+ * this repo's branch cache here as a convenience. Block J24.
+ */
+export async function renameBranch(
+  owner: string,
+  name: string,
+  from: string,
+  to: string
+): Promise<boolean> {
+  const path = repoPath(owner, name);
+  const { stdout: shaOut, exitCode: revCode } = await exec(
+    ["git", "rev-parse", "--verify", `refs/heads/${from}`],
+    { cwd: path }
+  );
+  if (revCode !== 0) return false;
+  const sha = shaOut.trim();
+  if (!sha) return false;
+
+  const { exitCode: createCode } = await exec(
+    ["git", "update-ref", `refs/heads/${to}`, sha],
+    { cwd: path }
+  );
+  if (createCode !== 0) return false;
+
+  const { exitCode: deleteCode } = await exec(
+    ["git", "update-ref", "-d", `refs/heads/${from}`, sha],
+    { cwd: path }
+  );
+  if (deleteCode !== 0) {
+    // Best-effort rollback — remove the newly-created ref so we don't
+    // leak a duplicate.
+    await exec(["git", "update-ref", "-d", `refs/heads/${to}`], {
+      cwd: path,
+    });
+    return false;
+  }
+  gitCache.invalidatePrefix(`${owner}/${name}:`);
+  return true;
+}
+
+/**
+ * Update `HEAD` to point at a different branch. Used when the default
+ * branch is renamed (Block J24).
+ */
+export async function setHeadBranch(
+  owner: string,
+  name: string,
+  branch: string
+): Promise<boolean> {
+  const path = repoPath(owner, name);
+  const { exitCode } = await exec(
+    ["git", "symbolic-ref", "HEAD", `refs/heads/${branch}`],
+    { cwd: path }
+  );
+  if (exitCode !== 0) return false;
+  gitCache.invalidatePrefix(`${owner}/${name}:`);
+  return true;
+}
+
+/**
  * List commits between two refs (excluding `from`, including `to`).
  */
 export async function commitsBetween(

@@ -14,9 +14,10 @@ import { desc, eq, and } from "drizzle-orm";
 import { db } from "../db";
 import { deployments, repositories, users } from "../db/schema";
 import type { AuthEnv } from "../middleware/auth";
-import { softAuth } from "../middleware/auth";
+import { softAuth, requireAuth } from "../middleware/auth";
 import { Layout } from "../views/layout";
 import { RepoHeader } from "../views/components";
+import { onDeployFailure } from "../lib/ai-incident";
 
 const dep = new Hono<AuthEnv>();
 
@@ -31,6 +32,7 @@ async function resolveRepo(owner: string, name: string) {
       .select({
         id: repositories.id,
         name: repositories.name,
+        ownerId: repositories.ownerId,
       })
       .from(repositories)
       .innerJoin(users, eq(users.id, repositories.ownerId))
@@ -40,6 +42,13 @@ async function resolveRepo(owner: string, name: string) {
   } catch {
     return null;
   }
+}
+
+/** Parse "auto-issue #42" from a blockedReason string. Returns null if absent. */
+function parseAutoIssueNumber(blockedReason: string | null): number | null {
+  if (!blockedReason) return null;
+  const m = blockedReason.match(/auto-issue #(\d+)/);
+  return m ? parseInt(m[1], 10) : null;
 }
 
 function statusBadgeClass(status: string): string {
@@ -295,11 +304,71 @@ dep.get("/:owner/:repo/deployments/:id", async (c) => {
                 <td style="color: var(--red)">{row.blockedReason}</td>
               </tr>
             )}
+            {(() => {
+              const n = parseAutoIssueNumber(row.blockedReason);
+              return n !== null ? (
+                <tr>
+                  <th>Incident issue</th>
+                  <td>
+                    <a href={`/${owner}/${repo}/issues/${n}`}>#{n}</a>
+                  </td>
+                </tr>
+              ) : null;
+            })()}
           </tbody>
         </table>
+        {row.status === "failed" && (
+          <form
+            method="post"
+            action={`/${owner}/${repo}/deployments/${row.id}/retry-incident`}
+            style="margin-top: 16px"
+          >
+            <button type="submit" class="btn btn-secondary">
+              Re-run incident analysis
+            </button>
+          </form>
+        )}
       </div>
     </Layout>
   );
 });
+
+// D4: re-trigger the AI incident responder for a failed deployment. Owner-only.
+// Redirects back to the deployment detail page in all cases.
+dep.post(
+  "/:owner/:repo/deployments/:id/retry-incident",
+  requireAuth,
+  async (c) => {
+    const { owner, repo, id } = c.req.param();
+    const user = c.get("user")!;
+    const repoRow = await resolveRepo(owner, repo);
+    const back = `/${owner}/${repo}/deployments/${id}`;
+    if (!repoRow) return c.notFound();
+    if (repoRow.ownerId !== user.id) {
+      return c.redirect(back);
+    }
+    try {
+      const [depRow] = await db
+        .select()
+        .from(deployments)
+        .where(
+          and(eq(deployments.id, id), eq(deployments.repositoryId, repoRow.id))
+        )
+        .limit(1);
+      if (!depRow || depRow.status !== "failed") return c.redirect(back);
+      await onDeployFailure({
+        repositoryId: repoRow.id,
+        deploymentId: depRow.id,
+        ref: depRow.ref,
+        commitSha: depRow.commitSha,
+        target: depRow.target,
+        errorMessage: depRow.blockedReason,
+      });
+    } catch (err) {
+      console.error("[deployments] retry-incident:", err);
+    }
+    return c.redirect(back);
+  }
+);
 
 export default dep;

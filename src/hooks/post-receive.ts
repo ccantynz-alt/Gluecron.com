@@ -32,6 +32,7 @@ import { parseWorkflow } from "../lib/workflow-parser";
 import { enqueueRun } from "../lib/workflow-runner";
 import { onPagesPush } from "../lib/pages";
 import { requiresApprovalFor } from "../lib/environments";
+import { onDeployFailure } from "../lib/ai-incident";
 
 interface PushRef {
   oldSha: string;
@@ -386,6 +387,18 @@ async function triggerCrontechDeploy(
         })
         .where(eq(deployments.id, deployId));
     }
+    // D4: when Crontech returns a non-ok HTTP status, kick off the AI
+    // incident responder AFTER the deployment row is flipped to "failed".
+    if (!response.ok && deployId) {
+      void onDeployFailure({
+        repositoryId,
+        deploymentId: deployId,
+        ref: "refs/heads/main",
+        commitSha: sha,
+        target: "crontech",
+        errorMessage: `HTTP ${response.status}`,
+      }).catch((e) => console.error("[ai-incident]", e));
+    }
   } catch (err) {
     console.error(`[crontech] failed to trigger deploy:`, err);
     if (deployId) {
@@ -397,6 +410,15 @@ async function triggerCrontechDeploy(
           completedAt: new Date(),
         })
         .where(eq(deployments.id, deployId));
+      // D4: fire-and-forget incident analysis AFTER marking the row failed.
+      void onDeployFailure({
+        repositoryId,
+        deploymentId: deployId,
+        ref: "refs/heads/main",
+        commitSha: sha,
+        target: "crontech",
+        errorMessage: (err as Error).message,
+      }).catch((e) => console.error("[ai-incident]", e));
     }
   }
 }

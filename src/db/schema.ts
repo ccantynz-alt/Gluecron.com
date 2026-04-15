@@ -1343,4 +1343,272 @@ export const codeChunks = pgTable(
 
 export type CodebaseExplanation = typeof codebaseExplanations.$inferSelect;
 export type DepUpdateRun = typeof depUpdateRuns.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Block E2 — Discussions (migration 0013)
+// ---------------------------------------------------------------------------
+
+/**
+ * Discussions — forum-style threaded conversations attached to a repo.
+ * Similar to GitHub Discussions: categorised + pinnable + answerable.
+ */
+export const discussions = pgTable(
+  "discussions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    number: serial("number"),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    authorId: uuid("author_id")
+      .notNull()
+      .references(() => users.id),
+    // one of: "general" | "q-and-a" | "ideas" | "announcements" | "show-and-tell"
+    category: text("category").notNull().default("general"),
+    title: text("title").notNull(),
+    body: text("body"),
+    state: text("state").notNull().default("open"), // open, closed
+    locked: boolean("locked").notNull().default(false),
+    answerCommentId: uuid("answer_comment_id"),
+    pinned: boolean("pinned").notNull().default(false),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("discussions_repo").on(table.repositoryId),
+    uniqueIndex("discussions_repo_number").on(
+      table.repositoryId,
+      table.number
+    ),
+  ]
+);
+
+export const discussionComments = pgTable(
+  "discussion_comments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    discussionId: uuid("discussion_id")
+      .notNull()
+      .references(() => discussions.id, { onDelete: "cascade" }),
+    parentCommentId: uuid("parent_comment_id"),
+    authorId: uuid("author_id")
+      .notNull()
+      .references(() => users.id),
+    body: text("body").notNull(),
+    isAnswer: boolean("is_answer").notNull().default(false),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("discussion_comments_discussion").on(table.discussionId),
+  ]
+);
+
+export type Discussion = typeof discussions.$inferSelect;
+export type DiscussionComment = typeof discussionComments.$inferSelect;
 export type CodeChunk = typeof codeChunks.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Block E4 — Gists (migration 0014)
+// ---------------------------------------------------------------------------
+//
+// User-owned small snippets/files that behave like tiny repos. DB-backed
+// for v1 (no bare git repo): each gist owns a collection of gist_files and
+// every edit appends a gist_revisions row with a JSON snapshot.
+
+export const gists = pgTable(
+  "gists",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ownerId: uuid("owner_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    // 8-char hex slug used in pretty URLs (e.g. /gists/a1b2c3d4).
+    slug: text("slug").notNull().unique(),
+    title: text("title").notNull().default(""),
+    description: text("description").notNull().default(""),
+    isPublic: boolean("is_public").default(true).notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [index("gists_owner").on(table.ownerId)]
+);
+
+export const gistFiles = pgTable(
+  "gist_files",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    gistId: uuid("gist_id")
+      .notNull()
+      .references(() => gists.id, { onDelete: "cascade" }),
+    filename: text("filename").notNull(),
+    // Optional explicit language override; falls back to filename detection.
+    language: text("language"),
+    content: text("content").notNull().default(""),
+    sizeBytes: integer("size_bytes").default(0).notNull(),
+  },
+  (table) => [
+    index("gist_files_gist").on(table.gistId),
+    uniqueIndex("gist_files_gist_filename").on(table.gistId, table.filename),
+  ]
+);
+
+export const gistRevisions = pgTable(
+  "gist_revisions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    gistId: uuid("gist_id")
+      .notNull()
+      .references(() => gists.id, { onDelete: "cascade" }),
+    revision: integer("revision").notNull(),
+    // JSON-encoded {filename: content} map capturing the full snapshot at
+    // this revision. Stored as text to avoid requiring jsonb.
+    snapshot: text("snapshot").notNull().default("{}"),
+    authorId: uuid("author_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    message: text("message"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("gist_revisions_gist_rev").on(table.gistId, table.revision),
+  ]
+);
+
+export const gistStars = pgTable(
+  "gist_stars",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    gistId: uuid("gist_id")
+      .notNull()
+      .references(() => gists.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [uniqueIndex("gist_stars_gist_user").on(table.gistId, table.userId)]
+);
+
+export type Gist = typeof gists.$inferSelect;
+export type GistFile = typeof gistFiles.$inferSelect;
+export type GistRevision = typeof gistRevisions.$inferSelect;
+export type GistStar = typeof gistStars.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Block E1 — Projects / kanban (migration 0015)
+// ---------------------------------------------------------------------------
+
+export const projects = pgTable(
+  "projects",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    number: serial("number"),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    ownerId: uuid("owner_id")
+      .notNull()
+      .references(() => users.id),
+    title: text("title").notNull(),
+    description: text("description").notNull().default(""),
+    state: text("state").notNull().default("open"), // open | closed
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("projects_repo").on(table.repositoryId),
+    uniqueIndex("projects_repo_number").on(table.repositoryId, table.number),
+  ]
+);
+
+export const projectColumns = pgTable(
+  "project_columns",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    position: integer("position").notNull().default(0),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [index("project_columns_project").on(table.projectId)]
+);
+
+export const projectItems = pgTable(
+  "project_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    columnId: uuid("column_id")
+      .notNull()
+      .references(() => projectColumns.id, { onDelete: "cascade" }),
+    position: integer("position").notNull().default(0),
+    // "note" | "issue" | "pr" — application-level FK on itemId by type
+    itemType: text("item_type").notNull().default("note"),
+    itemId: uuid("item_id"),
+    title: text("title").notNull().default(""),
+    note: text("note").notNull().default(""),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("project_items_project").on(table.projectId),
+    index("project_items_column").on(table.columnId, table.position),
+  ]
+);
+
+export type Project = typeof projects.$inferSelect;
+export type ProjectColumn = typeof projectColumns.$inferSelect;
+export type ProjectItem = typeof projectItems.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Block E3 — Wikis (migration 0016)
+// ---------------------------------------------------------------------------
+// DB-backed for v1; git-backed mirror is a future upgrade.
+
+export const wikiPages = pgTable(
+  "wiki_pages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    slug: text("slug").notNull(),
+    title: text("title").notNull(),
+    body: text("body").notNull().default(""),
+    revision: integer("revision").notNull().default(1),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+    updatedBy: uuid("updated_by").references(() => users.id),
+  },
+  (table) => [
+    index("wiki_pages_repo").on(table.repositoryId),
+    uniqueIndex("wiki_pages_repo_slug").on(table.repositoryId, table.slug),
+  ]
+);
+
+export const wikiRevisions = pgTable(
+  "wiki_revisions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    pageId: uuid("page_id")
+      .notNull()
+      .references(() => wikiPages.id, { onDelete: "cascade" }),
+    revision: integer("revision").notNull(),
+    title: text("title").notNull(),
+    body: text("body").notNull().default(""),
+    message: text("message"),
+    authorId: uuid("author_id")
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [index("wiki_revisions_page").on(table.pageId, table.revision)]
+);
+
+export type WikiPage = typeof wikiPages.$inferSelect;
+export type WikiRevision = typeof wikiRevisions.$inferSelect;

@@ -71,7 +71,9 @@ export const RepoNav: FC<{
     | "insights"
     | "explain"
     | "changelog"
-    | "semantic";
+    | "semantic"
+    | "wiki"
+    | "projects";
 }> = ({ owner, repo, active }) => (
   <div class="repo-nav">
     <a href={`/${owner}/${repo}`} class={active === "code" ? "active" : ""}>
@@ -84,10 +86,22 @@ export const RepoNav: FC<{
       Issues
     </a>
     <a
+      href={`/${owner}/${repo}/wiki`}
+      class={active === "wiki" ? "active" : ""}
+    >
+      Wiki
+    </a>
+    <a
       href={`/${owner}/${repo}/pulls`}
       class={active === "pulls" ? "active" : ""}
     >
       Pull Requests
+    </a>
+    <a
+      href={`/${owner}/${repo}/projects`}
+      class={active === "projects" ? "active" : ""}
+    >
+      Projects
     </a>
     <a
       href={`/${owner}/${repo}/commits`}

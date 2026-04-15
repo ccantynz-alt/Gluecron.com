@@ -102,9 +102,11 @@ Legend: ✅ shipped · 🟡 partial · ❌ not built
 | Issue templates | ✅ | `.github/ISSUE_TEMPLATE.md` auto-prefills new issues; frontmatter stripped; `src/lib/templates.ts` |
 | PR templates | ✅ | `.github/PULL_REQUEST_TEMPLATE.md` auto-prefills new PRs; `src/lib/templates.ts` |
 | Saved replies | ✅ | per-user canned comments, unique-shortcut, `/settings/replies`, `/api/user/replies` |
-| Discussions / forums | ❌ | |
-| Wikis | ❌ | |
-| Projects / kanban | ❌ | |
+| Discussions / forums | ✅ | E2 — categorised threads, pinned/locked, q-and-a answers. `src/routes/discussions.tsx` + `drizzle/0013_discussions.sql` |
+| Wikis | ✅ | E3 — markdown pages per repo with revision history + revert. DB-backed v1. `src/routes/wikis.tsx` + `drizzle/0016_wikis.sql` |
+| Projects / kanban | ✅ | E1 — per-repo boards with auto-seeded To Do/In Progress/Done columns. Notes or linked issues/PRs. `src/routes/projects.tsx` + `drizzle/0015_projects.sql` |
+| AI incident responder | ✅ | D4 — auto-issues on deploy fail, `src/lib/ai-incident.ts` |
+| AI-generated test stubs | ✅ | D8 — `src/lib/ai-tests.ts`, `/:owner/:repo/ai/tests` |
 
 ### 2.4 Automation + AI
 | Feature | Status | Notes |
@@ -149,7 +151,7 @@ Legend: ✅ shipped · 🟡 partial · ❌ not built
 | Passkeys / WebAuthn | ✅ | `src/routes/passkeys.tsx`, `src/lib/webauthn.ts`; `user_passkeys` + `webauthn_challenges` tables |
 | Packages registry (npm / docker / etc) | ✅ | `src/lib/packages.ts`, `src/routes/packages-api.ts`, `src/routes/packages.tsx`; npm protocol (packument, tarball, publish, yank); PAT (`glc_`) auth via Authorization header; container registry deferred |
 | Pages / static hosting | ✅ | `src/lib/pages.ts`, `src/routes/pages.tsx`; serves blobs from bare git at latest `gh-pages` commit; per-repo settings (source branch/dir, custom domain); short-cache headers |
-| Gists | ❌ | |
+| Gists | ✅ | E4 — multi-file tiny repos with per-revision JSON snapshots + stars. `src/routes/gists.tsx` + `drizzle/0014_gists.sql` |
 | Sponsors | ❌ | |
 | Marketplace | ❌ | |
 | Environments / deployment tracking | ✅ | `src/routes/deployments.tsx` — grouped by env, success-rate rollup, per-deploy detail. Protected environments (`src/routes/environments.tsx`, `src/lib/environments.ts`) with reviewer-gated approval, branch-glob restrictions, approve/reject decisions recorded in `deployment_approvals` |
@@ -229,21 +231,21 @@ This is where GlueCron beats GitHub outright. **Priority: ship these loud.**
 - **D1** — Semantic code search → ✅ shipped. `src/lib/semantic-search.ts` + `src/routes/semantic-search.tsx`. `code_chunks` table stores chunk embeddings as JSON (upgrade path to `pgvector`). Embedding provider: Voyage AI `voyage-code-3` when `VOYAGE_API_KEY` is set, otherwise deterministic 512-dim hashing fallback. Index via `POST /:owner/:repo/search/semantic/reindex` (owner-only).
 - **D2** — AI dependency updater → ✅ shipped. `src/lib/dep-updater.ts` + `src/routes/dep-updater.tsx`. `dep_update_runs` table tracks run history. Parses `package.json`, queries `registry.npmjs.org`, plans bumps (skips workspace/github specs + downgrades), writes an `gluecron/dep-update-<ts>` branch via git plumbing (`hash-object` + `mktree` + `commit-tree` + `update-ref`), inserts a pull_requests row with a markdown bump table. Settings UI at `/:owner/:repo/settings/dep-updater` with "Run now".
 - **D3** — AI PR triage → ✅ shipped. `triagePullRequest` in `src/lib/ai-generators.ts`; hooked into PR create in `src/routes/pulls.tsx` (fire-and-forget). Posts a non-applied "## AI Triage" comment with suggested labels, reviewers, priority, and risk area. Suggestions only — PR author stays in control.
-- **D4** — AI incident responder (on deploy failure, opens issue with root cause) — NOT STARTED
-- **D5** — AI code reviewer that blocks merges (enforced via branch protection "AI approval required") — PARTIAL (AI review exists; no branch-protection hook yet)
+- **D4** — AI incident responder → ✅ shipped. `src/lib/ai-incident.ts` exports `onDeployFailure(args)` — on deploy-fail hooks, samples ~10 recent commits, calls Sonnet 4 for a structured root-cause JSON, opens an issue (number via `serial`), best-effort attaches `incident` label, sets `deployments.blockedReason="auto-issue #N"`. Wired from `src/hooks/post-receive.ts triggerCrontechDeploy` (fire-and-forget) and from `POST /:owner/:repo/deployments/:id/retry-incident` (owner-only re-run button on the deployment detail page). Never throws; degrades to deterministic body when no `ANTHROPIC_API_KEY`.
+- **D5** — AI code reviewer blocks merges → ✅ shipped. `src/lib/branch-protection.ts` exports `matchProtection(repoId, branch)` (exact > glob, reuses `matchGlob` from environments.ts), `evaluateProtection(rule, ctx)` pure decision helper (checks `requireAiApproval` / `requireGreenGates` / `requireHumanReview` / `requiredApprovals`), and `countHumanApprovals(prId)` (LGTM/`+1`/approved heuristic on non-AI PR comments). Wired into `src/routes/pulls.tsx` merge handler after the existing hard-gate filter — blocks merge with readable reasons when rule fails. 8 unit tests in `src/__tests__/branch-protection.test.ts`.
 - **D6** — AI "explain this codebase" → ✅ shipped. `src/lib/ai-explain.ts` + `src/routes/ai-explain.tsx`. Samples up to ~25 representative files (~60KB cap), generates a Markdown explanation via Sonnet 4, caches per (repo, commit sha) in `codebase_explanations`. `GET /:owner/:repo/explain` + owner-only `POST /:owner/:repo/explain/regenerate`. Explain link added to `RepoNav`.
 - **D7** — AI changelog for every commit range → ✅ shipped. `src/routes/ai-changelog.tsx`. `GET /:owner/:repo/ai/changelog?from=&to=(&format=markdown)` — runs `git log` on the range, calls existing `generateChangelog`, renders form + rendered Markdown + copy-box; `format=markdown` returns `text/markdown` for CLI/CI consumers. Caps at 500 commits.
-- **D8** — AI-generated test suite (reads public API, generates failing tests) — NOT STARTED
+- **D8** — AI-generated test suite → ✅ shipped. `src/lib/ai-tests.ts` exports `detectLanguage(path)`, `detectTestFramework(repo tree)`, `buildTestsPrompt(...)`, `suggestedTestPath(...)`, `generateTestStub({path, content, framework, language})` (returns `{code:"", framework:"fallback"}` when AI unavailable), `contentTypeFor(path)`. Route `src/routes/ai-tests.tsx` adds `GET /:owner/:repo/ai/tests` (form + file picker), `GET /:owner/:repo/ai/tests?format=raw` (raw text with correct MIME), `POST /:owner/:repo/ai/tests/generate` (requireAuth, renders highlighted source + generated failing test, copy button). Stubs are intentionally failing so the author fills them in.
 - **D9** — Copilot-style completion endpoint → ✅ shipped. `src/lib/ai-completion.ts` + `src/routes/copilot.ts`. `POST /api/copilot/completions` (requireAuth accepts PAT/OAuth/session), `GET /api/copilot/ping`. Claude Haiku; in-memory LRU (size 200, 5-min TTL); code-fence stripping; 60/min rate limit per caller.
 
 ### BLOCK E — Collaboration parity
-- **E1** — Projects / kanban boards (`projects`, `project_items`, `project_fields`)
-- **E2** — Discussions (forum threads per repo)
-- **E3** — Wikis (git-backed, separate bare repo per repo)
-- **E4** — Gists (user-owned tiny repos)
-- **E5** — Merge queues (serialised merge with re-test)
-- **E6** — Required status checks matrix (multiple named checks per branch protection rule)
-- **E7** — Protected tags
+- **E1** — Projects / kanban boards → ✅ shipped. `src/routes/projects.tsx`, tables `projects`/`project_columns`/`project_items` (migration 0015). Create creates three default columns (To Do/In Progress/Done); cards carry note or issue/pr link; one-click move between columns; owner-only close.
+- **E2** — Discussions (forum threads per repo) → ✅ shipped. `src/routes/discussions.tsx`, tables `discussions`/`discussion_comments` (migration 0013). Categorised (general/q-and-a/ideas/announcements/show-and-tell), pinnable, lockable, q-and-a answers.
+- **E3** — Wikis → ✅ shipped as DB-backed v1. `src/routes/wikis.tsx`, tables `wiki_pages`/`wiki_revisions` (migration 0016). Slug auto-derived; every edit bumps revision + appends a revision row; owner can revert. Git-backed mirror deferred.
+- **E4** — Gists → ✅ shipped. `src/routes/gists.tsx`, tables `gists`/`gist_files`/`gist_revisions`/`gist_stars` (migration 0014). Multi-file; each edit takes a JSON snapshot into `gist_revisions` keyed on revision number; stars toggle; secret gists hidden from non-owners.
+- **E5** — Merge queues (serialised merge with re-test) — NOT STARTED
+- **E6** — Required status checks matrix (multiple named checks per branch protection rule) — NOT STARTED
+- **E7** — Protected tags — NOT STARTED
 
 ### BLOCK F — Observability + admin
 - **F1** — Traffic analytics per repo (views, clones, unique visitors)
@@ -284,6 +286,10 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `drizzle/0010_pages.sql` (Block C3) — migration, never edited in place
 - `drizzle/0011_environments.sql` (Block C4) — migration, never edited in place
 - `drizzle/0012_ai_native.sql` (Block D) — migration, never edited in place. Adds `codebase_explanations`, `dep_update_runs`, `code_chunks`.
+- `drizzle/0013_discussions.sql` (Block E2) — migration, never edited in place. Adds `discussions`, `discussion_comments`.
+- `drizzle/0014_gists.sql` (Block E4) — migration, never edited in place. Adds `gists`, `gist_files`, `gist_revisions`, `gist_stars`.
+- `drizzle/0015_projects.sql` (Block E1) — migration, never edited in place. Adds `projects`, `project_columns`, `project_items`.
+- `drizzle/0016_wikis.sql` (Block E3) — migration, never edited in place. Adds `wiki_pages`, `wiki_revisions`.
 
 ### 4.2 Git layer (locked)
 - `src/git/repository.ts` — tree / blob / commits / diff / branches / blame / search / raw / tags / commitsBetween
@@ -317,6 +323,9 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `src/lib/ai-completion.ts` (Block D9) — `completeCode({prefix, suffix?, language?, maxTokens?, repoHint?})` via Haiku. Inline LRU (size 200, 5-min TTL) keyed on sha256 of prefix+suffix+language. Code-fence stripping. Never throws. `__test` bundle exposed.
 - `src/lib/dep-updater.ts` (Block D2) — `parseManifest`, `queryNpmLatest`, `planUpdates` (injectable `fetchLatest`), `applyBumps`, `runDepUpdateRun`. Creates `gluecron/dep-update-<ts>` branch via git plumbing + opens a PR row. Never throws.
 - `src/lib/semantic-search.ts` (Block D1) — `tokenize`, `hashEmbed` (512-dim L2-normalised FNV-1a + sign trick), `embedBatch` (Voyage `voyage-code-3` when `VOYAGE_API_KEY` set, else fallback), `chunkFile`, `isCodeFile`, `indexRepository`, `searchRepository`, `cosine`, `isEmbeddingsProviderAvailable`, `__test` bundle.
+- `src/lib/ai-incident.ts` (Block D4) — `onDeployFailure({deploymentId, reason, logs?})` and pure helper `summariseCommitsForIncident(commits)`. Sonnet 4 structured JSON RCA → opens `issues` row, attaches `incident` label if present, sets `deployments.blockedReason`. Never throws; deterministic fallback body when no API key. Wired from `post-receive.ts triggerCrontechDeploy` + `deployments.tsx retry-incident`.
+- `src/lib/ai-tests.ts` (Block D8) — pure helpers `detectLanguage`, `detectTestFramework`, `buildTestsPrompt`, `suggestedTestPath`, `generateTestStub`, `contentTypeFor`. Returns `{code:"", framework:"fallback"}` on no API key. Never throws.
+- `src/lib/branch-protection.ts` (Block D5) — `matchProtection(repoId, branch)` (exact wins; deterministic glob sort), `evaluateProtection(rule, ctx)` (pure — checks `requireAiApproval | requireGreenGates | requireHumanReview | requiredApprovals`), `countHumanApprovals(prId)` (LGTM/+1/approved heuristic). Never throws. Enforcement is in `src/routes/pulls.tsx` merge handler, after existing hard-gate filter.
 
 ### 4.5 Platform (locked)
 - `src/lib/notify.ts` — notification creation + audit log (swallow-failures pattern). Also fans out email to opted-in recipients for `mention|review_requested|assigned|gate_failed`. Exports `__internal` for tests.
@@ -374,6 +383,11 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `src/routes/copilot.ts` (Block D9) — `POST /api/copilot/completions` (requireAuth, 60/min rate limit), `GET /api/copilot/ping` (public).
 - `src/routes/dep-updater.tsx` (Block D2) — `GET /:owner/:repo/settings/dep-updater` + `POST /:owner/:repo/settings/dep-updater/run` (requireAuth, owner-only).
 - `src/routes/semantic-search.tsx` (Block D1) — `GET /:owner/:repo/search/semantic?q=` (softAuth) + `POST /:owner/:repo/search/semantic/reindex` (requireAuth, owner-only).
+- `src/routes/ai-tests.tsx` (Block D8) — `GET /:owner/:repo/ai/tests` (softAuth form + picker), `GET /:owner/:repo/ai/tests?format=raw` (raw text w/ MIME), `POST /:owner/:repo/ai/tests/generate` (requireAuth, renders highlighted source + AI-generated failing test with copy button).
+- `src/routes/discussions.tsx` (Block E2) — full discussion CRUD + categories + q-and-a answers + lock/pin. Exports `isValidCategory(c)` helper. Owner-only lock/pin; owner-or-author can close/toggle.
+- `src/routes/gists.tsx` (Block E4) — `GET /gists` discover, `/gists/new|:slug|:slug/edit|:slug/delete|:slug/star|:slug/revisions|:slug/revisions/:rev` + `/:username/gists`. Exports `generateSlug()` (8-hex) and `snapshotOf(files)` JSON serializer. Retries on slug collision up to 5x.
+- `src/routes/projects.tsx` (Block E1) — kanban board CRUD. Auto-seeds three default columns on project create. `/:owner/:repo/projects/:number/items/:itemId/move` recomputes position via `max+1` of target column.
+- `src/routes/wikis.tsx` (Block E3) — DB-backed wiki with revision history + revert. Exports `slugifyTitle(title)` (lowercase alphanumerics joined by single dashes, trimmed). Every edit appends a `wiki_revisions` row; revert creates a new revision.
 
 ### 4.7 Views (locked contracts)
 - `src/views/layout.tsx` — `Layout` accepts `title`, `user`, `notificationCount`

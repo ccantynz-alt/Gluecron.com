@@ -31,6 +31,11 @@ import { triagePullRequest } from "../lib/ai-generators";
 import { mergeWithAutoResolve } from "../lib/merge-resolver";
 import { runAllGateChecks, type GateCheckResult } from "../lib/gate";
 import { labels as labelsTable } from "../db/schema";
+import {
+  matchProtection,
+  evaluateProtection,
+  countHumanApprovals,
+} from "../lib/branch-protection";
 
 const pulls = new Hono<AuthEnv>();
 
@@ -814,6 +819,32 @@ pulls.post(
       return c.redirect(
         `/${ownerName}/${repoName}/pulls/${prNum}?error=${encodeURIComponent(errorMsg)}`
       );
+    }
+
+    // D5 — Branch-protection enforcement. Looks up the matching rule for the
+    // base branch and blocks the merge if requireAiApproval / requireGreenGates
+    // / requireHumanReview / requiredApprovals are not satisfied. Independent
+    // of repo-global settings, so owners can lock specific branches down
+    // further than the repo default.
+    const protectionRule = await matchProtection(
+      resolved.repo.id,
+      pr.baseBranch
+    );
+    if (protectionRule) {
+      const humanApprovals = await countHumanApprovals(pr.id);
+      const decision = evaluateProtection(protectionRule, {
+        aiApproved,
+        humanApprovalCount: humanApprovals,
+        gateResultGreen: hardFailures.length === 0,
+        hasFailedGates: hardFailures.length > 0,
+      });
+      if (!decision.allowed) {
+        return c.redirect(
+          `/${ownerName}/${repoName}/pulls/${prNum}?error=${encodeURIComponent(
+            decision.reasons.join(" ")
+          )}`
+        );
+      }
     }
 
     // Attempt the merge — with auto conflict resolution if needed

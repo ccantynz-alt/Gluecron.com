@@ -48,6 +48,11 @@ import aiChangelogRoutes from "./routes/ai-changelog";
 import copilotRoutes from "./routes/copilot";
 import depUpdaterRoutes from "./routes/dep-updater";
 import semanticSearchRoutes from "./routes/semantic-search";
+import aiTestsRoutes from "./routes/ai-tests";
+import discussionRoutes from "./routes/discussions";
+import gistRoutes from "./routes/gists";
+import projectRoutes from "./routes/projects";
+import wikiRoutes from "./routes/wikis";
 import webRoutes from "./routes/web";
 
 const app = new Hono();
@@ -177,6 +182,11 @@ app.route("/", aiChangelogRoutes);    // D7 — /:owner/:repo/ai/changelog
 app.route("/", copilotRoutes);        // D9 — /api/copilot/completions
 app.route("/", depUpdaterRoutes);     // D2 — /:owner/:repo/settings/dep-updater
 app.route("/", semanticSearchRoutes); // D1 — /:owner/:repo/search/semantic
+app.route("/", aiTestsRoutes);        // D8 — /:owner/:repo/ai/tests
+app.route("/", discussionRoutes);     // E2 — /:owner/:repo/discussions
+app.route("/", gistRoutes);           // E4 — /gists, /gists/:slug, /:user/gists
+app.route("/", projectRoutes);        // E1 — /:owner/:repo/projects
+app.route("/", wikiRoutes);           // E3 — /:owner/:repo/wiki
 
 // Insights + milestones
 app.route("/", insightsRoutes);

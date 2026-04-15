@@ -36,6 +36,8 @@ import savedReplyRoutes from "./routes/saved-replies";
 import deploymentRoutes from "./routes/deployments";
 import orgRoutes from "./routes/orgs";
 import passkeyRoutes from "./routes/passkeys";
+import oauthRoutes from "./routes/oauth";
+import developerAppsRoutes from "./routes/developer-apps";
 import webRoutes from "./routes/web";
 
 const app = new Hono();
@@ -78,6 +80,10 @@ app.route("/", settings2faRoutes);
 
 // WebAuthn / passkey routes (Block B5)
 app.route("/", passkeyRoutes);
+
+// OAuth 2.0 provider (Block B6)
+app.route("/", oauthRoutes);
+app.route("/", developerAppsRoutes);
 
 // Theme toggle (dark/light cookie)
 app.route("/", themeRoutes);

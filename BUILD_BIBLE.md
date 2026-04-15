@@ -137,13 +137,13 @@ Legend: ✅ shipped · 🟡 partial · ❌ not built
 | Insights (graph, contributors, green rate) | ✅ | `src/routes/insights.tsx` |
 | Releases + tags | ✅ | AI changelog |
 | Personal access tokens | ✅ | SHA-256 hashed |
-| OAuth app provider | ❌ | |
+| OAuth app provider | ✅ | `src/routes/oauth.tsx`, `src/routes/developer-apps.tsx`, `src/lib/oauth.ts`; `oauth_apps` + `oauth_authorizations` + `oauth_access_tokens` tables |
 | GitHub Apps equivalent | ❌ | |
 | GraphQL API | ❌ | REST only |
-| Organizations + teams | 🟡 | schema + routes shipped (B1): `/orgs`, `/orgs/new`, `/orgs/:slug/people`, `/orgs/:slug/teams`, last-owner guard, audit logged. Org-owned repos = B2 next |
+| Organizations + teams | ✅ | B1+B2+B3 shipped: `src/routes/orgs.tsx`, `src/lib/orgs.ts`; org-owned repos (`repositories.orgId`); team-based CODEOWNERS (`@org/team` resolution) |
 | Enterprise SAML / SSO | ❌ | |
-| 2FA / TOTP | ❌ | |
-| Passkeys / WebAuthn | ❌ | |
+| 2FA / TOTP | ✅ | `src/routes/settings-2fa.tsx`, `src/lib/totp.ts`; `user_totp` + `user_recovery_codes` tables |
+| Passkeys / WebAuthn | ✅ | `src/routes/passkeys.tsx`, `src/lib/webauthn.ts`; `user_passkeys` + `webauthn_challenges` tables |
 | Packages registry (npm / docker / etc) | ❌ | |
 | Pages / static hosting | ❌ | |
 | Gists | ❌ | |
@@ -191,16 +191,16 @@ Polish what's shipped before adding more. **Priority: do this first if parity ga
 **BLOCK A COMPLETE.** Next: BLOCK B (Identity + orgs).
 
 ### BLOCK B — Identity + orgs
-- **B1** — Organizations (schema: `organizations`, `org_members`, `teams`, `team_members`) ✅
+- **B1** — Organizations (schema: `organizations`, `org_members`, `teams`, `team_members`) → ✅ shipped (`6563f0a`)
   - Helpers in `src/lib/orgs.ts`: slug validation, role rank, reserved-slug set, loaders
   - Routes in `src/routes/orgs.tsx`: list / create / profile / people / teams / team detail
   - Role-based guards: admin adds members, owner grants owner, last-owner demote/remove blocked
   - All sensitive actions `audit()`'d (org.create, member.add/role/remove, team.create, team.member.add/remove)
-- **B2** — Repos owned by orgs (nullable `repositories.orgId`)
-- **B3** — Team-based CODEOWNERS (`@org/team` resolution)
-- **B4** — 2FA / TOTP (enroll, recovery codes)
-- **B5** — WebAuthn / passkeys
-- **B6** — OAuth 2.0 provider (third-party apps can request access)
+- **B2** — Repos owned by orgs (nullable `repositories.orgId`) → ✅ shipped (`7437605`)
+- **B3** — Team-based CODEOWNERS (`@org/team` resolution) → ✅ shipped (`40d3e3f`)
+- **B4** — 2FA / TOTP (enroll, recovery codes) → ✅ shipped (`7298a17`)
+- **B5** — WebAuthn / passkeys → ✅ shipped (`2df1f8c`)
+- **B6** — OAuth 2.0 provider (third-party apps can request access) → ✅ shipped (pending final commit)
 
 ### BLOCK C — Runtime + hosting
 - **C1** — Actions-equivalent workflow runner
@@ -263,6 +263,10 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `src/db/index.ts` — lazy proxy DB connection
 - `src/db/migrate.ts` — migration runner
 - `drizzle/0000_initial.sql`, `drizzle/0001_green_ecosystem.sql` — migrations
+- `drizzle/0004_org_owned_repos.sql` (Block B2) — migration, never edited in place
+- `drizzle/0005_totp_2fa.sql` (Block B4) — migration, never edited in place
+- `drizzle/0006_webauthn_passkeys.sql` (Block B5) — migration, never edited in place
+- `drizzle/0007_oauth_provider.sql` (Block B6) — migration, never edited in place
 
 ### 4.2 Git layer (locked)
 - `src/git/repository.ts` — tree / blob / commits / diff / branches / blame / search / raw / tags / commitsBetween
@@ -275,7 +279,10 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `src/middleware/rate-limit.ts` — fixed-window limiter
 - `src/middleware/request-context.ts` — request-ID
 - `src/lib/security-scan.ts` — `SECRET_PATTERNS` (exported) + `scanForSecrets` + `aiSecurityScan`
-- `src/lib/codeowners.ts` — parser + `ownersForPath` (last-match-wins)
+- `src/lib/codeowners.ts` — parser + `ownersForPath` (last-match-wins); team expansion helpers for `@org/team` (Block B3)
+- `src/lib/totp.ts` (Block B4) — TOTP enroll / verify / recovery codes
+- `src/lib/webauthn.ts` (Block B5) — WebAuthn registration + assertion helpers
+- `src/lib/oauth.ts` (Block B6) — OAuth 2.0 provider: authorization code grant, token issuance, scope enforcement
 
 ### 4.4 AI layer (locked)
 - `src/lib/ai-client.ts` — Anthropic client + model constants
@@ -326,7 +333,11 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `src/routes/search.tsx` — global search + `/shortcuts`
 - `src/routes/health.ts` — `/healthz` `/readyz` `/metrics`
 - `src/routes/orgs.tsx` — `/orgs` list, `/orgs/new` create, `/orgs/:slug` profile, `/orgs/:slug/people` + add/role/remove, `/orgs/:slug/teams` + create, `/orgs/:slug/teams/:teamSlug` + member add/remove. All require auth. Role guards via `orgRoleAtLeast`; last-owner cannot be demoted or removed; every write path `audit()`'d.
-- `src/lib/orgs.ts` — `isValidSlug` (rejects reserved + too-short/long + consecutive/leading/trailing hyphens), `normalizeSlug`, `orgRoleAtLeast` (owner>admin>member), `isValidOrgRole`, `isValidTeamRole`, `loadOrgForUser`, `listOrgsForUser`, `listOrgMembers`, `listTeamsForOrg`, `listTeamMembers`, `__test` export for unit tests.
+- `src/lib/orgs.ts` (Block B1) — `isValidSlug` (rejects reserved + too-short/long + consecutive/leading/trailing hyphens), `normalizeSlug`, `orgRoleAtLeast` (owner>admin>member), `isValidOrgRole`, `isValidTeamRole`, `loadOrgForUser`, `listOrgsForUser`, `listOrgMembers`, `listTeamsForOrg`, `listTeamMembers`, `__test` export for unit tests.
+- `src/routes/settings-2fa.tsx` (Block B4) — TOTP enroll / verify / disable + recovery codes UI. All require auth.
+- `src/routes/passkeys.tsx` (Block B5) — WebAuthn passkey registration / assertion / management. All require auth.
+- `src/routes/oauth.tsx` (Block B6) — OAuth 2.0 authorize + token + userinfo endpoints.
+- `src/routes/developer-apps.tsx` (Block B6) — developer-facing OAuth app CRUD (`/settings/developer/apps`), client secret rotation, audit-logged.
 
 ### 4.7 Views (locked contracts)
 - `src/views/layout.tsx` — `Layout` accepts `title`, `user`, `notificationCount`

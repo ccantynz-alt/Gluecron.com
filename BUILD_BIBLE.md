@@ -123,7 +123,7 @@ Legend: ✅ shipped · 🟡 partial · ❌ not built
 | AI code review | ✅ | `src/lib/ai-review.ts` |
 | AI merge conflict resolver | ✅ | `src/lib/merge-resolver.ts` |
 | AI chat (global + repo) | ✅ | `src/routes/ask.tsx` |
-| GitHub Actions equivalent (workflow runner) | ❌ | GateTest integrated, no generic runner |
+| GitHub Actions equivalent (workflow runner) | ✅ | `src/lib/workflow-parser.ts`, `src/lib/workflow-runner.ts`, `src/routes/workflows.tsx`; `.gluecron/workflows/*.yml` auto-discovered on push; Bun subprocess executor, per-step timeouts, size-capped logs |
 | Dependabot equivalent (AI dep bumper) | ❌ | |
 | Code scanning UI | 🟡 | data exists, no dedicated UI page |
 | Copilot code completion | ❌ | |
@@ -203,11 +203,11 @@ Polish what's shipped before adding more. **Priority: do this first if parity ga
 - **B6** — OAuth 2.0 provider (third-party apps can request access) → ✅ shipped (pending final commit)
 
 ### BLOCK C — Runtime + hosting
-- **C1** — Actions-equivalent workflow runner
-  - Workflow YAML parser (`.gluecron/workflows/*.yml`)
-  - Job queue + worker pool (Bun subprocesses)
-  - Artifact storage + log streaming
-  - Integrates with gates
+- **C1** — Actions-equivalent workflow runner → ✅ shipped (`eafe8c6`)
+  - Workflow YAML parser (`src/lib/workflow-parser.ts`) — hand-rolled subset
+  - Background worker (`src/lib/workflow-runner.ts`) — Bun.spawn, size-capped logs, SIGTERM→SIGKILL timeouts
+  - Auto-discovery from `.gluecron/workflows/*.yml` on default-branch push
+  - UI at `/:owner/:repo/actions` with manual trigger + cancel
 - **C2** — Package registry (npm + container protocol)
 - **C3** — Pages / static hosting (`gh-pages` branch → served at `<owner>.<repo>.pages.gluecron.com`)
 - **C4** — Environments (prod/staging/preview) with protected approvals
@@ -267,6 +267,7 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `drizzle/0005_totp_2fa.sql` (Block B4) — migration, never edited in place
 - `drizzle/0006_webauthn_passkeys.sql` (Block B5) — migration, never edited in place
 - `drizzle/0007_oauth_provider.sql` (Block B6) — migration, never edited in place
+- `drizzle/0008_workflows.sql` (Block C1) — migration, never edited in place
 
 ### 4.2 Git layer (locked)
 - `src/git/repository.ts` — tree / blob / commits / diff / branches / blame / search / raw / tags / commitsBetween
@@ -283,6 +284,8 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `src/lib/totp.ts` (Block B4) — TOTP enroll / verify / recovery codes
 - `src/lib/webauthn.ts` (Block B5) — WebAuthn registration + assertion helpers
 - `src/lib/oauth.ts` (Block B6) — OAuth 2.0 provider: authorization code grant, token issuance, scope enforcement
+- `src/lib/workflow-parser.ts` (Block C1) — YAML subset parser for `.gluecron/workflows/*.yml`. Exports `parseWorkflow(src)` returning `{ ok, workflow | error }`. Never throws.
+- `src/lib/workflow-runner.ts` (Block C1) — shell executor. Exports `executeRun`, `drainOneRun`, `enqueueRun`, `startWorker`. Clones repo to tmpdir, runs each job via `Bun.spawn(["bash","-c",step.run])` with SIGTERM→SIGKILL timeouts, size-capped stdout/stderr, cleans up in `finally`.
 
 ### 4.4 AI layer (locked)
 - `src/lib/ai-client.ts` — Anthropic client + model constants
@@ -338,10 +341,11 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `src/routes/passkeys.tsx` (Block B5) — WebAuthn passkey registration / assertion / management. All require auth.
 - `src/routes/oauth.tsx` (Block B6) — OAuth 2.0 authorize + token + userinfo endpoints.
 - `src/routes/developer-apps.tsx` (Block B6) — developer-facing OAuth app CRUD (`/settings/developer/apps`), client secret rotation, audit-logged.
+- `src/routes/workflows.tsx` (Block C1) — Actions UI. `GET /:owner/:repo/actions`, `GET /:owner/:repo/actions/runs/:runId`, `POST /:owner/:repo/actions/:workflowId/run` (auth+owner), `POST /:owner/:repo/actions/runs/:runId/cancel` (auth+owner). Manual runs are `event=manual`, ref=default branch.
 
 ### 4.7 Views (locked contracts)
 - `src/views/layout.tsx` — `Layout` accepts `title`, `user`, `notificationCount`
-- `src/views/components.tsx` — `RepoHeader`, `RepoNav` (active: `code|issues|pulls|commits|releases|gates|insights|...`), `RepoCard`, etc.
+- `src/views/components.tsx` — `RepoHeader`, `RepoNav` (active: `code|issues|pulls|commits|releases|actions|gates|insights|...`), `RepoCard`, etc.
 - `src/views/reactions.tsx` — `ReactionsBar` (no-JS compatible, form-per-emoji)
 - Nav links: logo · search · theme-toggle · Explore · Ask · Notifications · New · Profile (or Sign in / Register)
 - Keyboard chords: `/`, `Cmd+K`, `?`, `n`, `g d`, `g n`, `g e`, `g a`

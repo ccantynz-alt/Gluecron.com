@@ -2075,3 +2075,38 @@ export const ssoUserLinks = pgTable(
 );
 
 export type SsoUserLink = typeof ssoUserLinks.$inferSelect;
+
+// ----------------------------------------------------------------------------
+// Block J1 — Dependency graph
+// ----------------------------------------------------------------------------
+
+/**
+ * Last known set of dependencies parsed from manifest files. Each reindex
+ * replaces the prior rows for that repo. One row per (ecosystem, name,
+ * manifest_path) — same name in multiple manifests is kept.
+ */
+export const repoDependencies = pgTable(
+  "repo_dependencies",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    ecosystem: text("ecosystem").notNull(),
+    name: text("name").notNull(),
+    versionSpec: text("version_spec"),
+    manifestPath: text("manifest_path").notNull(),
+    isDev: boolean("is_dev").default(false).notNull(),
+    commitSha: text("commit_sha").notNull(),
+    indexedAt: timestamp("indexed_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("repo_dependencies_repo_id_idx").on(
+      table.repositoryId,
+      table.ecosystem
+    ),
+    index("repo_dependencies_name_idx").on(table.name),
+  ]
+);
+
+export type RepoDependency = typeof repoDependencies.$inferSelect;

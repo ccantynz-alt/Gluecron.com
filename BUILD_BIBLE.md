@@ -87,6 +87,7 @@ Legend: ✅ shipped · 🟡 partial · ❌ not built
 | Code search (ILIKE) | ✅ | per-repo + global |
 | Semantic / embedding search | ✅ | D1 — `code_chunks` table + lexical fallback, optional Voyage `voyage-code-3`; `src/lib/semantic-search.ts`, `src/routes/semantic-search.tsx` |
 | Symbol / xref navigation | ✅ | I8 — `src/lib/symbols.ts` regex-based extractor for ts/js/py/rs/go/rb/java/kt/swift; on-demand indexer persists top-level definitions into `code_symbols` (0025). `src/routes/symbols.tsx` serves `/:owner/:repo/symbols` overview + A–Z list, `/:owner/:repo/symbols/search?q=` prefix search, `/:owner/:repo/symbols/:name` definition detail. Owner-only reindex. |
+| Dependency graph | ✅ | J1 — `src/lib/deps.ts` parses package.json / requirements.txt / pyproject.toml / go.mod / Cargo.toml / Gemfile / composer.json without a TOML lib. `src/routes/deps.tsx` serves `/:owner/:repo/dependencies` grouped by ecosystem with per-ecosystem counts; owner-only reindex walks the default-branch tree (max 200 manifests, 1MB each). `drizzle/0028_repo_dependencies.sql` adds `repo_dependencies`. |
 
 ### 2.3 Collaboration
 | Feature | Status | Notes |
@@ -278,6 +279,9 @@ This is where GlueCron beats GitHub outright. **Priority: ship these loud.**
 - **I9** — Repository mirroring → ✅ shipped. `drizzle/0026_repo_mirrors.sql` adds `repo_mirrors` (one-per-repo config) + `repo_mirror_runs` (audit log). `src/lib/mirrors.ts` provides URL validation (https/http/git only, no ssh/file/paths/shell metas), credentials-redaction for logs, and `runMirrorSync` that shells out to `git fetch --prune --tags` with a 5-min timeout and `GIT_TERMINAL_PROMPT=0`. `src/routes/mirrors.tsx` serves owner-only `/:owner/:repo/settings/mirror` + site-admin `/admin/mirrors/sync-all`. 17 new tests.
 - **I10** — Enterprise SSO via OIDC → ✅ shipped. `drizzle/0027_sso_oidc.sql` adds `sso_config` (singleton `id='default'` row with issuer + authorize/token/userinfo endpoints + client credentials + scopes + optional email-domain allow-list + `auto_create_users` toggle) and `sso_user_links` (maps local user to IdP `sub`, unique per-subject). `src/lib/sso.ts` exposes `buildAuthorizeUrl`/`exchangeCode`/`fetchUserinfo`/`findOrCreateUserFromSso` pure helpers — plain OIDC auth-code flow, no XML / no signature verification dep. `src/routes/sso.tsx` serves site-admin `/admin/sso` config page, `/login/sso` initiator (state + nonce cookies, 10-min TTL), `/login/sso/callback` exchanger + session issuer, plus `POST /settings/sso/unlink` for users. `/login` renders "Sign in with &lt;provider name&gt;" when enabled. 24 new tests (pure helpers + route-auth smokes).
 
+### BLOCK J — Beyond-parity advanced features
+- **J1** — Dependency graph → ✅ shipped. `drizzle/0028_repo_dependencies.sql` adds `repo_dependencies` (ecosystem + name + version_spec + manifest_path + is_dev + commit_sha) with indexes on `(repository_id, ecosystem)` + `(name)`. `src/lib/deps.ts` parses seven manifest formats (package.json, requirements.txt, pyproject.toml, go.mod, Cargo.toml, Gemfile, composer.json) without a TOML library — each parser is defensive and returns `[]` on malformed input. Walks default-branch tree (max 200 manifests, 1MB each), replaces the prior set on reindex. `src/routes/deps.tsx` serves `/:owner/:repo/dependencies` (grouped by ecosystem with per-ecosystem counts) + owner-only `POST /dependencies/reindex`. Reverse-dep lookup via `repositoriesDependingOn(ecosystem, name)` for future "who depends on me" network-graph UI. 21 new tests.
+
 ### BLOCK H — Marketplace
 - **H1** — App marketplace → ✅ shipped. `src/routes/marketplace.tsx` + `src/lib/marketplace.ts` + `drizzle/0021_marketplace_and_apps.sql` (5 tables: `apps`, `app_installations`, `app_bots`, `app_install_tokens`, `app_events`). Routes: `GET /marketplace` (public directory with search), `GET /marketplace/:slug` (detail + install CTA), `POST /marketplace/:slug/install` (user-target install in v1), `POST /marketplace/installations/:id/uninstall`, `GET /settings/apps` (personal list), `GET+POST /developer/apps-new` (register), `GET /developer/apps/:slug/manage` (event log + install count), `POST /developer/apps/:slug/tokens/new` (show-once token). Install idempotent via soft-update on existing non-uninstalled row.
 - **H2** — GitHub Apps equivalent (bot identities + installation tokens) → ✅ shipped. Same schema as H1: every app gets a `<slug>[bot]` row in `app_bots`. `generateBearerToken()` produces `ghi_`-prefixed bearers; `hashBearer` (sha256) is the only form persisted. `verifyInstallToken(token)` returns `{installation, app, botUsername, permissions}` or `null` (checks revoked/expired/uninstalled/suspended). Permission vocabulary: `contents:read/write`, `issues:read/write`, `pulls:read/write`, `checks:read/write`, `deployments:read/write`, `metadata:read` — `hasPermission` implements write→read implication.
@@ -292,7 +296,7 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `src/app.tsx` — route composition, middleware order, error handlers
 - `src/index.ts` — Bun server entry
 - `src/lib/config.ts` — env getters (late-binding)
-- `src/db/schema.ts` — 86 tables. New tables only via new migration.
+- `src/db/schema.ts` — 87 tables. New tables only via new migration.
 - `src/db/index.ts` — lazy proxy DB connection
 - `src/db/migrate.ts` — migration runner
 - `drizzle/0000_initial.sql`, `drizzle/0001_green_ecosystem.sql` — migrations
@@ -320,6 +324,7 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `drizzle/0025_code_symbols.sql` (Block I8) — migration, never edited in place. Adds `code_symbols` table with indexes on `(repository_id, name)` + `(repository_id, path)`.
 - `drizzle/0026_repo_mirrors.sql` (Block I9) — migration, never edited in place. Adds `repo_mirrors` (unique on `repository_id`) + `repo_mirror_runs`.
 - `drizzle/0027_sso_oidc.sql` (Block I10) — migration, never edited in place. Adds `sso_config` singleton (`id='default'`) + `sso_user_links` (`subject` unique, FK to `users` with ON DELETE CASCADE).
+- `drizzle/0028_repo_dependencies.sql` (Block J1) — migration, never edited in place. Adds `repo_dependencies` with indexes on `(repository_id, ecosystem)` + `(name)`.
 
 ### 4.2 Git layer (locked)
 - `src/git/repository.ts` — tree / blob / commits / diff / branches / blame / search / raw / tags / commitsBetween

@@ -69,6 +69,7 @@ import sponsorsRoutes from "./routes/sponsors";
 import symbolsRoutes from "./routes/symbols";
 import mirrorsRoutes from "./routes/mirrors";
 import ssoRoutes from "./routes/sso";
+import depsRoutes from "./routes/deps";
 import webRoutes from "./routes/web";
 
 const app = new Hono();
@@ -237,6 +238,9 @@ app.route("/", mirrorsRoutes);
 
 // Enterprise SSO via OIDC — /admin/sso + /login/sso (Block I10)
 app.route("/", ssoRoutes);
+
+// Dependency graph — /:owner/:repo/dependencies (Block J1)
+app.route("/", depsRoutes);
 
 // Insights + milestones
 app.route("/", insightsRoutes);

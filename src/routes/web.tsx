@@ -5,9 +5,14 @@
 
 import { Hono } from "hono";
 import { html } from "hono/html";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, inArray } from "drizzle-orm";
 import { db } from "../db";
-import { users, repositories, stars } from "../db/schema";
+import {
+  users,
+  repositories,
+  stars,
+  commitVerifications,
+} from "../db/schema";
 import { Layout } from "../views/layout";
 import {
   RepoHeader,
@@ -666,6 +671,50 @@ web.get("/:owner/:repo/commits/:ref?", async (c) => {
 
   const commits = await listCommits(owner, repo, ref, 50);
 
+  // Block J3 — batch-fetch cached verification results for the page.
+  let verifications: Record<string, { verified: boolean; reason: string }> = {};
+  try {
+    const [ownerRow] = await db
+      .select()
+      .from(users)
+      .where(eq(users.username, owner))
+      .limit(1);
+    if (ownerRow) {
+      const [repoRow] = await db
+        .select()
+        .from(repositories)
+        .where(
+          and(
+            eq(repositories.ownerId, ownerRow.id),
+            eq(repositories.name, repo)
+          )
+        )
+        .limit(1);
+      if (repoRow && commits.length > 0) {
+        const rows = await db
+          .select()
+          .from(commitVerifications)
+          .where(
+            and(
+              eq(commitVerifications.repositoryId, repoRow.id),
+              inArray(
+                commitVerifications.commitSha,
+                commits.map((c) => c.sha)
+              )
+            )
+          );
+        for (const r of rows) {
+          verifications[r.commitSha] = {
+            verified: r.verified,
+            reason: r.reason,
+          };
+        }
+      }
+    }
+  } catch {
+    // DB unavailable — skip the badges gracefully.
+  }
+
   return c.html(
     <Layout title={`Commits — ${owner}/${repo}`} user={user}>
       <RepoHeader owner={owner} repo={repo} />
@@ -682,7 +731,12 @@ web.get("/:owner/:repo/commits/:ref?", async (c) => {
           <p>No commits yet.</p>
         </div>
       ) : (
-        <CommitList commits={commits} owner={owner} repo={repo} />
+        <CommitList
+          commits={commits}
+          owner={owner}
+          repo={repo}
+          verifications={verifications}
+        />
       )}
     </Layout>
   );
@@ -710,6 +764,41 @@ web.get("/:owner/:repo/commit/:sha", async (c) => {
     );
   }
 
+  // Block J3 — try to verify this commit's signature.
+  let verification:
+    | { verified: boolean; reason: string; signatureType: string | null }
+    | null = null;
+  try {
+    const [ownerRow] = await db
+      .select()
+      .from(users)
+      .where(eq(users.username, owner))
+      .limit(1);
+    if (ownerRow) {
+      const [repoRow] = await db
+        .select()
+        .from(repositories)
+        .where(
+          and(
+            eq(repositories.ownerId, ownerRow.id),
+            eq(repositories.name, repo)
+          )
+        )
+        .limit(1);
+      if (repoRow) {
+        const { verifyCommit } = await import("../lib/signatures");
+        const v = await verifyCommit(repoRow.id, owner, repo, commit.sha);
+        verification = {
+          verified: v.verified,
+          reason: v.reason,
+          signatureType: v.signatureType,
+        };
+      }
+    }
+  } catch {
+    verification = null;
+  }
+
   const { files, raw } = diffResult;
 
   return c.html(
@@ -734,6 +823,18 @@ web.get("/:owner/:repo/commit/:sha", async (c) => {
             day: "numeric",
             year: "numeric",
           })}
+          {verification && verification.reason !== "unsigned" && (
+            <span
+              style={`margin-left:10px;font-size:10px;padding:1px 6px;border-radius:3px;text-transform:uppercase;letter-spacing:.4px;color:#fff;background:${
+                verification.verified
+                  ? "var(--green,#2ea043)"
+                  : "var(--yellow,#d29922)"
+              }`}
+              title={`${verification.signatureType?.toUpperCase() || ""} · ${verification.reason}`}
+            >
+              {verification.verified ? "Verified" : verification.reason}
+            </span>
+          )}
         </div>
         <div style="margin-top: 8px">
           <span class="commit-sha">{commit.sha}</span>

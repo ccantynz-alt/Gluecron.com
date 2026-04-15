@@ -2169,3 +2169,66 @@ export const repoAdvisoryAlerts = pgTable(
 );
 
 export type RepoAdvisoryAlert = typeof repoAdvisoryAlerts.$inferSelect;
+
+// ----------------------------------------------------------------------------
+// Block J3 — Commit signature verification (GPG + SSH)
+// ----------------------------------------------------------------------------
+
+/** Per-user GPG/SSH public keys for commit signing. */
+export const signingKeys = pgTable(
+  "signing_keys",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    keyType: text("key_type").notNull(), // 'gpg' | 'ssh'
+    title: text("title").notNull(),
+    fingerprint: text("fingerprint").notNull(),
+    publicKey: text("public_key").notNull(),
+    email: text("email"),
+    expiresAt: timestamp("expires_at"),
+    lastUsedAt: timestamp("last_used_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("signing_keys_fp_unique").on(table.keyType, table.fingerprint),
+    index("signing_keys_user_idx").on(table.userId),
+  ]
+);
+
+export type SigningKey = typeof signingKeys.$inferSelect;
+
+/**
+ * Cached verification result for a (repo, commit) pair. Repopulated on demand;
+ * rows are invalidated implicitly by CASCADE when either side is removed.
+ */
+export const commitVerifications = pgTable(
+  "commit_verifications",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    commitSha: text("commit_sha").notNull(),
+    verified: boolean("verified").default(false).notNull(),
+    reason: text("reason").notNull(),
+    signatureType: text("signature_type"),
+    signerKeyId: uuid("signer_key_id").references(() => signingKeys.id, {
+      onDelete: "set null",
+    }),
+    signerUserId: uuid("signer_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    signerFingerprint: text("signer_fingerprint"),
+    verifiedAt: timestamp("verified_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("commit_verifications_sha_unique").on(
+      table.repositoryId,
+      table.commitSha
+    ),
+  ]
+);
+
+export type CommitVerification = typeof commitVerifications.$inferSelect;

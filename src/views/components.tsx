@@ -333,28 +333,40 @@ export const CommitList: FC<{
   commits: GitCommit[];
   owner: string;
   repo: string;
-}> = ({ commits, owner, repo }) => (
+  verifications?: Record<string, { verified: boolean; reason: string }>;
+}> = ({ commits, owner, repo, verifications }) => (
   <div class="commit-list">
-    {commits.map((commit) => (
-      <div class="commit-item">
-        <div>
-          <div class="commit-message">
-            <a href={`/${owner}/${repo}/commit/${commit.sha}`}>
-              {commit.message}
-            </a>
+    {commits.map((commit) => {
+      const v = verifications?.[commit.sha];
+      return (
+        <div class="commit-item">
+          <div>
+            <div class="commit-message">
+              <a href={`/${owner}/${repo}/commit/${commit.sha}`}>
+                {commit.message}
+              </a>
+              {v?.verified && (
+                <span
+                  title="Signed with a registered key"
+                  style="margin-left:8px;font-size:10px;padding:1px 6px;border-radius:3px;background:var(--green,#2ea043);color:#fff;text-transform:uppercase;letter-spacing:.4px"
+                >
+                  Verified
+                </span>
+              )}
+            </div>
+            <div class="commit-meta">
+              {commit.author} committed {formatRelativeDate(commit.date)}
+            </div>
           </div>
-          <div class="commit-meta">
-            {commit.author} committed {formatRelativeDate(commit.date)}
-          </div>
+          <a
+            href={`/${owner}/${repo}/commit/${commit.sha}`}
+            class="commit-sha"
+          >
+            {commit.sha.slice(0, 7)}
+          </a>
         </div>
-        <a
-          href={`/${owner}/${repo}/commit/${commit.sha}`}
-          class="commit-sha"
-        >
-          {commit.sha.slice(0, 7)}
-        </a>
-      </div>
-    ))}
+      );
+    })}
   </div>
 );
 

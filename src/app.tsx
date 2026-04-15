@@ -71,6 +71,7 @@ import mirrorsRoutes from "./routes/mirrors";
 import ssoRoutes from "./routes/sso";
 import depsRoutes from "./routes/deps";
 import advisoriesRoutes from "./routes/advisories";
+import signingKeysRoutes from "./routes/signing-keys";
 import webRoutes from "./routes/web";
 
 const app = new Hono();
@@ -245,6 +246,9 @@ app.route("/", depsRoutes);
 
 // Security advisories / dependabot alerts — /:owner/:repo/security/advisories (Block J2)
 app.route("/", advisoriesRoutes);
+
+// Commit signature verification / signing keys — /settings/signing-keys (Block J3)
+app.route("/", signingKeysRoutes);
 
 // Insights + milestones
 app.route("/", insightsRoutes);

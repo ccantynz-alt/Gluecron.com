@@ -95,9 +95,12 @@ repoSettings.get("/:owner/:repo/settings", requireAuth, async (c) => {
                 ))
               )}
             </select>
-            <div style="margin-top: 6px; font-size: 12px">
+            <div style="margin-top: 6px; font-size: 12px; display: flex; gap: 12px">
               <a href={`/${ownerName}/${repoName}/settings/branches`}>
                 Manage branches (rename, …)
+              </a>
+              <a href={`/${ownerName}/${repoName}/branches/age`}>
+                Branch staleness report →
               </a>
             </div>
           </div>

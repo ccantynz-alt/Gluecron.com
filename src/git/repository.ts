@@ -627,3 +627,37 @@ export async function getReadme(
     return blob?.content || null;
   });
 }
+
+/**
+ * Count commits ahead and behind: commits on `head` not on `base` (ahead) and
+ * commits on `base` not on `head` (behind). Returns null when either ref is
+ * missing or git errors out.
+ *
+ * Uses `git rev-list --left-right --count <base>...<head>`; git emits
+ * `<behind>\t<ahead>` (left is `base`, right is `head`).
+ */
+export async function aheadBehind(
+  owner: string,
+  name: string,
+  base: string,
+  head: string
+): Promise<{ ahead: number; behind: number } | null> {
+  const path = repoPath(owner, name);
+  const { stdout, exitCode } = await exec(
+    [
+      "git",
+      "rev-list",
+      "--left-right",
+      "--count",
+      `${base}...${head}`,
+    ],
+    { cwd: path }
+  );
+  if (exitCode !== 0) return null;
+  const parts = stdout.trim().split(/\s+/);
+  if (parts.length !== 2) return null;
+  const behind = Number.parseInt(parts[0]!, 10);
+  const ahead = Number.parseInt(parts[1]!, 10);
+  if (!Number.isFinite(ahead) || !Number.isFinite(behind)) return null;
+  return { ahead, behind };
+}

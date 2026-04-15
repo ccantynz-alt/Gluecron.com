@@ -85,6 +85,7 @@ import codeownersLintRoutes from "./routes/codeowners-lint";
 import codeSuggestionsRoutes from "./routes/code-suggestions";
 import branchRenameRoutes from "./routes/branch-rename";
 import responseTimeRoutes from "./routes/response-time";
+import branchAgeRoutes from "./routes/branch-age";
 import webRoutes from "./routes/web";
 
 const app = new Hono();
@@ -304,6 +305,11 @@ app.route("/", branchRenameRoutes);
 // Must be mounted BEFORE insightsRoutes so the static `/insights/response-time`
 // path wins over any future `/insights/:id` dynamic route that might appear.
 app.route("/", responseTimeRoutes);
+
+// Branch staleness / age report — /:owner/:repo/branches/age (Block J27)
+// Must be mounted BEFORE webRoutes so the static `/branches/age` path wins
+// over the `/:owner/:repo/tree/:branch` dynamic web catch-all.
+app.route("/", branchAgeRoutes);
 
 // Insights + milestones
 app.route("/", insightsRoutes);

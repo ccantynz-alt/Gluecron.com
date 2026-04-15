@@ -76,6 +76,7 @@ import followsRoutes from "./routes/follows";
 import rulesetsRoutes from "./routes/rulesets";
 import commitStatusesRoutes from "./routes/commit-statuses";
 import badgesRoutes from "./routes/badges";
+import communityRoutes from "./routes/community";
 import webRoutes from "./routes/web";
 
 const app = new Hono();
@@ -265,6 +266,9 @@ app.route("/", commitStatusesRoutes);
 
 // Shields.io-style SVG badges — /:owner/:repo/badge/*.svg (Block J10)
 app.route("/", badgesRoutes);
+
+// Community profile / health scorecard — /:owner/:repo/community (Block J12)
+app.route("/", communityRoutes);
 
 // Insights + milestones
 app.route("/", insightsRoutes);

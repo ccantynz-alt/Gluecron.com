@@ -1095,3 +1095,169 @@ export type Workflow = typeof workflows.$inferSelect;
 export type WorkflowRun = typeof workflowRuns.$inferSelect;
 export type WorkflowJob = typeof workflowJobs.$inferSelect;
 export type WorkflowArtifact = typeof workflowArtifacts.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Block C2 — Package registry (npm-compatible)
+// ---------------------------------------------------------------------------
+
+export const packages = pgTable(
+  "packages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    ecosystem: text("ecosystem").notNull().default("npm"), // "npm" | "container"
+    scope: text("scope"), // "@acme" for npm; null for unscoped
+    name: text("name").notNull(), // "my-lib" (without scope)
+    description: text("description"),
+    readme: text("readme"),
+    homepage: text("homepage"),
+    license: text("license"),
+    visibility: text("visibility").notNull().default("public"), // "public" | "private"
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("packages_repo").on(table.repositoryId),
+    uniqueIndex("packages_eco_scope_name").on(
+      table.ecosystem,
+      table.scope,
+      table.name
+    ),
+  ]
+);
+
+export const packageVersions = pgTable(
+  "package_versions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    packageId: uuid("package_id")
+      .notNull()
+      .references(() => packages.id, { onDelete: "cascade" }),
+    version: text("version").notNull(), // "1.2.3"
+    shasum: text("shasum").notNull(), // sha1 (for npm compat) hex
+    integrity: text("integrity"), // "sha512-..." base64
+    sizeBytes: integer("size_bytes").default(0).notNull(),
+    metadata: text("metadata").notNull().default("{}"), // package.json JSON
+    tarball: text("tarball"), // base64-encoded; bytea in migration
+    publishedBy: uuid("published_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    yanked: boolean("yanked").default(false).notNull(),
+    yankedReason: text("yanked_reason"),
+    publishedAt: timestamp("published_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("package_versions_pkg").on(table.packageId),
+    uniqueIndex("package_versions_pkg_version").on(table.packageId, table.version),
+  ]
+);
+
+export const packageTags = pgTable(
+  "package_tags",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    packageId: uuid("package_id")
+      .notNull()
+      .references(() => packages.id, { onDelete: "cascade" }),
+    tag: text("tag").notNull(), // "latest" | "beta" | ...
+    versionId: uuid("version_id")
+      .notNull()
+      .references(() => packageVersions.id, { onDelete: "cascade" }),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("package_tags_pkg_tag").on(table.packageId, table.tag),
+  ]
+);
+
+export type Package = typeof packages.$inferSelect;
+export type PackageVersion = typeof packageVersions.$inferSelect;
+export type PackageTag = typeof packageTags.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Block C3 — Pages / static hosting
+// ---------------------------------------------------------------------------
+
+export const pagesDeployments = pgTable(
+  "pages_deployments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    ref: text("ref").notNull().default("refs/heads/gh-pages"),
+    commitSha: text("commit_sha").notNull(),
+    status: text("status").notNull().default("success"), // "success" | "failed"
+    triggeredBy: uuid("triggered_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("pages_deployments_repo").on(table.repositoryId),
+    index("pages_deployments_created").on(table.createdAt),
+  ]
+);
+
+export const pagesSettings = pgTable("pages_settings", {
+  repositoryId: uuid("repository_id")
+    .primaryKey()
+    .references(() => repositories.id, { onDelete: "cascade" }),
+  enabled: boolean("enabled").default(true).notNull(),
+  sourceBranch: text("source_branch").notNull().default("gh-pages"),
+  sourceDir: text("source_dir").notNull().default("/"), // e.g. "/" or "/docs"
+  customDomain: text("custom_domain"),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export type PagesDeployment = typeof pagesDeployments.$inferSelect;
+export type PagesSettings = typeof pagesSettings.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Block C4 — Environments with protected approvals
+// ---------------------------------------------------------------------------
+
+export const environments = pgTable(
+  "environments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    name: text("name").notNull(), // "production" | "staging" | "preview"
+    requireApproval: boolean("require_approval").default(false).notNull(),
+    // JSON array of user IDs that can approve deploys.
+    reviewers: text("reviewers").notNull().default("[]"),
+    waitTimerMinutes: integer("wait_timer_minutes").default(0).notNull(),
+    allowedBranches: text("allowed_branches").notNull().default("[]"), // JSON glob patterns
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("environments_repo_name").on(table.repositoryId, table.name),
+  ]
+);
+
+export const deploymentApprovals = pgTable(
+  "deployment_approvals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    deploymentId: uuid("deployment_id")
+      .notNull()
+      .references(() => deployments.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    decision: text("decision").notNull(), // "approved" | "rejected"
+    comment: text("comment"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("deployment_approvals_deployment").on(table.deploymentId),
+  ]
+);
+
+export type Environment = typeof environments.$inferSelect;
+export type DeploymentApproval = typeof deploymentApprovals.$inferSelect;

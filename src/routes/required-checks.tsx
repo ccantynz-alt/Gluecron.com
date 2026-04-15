@@ -135,7 +135,7 @@ required.get(
                   {ch.checkName}
                 </code>
                 <form
-                  method="POST"
+                  method="post"
                   action={`/${owner}/${repo}/gates/protection/${rule.id}/checks/${ch.id}/delete`}
                   onsubmit="return confirm('Remove this required check?')"
                 >
@@ -149,7 +149,7 @@ required.get(
         </div>
 
         <form
-          method="POST"
+          method="post"
           action={`/${owner}/${repo}/gates/protection/${rule.id}/checks`}
           class="panel"
           style="padding:16px"

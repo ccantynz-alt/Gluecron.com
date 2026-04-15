@@ -29,6 +29,7 @@ export type NotificationKind =
   | "security_alert"
   | "deploy_success"
   | "deploy_failed"
+  | "deployment_approval"
   | "release_published"
   | "repo_archived";
 

@@ -168,3 +168,90 @@ Only suggest labels from the available list. Set duplicateOfIssueNumber only whe
     summary: typeof parsed.summary === "string" ? parsed.summary : "",
   };
 }
+
+/**
+ * D3 — AI PR triage. Reads the PR title/body + optional diff summary and
+ * suggests labels, reviewers, and a priority. Never throws; degrades to
+ * empty suggestions when the Anthropic key is absent.
+ */
+export interface PrTriage {
+  suggestedLabels: string[];
+  suggestedReviewerUsernames: string[];
+  priority: "critical" | "high" | "medium" | "low";
+  riskArea: "frontend" | "backend" | "infra" | "docs" | "tests" | "mixed";
+  summary: string;
+}
+
+export async function triagePullRequest(
+  title: string,
+  body: string,
+  diffSummary: string,
+  availableLabels: string[],
+  candidateReviewers: string[]
+): Promise<PrTriage> {
+  const fallback: PrTriage = {
+    suggestedLabels: [],
+    suggestedReviewerUsernames: [],
+    priority: "medium",
+    riskArea: "mixed",
+    summary: "",
+  };
+  if (!isAiAvailable()) return fallback;
+  try {
+    const client = getAnthropic();
+    const message = await client.messages.create({
+      model: MODEL_HAIKU,
+      max_tokens: 512,
+      messages: [
+        {
+          role: "user",
+          content: `Triage this new pull request.
+
+Title: ${title}
+Body:
+${body.slice(0, 4000)}
+
+Diff summary (paths + line counts):
+${diffSummary.slice(0, 4000)}
+
+Available labels: ${availableLabels.join(", ") || "(none)"}
+Candidate reviewers (usernames): ${candidateReviewers.join(", ") || "(none)"}
+
+Respond ONLY with JSON:
+{
+  "suggestedLabels": ["label1"],
+  "suggestedReviewerUsernames": ["alice"],
+  "priority": "medium",
+  "riskArea": "backend",
+  "summary": "one-sentence description of the change"
+}
+Only pick labels from the available list. Only pick reviewers from the candidate list. Priority must be one of critical|high|medium|low. riskArea must be one of frontend|backend|infra|docs|tests|mixed.`,
+        },
+      ],
+    });
+    const parsed = parseJsonResponse<PrTriage>(extractText(message));
+    if (!parsed) return fallback;
+    const allowedRisk = ["frontend", "backend", "infra", "docs", "tests", "mixed"] as const;
+    const allowedPriority = ["critical", "high", "medium", "low"] as const;
+    return {
+      suggestedLabels: Array.isArray(parsed.suggestedLabels)
+        ? parsed.suggestedLabels.filter((l) => availableLabels.includes(l))
+        : [],
+      suggestedReviewerUsernames: Array.isArray(parsed.suggestedReviewerUsernames)
+        ? parsed.suggestedReviewerUsernames.filter((u) =>
+            candidateReviewers.includes(u)
+          )
+        : [],
+      priority: allowedPriority.includes(parsed.priority as never)
+        ? parsed.priority
+        : "medium",
+      riskArea: allowedRisk.includes(parsed.riskArea as never)
+        ? parsed.riskArea
+        : "mixed",
+      summary: typeof parsed.summary === "string" ? parsed.summary : "",
+    };
+  } catch (err) {
+    console.error("[triagePullRequest]", err);
+    return fallback;
+  }
+}

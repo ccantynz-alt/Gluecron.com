@@ -5,9 +5,14 @@
 
 import { Hono } from "hono";
 import { html } from "hono/html";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, inArray } from "drizzle-orm";
 import { db } from "../db";
-import { users, repositories, stars } from "../db/schema";
+import {
+  users,
+  repositories,
+  stars,
+  commitVerifications,
+} from "../db/schema";
 import { Layout } from "../views/layout";
 import {
   RepoHeader,
@@ -41,6 +46,7 @@ import { renderMarkdown, markdownCss } from "../lib/markdown";
 import { highlightCode } from "../lib/highlight";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
+import { trackByName } from "../lib/traffic";
 
 const web = new Hono<AuthEnv>();
 
@@ -225,6 +231,47 @@ web.get("/:owner", async (c) => {
         : allRepos.filter((r) => !r.isPrivate);
   }
 
+  // Block J4 — follow counts + viewer's follow state
+  let followState = {
+    followers: 0,
+    following: 0,
+    viewerFollows: false,
+  };
+  if (ownerUser) {
+    try {
+      const { followCounts, isFollowing } = await import("../lib/follows");
+      const counts = await followCounts(ownerUser.id);
+      followState.followers = counts.followers;
+      followState.following = counts.following;
+      if (user && user.id !== ownerUser.id) {
+        followState.viewerFollows = await isFollowing(user.id, ownerUser.id);
+      }
+    } catch {
+      // DB hiccup — fall back to zeros.
+    }
+  }
+  const canFollow = !!user && !!ownerUser && user.id !== ownerUser.id;
+
+  // Block J5 — profile README. Render owner/owner repo's README on the
+  // profile page (GitHub convention). Tries "<user>/<user>" first, falling
+  // back to "<user>/.github" for org-style profile repos.
+  let profileReadmeHtml: string | null = null;
+  try {
+    const candidates = [ownerName, ".github"];
+    for (const rname of candidates) {
+      if (await repoExists(ownerName, rname)) {
+        const ref = (await getDefaultBranch(ownerName, rname)) || "main";
+        const md = await getReadme(ownerName, rname, ref);
+        if (md) {
+          profileReadmeHtml = renderMarkdown(md);
+          break;
+        }
+      }
+    }
+  } catch {
+    profileReadmeHtml = null;
+  }
+
   return c.html(
     <Layout title={ownerName} user={user}>
       <div class="user-profile">
@@ -235,8 +282,54 @@ web.get("/:owner", async (c) => {
           <h2>{ownerUser?.displayName || ownerName}</h2>
           <div class="username">@{ownerName}</div>
           {ownerUser?.bio && <div class="bio">{ownerUser.bio}</div>}
+          <div
+            style="margin-top:8px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;font-size:13px"
+          >
+            <a
+              href={`/${ownerName}/followers`}
+              style="color:var(--text-muted)"
+            >
+              <strong style="color:var(--text)">
+                {followState.followers}
+              </strong>{" "}
+              follower{followState.followers === 1 ? "" : "s"}
+            </a>
+            <a
+              href={`/${ownerName}/following`}
+              style="color:var(--text-muted)"
+            >
+              <strong style="color:var(--text)">
+                {followState.following}
+              </strong>{" "}
+              following
+            </a>
+            {canFollow && (
+              <form
+                method="POST"
+                action={`/${ownerName}/${
+                  followState.viewerFollows ? "unfollow" : "follow"
+                }`}
+              >
+                <button
+                  type="submit"
+                  class={`btn ${
+                    followState.viewerFollows ? "" : "btn-primary"
+                  } btn-sm`}
+                >
+                  {followState.viewerFollows ? "Unfollow" : "Follow"}
+                </button>
+              </form>
+            )}
+          </div>
         </div>
       </div>
+      {profileReadmeHtml && (
+        <div
+          class="markdown-body"
+          style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius);padding:20px 24px;margin-bottom:24px"
+          dangerouslySetInnerHTML={{ __html: profileReadmeHtml }}
+        />
+      )}
       <h3 style="margin-bottom: 16px">Repositories</h3>
       {repos.length === 0 ? (
         <p style="color: var(--text-muted)">No repositories yet.</p>
@@ -313,6 +406,15 @@ web.get("/:owner/:repo", async (c) => {
   const { owner, repo } = c.req.param();
   const user = c.get("user");
 
+  // F1 — fire-and-forget traffic tracking. Never awaits; never throws.
+  trackByName(owner, repo, "view", {
+    userId: user?.id || null,
+    path: `/${owner}/${repo}`,
+    ip: c.req.header("x-forwarded-for") || c.req.header("x-real-ip") || null,
+    userAgent: c.req.header("user-agent") || null,
+    referer: c.req.header("referer") || null,
+  }).catch(() => {});
+
   if (!(await repoExists(owner, repo))) {
     return c.html(
       <Layout title="Not Found" user={user}>
@@ -342,7 +444,13 @@ web.get("/:owner/:repo", async (c) => {
           .from(users)
           .where(eq(users.username, owner))
           .limit(1);
-        if (!ownerUser) return { starCount: 0, starred: false };
+        if (!ownerUser)
+          return {
+            starCount: 0,
+            starred: false,
+            archived: false,
+            isTemplate: false,
+          };
         const [repoRow] = await db
           .select()
           .from(repositories)
@@ -353,7 +461,13 @@ web.get("/:owner/:repo", async (c) => {
             )
           )
           .limit(1);
-        if (!repoRow) return { starCount: 0, starred: false };
+        if (!repoRow)
+          return {
+            starCount: 0,
+            starred: false,
+            archived: false,
+            isTemplate: false,
+          };
         let starred = false;
         if (user) {
           const [star] = await db
@@ -368,13 +482,23 @@ web.get("/:owner/:repo", async (c) => {
             .limit(1);
           starred = !!star;
         }
-        return { starCount: repoRow.starCount, starred };
+        return {
+          starCount: repoRow.starCount,
+          starred,
+          archived: repoRow.isArchived,
+          isTemplate: repoRow.isTemplate,
+        };
       } catch {
-        return { starCount: 0, starred: false };
+        return {
+          starCount: 0,
+          starred: false,
+          archived: false,
+          isTemplate: false,
+        };
       }
     })(),
   ]);
-  const { starCount, starred } = starInfo;
+  const { starCount, starred, archived, isTemplate } = starInfo;
 
   if (tree.length === 0) {
     return c.html(
@@ -385,6 +509,8 @@ web.get("/:owner/:repo", async (c) => {
           starCount={starCount}
           starred={starred}
           currentUser={user?.username}
+          archived={archived}
+          isTemplate={isTemplate}
         />
         <RepoNav owner={owner} repo={repo} active="code" />
         <div class="empty-state">
@@ -407,7 +533,36 @@ git push -u gluecron main`}</pre>
         starCount={starCount}
         starred={starred}
         currentUser={user?.username}
+        archived={archived}
+        isTemplate={isTemplate}
       />
+      {isTemplate && user && user.username !== owner && (
+        <div
+          class="panel"
+          style="margin-bottom:16px;padding:12px;display:flex;align-items:center;justify-content:space-between;gap:12px"
+        >
+          <div style="font-size:13px">
+            <strong>Template repository.</strong> Create a new repository from
+            this template's files.
+          </div>
+          <form
+            method="POST"
+            action={`/${owner}/${repo}/use-template`}
+            style="display:flex;gap:8px;align-items:center"
+          >
+            <input
+              type="text"
+              name="name"
+              placeholder="new-repo-name"
+              required
+              style="width:200px"
+            />
+            <button type="submit" class="btn btn-primary">
+              Use this template
+            </button>
+          </form>
+        </div>
+      )}
       <RepoNav owner={owner} repo={repo} active="code" />
       <BranchSwitcher
         owner={owner}
@@ -603,6 +758,50 @@ web.get("/:owner/:repo/commits/:ref?", async (c) => {
 
   const commits = await listCommits(owner, repo, ref, 50);
 
+  // Block J3 — batch-fetch cached verification results for the page.
+  let verifications: Record<string, { verified: boolean; reason: string }> = {};
+  try {
+    const [ownerRow] = await db
+      .select()
+      .from(users)
+      .where(eq(users.username, owner))
+      .limit(1);
+    if (ownerRow) {
+      const [repoRow] = await db
+        .select()
+        .from(repositories)
+        .where(
+          and(
+            eq(repositories.ownerId, ownerRow.id),
+            eq(repositories.name, repo)
+          )
+        )
+        .limit(1);
+      if (repoRow && commits.length > 0) {
+        const rows = await db
+          .select()
+          .from(commitVerifications)
+          .where(
+            and(
+              eq(commitVerifications.repositoryId, repoRow.id),
+              inArray(
+                commitVerifications.commitSha,
+                commits.map((c) => c.sha)
+              )
+            )
+          );
+        for (const r of rows) {
+          verifications[r.commitSha] = {
+            verified: r.verified,
+            reason: r.reason,
+          };
+        }
+      }
+    }
+  } catch {
+    // DB unavailable — skip the badges gracefully.
+  }
+
   return c.html(
     <Layout title={`Commits — ${owner}/${repo}`} user={user}>
       <RepoHeader owner={owner} repo={repo} />
@@ -619,7 +818,12 @@ web.get("/:owner/:repo/commits/:ref?", async (c) => {
           <p>No commits yet.</p>
         </div>
       ) : (
-        <CommitList commits={commits} owner={owner} repo={repo} />
+        <CommitList
+          commits={commits}
+          owner={owner}
+          repo={repo}
+          verifications={verifications}
+        />
       )}
     </Layout>
   );
@@ -647,6 +851,72 @@ web.get("/:owner/:repo/commit/:sha", async (c) => {
     );
   }
 
+  // Block J3 — try to verify this commit's signature.
+  let verification:
+    | { verified: boolean; reason: string; signatureType: string | null }
+    | null = null;
+  // Block J8 — external CI commit statuses rollup.
+  let statusCombined:
+    | {
+        state: "pending" | "success" | "failure";
+        total: number;
+        contexts: Array<{
+          context: string;
+          state: string;
+          description: string | null;
+          targetUrl: string | null;
+        }>;
+      }
+    | null = null;
+  try {
+    const [ownerRow] = await db
+      .select()
+      .from(users)
+      .where(eq(users.username, owner))
+      .limit(1);
+    if (ownerRow) {
+      const [repoRow] = await db
+        .select()
+        .from(repositories)
+        .where(
+          and(
+            eq(repositories.ownerId, ownerRow.id),
+            eq(repositories.name, repo)
+          )
+        )
+        .limit(1);
+      if (repoRow) {
+        const { verifyCommit } = await import("../lib/signatures");
+        const v = await verifyCommit(repoRow.id, owner, repo, commit.sha);
+        verification = {
+          verified: v.verified,
+          reason: v.reason,
+          signatureType: v.signatureType,
+        };
+        try {
+          const { combinedStatus } = await import("../lib/commit-statuses");
+          const combined = await combinedStatus(repoRow.id, commit.sha);
+          if (combined.total > 0) {
+            statusCombined = {
+              state: combined.state as any,
+              total: combined.total,
+              contexts: combined.contexts.map((c) => ({
+                context: c.context,
+                state: c.state,
+                description: c.description,
+                targetUrl: c.targetUrl,
+              })),
+            };
+          }
+        } catch {
+          statusCombined = null;
+        }
+      }
+    }
+  } catch {
+    verification = null;
+  }
+
   const { files, raw } = diffResult;
 
   return c.html(
@@ -671,6 +941,18 @@ web.get("/:owner/:repo/commit/:sha", async (c) => {
             day: "numeric",
             year: "numeric",
           })}
+          {verification && verification.reason !== "unsigned" && (
+            <span
+              style={`margin-left:10px;font-size:10px;padding:1px 6px;border-radius:3px;text-transform:uppercase;letter-spacing:.4px;color:#fff;background:${
+                verification.verified
+                  ? "var(--green,#2ea043)"
+                  : "var(--yellow,#d29922)"
+              }`}
+              title={`${verification.signatureType?.toUpperCase() || ""} · ${verification.reason}`}
+            >
+              {verification.verified ? "Verified" : verification.reason}
+            </span>
+          )}
         </div>
         <div style="margin-top: 8px">
           <span class="commit-sha">{commit.sha}</span>
@@ -689,6 +971,53 @@ web.get("/:owner/:repo/commit/:sha", async (c) => {
             </span>
           )}
         </div>
+        {statusCombined && (
+          <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); font-size: 13px">
+            <strong style="color: var(--text)">Checks</strong>
+            <span style="margin-left: 8px; color: var(--text-muted)">
+              {statusCombined.total} total —{" "}
+              <span
+                style={`color:${
+                  statusCombined.state === "success"
+                    ? "var(--green,#2ea043)"
+                    : statusCombined.state === "failure"
+                      ? "var(--red,#da3633)"
+                      : "var(--yellow,#d29922)"
+                }`}
+              >
+                {statusCombined.state}
+              </span>
+            </span>
+            <div style="margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px">
+              {statusCombined.contexts.map((cx) => (
+                <span
+                  style={`font-size:11px;padding:2px 6px;border-radius:3px;color:#fff;background:${
+                    cx.state === "success"
+                      ? "var(--green,#2ea043)"
+                      : cx.state === "pending"
+                        ? "var(--yellow,#d29922)"
+                        : "var(--red,#da3633)"
+                  }`}
+                  title={cx.description || cx.context}
+                >
+                  {cx.targetUrl ? (
+                    <a
+                      href={cx.targetUrl}
+                      style="color: inherit; text-decoration: none"
+                      rel="noopener"
+                    >
+                      {cx.context}: {cx.state}
+                    </a>
+                  ) : (
+                    <>
+                      {cx.context}: {cx.state}
+                    </>
+                  )}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
       <DiffView raw={raw} files={files} />
     </Layout>

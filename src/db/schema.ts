@@ -22,6 +22,9 @@ export const users = pgTable("users", {
   notifyEmailOnMention: boolean("notify_email_on_mention").default(true).notNull(),
   notifyEmailOnAssign: boolean("notify_email_on_assign").default(true).notNull(),
   notifyEmailOnGateFail: boolean("notify_email_on_gate_fail").default(true).notNull(),
+  // Block I7 — weekly digest opt-in.
+  notifyEmailDigestWeekly: boolean("notify_email_digest_weekly").default(false).notNull(),
+  lastDigestSentAt: timestamp("last_digest_sent_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -56,6 +59,7 @@ export const repositories = pgTable(
     description: text("description"),
     isPrivate: boolean("is_private").default(false).notNull(),
     isArchived: boolean("is_archived").default(false).notNull(),
+    isTemplate: boolean("is_template").default(false).notNull(),
     defaultBranch: text("default_branch").default("main").notNull(),
     diskPath: text("disk_path").notNull(),
     forkedFromId: uuid("forked_from_id").references(() => repositories.id, {
@@ -973,3 +977,1385 @@ export const oauthAccessTokens = pgTable(
 export type OauthApp = typeof oauthApps.$inferSelect;
 export type OauthAuthorization = typeof oauthAuthorizations.$inferSelect;
 export type OauthAccessToken = typeof oauthAccessTokens.$inferSelect;
+
+/**
+ * Actions-equivalent workflow runner (Block C1).
+ *
+ * `workflows` rows are the YAML files discovered at `.gluecron/workflows/*.yml`
+ * on the repo's default branch. `parsed` is the normalised JSON form used by
+ * the runner so we don't re-parse on every trigger.
+ *
+ * `workflow_runs` is one execution: one row per trigger event. Status
+ * progression: queued → running → success|failure|cancelled. `conclusion`
+ * stays null until `status` is terminal.
+ *
+ * `workflow_jobs` is a single job within a run — each has its own steps
+ * array and concatenated logs. We keep logs inline for v1 (no streaming)
+ * to avoid a fifth table; they're truncated at the runner.
+ *
+ * `workflow_artifacts` persist files a job uploaded. `content` is a bytea;
+ * we'll move this to object storage once we hit size limits.
+ */
+export const workflows = pgTable(
+  "workflows",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    path: text("path").notNull(), // e.g. ".gluecron/workflows/ci.yml"
+    yaml: text("yaml").notNull(),
+    parsed: text("parsed").notNull(), // JSON string
+    onEvents: text("on_events").notNull().default("[]"), // JSON array of event names
+    disabled: boolean("disabled").default(false).notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("workflows_repo").on(table.repositoryId),
+    uniqueIndex("workflows_repo_path").on(table.repositoryId, table.path),
+  ]
+);
+
+export const workflowRuns = pgTable(
+  "workflow_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workflowId: uuid("workflow_id")
+      .notNull()
+      .references(() => workflows.id, { onDelete: "cascade" }),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    runNumber: integer("run_number").notNull(),
+    event: text("event").notNull(), // "push" | "pull_request" | "manual" | ...
+    ref: text("ref"),
+    commitSha: text("commit_sha"),
+    triggeredBy: uuid("triggered_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    status: text("status").notNull().default("queued"), // queued|running|success|failure|cancelled
+    conclusion: text("conclusion"),
+    queuedAt: timestamp("queued_at").defaultNow().notNull(),
+    startedAt: timestamp("started_at"),
+    finishedAt: timestamp("finished_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("workflow_runs_repo").on(table.repositoryId),
+    index("workflow_runs_status").on(table.status),
+    index("workflow_runs_workflow").on(table.workflowId),
+  ]
+);
+
+export const workflowJobs = pgTable(
+  "workflow_jobs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    runId: uuid("run_id")
+      .notNull()
+      .references(() => workflowRuns.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    jobOrder: integer("job_order").default(0).notNull(),
+    runsOn: text("runs_on").notNull().default("default"),
+    status: text("status").notNull().default("queued"),
+    conclusion: text("conclusion"),
+    exitCode: integer("exit_code"),
+    steps: text("steps").notNull().default("[]"), // JSON array of step results
+    logs: text("logs").notNull().default(""),
+    startedAt: timestamp("started_at"),
+    finishedAt: timestamp("finished_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [index("workflow_jobs_run").on(table.runId)]
+);
+
+export const workflowArtifacts = pgTable(
+  "workflow_artifacts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    runId: uuid("run_id")
+      .notNull()
+      .references(() => workflowRuns.id, { onDelete: "cascade" }),
+    jobId: uuid("job_id").references(() => workflowJobs.id, {
+      onDelete: "set null",
+    }),
+    name: text("name").notNull(),
+    sizeBytes: integer("size_bytes").default(0).notNull(),
+    contentType: text("content_type")
+      .default("application/octet-stream")
+      .notNull(),
+    // bytea — drizzle doesn't have a built-in bytea type at the level we use
+    // elsewhere; store as text (base64) for v1. Migration uses real bytea so
+    // we can swap the column type later.
+    content: text("content"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [index("workflow_artifacts_run").on(table.runId)]
+);
+
+export type Workflow = typeof workflows.$inferSelect;
+export type WorkflowRun = typeof workflowRuns.$inferSelect;
+export type WorkflowJob = typeof workflowJobs.$inferSelect;
+export type WorkflowArtifact = typeof workflowArtifacts.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Block C2 — Package registry (npm-compatible)
+// ---------------------------------------------------------------------------
+
+export const packages = pgTable(
+  "packages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    ecosystem: text("ecosystem").notNull().default("npm"), // "npm" | "container"
+    scope: text("scope"), // "@acme" for npm; null for unscoped
+    name: text("name").notNull(), // "my-lib" (without scope)
+    description: text("description"),
+    readme: text("readme"),
+    homepage: text("homepage"),
+    license: text("license"),
+    visibility: text("visibility").notNull().default("public"), // "public" | "private"
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("packages_repo").on(table.repositoryId),
+    uniqueIndex("packages_eco_scope_name").on(
+      table.ecosystem,
+      table.scope,
+      table.name
+    ),
+  ]
+);
+
+export const packageVersions = pgTable(
+  "package_versions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    packageId: uuid("package_id")
+      .notNull()
+      .references(() => packages.id, { onDelete: "cascade" }),
+    version: text("version").notNull(), // "1.2.3"
+    shasum: text("shasum").notNull(), // sha1 (for npm compat) hex
+    integrity: text("integrity"), // "sha512-..." base64
+    sizeBytes: integer("size_bytes").default(0).notNull(),
+    metadata: text("metadata").notNull().default("{}"), // package.json JSON
+    tarball: text("tarball"), // base64-encoded; bytea in migration
+    publishedBy: uuid("published_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    yanked: boolean("yanked").default(false).notNull(),
+    yankedReason: text("yanked_reason"),
+    publishedAt: timestamp("published_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("package_versions_pkg").on(table.packageId),
+    uniqueIndex("package_versions_pkg_version").on(table.packageId, table.version),
+  ]
+);
+
+export const packageTags = pgTable(
+  "package_tags",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    packageId: uuid("package_id")
+      .notNull()
+      .references(() => packages.id, { onDelete: "cascade" }),
+    tag: text("tag").notNull(), // "latest" | "beta" | ...
+    versionId: uuid("version_id")
+      .notNull()
+      .references(() => packageVersions.id, { onDelete: "cascade" }),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("package_tags_pkg_tag").on(table.packageId, table.tag),
+  ]
+);
+
+export type Package = typeof packages.$inferSelect;
+export type PackageVersion = typeof packageVersions.$inferSelect;
+export type PackageTag = typeof packageTags.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Block C3 — Pages / static hosting
+// ---------------------------------------------------------------------------
+
+export const pagesDeployments = pgTable(
+  "pages_deployments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    ref: text("ref").notNull().default("refs/heads/gh-pages"),
+    commitSha: text("commit_sha").notNull(),
+    status: text("status").notNull().default("success"), // "success" | "failed"
+    triggeredBy: uuid("triggered_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("pages_deployments_repo").on(table.repositoryId),
+    index("pages_deployments_created").on(table.createdAt),
+  ]
+);
+
+export const pagesSettings = pgTable("pages_settings", {
+  repositoryId: uuid("repository_id")
+    .primaryKey()
+    .references(() => repositories.id, { onDelete: "cascade" }),
+  enabled: boolean("enabled").default(true).notNull(),
+  sourceBranch: text("source_branch").notNull().default("gh-pages"),
+  sourceDir: text("source_dir").notNull().default("/"), // e.g. "/" or "/docs"
+  customDomain: text("custom_domain"),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export type PagesDeployment = typeof pagesDeployments.$inferSelect;
+export type PagesSettings = typeof pagesSettings.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Block C4 — Environments with protected approvals
+// ---------------------------------------------------------------------------
+
+export const environments = pgTable(
+  "environments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    name: text("name").notNull(), // "production" | "staging" | "preview"
+    requireApproval: boolean("require_approval").default(false).notNull(),
+    // JSON array of user IDs that can approve deploys.
+    reviewers: text("reviewers").notNull().default("[]"),
+    waitTimerMinutes: integer("wait_timer_minutes").default(0).notNull(),
+    allowedBranches: text("allowed_branches").notNull().default("[]"), // JSON glob patterns
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("environments_repo_name").on(table.repositoryId, table.name),
+  ]
+);
+
+export const deploymentApprovals = pgTable(
+  "deployment_approvals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    deploymentId: uuid("deployment_id")
+      .notNull()
+      .references(() => deployments.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    decision: text("decision").notNull(), // "approved" | "rejected"
+    comment: text("comment"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("deployment_approvals_deployment").on(table.deploymentId),
+  ]
+);
+
+export type Environment = typeof environments.$inferSelect;
+export type DeploymentApproval = typeof deploymentApprovals.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Block D — AI-native differentiation (migration 0012)
+// ---------------------------------------------------------------------------
+
+// D6 — cached "explain this codebase" markdown keyed on commit sha.
+export const codebaseExplanations = pgTable(
+  "codebase_explanations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    commitSha: text("commit_sha").notNull(),
+    summary: text("summary").notNull(),
+    markdown: text("markdown").notNull(),
+    model: text("model").notNull(),
+    generatedAt: timestamp("generated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("codebase_explanations_repo_sha").on(
+      table.repositoryId,
+      table.commitSha
+    ),
+  ]
+);
+
+// D2 — AI dependency bumper run history.
+export const depUpdateRuns = pgTable(
+  "dep_update_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    status: text("status").notNull().default("pending"), // pending|running|success|failed|no_updates
+    ecosystem: text("ecosystem").notNull(), // npm|bun
+    manifestPath: text("manifest_path").notNull(),
+    attemptedBumps: text("attempted_bumps").notNull().default("[]"), // JSON
+    appliedBumps: text("applied_bumps").notNull().default("[]"), // JSON
+    branchName: text("branch_name"),
+    prNumber: integer("pr_number"),
+    errorMessage: text("error_message"),
+    triggeredBy: uuid("triggered_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    completedAt: timestamp("completed_at"),
+  },
+  (table) => [
+    index("dep_update_runs_repo").on(table.repositoryId),
+    index("dep_update_runs_created").on(table.createdAt),
+  ]
+);
+
+// D1 — code chunks for semantic search. Embedding stored as JSON-encoded
+// number array in text to avoid requiring pgvector; cosine similarity is
+// computed in JS. Upgrade path: ALTER COLUMN embedding TYPE vector(1024).
+export const codeChunks = pgTable(
+  "code_chunks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    commitSha: text("commit_sha").notNull(),
+    path: text("path").notNull(),
+    startLine: integer("start_line").notNull(),
+    endLine: integer("end_line").notNull(),
+    content: text("content").notNull(),
+    embedding: text("embedding"), // JSON number[]
+    embeddingModel: text("embedding_model"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("code_chunks_repo").on(table.repositoryId),
+    index("code_chunks_repo_path").on(table.repositoryId, table.path),
+  ]
+);
+
+export type CodebaseExplanation = typeof codebaseExplanations.$inferSelect;
+export type DepUpdateRun = typeof depUpdateRuns.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Block E2 — Discussions (migration 0013)
+// ---------------------------------------------------------------------------
+
+/**
+ * Discussions — forum-style threaded conversations attached to a repo.
+ * Similar to GitHub Discussions: categorised + pinnable + answerable.
+ */
+export const discussions = pgTable(
+  "discussions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    number: serial("number"),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    authorId: uuid("author_id")
+      .notNull()
+      .references(() => users.id),
+    // one of: "general" | "q-and-a" | "ideas" | "announcements" | "show-and-tell"
+    category: text("category").notNull().default("general"),
+    title: text("title").notNull(),
+    body: text("body"),
+    state: text("state").notNull().default("open"), // open, closed
+    locked: boolean("locked").notNull().default(false),
+    answerCommentId: uuid("answer_comment_id"),
+    pinned: boolean("pinned").notNull().default(false),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("discussions_repo").on(table.repositoryId),
+    uniqueIndex("discussions_repo_number").on(
+      table.repositoryId,
+      table.number
+    ),
+  ]
+);
+
+export const discussionComments = pgTable(
+  "discussion_comments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    discussionId: uuid("discussion_id")
+      .notNull()
+      .references(() => discussions.id, { onDelete: "cascade" }),
+    parentCommentId: uuid("parent_comment_id"),
+    authorId: uuid("author_id")
+      .notNull()
+      .references(() => users.id),
+    body: text("body").notNull(),
+    isAnswer: boolean("is_answer").notNull().default(false),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("discussion_comments_discussion").on(table.discussionId),
+  ]
+);
+
+export type Discussion = typeof discussions.$inferSelect;
+export type DiscussionComment = typeof discussionComments.$inferSelect;
+export type CodeChunk = typeof codeChunks.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Block E4 — Gists (migration 0014)
+// ---------------------------------------------------------------------------
+//
+// User-owned small snippets/files that behave like tiny repos. DB-backed
+// for v1 (no bare git repo): each gist owns a collection of gist_files and
+// every edit appends a gist_revisions row with a JSON snapshot.
+
+export const gists = pgTable(
+  "gists",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ownerId: uuid("owner_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    // 8-char hex slug used in pretty URLs (e.g. /gists/a1b2c3d4).
+    slug: text("slug").notNull().unique(),
+    title: text("title").notNull().default(""),
+    description: text("description").notNull().default(""),
+    isPublic: boolean("is_public").default(true).notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [index("gists_owner").on(table.ownerId)]
+);
+
+export const gistFiles = pgTable(
+  "gist_files",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    gistId: uuid("gist_id")
+      .notNull()
+      .references(() => gists.id, { onDelete: "cascade" }),
+    filename: text("filename").notNull(),
+    // Optional explicit language override; falls back to filename detection.
+    language: text("language"),
+    content: text("content").notNull().default(""),
+    sizeBytes: integer("size_bytes").default(0).notNull(),
+  },
+  (table) => [
+    index("gist_files_gist").on(table.gistId),
+    uniqueIndex("gist_files_gist_filename").on(table.gistId, table.filename),
+  ]
+);
+
+export const gistRevisions = pgTable(
+  "gist_revisions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    gistId: uuid("gist_id")
+      .notNull()
+      .references(() => gists.id, { onDelete: "cascade" }),
+    revision: integer("revision").notNull(),
+    // JSON-encoded {filename: content} map capturing the full snapshot at
+    // this revision. Stored as text to avoid requiring jsonb.
+    snapshot: text("snapshot").notNull().default("{}"),
+    authorId: uuid("author_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    message: text("message"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("gist_revisions_gist_rev").on(table.gistId, table.revision),
+  ]
+);
+
+export const gistStars = pgTable(
+  "gist_stars",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    gistId: uuid("gist_id")
+      .notNull()
+      .references(() => gists.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [uniqueIndex("gist_stars_gist_user").on(table.gistId, table.userId)]
+);
+
+export type Gist = typeof gists.$inferSelect;
+export type GistFile = typeof gistFiles.$inferSelect;
+export type GistRevision = typeof gistRevisions.$inferSelect;
+export type GistStar = typeof gistStars.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Block E1 — Projects / kanban (migration 0015)
+// ---------------------------------------------------------------------------
+
+export const projects = pgTable(
+  "projects",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    number: serial("number"),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    ownerId: uuid("owner_id")
+      .notNull()
+      .references(() => users.id),
+    title: text("title").notNull(),
+    description: text("description").notNull().default(""),
+    state: text("state").notNull().default("open"), // open | closed
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("projects_repo").on(table.repositoryId),
+    uniqueIndex("projects_repo_number").on(table.repositoryId, table.number),
+  ]
+);
+
+export const projectColumns = pgTable(
+  "project_columns",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    position: integer("position").notNull().default(0),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [index("project_columns_project").on(table.projectId)]
+);
+
+export const projectItems = pgTable(
+  "project_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    columnId: uuid("column_id")
+      .notNull()
+      .references(() => projectColumns.id, { onDelete: "cascade" }),
+    position: integer("position").notNull().default(0),
+    // "note" | "issue" | "pr" — application-level FK on itemId by type
+    itemType: text("item_type").notNull().default("note"),
+    itemId: uuid("item_id"),
+    title: text("title").notNull().default(""),
+    note: text("note").notNull().default(""),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("project_items_project").on(table.projectId),
+    index("project_items_column").on(table.columnId, table.position),
+  ]
+);
+
+export type Project = typeof projects.$inferSelect;
+export type ProjectColumn = typeof projectColumns.$inferSelect;
+export type ProjectItem = typeof projectItems.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Block E3 — Wikis (migration 0016)
+// ---------------------------------------------------------------------------
+// DB-backed for v1; git-backed mirror is a future upgrade.
+
+export const wikiPages = pgTable(
+  "wiki_pages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    slug: text("slug").notNull(),
+    title: text("title").notNull(),
+    body: text("body").notNull().default(""),
+    revision: integer("revision").notNull().default(1),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+    updatedBy: uuid("updated_by").references(() => users.id),
+  },
+  (table) => [
+    index("wiki_pages_repo").on(table.repositoryId),
+    uniqueIndex("wiki_pages_repo_slug").on(table.repositoryId, table.slug),
+  ]
+);
+
+export const wikiRevisions = pgTable(
+  "wiki_revisions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    pageId: uuid("page_id")
+      .notNull()
+      .references(() => wikiPages.id, { onDelete: "cascade" }),
+    revision: integer("revision").notNull(),
+    title: text("title").notNull(),
+    body: text("body").notNull().default(""),
+    message: text("message"),
+    authorId: uuid("author_id")
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [index("wiki_revisions_page").on(table.pageId, table.revision)]
+);
+
+export type WikiPage = typeof wikiPages.$inferSelect;
+export type WikiRevision = typeof wikiRevisions.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Block E5 — Merge queues (migration 0017)
+// ---------------------------------------------------------------------------
+
+export const mergeQueueEntries = pgTable(
+  "merge_queue_entries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    pullRequestId: uuid("pull_request_id")
+      .notNull()
+      .references(() => pullRequests.id, { onDelete: "cascade" }),
+    baseBranch: text("base_branch").notNull(),
+    // queued | running | merged | failed | dequeued
+    state: text("state").notNull().default("queued"),
+    position: integer("position").notNull().default(0),
+    enqueuedBy: uuid("enqueued_by").references(() => users.id),
+    enqueuedAt: timestamp("enqueued_at").defaultNow().notNull(),
+    startedAt: timestamp("started_at"),
+    finishedAt: timestamp("finished_at"),
+    errorMessage: text("error_message"),
+  },
+  (table) => [
+    index("merge_queue_repo_branch").on(
+      table.repositoryId,
+      table.baseBranch,
+      table.state
+    ),
+  ]
+);
+
+export type MergeQueueEntry = typeof mergeQueueEntries.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Block E6 — Required status checks matrix (migration 0018)
+// ---------------------------------------------------------------------------
+
+export const branchRequiredChecks = pgTable(
+  "branch_required_checks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    branchProtectionId: uuid("branch_protection_id")
+      .notNull()
+      .references(() => branchProtection.id, { onDelete: "cascade" }),
+    checkName: text("check_name").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("branch_required_checks_rule").on(table.branchProtectionId),
+    uniqueIndex("branch_required_checks_unique").on(
+      table.branchProtectionId,
+      table.checkName
+    ),
+  ]
+);
+
+export type BranchRequiredCheck = typeof branchRequiredChecks.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Block E7 — Protected tags (migration 0019)
+// ---------------------------------------------------------------------------
+
+export const protectedTags = pgTable(
+  "protected_tags",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    pattern: text("pattern").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    createdBy: uuid("created_by").references(() => users.id),
+  },
+  (table) => [
+    index("protected_tags_repo").on(table.repositoryId),
+    uniqueIndex("protected_tags_repo_pattern").on(
+      table.repositoryId,
+      table.pattern
+    ),
+  ]
+);
+
+export type ProtectedTag = typeof protectedTags.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Block F — Observability + admin (migration 0020)
+// ---------------------------------------------------------------------------
+
+// F1 — Traffic analytics per repo
+export const repoTrafficEvents = pgTable(
+  "repo_traffic_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(), // view | clone | api | ui
+    path: text("path"),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    ipHash: text("ip_hash"),
+    userAgent: text("user_agent"),
+    referer: text("referer"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("repo_traffic_events_repo_time").on(
+      table.repositoryId,
+      table.createdAt
+    ),
+    index("repo_traffic_events_kind").on(
+      table.repositoryId,
+      table.kind,
+      table.createdAt
+    ),
+  ]
+);
+
+export type RepoTrafficEvent = typeof repoTrafficEvents.$inferSelect;
+
+// F3 — Admin panel (site admins + toggleable flags)
+export const systemFlags = pgTable("system_flags", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull().default(""),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  updatedBy: uuid("updated_by").references(() => users.id),
+});
+
+export type SystemFlag = typeof systemFlags.$inferSelect;
+
+export const siteAdmins = pgTable("site_admins", {
+  userId: uuid("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  grantedAt: timestamp("granted_at").defaultNow().notNull(),
+  grantedBy: uuid("granted_by").references(() => users.id),
+});
+
+export type SiteAdmin = typeof siteAdmins.$inferSelect;
+
+// F4 — Billing + quotas
+export const billingPlans = pgTable("billing_plans", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  slug: text("slug").notNull().unique(),
+  name: text("name").notNull(),
+  priceCents: integer("price_cents").notNull().default(0),
+  repoLimit: integer("repo_limit").notNull().default(10),
+  storageMbLimit: integer("storage_mb_limit").notNull().default(1024),
+  aiTokensMonthly: integer("ai_tokens_monthly").notNull().default(100000),
+  bandwidthGbMonthly: integer("bandwidth_gb_monthly").notNull().default(10),
+  privateRepos: boolean("private_repos").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type BillingPlan = typeof billingPlans.$inferSelect;
+
+export const userQuotas = pgTable("user_quotas", {
+  userId: uuid("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  planSlug: text("plan_slug").notNull().default("free"),
+  storageMbUsed: integer("storage_mb_used").notNull().default(0),
+  aiTokensUsedThisMonth: integer("ai_tokens_used_this_month")
+    .notNull()
+    .default(0),
+  bandwidthGbUsedThisMonth: integer("bandwidth_gb_used_this_month")
+    .notNull()
+    .default(0),
+  cycleStart: timestamp("cycle_start").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export type UserQuota = typeof userQuotas.$inferSelect;
+
+// Block H — App marketplace + bot identities (GitHub Apps equivalent)
+
+export const apps = pgTable(
+  "apps",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    slug: text("slug").notNull().unique(),
+    name: text("name").notNull(),
+    description: text("description").notNull().default(""),
+    iconUrl: text("icon_url"),
+    homepageUrl: text("homepage_url"),
+    webhookUrl: text("webhook_url"),
+    webhookSecret: text("webhook_secret"),
+    creatorId: uuid("creator_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    permissions: text("permissions").notNull().default("[]"), // JSON array
+    defaultEvents: text("default_events").notNull().default("[]"), // JSON array
+    isPublic: boolean("is_public").notNull().default(true),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [index("apps_public_slug").on(table.isPublic, table.slug)]
+);
+
+export type App = typeof apps.$inferSelect;
+
+export const appInstallations = pgTable(
+  "app_installations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    appId: uuid("app_id")
+      .notNull()
+      .references(() => apps.id, { onDelete: "cascade" }),
+    installedBy: uuid("installed_by")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    targetType: text("target_type").notNull(), // user | org | repository
+    targetId: uuid("target_id").notNull(),
+    grantedPermissions: text("granted_permissions").notNull().default("[]"),
+    suspendedAt: timestamp("suspended_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    uninstalledAt: timestamp("uninstalled_at"),
+  },
+  (table) => [
+    index("app_installations_app").on(table.appId),
+    index("app_installations_target").on(table.targetType, table.targetId),
+  ]
+);
+
+export type AppInstallation = typeof appInstallations.$inferSelect;
+
+export const appBots = pgTable("app_bots", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  appId: uuid("app_id")
+    .notNull()
+    .unique()
+    .references(() => apps.id, { onDelete: "cascade" }),
+  username: text("username").notNull().unique(),
+  displayName: text("display_name").notNull(),
+  avatarUrl: text("avatar_url"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type AppBot = typeof appBots.$inferSelect;
+
+export const appInstallTokens = pgTable(
+  "app_install_tokens",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    installationId: uuid("installation_id")
+      .notNull()
+      .references(() => appInstallations.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull().unique(),
+    expiresAt: timestamp("expires_at").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    revokedAt: timestamp("revoked_at"),
+  },
+  (table) => [index("app_install_tokens_hash").on(table.tokenHash)]
+);
+
+export type AppInstallToken = typeof appInstallTokens.$inferSelect;
+
+export const appEvents = pgTable(
+  "app_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    appId: uuid("app_id")
+      .notNull()
+      .references(() => apps.id, { onDelete: "cascade" }),
+    installationId: uuid("installation_id"),
+    kind: text("kind").notNull(), // installed | uninstalled | delivery_ok | delivery_fail
+    payload: text("payload"),
+    responseStatus: integer("response_status"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [index("app_events_app_time").on(table.appId, table.createdAt)]
+);
+
+export type AppEvent = typeof appEvents.$inferSelect;
+
+// ---------- Block I3 — Repository transfer history ----------
+
+export const repoTransfers = pgTable(
+  "repo_transfers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    fromOwnerId: uuid("from_owner_id").notNull(),
+    fromOrgId: uuid("from_org_id"),
+    toOwnerId: uuid("to_owner_id").notNull(),
+    toOrgId: uuid("to_org_id"),
+    initiatedBy: uuid("initiated_by")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("repo_transfers_repo").on(table.repositoryId, table.createdAt),
+  ]
+);
+
+export type RepoTransfer = typeof repoTransfers.$inferSelect;
+
+// ---------- Block I6 — Sponsors ----------
+
+export const sponsorshipTiers = pgTable(
+  "sponsorship_tiers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    maintainerId: uuid("maintainer_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    description: text("description").default("").notNull(),
+    monthlyCents: integer("monthly_cents").notNull(),
+    oneTimeAllowed: boolean("one_time_allowed").default(true).notNull(),
+    isActive: boolean("is_active").default(true).notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("sponsor_tiers_maintainer").on(table.maintainerId, table.isActive),
+  ]
+);
+
+export type SponsorshipTier = typeof sponsorshipTiers.$inferSelect;
+
+export const sponsorships = pgTable(
+  "sponsorships",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sponsorId: uuid("sponsor_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    maintainerId: uuid("maintainer_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    tierId: uuid("tier_id"),
+    amountCents: integer("amount_cents").notNull(),
+    kind: text("kind").notNull(), // one_time | monthly
+    note: text("note"),
+    isPublic: boolean("is_public").default(true).notNull(),
+    externalRef: text("external_ref"),
+    cancelledAt: timestamp("cancelled_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("sponsorships_maintainer").on(
+      table.maintainerId,
+      table.createdAt
+    ),
+    index("sponsorships_sponsor").on(table.sponsorId, table.createdAt),
+  ]
+);
+
+export type Sponsorship = typeof sponsorships.$inferSelect;
+
+// Block I8 — Code symbol index for xref navigation.
+export const codeSymbols = pgTable(
+  "code_symbols",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    commitSha: text("commit_sha").notNull(),
+    name: text("name").notNull(),
+    kind: text("kind").notNull(), // function | class | interface | type | const | variable
+    path: text("path").notNull(),
+    line: integer("line").notNull(),
+    signature: text("signature"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("code_symbols_repo_name_idx").on(table.repositoryId, table.name),
+    index("code_symbols_repo_path_idx").on(table.repositoryId, table.path),
+  ]
+);
+
+export type CodeSymbol = typeof codeSymbols.$inferSelect;
+
+// Block I9 — Repository mirroring. One row per mirrored repo + an
+// append-only log of sync attempts.
+export const repoMirrors = pgTable("repo_mirrors", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  repositoryId: uuid("repository_id")
+    .notNull()
+    .unique()
+    .references(() => repositories.id, { onDelete: "cascade" }),
+  upstreamUrl: text("upstream_url").notNull(),
+  intervalMinutes: integer("interval_minutes").default(1440).notNull(),
+  lastSyncedAt: timestamp("last_synced_at"),
+  lastStatus: text("last_status"), // "ok" | "error"
+  lastError: text("last_error"),
+  isEnabled: boolean("is_enabled").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export type RepoMirror = typeof repoMirrors.$inferSelect;
+
+export const repoMirrorRuns = pgTable(
+  "repo_mirror_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    mirrorId: uuid("mirror_id")
+      .notNull()
+      .references(() => repoMirrors.id, { onDelete: "cascade" }),
+    startedAt: timestamp("started_at").defaultNow().notNull(),
+    finishedAt: timestamp("finished_at"),
+    status: text("status").default("running").notNull(),
+    message: text("message"),
+    exitCode: integer("exit_code"),
+  },
+  (table) => [
+    index("repo_mirror_runs_mirror_id_idx").on(table.mirrorId, table.startedAt),
+  ]
+);
+
+export type RepoMirrorRun = typeof repoMirrorRuns.$inferSelect;
+
+// ----------------------------------------------------------------------------
+// Block I10 — Enterprise SSO (OIDC)
+// ----------------------------------------------------------------------------
+
+/** Site-wide SSO provider. Singleton row with id = 'default'. */
+export const ssoConfig = pgTable("sso_config", {
+  id: text("id").primaryKey(),
+  enabled: boolean("enabled").default(false).notNull(),
+  providerName: text("provider_name").default("SSO").notNull(),
+  issuer: text("issuer"),
+  authorizationEndpoint: text("authorization_endpoint"),
+  tokenEndpoint: text("token_endpoint"),
+  userinfoEndpoint: text("userinfo_endpoint"),
+  clientId: text("client_id"),
+  clientSecret: text("client_secret"),
+  scopes: text("scopes").default("openid profile email").notNull(),
+  allowedEmailDomains: text("allowed_email_domains"),
+  autoCreateUsers: boolean("auto_create_users").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export type SsoConfig = typeof ssoConfig.$inferSelect;
+
+/** Maps a local user to an IdP `sub` claim. */
+export const ssoUserLinks = pgTable(
+  "sso_user_links",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    subject: text("subject").notNull().unique(),
+    emailAtLink: text("email_at_link").notNull(),
+    linkedAt: timestamp("linked_at").defaultNow().notNull(),
+  },
+  (table) => [index("sso_user_links_user_id_idx").on(table.userId)]
+);
+
+export type SsoUserLink = typeof ssoUserLinks.$inferSelect;
+
+// ----------------------------------------------------------------------------
+// Block J1 — Dependency graph
+// ----------------------------------------------------------------------------
+
+/**
+ * Last known set of dependencies parsed from manifest files. Each reindex
+ * replaces the prior rows for that repo. One row per (ecosystem, name,
+ * manifest_path) — same name in multiple manifests is kept.
+ */
+export const repoDependencies = pgTable(
+  "repo_dependencies",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    ecosystem: text("ecosystem").notNull(),
+    name: text("name").notNull(),
+    versionSpec: text("version_spec"),
+    manifestPath: text("manifest_path").notNull(),
+    isDev: boolean("is_dev").default(false).notNull(),
+    commitSha: text("commit_sha").notNull(),
+    indexedAt: timestamp("indexed_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("repo_dependencies_repo_id_idx").on(
+      table.repositoryId,
+      table.ecosystem
+    ),
+    index("repo_dependencies_name_idx").on(table.name),
+  ]
+);
+
+export type RepoDependency = typeof repoDependencies.$inferSelect;
+
+// ----------------------------------------------------------------------------
+// Block J2 — Security advisories + alerts
+// ----------------------------------------------------------------------------
+
+/** CVE-style package advisories. Populated via seed + admin import. */
+export const securityAdvisories = pgTable(
+  "security_advisories",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ghsaId: text("ghsa_id").unique(),
+    cveId: text("cve_id"),
+    summary: text("summary").notNull(),
+    severity: text("severity").default("moderate").notNull(),
+    ecosystem: text("ecosystem").notNull(),
+    packageName: text("package_name").notNull(),
+    affectedRange: text("affected_range").notNull(),
+    fixedVersion: text("fixed_version"),
+    referenceUrl: text("reference_url"),
+    publishedAt: timestamp("published_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("security_advisories_pkg_idx").on(
+      table.ecosystem,
+      table.packageName
+    ),
+  ]
+);
+
+export type SecurityAdvisory = typeof securityAdvisories.$inferSelect;
+
+/** Per-repo match state. One row per (repo, advisory, manifest_path). */
+export const repoAdvisoryAlerts = pgTable(
+  "repo_advisory_alerts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    advisoryId: uuid("advisory_id")
+      .notNull()
+      .references(() => securityAdvisories.id, { onDelete: "cascade" }),
+    dependencyName: text("dependency_name").notNull(),
+    dependencyVersion: text("dependency_version"),
+    manifestPath: text("manifest_path").notNull(),
+    status: text("status").default("open").notNull(),
+    dismissedReason: text("dismissed_reason"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("repo_advisory_alerts_status_idx").on(
+      table.repositoryId,
+      table.status
+    ),
+  ]
+);
+
+export type RepoAdvisoryAlert = typeof repoAdvisoryAlerts.$inferSelect;
+
+// ----------------------------------------------------------------------------
+// Block J3 — Commit signature verification (GPG + SSH)
+// ----------------------------------------------------------------------------
+
+/** Per-user GPG/SSH public keys for commit signing. */
+export const signingKeys = pgTable(
+  "signing_keys",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    keyType: text("key_type").notNull(), // 'gpg' | 'ssh'
+    title: text("title").notNull(),
+    fingerprint: text("fingerprint").notNull(),
+    publicKey: text("public_key").notNull(),
+    email: text("email"),
+    expiresAt: timestamp("expires_at"),
+    lastUsedAt: timestamp("last_used_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("signing_keys_fp_unique").on(table.keyType, table.fingerprint),
+    index("signing_keys_user_idx").on(table.userId),
+  ]
+);
+
+export type SigningKey = typeof signingKeys.$inferSelect;
+
+/**
+ * Cached verification result for a (repo, commit) pair. Repopulated on demand;
+ * rows are invalidated implicitly by CASCADE when either side is removed.
+ */
+export const commitVerifications = pgTable(
+  "commit_verifications",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    commitSha: text("commit_sha").notNull(),
+    verified: boolean("verified").default(false).notNull(),
+    reason: text("reason").notNull(),
+    signatureType: text("signature_type"),
+    signerKeyId: uuid("signer_key_id").references(() => signingKeys.id, {
+      onDelete: "set null",
+    }),
+    signerUserId: uuid("signer_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    signerFingerprint: text("signer_fingerprint"),
+    verifiedAt: timestamp("verified_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("commit_verifications_sha_unique").on(
+      table.repositoryId,
+      table.commitSha
+    ),
+  ]
+);
+
+export type CommitVerification = typeof commitVerifications.$inferSelect;
+
+// ----------------------------------------------------------------------------
+// Block J4 — User following
+// ----------------------------------------------------------------------------
+
+/**
+ * Directed user→user follow edges. Primary key is the composite
+ * (follower_id, following_id) at the SQL level; drizzle sees it as a
+ * regular table with a unique index plus a secondary index on the
+ * reverse-lookup column.
+ */
+export const userFollows = pgTable(
+  "user_follows",
+  {
+    followerId: uuid("follower_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    followingId: uuid("following_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("user_follows_pair_unique").on(
+      table.followerId,
+      table.followingId
+    ),
+    index("user_follows_following_idx").on(table.followingId),
+  ]
+);
+
+export type UserFollow = typeof userFollows.$inferSelect;
+
+// ----------------------------------------------------------------------------
+// Block J6 — Repository rulesets
+// ----------------------------------------------------------------------------
+
+/**
+ * A ruleset groups N rules under a named policy at enforcement level active /
+ * evaluate / disabled. Unique per (repo, name) so a repo can carry multiple
+ * overlapping rulesets (e.g. "release branches" vs "everywhere").
+ */
+export const repoRulesets = pgTable(
+  "repo_rulesets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    enforcement: text("enforcement").default("active").notNull(),
+    createdBy: uuid("created_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("repo_rulesets_repo_idx").on(table.repositoryId),
+    uniqueIndex("repo_rulesets_repo_name_unique").on(
+      table.repositoryId,
+      table.name
+    ),
+  ]
+);
+
+export type RepoRuleset = typeof repoRulesets.$inferSelect;
+
+/** Individual rule — type tag plus JSON params. */
+export const rulesetRules = pgTable(
+  "ruleset_rules",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    rulesetId: uuid("ruleset_id")
+      .notNull()
+      .references(() => repoRulesets.id, { onDelete: "cascade" }),
+    ruleType: text("rule_type").notNull(),
+    params: text("params").default("{}").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [index("ruleset_rules_set_idx").on(table.rulesetId)]
+);
+
+export type RulesetRule = typeof rulesetRules.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Block J8 — Commit statuses.
+// ---------------------------------------------------------------------------
+
+/**
+ * External CI / automation posts per-commit (sha, context) statuses. Upsert
+ * semantics keyed on (repository, commit_sha, context). State vocabulary:
+ * pending | success | failure | error. Combined rollup logic lives in
+ * `src/lib/commit-statuses.ts`.
+ */
+export const commitStatuses = pgTable(
+  "commit_statuses",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    commitSha: text("commit_sha").notNull(),
+    state: text("state").notNull(),
+    context: text("context").default("default").notNull(),
+    description: text("description"),
+    targetUrl: text("target_url"),
+    creatorId: uuid("creator_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("commit_statuses_repo_sha_context_unique").on(
+      table.repositoryId,
+      table.commitSha,
+      table.context
+    ),
+    index("commit_statuses_repo_sha_idx").on(
+      table.repositoryId,
+      table.commitSha
+    ),
+  ]
+);
+
+export type CommitStatus = typeof commitStatuses.$inferSelect;

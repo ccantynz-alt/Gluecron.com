@@ -11,7 +11,19 @@ export const RepoHeader: FC<{
   forkCount?: number;
   currentUser?: string | null;
   forkedFrom?: string | null;
-}> = ({ owner, repo, starCount, starred, forkCount, currentUser, forkedFrom }) => (
+  archived?: boolean;
+  isTemplate?: boolean;
+}> = ({
+  owner,
+  repo,
+  starCount,
+  starred,
+  forkCount,
+  currentUser,
+  forkedFrom,
+  archived,
+  isTemplate,
+}) => (
   <div class="repo-header">
     <div>
       <div style="display: flex; align-items: center; gap: 8px; font-size: 20px">
@@ -22,6 +34,24 @@ export const RepoHeader: FC<{
         <a href={`/${owner}/${repo}`} class="name">
           {repo}
         </a>
+        {archived && (
+          <span
+            class="badge"
+            style="background:var(--bg-secondary);color:var(--text-muted);font-size:11px;padding:2px 8px;border-radius:10px;text-transform:uppercase;letter-spacing:0.5px"
+            title="Read-only: pushes and new issues/PRs disabled"
+          >
+            Archived
+          </span>
+        )}
+        {isTemplate && (
+          <span
+            class="badge"
+            style="background:var(--bg-secondary);color:var(--accent);font-size:11px;padding:2px 8px;border-radius:10px;text-transform:uppercase;letter-spacing:0.5px"
+            title="This repository can be used as a template"
+          >
+            Template
+          </span>
+        )}
       </div>
       {forkedFrom && (
         <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px">
@@ -66,8 +96,14 @@ export const RepoNav: FC<{
     | "issues"
     | "pulls"
     | "releases"
+    | "actions"
     | "gates"
-    | "insights";
+    | "insights"
+    | "explain"
+    | "changelog"
+    | "semantic"
+    | "wiki"
+    | "projects";
 }> = ({ owner, repo, active }) => (
   <div class="repo-nav">
     <a href={`/${owner}/${repo}`} class={active === "code" ? "active" : ""}>
@@ -80,16 +116,34 @@ export const RepoNav: FC<{
       Issues
     </a>
     <a
+      href={`/${owner}/${repo}/wiki`}
+      class={active === "wiki" ? "active" : ""}
+    >
+      Wiki
+    </a>
+    <a
       href={`/${owner}/${repo}/pulls`}
       class={active === "pulls" ? "active" : ""}
     >
       Pull Requests
     </a>
     <a
+      href={`/${owner}/${repo}/projects`}
+      class={active === "projects" ? "active" : ""}
+    >
+      Projects
+    </a>
+    <a
       href={`/${owner}/${repo}/commits`}
       class={active === "commits" ? "active" : ""}
     >
       Commits
+    </a>
+    <a
+      href={`/${owner}/${repo}/actions`}
+      class={active === "actions" ? "active" : ""}
+    >
+      Actions
     </a>
     <a
       href={`/${owner}/${repo}/releases`}
@@ -109,7 +163,14 @@ export const RepoNav: FC<{
     >
       Insights
     </a>
-    <a href={`/${owner}/${repo}/ask`} style="margin-left: auto; color: #bc8cff">
+    <a
+      href={`/${owner}/${repo}/explain`}
+      class={active === "explain" ? "active" : ""}
+      style="margin-left: auto; color: #bc8cff"
+    >
+      {"\u2728"} Explain
+    </a>
+    <a href={`/${owner}/${repo}/ask`} style="color: #bc8cff">
       {"\u2728"} Ask AI
     </a>
   </div>
@@ -272,28 +333,40 @@ export const CommitList: FC<{
   commits: GitCommit[];
   owner: string;
   repo: string;
-}> = ({ commits, owner, repo }) => (
+  verifications?: Record<string, { verified: boolean; reason: string }>;
+}> = ({ commits, owner, repo, verifications }) => (
   <div class="commit-list">
-    {commits.map((commit) => (
-      <div class="commit-item">
-        <div>
-          <div class="commit-message">
-            <a href={`/${owner}/${repo}/commit/${commit.sha}`}>
-              {commit.message}
-            </a>
+    {commits.map((commit) => {
+      const v = verifications?.[commit.sha];
+      return (
+        <div class="commit-item">
+          <div>
+            <div class="commit-message">
+              <a href={`/${owner}/${repo}/commit/${commit.sha}`}>
+                {commit.message}
+              </a>
+              {v?.verified && (
+                <span
+                  title="Signed with a registered key"
+                  style="margin-left:8px;font-size:10px;padding:1px 6px;border-radius:3px;background:var(--green,#2ea043);color:#fff;text-transform:uppercase;letter-spacing:.4px"
+                >
+                  Verified
+                </span>
+              )}
+            </div>
+            <div class="commit-meta">
+              {commit.author} committed {formatRelativeDate(commit.date)}
+            </div>
           </div>
-          <div class="commit-meta">
-            {commit.author} committed {formatRelativeDate(commit.date)}
-          </div>
+          <a
+            href={`/${owner}/${repo}/commit/${commit.sha}`}
+            class="commit-sha"
+          >
+            {commit.sha.slice(0, 7)}
+          </a>
         </div>
-        <a
-          href={`/${owner}/${repo}/commit/${commit.sha}`}
-          class="commit-sha"
-        >
-          {commit.sha.slice(0, 7)}
-        </a>
-      </div>
-    ))}
+      );
+    })}
   </div>
 );
 

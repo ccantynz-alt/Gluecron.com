@@ -16,6 +16,9 @@ export const Layout: FC<
       <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <meta name="theme-color" content="#0d1117" />
+        <link rel="manifest" href="/manifest.webmanifest" />
+        <link rel="icon" type="image/svg+xml" href="/icon.svg" />
         <title>{title ? `${title} — gluecron` : "gluecron"}</title>
         <script>{themeInitScript}</script>
         <style>{css}</style>
@@ -97,7 +100,30 @@ export const Layout: FC<
         <footer>
           <span>gluecron — AI-native code intelligence</span>
         </footer>
+        <div
+          id="cmdk-backdrop"
+          style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9998;backdrop-filter:blur(2px)"
+        />
+        <div
+          id="cmdk-panel"
+          role="dialog"
+          aria-label="Command palette"
+          style="display:none;position:fixed;top:15%;left:50%;transform:translateX(-50%);width:min(560px,90vw);background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;box-shadow:0 12px 40px rgba(0,0,0,0.5);z-index:9999;overflow:hidden"
+        >
+          <input
+            id="cmdk-input"
+            type="text"
+            placeholder="Jump to... (↑↓ navigate, Enter go, Esc close)"
+            autocomplete="off"
+            style="width:100%;box-sizing:border-box;padding:14px 16px;background:transparent;border:none;border-bottom:1px solid var(--border);font-size:15px;color:var(--text);outline:none"
+          />
+          <div
+            id="cmdk-list"
+            style="max-height:360px;overflow-y:auto;font-size:13px"
+          />
+        </div>
         <script>{navScript}</script>
+        <script>{pwaRegisterScript}</script>
       </body>
     </html>
   );
@@ -116,6 +142,16 @@ const themeInitScript = `
   })();
 `;
 
+// Block G1 — register service worker for offline / install support.
+// Kept inline (and tiny) so we don't block first paint.
+const pwaRegisterScript = `
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function(){
+      navigator.serviceWorker.register('/sw.js').catch(function(){});
+    });
+  }
+`;
+
 const navScript = `
   (function(){
     var chord = null;
@@ -125,7 +161,123 @@ const navScript = `
       var tag = (t.tagName || '').toLowerCase();
       return tag === 'input' || tag === 'textarea' || t.isContentEditable;
     }
+
+    // ---------- Block I4 — Command palette ----------
+    var COMMANDS = [
+      { label: 'Go to Dashboard', href: '/dashboard', kw: 'home' },
+      { label: 'Go to Explore', href: '/explore', kw: 'browse discover' },
+      { label: 'Go to Notifications', href: '/notifications', kw: 'inbox' },
+      { label: 'Go to Ask AI', href: '/ask', kw: 'chat assistant' },
+      { label: 'Create new repository', href: '/new', kw: 'add create' },
+      { label: 'Marketplace', href: '/marketplace', kw: 'apps store' },
+      { label: 'Installed apps', href: '/settings/apps', kw: 'my apps' },
+      { label: 'Register new app', href: '/developer/apps-new', kw: 'developer create' },
+      { label: 'Keyboard shortcuts', href: '/shortcuts', kw: 'help keys' },
+      { label: 'Settings (profile)', href: '/settings', kw: 'account' },
+      { label: '2FA settings', href: '/settings/2fa', kw: 'two factor security' },
+      { label: 'Passkeys settings', href: '/settings/passkeys', kw: 'webauthn' },
+      { label: 'Personal access tokens', href: '/settings/tokens', kw: 'pat api' },
+      { label: 'Billing + quotas', href: '/settings/billing', kw: 'plans money' },
+      { label: 'Audit log (personal)', href: '/settings/audit', kw: 'history' },
+      { label: 'Gists', href: '/gists', kw: 'snippets' },
+      { label: 'GraphQL explorer', href: '/api/graphql', kw: 'api query' },
+      { label: 'Admin dashboard', href: '/admin', kw: 'superuser' },
+      { label: 'Toggle theme', href: '/theme/toggle', kw: 'dark light mode' }
+    ];
+
+    function fuzzyMatch(item, q){
+      if (!q) return true;
+      var hay = (item.label + ' ' + (item.kw||'') + ' ' + item.href).toLowerCase();
+      q = q.toLowerCase();
+      var qi = 0;
+      for (var i = 0; i < hay.length && qi < q.length; i++) {
+        if (hay[i] === q[qi]) qi++;
+      }
+      return qi === q.length;
+    }
+
+    var backdrop, panel, input, list, selected = 0, filtered = COMMANDS.slice();
+
+    function render(){
+      if (!list) return;
+      var html = '';
+      for (var i = 0; i < filtered.length; i++) {
+        var item = filtered[i];
+        var cls = i === selected ? 'cmdk-item cmdk-active' : 'cmdk-item';
+        var bg = i === selected ? 'background:var(--bg);' : '';
+        html += '<div class="' + cls + '" data-idx="' + i + '" data-href="' + item.href + '"' +
+                ' style="padding:10px 16px;cursor:pointer;border-bottom:1px solid var(--border);' + bg + '">' +
+                '<div>' + item.label + '</div>' +
+                '<div style="font-size:11px;color:var(--text-muted)">' + item.href + '</div>' +
+                '</div>';
+      }
+      if (filtered.length === 0) {
+        html = '<div style="padding:16px;color:var(--text-muted);text-align:center">No matches.</div>';
+      }
+      list.innerHTML = html;
+    }
+
+    function openPalette(){
+      backdrop = document.getElementById('cmdk-backdrop');
+      panel = document.getElementById('cmdk-panel');
+      input = document.getElementById('cmdk-input');
+      list = document.getElementById('cmdk-list');
+      if (!backdrop || !panel) return;
+      backdrop.style.display = 'block';
+      panel.style.display = 'block';
+      input.value = '';
+      selected = 0;
+      filtered = COMMANDS.slice();
+      render();
+      input.focus();
+    }
+    function closePalette(){
+      if (backdrop) backdrop.style.display = 'none';
+      if (panel) panel.style.display = 'none';
+    }
+    function go(href){ closePalette(); window.location.href = href; }
+
+    document.addEventListener('click', function(e){
+      var t = e.target;
+      if (t && t.id === 'cmdk-backdrop') { closePalette(); return; }
+      var item = t && t.closest && t.closest('.cmdk-item');
+      if (item) { go(item.getAttribute('data-href')); }
+    });
+
+    document.addEventListener('input', function(e){
+      if (e.target && e.target.id === 'cmdk-input') {
+        var q = e.target.value;
+        filtered = COMMANDS.filter(function(c){ return fuzzyMatch(c, q); });
+        selected = 0;
+        render();
+      }
+    });
+
     document.addEventListener('keydown', function(e){
+      // Palette-scoped keys take priority when open
+      if (panel && panel.style.display === 'block') {
+        if (e.key === 'Escape') { e.preventDefault(); closePalette(); return; }
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          selected = Math.min(filtered.length - 1, selected + 1);
+          render();
+          return;
+        }
+        if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          selected = Math.max(0, selected - 1);
+          render();
+          return;
+        }
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          var item = filtered[selected];
+          if (item) go(item.href);
+          return;
+        }
+        return;
+      }
+
       if (isTyping(e.target)) return;
       // Single key shortcuts
       if (e.key === '/') {
@@ -133,7 +285,9 @@ const navScript = `
         if (el) { e.preventDefault(); el.focus(); return; }
       }
       if ((e.metaKey||e.ctrlKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault(); window.location.href = '/ask'; return;
+        e.preventDefault();
+        openPalette();
+        return;
       }
       if (e.key === '?' && !e.ctrlKey && !e.metaKey) {
         e.preventDefault(); window.location.href = '/shortcuts'; return;

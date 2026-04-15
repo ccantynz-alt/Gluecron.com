@@ -494,6 +494,24 @@ export async function getRawBlob(
   return new Uint8Array(data);
 }
 
+/**
+ * Return the raw commit object (`git cat-file commit <sha>`) including any
+ * `gpgsig` / `gpgsig-sha256` headers. Used by Block J3 signature verification.
+ */
+export async function getRawCommitObject(
+  owner: string,
+  name: string,
+  sha: string
+): Promise<string | null> {
+  const path = repoPath(owner, name);
+  const { stdout, exitCode } = await exec(
+    ["git", "cat-file", "commit", sha],
+    { cwd: path }
+  );
+  if (exitCode !== 0) return null;
+  return stdout;
+}
+
 export async function searchCode(
   owner: string,
   name: string,

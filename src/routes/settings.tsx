@@ -9,6 +9,8 @@ import { users, sshKeys } from "../db/schema";
 import type { AuthEnv } from "../middleware/auth";
 import { requireAuth } from "../middleware/auth";
 import { Layout } from "../views/layout";
+import { composeDigest } from "../lib/email-digest";
+import { raw } from "hono/html";
 
 const settings = new Hono<AuthEnv>();
 
@@ -108,7 +110,7 @@ settings.get("/settings", (c) => {
             <span>I am assigned to an issue or PR</span>
           </label>
           <label
-            style="display: flex; gap: 8px; align-items: center; margin-bottom: 12px; font-size: 14px"
+            style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px; font-size: 14px"
           >
             <input
               type="checkbox"
@@ -118,11 +120,64 @@ settings.get("/settings", (c) => {
             />
             <span>A gate fails on one of my repositories</span>
           </label>
+          <label
+            style="display: flex; gap: 8px; align-items: center; margin-bottom: 12px; font-size: 14px"
+          >
+            <input
+              type="checkbox"
+              name="notify_email_digest_weekly"
+              value="1"
+              checked={user.notifyEmailDigestWeekly}
+            />
+            <span>
+              Weekly digest &mdash;{" "}
+              <a href="/settings/digest/preview">preview</a>
+            </span>
+          </label>
           <button type="submit" class="btn btn-primary">
             Save preferences
           </button>
         </form>
       </div>
+    </Layout>
+  );
+});
+
+// Preview the weekly digest in-browser (rendered HTML)
+settings.get("/settings/digest/preview", async (c) => {
+  const user = c.get("user")!;
+  const body = await composeDigest(user.id);
+  if (!body) {
+    return c.html(
+      <Layout title="Digest preview" user={user}>
+        <h2>Digest preview</h2>
+        <p>Could not compose a digest right now.</p>
+        <p>
+          <a href="/settings">Back to settings</a>
+        </p>
+      </Layout>
+    );
+  }
+  return c.html(
+    <Layout title="Digest preview" user={user}>
+      <h2>Digest preview</h2>
+      <p style="color:var(--text-muted);font-size:13px">
+        Subject: <code>{body.subject}</code>
+      </p>
+      <p style="font-size:12px;color:var(--text-muted)">
+        Notifications: {body.counts.notifications} · Failed gates:{" "}
+        {body.counts.failedGates} · Repaired: {body.counts.repairedGates} ·
+        Merged PRs: {body.counts.mergedPrs}
+      </p>
+      <div
+        class="panel"
+        style="padding:20px;background:#fff;color:#111"
+      >
+        {raw(body.html)}
+      </div>
+      <p style="margin-top:20px">
+        <a href="/settings">Back to settings</a>
+      </p>
     </Layout>
   );
 });
@@ -137,6 +192,8 @@ settings.post("/settings/notifications", async (c) => {
       notifyEmailOnAssign: String(body.notify_email_on_assign || "") === "1",
       notifyEmailOnGateFail:
         String(body.notify_email_on_gate_fail || "") === "1",
+      notifyEmailDigestWeekly:
+        String(body.notify_email_digest_weekly || "") === "1",
       updatedAt: new Date(),
     })
     .where(eq(users.id, user.id));

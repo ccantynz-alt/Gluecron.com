@@ -10,6 +10,8 @@ import {
   prComments,
   repositories,
   users,
+  issues,
+  issueComments,
 } from "../db/schema";
 import { Layout } from "../views/layout";
 import { RepoHeader, DiffView } from "../views/components";
@@ -27,8 +29,17 @@ import {
 import type { GitDiffFile } from "../git/repository";
 import { html } from "hono/html";
 import { reviewDiff, isAiReviewEnabled } from "../lib/ai-review";
+import { triagePullRequest } from "../lib/ai-generators";
 import { mergeWithAutoResolve } from "../lib/merge-resolver";
 import { runAllGateChecks, type GateCheckResult } from "../lib/gate";
+import { labels as labelsTable } from "../db/schema";
+import {
+  matchProtection,
+  evaluateProtection,
+  countHumanApprovals,
+  listRequiredChecks,
+  passingCheckNames,
+} from "../lib/branch-protection";
 
 const pulls = new Hono<AuthEnv>();
 
@@ -354,6 +365,19 @@ pulls.post(
       );
     }
 
+    // D3 — fire-and-forget AI triage: suggest labels/reviewers on the PR.
+    triggerPrTriage({
+      ownerName,
+      repoName,
+      repositoryId: resolved.repo.id,
+      prId: pr.id,
+      prAuthorId: user.id,
+      title,
+      body: prBody,
+      baseBranch,
+      headBranch,
+    }).catch((err) => console.error("[pr-triage] Failed:", err));
+
     return c.redirect(`/${ownerName}/${repoName}/pulls/${pr.number}`);
   }
 );
@@ -649,6 +673,14 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, async (c) => {
                             </button>
                             <button
                               type="submit"
+                              formaction={`/${ownerName}/${repoName}/pulls/${pr.number}/enqueue`}
+                              class="btn"
+                              title="Queue this PR — gates will re-run against latest base before merge"
+                            >
+                              Add to merge queue
+                            </button>
+                            <button
+                              type="submit"
                               formaction={`/${ownerName}/${repoName}/pulls/${pr.number}/draft`}
                               class="btn"
                               title="Convert back to draft"
@@ -801,6 +833,41 @@ pulls.post(
       );
     }
 
+    // D5 — Branch-protection enforcement. Looks up the matching rule for the
+    // base branch and blocks the merge if requireAiApproval / requireGreenGates
+    // / requireHumanReview / requiredApprovals are not satisfied. Independent
+    // of repo-global settings, so owners can lock specific branches down
+    // further than the repo default.
+    const protectionRule = await matchProtection(
+      resolved.repo.id,
+      pr.baseBranch
+    );
+    if (protectionRule) {
+      const humanApprovals = await countHumanApprovals(pr.id);
+      const required = await listRequiredChecks(protectionRule.id);
+      const passingNames = required.length > 0
+        ? await passingCheckNames(resolved.repo.id, headSha)
+        : [];
+      const decision = evaluateProtection(
+        protectionRule,
+        {
+          aiApproved,
+          humanApprovalCount: humanApprovals,
+          gateResultGreen: hardFailures.length === 0,
+          hasFailedGates: hardFailures.length > 0,
+          passingCheckNames: passingNames,
+        },
+        required.map((r) => r.checkName)
+      );
+      if (!decision.allowed) {
+        return c.redirect(
+          `/${ownerName}/${repoName}/pulls/${prNum}?error=${encodeURIComponent(
+            decision.reasons.join(" ")
+          )}`
+        );
+      }
+    }
+
     // Attempt the merge — with auto conflict resolution if needed
     const repoDir = getRepoPath(ownerName, repoName);
     const mergeCheck = gateResult.checks.find((c) => c.name === "Merge check");
@@ -860,6 +927,39 @@ pulls.post(
         updatedAt: new Date(),
       })
       .where(eq(pullRequests.id, pr.id));
+
+    // J7 — closing keywords. Scan PR title + body for "closes #N" style refs
+    // and auto-close each matching open issue with a back-link comment. Bounded
+    // to the same repo for v1 (cross-repo refs ignored). Failures never block
+    // the merge redirect.
+    try {
+      const { extractClosingRefsMulti } = await import("../lib/close-keywords");
+      const refs = extractClosingRefsMulti([pr.title, pr.body]);
+      for (const n of refs) {
+        const [issue] = await db
+          .select()
+          .from(issues)
+          .where(
+            and(
+              eq(issues.repositoryId, resolved.repo.id),
+              eq(issues.number, n)
+            )
+          )
+          .limit(1);
+        if (!issue || issue.state !== "open") continue;
+        await db
+          .update(issues)
+          .set({ state: "closed", closedAt: new Date(), updatedAt: new Date() })
+          .where(eq(issues.id, issue.id));
+        await db.insert(issueComments).values({
+          issueId: issue.id,
+          authorId: user.id,
+          body: `Closed by pull request #${pr.number}.`,
+        });
+      }
+    } catch {
+      // Never block the merge on close-keyword failures.
+    }
 
     return c.redirect(`/${ownerName}/${repoName}/pulls/${prNum}`);
   }
@@ -1071,6 +1171,145 @@ async function triggerAiReview(
   console.log(
     `[ai-review] Review posted for PR ${prId}: ${result.approved ? "approved" : "changes requested"}, ${result.comments.length} comments`
   );
+}
+
+/**
+ * D3 — AI PR triage. Runs Claude Haiku on the PR title/body + diff summary and
+ * posts an AI-authored comment suggesting labels, reviewers, and priority.
+ * Nothing is auto-applied — the PR author remains in control.
+ */
+async function triggerPrTriage(args: {
+  ownerName: string;
+  repoName: string;
+  repositoryId: string;
+  prId: string;
+  prAuthorId: string;
+  title: string;
+  body: string;
+  baseBranch: string;
+  headBranch: string;
+}): Promise<void> {
+  try {
+    // Gather candidate reviewers (top contributors from recent commits).
+    const repoDir = getRepoPath(args.ownerName, args.repoName);
+    const shortlogProc = Bun.spawn(
+      ["git", "shortlog", "-sn", "--no-merges", "-50", args.baseBranch],
+      { cwd: repoDir, stdout: "pipe", stderr: "pipe" }
+    );
+    const shortlogOut = await new Response(shortlogProc.stdout).text();
+    await shortlogProc.exited;
+    const authorNames = shortlogOut
+      .trim()
+      .split("\n")
+      .map((l) => l.trim().split(/\s+/).slice(1).join(" "))
+      .filter(Boolean)
+      .slice(0, 10);
+
+    // Look up usernames matching these author names (best-effort match).
+    const candidateUsernames: string[] = [];
+    if (authorNames.length > 0) {
+      try {
+        const matches = await db
+          .select({ username: users.username, displayName: users.displayName })
+          .from(users)
+          .limit(100);
+        for (const u of matches) {
+          if (
+            authorNames.some(
+              (n) =>
+                u.username === n ||
+                (u.displayName && u.displayName === n)
+            )
+          ) {
+            candidateUsernames.push(u.username);
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    // Always include the repo owner as a candidate reviewer.
+    try {
+      const [ownerRow] = await db
+        .select({ username: users.username })
+        .from(users)
+        .where(eq(users.username, args.ownerName))
+        .limit(1);
+      if (ownerRow && !candidateUsernames.includes(ownerRow.username)) {
+        candidateUsernames.push(ownerRow.username);
+      }
+    } catch {
+      /* ignore */
+    }
+
+    // Load repo labels.
+    const availableLabels = await db
+      .select({ name: labelsTable.name })
+      .from(labelsTable)
+      .where(eq(labelsTable.repositoryId, args.repositoryId))
+      .then((rows) => rows.map((r) => r.name))
+      .catch(() => [] as string[]);
+
+    // Short diff summary (numstat only to keep prompt small).
+    const statProc = Bun.spawn(
+      ["git", "diff", "--numstat", `${args.baseBranch}...${args.headBranch}`],
+      { cwd: repoDir, stdout: "pipe", stderr: "pipe" }
+    );
+    const diffSummary = await new Response(statProc.stdout).text();
+    await statProc.exited;
+
+    const result = await triagePullRequest(
+      args.title,
+      args.body,
+      diffSummary,
+      availableLabels,
+      candidateUsernames
+    );
+
+    // Skip posting if we have absolutely nothing useful to say.
+    if (
+      !result.summary &&
+      result.suggestedLabels.length === 0 &&
+      result.suggestedReviewerUsernames.length === 0
+    ) {
+      return;
+    }
+
+    const priorityEmoji =
+      result.priority === "critical"
+        ? "**Critical**"
+        : result.priority === "high"
+          ? "**High**"
+          : result.priority === "low"
+            ? "**Low**"
+            : "**Medium**";
+    const parts: string[] = [`## AI Triage\n`];
+    if (result.summary) parts.push(`${result.summary}\n`);
+    parts.push(`- **Priority:** ${priorityEmoji}`);
+    parts.push(`- **Risk area:** ${result.riskArea}`);
+    if (result.suggestedLabels.length > 0) {
+      parts.push(
+        `- **Suggested labels:** ${result.suggestedLabels.map((l) => `\`${l}\``).join(", ")}`
+      );
+    }
+    if (result.suggestedReviewerUsernames.length > 0) {
+      parts.push(
+        `- **Suggested reviewers:** ${result.suggestedReviewerUsernames.map((u) => `@${u}`).join(", ")}`
+      );
+    }
+    parts.push(
+      `\n_Suggestions only — nothing was auto-applied. The PR author remains in control._`
+    );
+
+    await db.insert(prComments).values({
+      pullRequestId: args.prId,
+      authorId: args.prAuthorId,
+      body: parts.join("\n"),
+      isAiReview: true,
+    });
+  } catch (err) {
+    console.error("[pr-triage]", err);
+  }
 }
 
 function formatRelative(date: Date | string): string {

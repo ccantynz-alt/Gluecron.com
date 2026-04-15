@@ -25,4 +25,24 @@ export const config = {
   get anthropicApiKey() {
     return process.env.ANTHROPIC_API_KEY || "";
   },
+  /** Email provider: "log" (dev, writes to stderr) or "resend" (HTTPS). */
+  get emailProvider() {
+    const v = (process.env.EMAIL_PROVIDER || "log").toLowerCase();
+    return v === "resend" ? "resend" : "log";
+  },
+  /** "From" address for outbound email. */
+  get emailFrom() {
+    return process.env.EMAIL_FROM || "gluecron <no-reply@gluecron.local>";
+  },
+  /** Resend API key (only used when EMAIL_PROVIDER=resend). */
+  get resendApiKey() {
+    return process.env.RESEND_API_KEY || "";
+  },
+  /** Canonical base URL for outbound links in emails + webhooks. */
+  get appBaseUrl() {
+    return (process.env.APP_BASE_URL || "http://localhost:3000").replace(
+      /\/+$/,
+      ""
+    );
+  },
 };

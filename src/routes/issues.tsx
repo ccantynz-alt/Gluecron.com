@@ -15,6 +15,9 @@ import {
 } from "../db/schema";
 import { Layout } from "../views/layout";
 import { RepoHeader, RepoNav } from "../views/components";
+import { ReactionsBar } from "../views/reactions";
+import { summariseReactions } from "../lib/reactions";
+import { loadIssueTemplate } from "../lib/templates";
 import { renderMarkdown } from "../lib/markdown";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
@@ -163,6 +166,7 @@ issueRoutes.get(
     const { owner: ownerName, repo: repoName } = c.req.param();
     const user = c.get("user")!;
     const error = c.req.query("error");
+    const template = await loadIssueTemplate(ownerName, repoName);
 
     return c.html(
       <Layout title={`New issue — ${ownerName}/${repoName}`} user={user}>
@@ -170,6 +174,11 @@ issueRoutes.get(
         <IssueNav owner={ownerName} repo={repoName} active="issues" />
         <div style="max-width: 800px">
           <h2 style="margin-bottom: 16px">New issue</h2>
+          {template && (
+            <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px">
+              Using <code>ISSUE_TEMPLATE.md</code> from the default branch.
+            </div>
+          )}
           {error && (
             <div class="auth-error">{decodeURIComponent(error)}</div>
           )}
@@ -189,7 +198,9 @@ issueRoutes.get(
                 rows={12}
                 placeholder="Leave a comment... (Markdown supported)"
                 style="font-family: var(--font-mono); font-size: 13px"
-              />
+              >
+                {template || ""}
+              </textarea>
             </div>
             <button type="submit" class="btn btn-primary">
               Submit new issue
@@ -301,6 +312,14 @@ issueRoutes.get("/:owner/:repo/issues/:number", softAuth, async (c) => {
     .where(eq(issueComments.issueId, issue.id))
     .orderBy(asc(issueComments.createdAt));
 
+  // Load reactions for the issue + each comment in parallel.
+  const [issueReactions, ...commentReactions] = await Promise.all([
+    summariseReactions("issue", issue.id, user?.id),
+    ...comments.map((row) =>
+      summariseReactions("issue_comment", row.comment.id, user?.id)
+    ),
+  ]);
+
   const canManage =
     user &&
     (user.id === resolved.owner.id || user.id === issue.authorId);
@@ -342,10 +361,18 @@ issueRoutes.get("/:owner/:repo/issues/:number", softAuth, async (c) => {
             <div class="markdown-body">
               {html([renderMarkdown(issue.body)] as unknown as TemplateStringsArray)}
             </div>
+            <div style="padding: 0 16px 12px">
+              <ReactionsBar
+                targetType="issue"
+                targetId={issue.id}
+                summaries={issueReactions}
+                canReact={!!user}
+              />
+            </div>
           </div>
         )}
 
-        {comments.map(({ comment, author: commentAuthor }) => (
+        {comments.map(({ comment, author: commentAuthor }, i) => (
           <div class="issue-comment-box">
             <div class="comment-header">
               <strong>{commentAuthor.username}</strong> commented{" "}
@@ -353,6 +380,14 @@ issueRoutes.get("/:owner/:repo/issues/:number", softAuth, async (c) => {
             </div>
             <div class="markdown-body">
               {html([renderMarkdown(comment.body)] as unknown as TemplateStringsArray)}
+            </div>
+            <div style="padding: 0 16px 12px">
+              <ReactionsBar
+                targetType="issue_comment"
+                targetId={comment.id}
+                summaries={commentReactions[i] || []}
+                canReact={!!user}
+              />
             </div>
           </div>
         ))}

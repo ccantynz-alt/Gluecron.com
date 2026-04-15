@@ -15,6 +15,14 @@ import {
 } from "../lib/codeowners";
 import { generateCommitMessage } from "../lib/ai-generators";
 import { isAiAvailable } from "../lib/ai-client";
+import {
+  isAllowedEmoji,
+  isAllowedTarget,
+  ALLOWED_EMOJIS,
+  EMOJI_GLYPH,
+} from "../lib/reactions";
+import { sendEmail, absoluteUrl } from "../lib/email";
+import { __internal as notifyInternal } from "../lib/notify";
 
 describe("secret scanner", () => {
   it("detects AWS access keys", () => {
@@ -154,5 +162,243 @@ describe("shortcuts + search page", () => {
     const html = await res.text();
     expect(html).toContain("Repositories");
     expect(html).toContain("Users");
+  });
+});
+
+describe("GateTest inbound hook", () => {
+  it("GET /api/hooks/ping is unauthenticated and reports service", async () => {
+    const res = await app.request("/api/hooks/ping");
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.service).toBe("gluecron");
+    expect(Array.isArray(body.hooks)).toBe(true);
+  });
+
+  it("POST /api/hooks/gatetest rejects when no secret configured", async () => {
+    const prev = process.env.GATETEST_CALLBACK_SECRET;
+    const prevH = process.env.GATETEST_HMAC_SECRET;
+    delete process.env.GATETEST_CALLBACK_SECRET;
+    delete process.env.GATETEST_HMAC_SECRET;
+    const res = await app.request("/api/hooks/gatetest", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ repository: "a/b", sha: "x", status: "passed" }),
+    });
+    expect(res.status).toBe(401);
+    if (prev) process.env.GATETEST_CALLBACK_SECRET = prev;
+    if (prevH) process.env.GATETEST_HMAC_SECRET = prevH;
+  });
+
+  it("POST /api/hooks/gatetest rejects bad bearer token", async () => {
+    const prev = process.env.GATETEST_CALLBACK_SECRET;
+    process.env.GATETEST_CALLBACK_SECRET = "real-secret-abc123";
+    const res = await app.request("/api/hooks/gatetest", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer wrong-token",
+      },
+      body: JSON.stringify({ repository: "a/b", sha: "x", status: "passed" }),
+    });
+    expect(res.status).toBe(401);
+    if (prev === undefined) delete process.env.GATETEST_CALLBACK_SECRET;
+    else process.env.GATETEST_CALLBACK_SECRET = prev;
+  });
+
+  it("POST /api/hooks/gatetest rejects malformed payload even when authed", async () => {
+    const prev = process.env.GATETEST_CALLBACK_SECRET;
+    process.env.GATETEST_CALLBACK_SECRET = "real-secret-abc123";
+    const res = await app.request("/api/hooks/gatetest", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer real-secret-abc123",
+      },
+      body: "not-json",
+    });
+    expect(res.status).toBe(400);
+    if (prev === undefined) delete process.env.GATETEST_CALLBACK_SECRET;
+    else process.env.GATETEST_CALLBACK_SECRET = prev;
+  });
+
+  it("POST /api/v1/gate-runs (backup) rejects without bearer", async () => {
+    const res = await app.request("/api/v1/gate-runs", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ repository: "a/b", sha: "x", status: "passed" }),
+    });
+    expect(res.status).toBe(401);
+  });
+});
+
+describe("theme toggle", () => {
+  it("GET /theme/toggle sets a cookie and redirects", async () => {
+    const res = await app.request("/theme/toggle");
+    // 302 redirect; no cookie yet means we flip from the default (dark) → light
+    expect([301, 302, 303, 307]).toContain(res.status);
+    const setCookie = res.headers.get("set-cookie") || "";
+    expect(/theme=light/.test(setCookie)).toBe(true);
+  });
+
+  it("GET /theme/toggle flips an existing 'light' cookie back to dark", async () => {
+    const res = await app.request("/theme/toggle", {
+      headers: { cookie: "theme=light" },
+    });
+    const setCookie = res.headers.get("set-cookie") || "";
+    expect(/theme=dark/.test(setCookie)).toBe(true);
+  });
+
+  it("GET /theme/set?mode=light returns JSON when asked", async () => {
+    const res = await app.request("/theme/set?mode=light", {
+      headers: { accept: "application/json" },
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.theme).toBe("light");
+  });
+
+  it("GET /theme/set rejects unknown modes", async () => {
+    const res = await app.request("/theme/set?mode=neon", {
+      headers: { accept: "application/json" },
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("home page includes the pre-paint theme script + data-theme attribute", async () => {
+    const res = await app.request("/");
+    const html = await res.text();
+    expect(html).toContain("data-theme");
+    expect(html).toContain("theme-icon-");
+    // The pre-paint script reads the cookie.
+    expect(html).toContain("document.cookie");
+  });
+});
+
+describe("reactions", () => {
+  it("allowed emojis and targets are self-consistent", () => {
+    expect(ALLOWED_EMOJIS.length).toBeGreaterThanOrEqual(6);
+    for (const e of ALLOWED_EMOJIS) {
+      expect(isAllowedEmoji(e)).toBe(true);
+      expect(EMOJI_GLYPH[e]).toBeTruthy();
+    }
+    expect(isAllowedEmoji("nope")).toBe(false);
+    expect(isAllowedTarget("issue")).toBe(true);
+    expect(isAllowedTarget("martian")).toBe(false);
+  });
+
+  it("POST /api/reactions/.../toggle requires auth", async () => {
+    const res = await app.request(
+      "/api/reactions/issue/00000000-0000-0000-0000-000000000000/thumbs_up/toggle",
+      { method: "POST" }
+    );
+    // Unauthenticated -> redirect to /login (302)
+    expect([301, 302, 303, 307]).toContain(res.status);
+  });
+
+  it("GET /api/reactions/:type/:id returns empty summary when no reactions exist", async () => {
+    const res = await app.request(
+      "/api/reactions/issue/00000000-0000-0000-0000-000000000000"
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(Array.isArray(body.reactions)).toBe(true);
+  });
+
+  it("rejects unknown target type on the listing endpoint", async () => {
+    const res = await app.request(
+      "/api/reactions/martian/00000000-0000-0000-0000-000000000000"
+    );
+    expect(res.status).toBe(400);
+  });
+});
+
+describe("audit log UI", () => {
+  it("GET /settings/audit redirects unauthenticated users to /login", async () => {
+    const res = await app.request("/settings/audit");
+    expect([301, 302, 303, 307]).toContain(res.status);
+    const loc = res.headers.get("location") || "";
+    expect(loc.startsWith("/login")).toBe(true);
+  });
+});
+
+describe("email", () => {
+  it("sendEmail in log mode never throws and returns ok", async () => {
+    const prev = process.env.EMAIL_PROVIDER;
+    process.env.EMAIL_PROVIDER = "log";
+    const res = await sendEmail({
+      to: "test@gluecron.local",
+      subject: "hello",
+      text: "body",
+    });
+    expect(res.ok).toBe(true);
+    expect(res.provider).toBe("log");
+    if (prev === undefined) delete process.env.EMAIL_PROVIDER;
+    else process.env.EMAIL_PROVIDER = prev;
+  });
+
+  it("sendEmail rejects invalid recipient without throwing", async () => {
+    const res = await sendEmail({
+      to: "not-an-email",
+      subject: "x",
+      text: "y",
+    });
+    expect(res.ok).toBe(false);
+    expect(res.skipped).toBeTruthy();
+  });
+
+  it("sendEmail rejects empty subject/body without throwing", async () => {
+    const res = await sendEmail({ to: "a@b.co", subject: "", text: "" });
+    expect(res.ok).toBe(false);
+  });
+
+  it("absoluteUrl joins paths against APP_BASE_URL", () => {
+    const prev = process.env.APP_BASE_URL;
+    process.env.APP_BASE_URL = "https://gluecron.example/";
+    expect(absoluteUrl("/x")).toBe("https://gluecron.example/x");
+    expect(absoluteUrl("x")).toBe("https://gluecron.example/x");
+    expect(absoluteUrl("https://other/y")).toBe("https://other/y");
+    if (prev === undefined) delete process.env.APP_BASE_URL;
+    else process.env.APP_BASE_URL = prev;
+  });
+
+  it("notify email-eligible set only includes user-opt-in kinds", () => {
+    // Any kind in EMAIL_ELIGIBLE must map to a preference column
+    for (const k of notifyInternal.EMAIL_ELIGIBLE) {
+      expect(notifyInternal.prefFor(k)).not.toBeNull();
+    }
+    // gate_passed is not eligible (too spammy; only gate_failed is)
+    expect(notifyInternal.EMAIL_ELIGIBLE.has("gate_passed" as any)).toBe(false);
+    expect(notifyInternal.EMAIL_ELIGIBLE.has("deploy_failed" as any)).toBe(
+      false
+    );
+  });
+
+  it("notify email subject is tagged and truncated", () => {
+    const subj = notifyInternal.subjectFor("gate_failed", "x".repeat(300));
+    expect(subj.startsWith("[gate failed]")).toBe(true);
+    expect(subj.length).toBeLessThanOrEqual(180);
+  });
+});
+
+describe("settings email preferences", () => {
+  it("GET /settings redirects unauthenticated users to /login", async () => {
+    const res = await app.request("/settings");
+    expect([301, 302, 303, 307]).toContain(res.status);
+    const loc = res.headers.get("location") || "";
+    expect(loc.startsWith("/login")).toBe(true);
+  });
+
+  it("POST /settings/notifications redirects unauthenticated users to /login", async () => {
+    const res = await app.request("/settings/notifications", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: "notify_email_on_mention=1",
+    });
+    expect([301, 302, 303, 307]).toContain(res.status);
+    const loc = res.headers.get("location") || "";
+    expect(loc.startsWith("/login")).toBe(true);
   });
 });

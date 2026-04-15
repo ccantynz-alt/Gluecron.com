@@ -27,6 +27,12 @@ import gateRoutes from "./routes/gates";
 import insightsRoutes from "./routes/insights";
 import searchRoutes from "./routes/search";
 import healthRoutes from "./routes/health";
+import hookRoutes from "./routes/hooks";
+import themeRoutes from "./routes/theme";
+import auditRoutes from "./routes/audit";
+import reactionRoutes from "./routes/reactions";
+import savedReplyRoutes from "./routes/saved-replies";
+import deploymentRoutes from "./routes/deployments";
 import webRoutes from "./routes/web";
 
 const app = new Hono();
@@ -52,6 +58,9 @@ app.route("/", gitRoutes);
 // Health + metrics
 app.route("/", healthRoutes);
 
+// Inbound API hooks (GateTest callback + backup PAT-authed /api/v1/gate-runs)
+app.route("/", hookRoutes);
+
 // REST API
 app.route("/", apiRoutes);
 
@@ -60,6 +69,21 @@ app.route("/", authRoutes);
 
 // Settings routes (profile, SSH keys)
 app.route("/", settingsRoutes);
+
+// Theme toggle (dark/light cookie)
+app.route("/", themeRoutes);
+
+// Audit log UI
+app.route("/", auditRoutes);
+
+// Reactions API (issues, PRs, comments)
+app.route("/", reactionRoutes);
+
+// Saved replies (per-user canned comment templates)
+app.route("/", savedReplyRoutes);
+
+// Environments + deployment history UI
+app.route("/", deploymentRoutes);
 
 // API tokens
 app.route("/", tokenRoutes);

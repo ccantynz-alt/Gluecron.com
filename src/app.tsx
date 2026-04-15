@@ -79,6 +79,7 @@ import badgesRoutes from "./routes/badges";
 import communityRoutes from "./routes/community";
 import pinnedReposRoutes from "./routes/pinned-repos";
 import pulseRoutes from "./routes/pulse";
+import feedRoutes from "./routes/feeds";
 import webRoutes from "./routes/web";
 
 const app = new Hono();
@@ -277,6 +278,9 @@ app.route("/", pinnedReposRoutes);
 
 // Repository pulse — /:owner/:repo/pulse (Block J18)
 app.route("/", pulseRoutes);
+
+// Atom feeds — /:owner/:repo/{commits,releases,issues}.atom (Block J19)
+app.route("/", feedRoutes);
 
 // Insights + milestones
 app.route("/", insightsRoutes);

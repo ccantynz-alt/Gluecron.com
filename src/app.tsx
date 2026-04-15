@@ -33,6 +33,7 @@ import auditRoutes from "./routes/audit";
 import reactionRoutes from "./routes/reactions";
 import savedReplyRoutes from "./routes/saved-replies";
 import deploymentRoutes from "./routes/deployments";
+import orgRoutes from "./routes/orgs";
 import webRoutes from "./routes/web";
 
 const app = new Hono();
@@ -84,6 +85,9 @@ app.route("/", savedReplyRoutes);
 
 // Environments + deployment history UI
 app.route("/", deploymentRoutes);
+
+// Organizations + teams (Block B1)
+app.route("/", orgRoutes);
 
 // API tokens
 app.route("/", tokenRoutes);

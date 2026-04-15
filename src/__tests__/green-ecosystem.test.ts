@@ -23,6 +23,14 @@ import {
 } from "../lib/reactions";
 import { sendEmail, absoluteUrl } from "../lib/email";
 import { __internal as notifyInternal } from "../lib/notify";
+import {
+  isValidSlug,
+  normalizeSlug,
+  orgRoleAtLeast,
+  isValidOrgRole,
+  isValidTeamRole,
+  __test as orgsInternal,
+} from "../lib/orgs";
 
 describe("secret scanner", () => {
   it("detects AWS access keys", () => {
@@ -396,6 +404,148 @@ describe("settings email preferences", () => {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body: "notify_email_on_mention=1",
+    });
+    expect([301, 302, 303, 307]).toContain(res.status);
+    const loc = res.headers.get("location") || "";
+    expect(loc.startsWith("/login")).toBe(true);
+  });
+});
+
+describe("orgs helpers (B1)", () => {
+  describe("isValidSlug", () => {
+    it("accepts simple slugs", () => {
+      expect(isValidSlug("acme")).toBe(true);
+      expect(isValidSlug("acme-corp")).toBe(true);
+      expect(isValidSlug("a1")).toBe(true);
+      expect(isValidSlug("a-b-c-1-2-3")).toBe(true);
+    });
+
+    it("rejects too-short or too-long", () => {
+      expect(isValidSlug("")).toBe(false);
+      expect(isValidSlug("a")).toBe(false);
+      expect(isValidSlug("a".repeat(40))).toBe(false);
+    });
+
+    it("rejects leading/trailing hyphen", () => {
+      expect(isValidSlug("-acme")).toBe(false);
+      expect(isValidSlug("acme-")).toBe(false);
+    });
+
+    it("rejects consecutive hyphens", () => {
+      expect(isValidSlug("foo--bar")).toBe(false);
+    });
+
+    it("rejects uppercase + invalid chars", () => {
+      expect(isValidSlug("Acme")).toBe(false);
+      expect(isValidSlug("acme_corp")).toBe(false);
+      expect(isValidSlug("acme.corp")).toBe(false);
+      expect(isValidSlug("acme corp")).toBe(false);
+    });
+
+    it("rejects reserved words", () => {
+      expect(isValidSlug("api")).toBe(false);
+      expect(isValidSlug("admin")).toBe(false);
+      expect(isValidSlug("settings")).toBe(false);
+      expect(isValidSlug("orgs")).toBe(false);
+      expect(isValidSlug("new")).toBe(false);
+    });
+  });
+
+  describe("normalizeSlug", () => {
+    it("lowercases and trims", () => {
+      expect(normalizeSlug("  ACME  ")).toBe("acme");
+      expect(normalizeSlug("Acme-Corp")).toBe("acme-corp");
+    });
+  });
+
+  describe("orgRoleAtLeast", () => {
+    it("owner beats admin beats member", () => {
+      expect(orgRoleAtLeast("owner", "member")).toBe(true);
+      expect(orgRoleAtLeast("owner", "admin")).toBe(true);
+      expect(orgRoleAtLeast("owner", "owner")).toBe(true);
+      expect(orgRoleAtLeast("admin", "member")).toBe(true);
+      expect(orgRoleAtLeast("admin", "admin")).toBe(true);
+      expect(orgRoleAtLeast("admin", "owner")).toBe(false);
+      expect(orgRoleAtLeast("member", "admin")).toBe(false);
+      expect(orgRoleAtLeast("member", "owner")).toBe(false);
+    });
+
+    it("treats unknown role as rank 0", () => {
+      expect(orgRoleAtLeast("", "member")).toBe(false);
+      expect(orgRoleAtLeast("banana", "member")).toBe(false);
+    });
+  });
+
+  describe("role type guards", () => {
+    it("isValidOrgRole", () => {
+      expect(isValidOrgRole("owner")).toBe(true);
+      expect(isValidOrgRole("admin")).toBe(true);
+      expect(isValidOrgRole("member")).toBe(true);
+      expect(isValidOrgRole("maintainer")).toBe(false);
+      expect(isValidOrgRole("banana")).toBe(false);
+    });
+
+    it("isValidTeamRole", () => {
+      expect(isValidTeamRole("maintainer")).toBe(true);
+      expect(isValidTeamRole("member")).toBe(true);
+      expect(isValidTeamRole("owner")).toBe(false);
+      expect(isValidTeamRole("banana")).toBe(false);
+    });
+  });
+
+  describe("internal", () => {
+    it("rank table orders correctly", () => {
+      const r = orgsInternal.ORG_ROLE_RANK;
+      expect(r.owner).toBeGreaterThan(r.admin);
+      expect(r.admin).toBeGreaterThan(r.member);
+    });
+
+    it("reserved set contains the app's top-level paths", () => {
+      expect(orgsInternal.RESERVED_SLUGS.has("api")).toBe(true);
+      expect(orgsInternal.RESERVED_SLUGS.has("settings")).toBe(true);
+      expect(orgsInternal.RESERVED_SLUGS.has("login")).toBe(true);
+    });
+  });
+});
+
+describe("orgs routes (B1)", () => {
+  it("GET /orgs redirects unauthenticated users to /login", async () => {
+    const res = await app.request("/orgs");
+    expect([301, 302, 303, 307]).toContain(res.status);
+    const loc = res.headers.get("location") || "";
+    expect(loc.startsWith("/login")).toBe(true);
+  });
+
+  it("GET /orgs/new redirects unauthenticated users to /login", async () => {
+    const res = await app.request("/orgs/new");
+    expect([301, 302, 303, 307]).toContain(res.status);
+    const loc = res.headers.get("location") || "";
+    expect(loc.startsWith("/login")).toBe(true);
+  });
+
+  it("POST /orgs/new redirects unauthenticated users to /login", async () => {
+    const res = await app.request("/orgs/new", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: "slug=acme&name=Acme",
+    });
+    expect([301, 302, 303, 307]).toContain(res.status);
+    const loc = res.headers.get("location") || "";
+    expect(loc.startsWith("/login")).toBe(true);
+  });
+
+  it("GET /orgs/:slug redirects unauthenticated users to /login", async () => {
+    const res = await app.request("/orgs/some-org");
+    expect([301, 302, 303, 307]).toContain(res.status);
+    const loc = res.headers.get("location") || "";
+    expect(loc.startsWith("/login")).toBe(true);
+  });
+
+  it("POST /orgs/:slug/people/add redirects unauthenticated users to /login", async () => {
+    const res = await app.request("/orgs/some-org/people/add", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: "username=alice&role=member",
     });
     expect([301, 302, 303, 307]).toContain(res.status);
     const loc = res.headers.get("location") || "";

@@ -324,6 +324,27 @@ issueRoutes.get("/:owner/:repo/issues/:number", softAuth, async (c) => {
     user &&
     (user.id === resolved.owner.id || user.id === issue.authorId);
 
+  // J14 — issue dependencies: blockers + blocked lists.
+  const [blockers, blocked] = await Promise.all([
+    (async () => {
+      try {
+        const { listBlockersOf } = await import("../lib/issue-dependencies");
+        return await listBlockersOf(issue.id);
+      } catch {
+        return [];
+      }
+    })(),
+    (async () => {
+      try {
+        const { listBlockedBy } = await import("../lib/issue-dependencies");
+        return await listBlockedBy(issue.id);
+      } catch {
+        return [];
+      }
+    })(),
+  ]);
+  const depError = c.req.query("depError");
+
   return c.html(
     <Layout
       title={`${issue.title} #${issue.number} — ${ownerName}/${repoName}`}
@@ -351,6 +372,16 @@ issueRoutes.get("/:owner/:repo/issues/:number", softAuth, async (c) => {
             opened this issue {formatRelative(issue.createdAt)}
           </span>
         </div>
+
+        <DependenciesPanel
+          owner={ownerName}
+          repo={repoName}
+          issueNumber={issue.number}
+          blockers={blockers}
+          blocked={blocked}
+          canManage={!!canManage}
+          depError={depError}
+        />
 
         {issue.body && (
           <div class="issue-comment-box">
@@ -532,6 +563,269 @@ issueRoutes.post(
     );
   }
 );
+
+// J14 — Add blocker dependency.
+issueRoutes.post(
+  "/:owner/:repo/issues/:number/dependencies",
+  softAuth,
+  requireAuth,
+  async (c) => {
+    const { owner: ownerName, repo: repoName } = c.req.param();
+    const issueNum = parseInt(c.req.param("number"), 10);
+    const user = c.get("user")!;
+    const body = await c.req.parseBody();
+    const blockerRaw = String(body.blockerNumber || "").trim().replace(/^#/, "");
+    const blockerNum = parseInt(blockerRaw, 10);
+
+    const resolved = await resolveRepo(ownerName, repoName);
+    if (!resolved) return c.redirect(`/${ownerName}/${repoName}`);
+
+    if (!Number.isFinite(blockerNum) || blockerNum <= 0) {
+      return c.redirect(
+        `/${ownerName}/${repoName}/issues/${issueNum}?depError=invalid`
+      );
+    }
+
+    const [blocked] = await db
+      .select()
+      .from(issues)
+      .where(
+        and(
+          eq(issues.repositoryId, resolved.repo.id),
+          eq(issues.number, issueNum)
+        )
+      )
+      .limit(1);
+    if (!blocked) return c.redirect(`/${ownerName}/${repoName}/issues`);
+
+    const [blocker] = await db
+      .select()
+      .from(issues)
+      .where(
+        and(
+          eq(issues.repositoryId, resolved.repo.id),
+          eq(issues.number, blockerNum)
+        )
+      )
+      .limit(1);
+    if (!blocker) {
+      return c.redirect(
+        `/${ownerName}/${repoName}/issues/${issueNum}?depError=not_found`
+      );
+    }
+
+    const canManage =
+      user.id === resolved.owner.id || user.id === blocked.authorId;
+    if (!canManage) {
+      return c.redirect(
+        `/${ownerName}/${repoName}/issues/${issueNum}?depError=forbidden`
+      );
+    }
+
+    const { addDependency } = await import("../lib/issue-dependencies");
+    const result = await addDependency({
+      blockerIssueId: blocker.id,
+      blockedIssueId: blocked.id,
+      createdBy: user.id,
+    });
+    if (!result.ok) {
+      return c.redirect(
+        `/${ownerName}/${repoName}/issues/${issueNum}?depError=${result.reason}`
+      );
+    }
+    return c.redirect(`/${ownerName}/${repoName}/issues/${issueNum}`);
+  }
+);
+
+// J14 — Remove blocker dependency. :which is either "blockers" or "blocks".
+issueRoutes.post(
+  "/:owner/:repo/issues/:number/dependencies/:which/:otherId/remove",
+  softAuth,
+  requireAuth,
+  async (c) => {
+    const { owner: ownerName, repo: repoName } = c.req.param();
+    const issueNum = parseInt(c.req.param("number"), 10);
+    const which = c.req.param("which");
+    const otherId = c.req.param("otherId");
+    const user = c.get("user")!;
+
+    const resolved = await resolveRepo(ownerName, repoName);
+    if (!resolved) return c.redirect(`/${ownerName}/${repoName}`);
+
+    const [thisIssue] = await db
+      .select()
+      .from(issues)
+      .where(
+        and(
+          eq(issues.repositoryId, resolved.repo.id),
+          eq(issues.number, issueNum)
+        )
+      )
+      .limit(1);
+    if (!thisIssue) return c.redirect(`/${ownerName}/${repoName}/issues`);
+
+    const canManage =
+      user.id === resolved.owner.id || user.id === thisIssue.authorId;
+    if (!canManage) {
+      return c.redirect(
+        `/${ownerName}/${repoName}/issues/${issueNum}?depError=forbidden`
+      );
+    }
+
+    const { removeDependency } = await import("../lib/issue-dependencies");
+    // which === "blockers" → otherId is the blocker; this issue is blocked.
+    // which === "blocks" → otherId is the blocked; this issue is blocker.
+    if (which === "blockers") {
+      await removeDependency(otherId, thisIssue.id);
+    } else if (which === "blocks") {
+      await removeDependency(thisIssue.id, otherId);
+    }
+    return c.redirect(`/${ownerName}/${repoName}/issues/${issueNum}`);
+  }
+);
+
+// J14 — Dependencies UI panel.
+type DepRow = {
+  id: string;
+  issueId: string;
+  number: number;
+  title: string;
+  state: string;
+  authorUsername: string;
+};
+
+function depErrorMessage(reason: string | undefined): string | null {
+  if (!reason) return null;
+  switch (reason) {
+    case "self":
+      return "An issue cannot block itself.";
+    case "cross_repo":
+      return "Both issues must belong to the same repository.";
+    case "exists":
+      return "That dependency already exists.";
+    case "cycle":
+      return "That dependency would create a cycle.";
+    case "not_found":
+      return "Issue not found.";
+    case "invalid":
+      return "Invalid issue number.";
+    case "forbidden":
+      return "You don't have permission to change dependencies on this issue.";
+    default:
+      return "Could not update dependencies.";
+  }
+}
+
+const DependenciesPanel = ({
+  owner,
+  repo,
+  issueNumber,
+  blockers,
+  blocked,
+  canManage,
+  depError,
+}: {
+  owner: string;
+  repo: string;
+  issueNumber: number;
+  blockers: DepRow[];
+  blocked: DepRow[];
+  canManage: boolean;
+  depError: string | undefined;
+}) => {
+  if (blockers.length === 0 && blocked.length === 0 && !canManage) return null;
+  const errMsg = depErrorMessage(depError);
+  const renderRow = (row: DepRow, which: "blockers" | "blocks") => (
+    <div
+      style="display: flex; align-items: center; gap: 8px; padding: 6px 0; border-top: 1px solid var(--border)"
+    >
+      <span
+        class={`issue-badge ${row.state === "open" ? "badge-open" : "badge-closed"}`}
+        style="font-size: 11px; padding: 1px 6px"
+      >
+        {row.state === "open" ? "\u25CB" : "\u2713"}
+      </span>
+      <a
+        href={`/${owner}/${repo}/issues/${row.number}`}
+        style="flex: 1; text-decoration: none"
+      >
+        <span style="color: var(--text-muted)">#{row.number}</span>{" "}
+        <span>{row.title}</span>
+      </a>
+      <span style="color: var(--text-muted); font-size: 12px">
+        by {row.authorUsername}
+      </span>
+      {canManage && (
+        <form
+          method="POST"
+          action={`/${owner}/${repo}/issues/${issueNumber}/dependencies/${which}/${row.issueId}/remove`}
+          style="margin: 0"
+        >
+          <button
+            type="submit"
+            class="btn"
+            style="padding: 2px 8px; font-size: 11px"
+            title="Remove dependency"
+          >
+            {"\u2715"}
+          </button>
+        </form>
+      )}
+    </div>
+  );
+  return (
+    <div
+      style="margin: 16px 0; padding: 12px 16px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-secondary)"
+    >
+      <div style="font-weight: 600; margin-bottom: 8px">Dependencies</div>
+      {errMsg && <div class="auth-error" style="margin-bottom: 8px">{errMsg}</div>}
+
+      <div style="margin-bottom: 12px">
+        <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px">
+          Blocked by ({blockers.length})
+        </div>
+        {blockers.length === 0 ? (
+          <div style="font-size: 12px; color: var(--text-muted); padding: 4px 0">
+            No blockers.
+          </div>
+        ) : (
+          blockers.map((r) => renderRow(r, "blockers"))
+        )}
+        {canManage && (
+          <form
+            method="POST"
+            action={`/${owner}/${repo}/issues/${issueNumber}/dependencies`}
+            style="display: flex; gap: 6px; margin-top: 8px"
+          >
+            <input
+              type="text"
+              name="blockerNumber"
+              required
+              placeholder="#123"
+              style="flex: 1; padding: 4px 8px; font-size: 12px"
+            />
+            <button type="submit" class="btn" style="padding: 4px 10px; font-size: 12px">
+              Add blocker
+            </button>
+          </form>
+        )}
+      </div>
+
+      <div>
+        <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px">
+          Blocks ({blocked.length})
+        </div>
+        {blocked.length === 0 ? (
+          <div style="font-size: 12px; color: var(--text-muted); padding: 4px 0">
+            This issue does not block any others.
+          </div>
+        ) : (
+          blocked.map((r) => renderRow(r, "blocks"))
+        )}
+      </div>
+    </div>
+  );
+};
 
 // Shared nav component with issues tab
 const IssueNav = ({

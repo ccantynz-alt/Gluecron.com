@@ -2434,3 +2434,39 @@ export const pinnedRepositories = pgTable(
 );
 
 export type PinnedRepository = typeof pinnedRepositories.$inferSelect;
+
+// ============================================================================
+// ISSUE DEPENDENCIES (Block J14)
+// ============================================================================
+/**
+ * Blocker/blocked directed edges between issues in the same repo.
+ *   blocker_issue_id  →  blocked_issue_id
+ * Resolved when the blocker closes. Application layer enforces same-repo
+ * pairing + cycle prevention.
+ */
+export const issueDependencies = pgTable(
+  "issue_dependencies",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    blockerIssueId: uuid("blocker_issue_id")
+      .notNull()
+      .references(() => issues.id, { onDelete: "cascade" }),
+    blockedIssueId: uuid("blocked_issue_id")
+      .notNull()
+      .references(() => issues.id, { onDelete: "cascade" }),
+    createdBy: uuid("created_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("issue_deps_blocker_blocked_unique").on(
+      table.blockerIssueId,
+      table.blockedIssueId
+    ),
+    index("issue_deps_blocked_idx").on(table.blockedIssueId),
+    index("issue_deps_blocker_idx").on(table.blockerIssueId),
+  ]
+);
+
+export type IssueDependency = typeof issueDependencies.$inferSelect;

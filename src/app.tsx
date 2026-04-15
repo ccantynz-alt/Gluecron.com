@@ -73,6 +73,7 @@ import depsRoutes from "./routes/deps";
 import advisoriesRoutes from "./routes/advisories";
 import signingKeysRoutes from "./routes/signing-keys";
 import followsRoutes from "./routes/follows";
+import rulesetsRoutes from "./routes/rulesets";
 import webRoutes from "./routes/web";
 
 const app = new Hono();
@@ -253,6 +254,9 @@ app.route("/", signingKeysRoutes);
 
 // User following + personalised feed (Block J4)
 app.route("/", followsRoutes);
+
+// Repository rulesets — /:owner/:repo/settings/rulesets (Block J6)
+app.route("/", rulesetsRoutes);
 
 // Insights + milestones
 app.route("/", insightsRoutes);

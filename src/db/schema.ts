@@ -2264,3 +2264,55 @@ export const userFollows = pgTable(
 );
 
 export type UserFollow = typeof userFollows.$inferSelect;
+
+// ----------------------------------------------------------------------------
+// Block J6 — Repository rulesets
+// ----------------------------------------------------------------------------
+
+/**
+ * A ruleset groups N rules under a named policy at enforcement level active /
+ * evaluate / disabled. Unique per (repo, name) so a repo can carry multiple
+ * overlapping rulesets (e.g. "release branches" vs "everywhere").
+ */
+export const repoRulesets = pgTable(
+  "repo_rulesets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    enforcement: text("enforcement").default("active").notNull(),
+    createdBy: uuid("created_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("repo_rulesets_repo_idx").on(table.repositoryId),
+    uniqueIndex("repo_rulesets_repo_name_unique").on(
+      table.repositoryId,
+      table.name
+    ),
+  ]
+);
+
+export type RepoRuleset = typeof repoRulesets.$inferSelect;
+
+/** Individual rule — type tag plus JSON params. */
+export const rulesetRules = pgTable(
+  "ruleset_rules",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    rulesetId: uuid("ruleset_id")
+      .notNull()
+      .references(() => repoRulesets.id, { onDelete: "cascade" }),
+    ruleType: text("rule_type").notNull(),
+    params: text("params").default("{}").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [index("ruleset_rules_set_idx").on(table.rulesetId)]
+);
+
+export type RulesetRule = typeof rulesetRules.$inferSelect;

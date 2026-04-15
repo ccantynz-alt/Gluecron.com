@@ -24,6 +24,12 @@ import {
   type IssueTemplate,
 } from "../lib/issue-templates";
 import { renderMarkdown } from "../lib/markdown";
+import {
+  applyQuery,
+  formatIssueQuery,
+  parseIssueQuery,
+  type QueryableIssue,
+} from "../lib/issue-query";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
 import { html } from "hono/html";
@@ -55,7 +61,8 @@ async function resolveRepo(ownerName: string, repoName: string) {
 issueRoutes.get("/:owner/:repo/issues", softAuth, async (c) => {
   const { owner: ownerName, repo: repoName } = c.req.param();
   const user = c.get("user");
-  const state = c.req.query("state") || "open";
+  const stateParam = c.req.query("state") || "open";
+  const rawQuery = c.req.query("q") || "";
 
   const resolved = await resolveRepo(ownerName, repoName);
   if (!resolved) {
@@ -71,7 +78,13 @@ issueRoutes.get("/:owner/:repo/issues", softAuth, async (c) => {
 
   const { repo } = resolved;
 
-  const issueList = await db
+  // J23 — the DSL may override `is:` from the query string. If `is:` is set
+  // in `q`, it wins; otherwise the tab-based state controls the filter.
+  const parsedQuery = parseIssueQuery(rawQuery);
+  const effectiveState = parsedQuery.is ?? stateParam;
+
+  // Fetch issues matching the basic state filter, joined with author.
+  const issueRows = await db
     .select({
       issue: issues,
       author: { username: users.username },
@@ -79,11 +92,77 @@ issueRoutes.get("/:owner/:repo/issues", softAuth, async (c) => {
     .from(issues)
     .innerJoin(users, eq(issues.authorId, users.id))
     .where(
-      and(eq(issues.repositoryId, repo.id), eq(issues.state, state))
+      and(
+        eq(issues.repositoryId, repo.id),
+        eq(issues.state, effectiveState)
+      )
     )
     .orderBy(desc(issues.createdAt));
 
-  // Count open/closed
+  // Fetch labels for the fetched issues (single query). Used both for
+  // DSL filtering and for an inline render hint.
+  const issueIds = issueRows.map((r) => r.issue.id);
+  const labelRows =
+    issueIds.length === 0
+      ? []
+      : await db
+          .select({
+            issueId: issueLabels.issueId,
+            name: labels.name,
+            color: labels.color,
+          })
+          .from(issueLabels)
+          .innerJoin(labels, eq(issueLabels.labelId, labels.id))
+          .where(
+            sql`${issueLabels.issueId} IN (${sql.join(
+              issueIds.map((id) => sql`${id}`),
+              sql`, `
+            )})`
+          );
+
+  const labelsByIssue = new Map<string, { name: string; color: string }[]>();
+  for (const row of labelRows) {
+    const arr = labelsByIssue.get(row.issueId) ?? [];
+    arr.push({ name: row.name, color: row.color });
+    labelsByIssue.set(row.issueId, arr);
+  }
+
+  // Build queryable shape for the DSL matcher.
+  type Row = (typeof issueRows)[number];
+  type RowWithLabels = Row & { labelNames: string[]; colorByLabel: Map<string, string> };
+  const enriched: RowWithLabels[] = issueRows.map((r) => {
+    const ls = labelsByIssue.get(r.issue.id) ?? [];
+    const colorByLabel = new Map<string, string>();
+    for (const l of ls) colorByLabel.set(l.name, l.color);
+    return { ...r, labelNames: ls.map((l) => l.name), colorByLabel };
+  });
+
+  // Apply the DSL if a query was provided. Otherwise pass-through.
+  let display: RowWithLabels[];
+  if (rawQuery.trim()) {
+    const queryable: (QueryableIssue & { __row: RowWithLabels })[] = enriched.map(
+      (r) => ({
+        title: r.issue.title,
+        body: r.issue.body,
+        state: r.issue.state,
+        authorName: r.author.username,
+        labelNames: r.labelNames,
+        milestoneTitle: null,
+        createdAt: r.issue.createdAt,
+        updatedAt: r.issue.updatedAt,
+        commentCount: 0,
+        __row: r,
+      })
+    );
+    const { matches } = applyQuery(rawQuery, queryable);
+    display = matches.map((m) => m.__row);
+  } else {
+    display = enriched;
+  }
+
+  // Count open/closed for the tab pills — always over ALL issues in the
+  // repo, independent of `q`, so the counters don't collapse when filters
+  // narrow the list.
   const [counts] = await db
     .select({
       open: sql<number>`count(*) filter (where ${issues.state} = 'open')`,
@@ -92,26 +171,83 @@ issueRoutes.get("/:owner/:repo/issues", softAuth, async (c) => {
     .from(issues)
     .where(eq(issues.repositoryId, repo.id));
 
-  return c.html(
+  const qsForTab = (s: string) => {
+    const parts: string[] = [`state=${s}`];
+    if (rawQuery) parts.push(`q=${encodeURIComponent(rawQuery)}`);
+    return parts.join("&");
+  };
+
+  return (
+    c.html(
     <Layout title={`Issues — ${ownerName}/${repoName}`} user={user}>
       <RepoHeader owner={ownerName} repo={repoName} />
       <IssueNav owner={ownerName} repo={repoName} active="issues" />
+
+      {/* J23 — DSL search bar. */}
+      <form
+        method="GET"
+        action={`/${ownerName}/${repoName}/issues`}
+        style="margin-bottom: 12px; display: flex; gap: 8px"
+      >
+        <input type="hidden" name="state" value={effectiveState} />
+        <input
+          type="text"
+          name="q"
+          value={rawQuery}
+          placeholder='is:open label:bug author:alice "race condition"'
+          style="flex: 1; padding: 6px 10px; font-size: 13px; font-family: var(--font-mono)"
+        />
+        <button type="submit" class="btn" style="padding: 4px 12px">
+          Search
+        </button>
+        {rawQuery && (
+          <a
+            href={`/${ownerName}/${repoName}/issues?state=${effectiveState}`}
+            class="btn"
+            style="padding: 4px 12px; font-size: 13px"
+          >
+            Clear
+          </a>
+        )}
+      </form>
+      <details style="margin-bottom: 12px; color: var(--text-muted); font-size: 12px">
+        <summary style="cursor: pointer">Search syntax</summary>
+        <div style="margin-top: 6px; line-height: 1.6">
+          <code>is:open</code> / <code>is:closed</code> •{" "}
+          <code>author:&lt;user&gt;</code> •{" "}
+          <code>label:&lt;name&gt;</code> (repeatable, AND) •{" "}
+          <code>-label:&lt;name&gt;</code> to exclude •{" "}
+          <code>no:label</code> •{" "}
+          <code>milestone:"v1.0"</code> •{" "}
+          <code>sort:</code>
+          <code>created-desc</code>|<code>created-asc</code>|
+          <code>updated-desc</code>|<code>updated-asc</code>|
+          <code>comments-desc</code> • any other text is a case-insensitive
+          substring match against title+body.
+        </div>
+      </details>
+
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px">
         <div class="issue-tabs">
           <a
-            href={`/${ownerName}/${repoName}/issues?state=open`}
-            class={state === "open" ? "active" : ""}
+            href={`/${ownerName}/${repoName}/issues?${qsForTab("open")}`}
+            class={effectiveState === "open" ? "active" : ""}
           >
             {counts?.open ?? 0} Open
           </a>
           <a
-            href={`/${ownerName}/${repoName}/issues?state=closed`}
-            class={state === "closed" ? "active" : ""}
+            href={`/${ownerName}/${repoName}/issues?${qsForTab("closed")}`}
+            class={effectiveState === "closed" ? "active" : ""}
           >
             {counts?.closed ?? 0} Closed
           </a>
         </div>
         <div style="display: flex; gap: 8px; align-items: center">
+          {rawQuery && (
+            <span style="color: var(--text-muted); font-size: 12px">
+              {display.length} match{display.length === 1 ? "" : "es"}
+            </span>
+          )}
           <a
             href={`/${ownerName}/${repoName}/issues/stale`}
             class="btn"
@@ -129,11 +265,13 @@ issueRoutes.get("/:owner/:repo/issues", softAuth, async (c) => {
           )}
         </div>
       </div>
-      {issueList.length === 0 ? (
+      {display.length === 0 ? (
         <div class="empty-state">
           <p>
-            No {state} issues.
-            {state === "closed" && (
+            {rawQuery
+              ? `No issues match ${JSON.stringify(formatIssueQuery(parsedQuery))}.`
+              : `No ${effectiveState} issues.`}
+            {!rawQuery && effectiveState === "closed" && (
               <span>
                 {" "}
                 <a href={`/${ownerName}/${repoName}/issues?state=open`}>
@@ -145,18 +283,29 @@ issueRoutes.get("/:owner/:repo/issues", softAuth, async (c) => {
         </div>
       ) : (
         <div class="issue-list">
-          {issueList.map(({ issue, author }) => (
+          {display.map(({ issue, author, labelNames, colorByLabel }) => (
             <div class="issue-item">
               <div
                 class={`issue-state-icon ${issue.state === "open" ? "state-open" : "state-closed"}`}
               >
                 {issue.state === "open" ? "\u25CB" : "\u2713"}
               </div>
-              <div>
+              <div style="min-width: 0; flex: 1">
                 <div class="issue-title">
                   <a href={`/${ownerName}/${repoName}/issues/${issue.number}`}>
                     {issue.title}
                   </a>
+                  {labelNames.length > 0 && (
+                    <span style="margin-left: 8px">
+                      {labelNames.map((name) => (
+                        <span
+                          style={`display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 10px; margin-right: 4px; background: ${colorByLabel.get(name) ?? "var(--bg-secondary)"}; color: #fff; border: 1px solid var(--border)`}
+                        >
+                          {name}
+                        </span>
+                      ))}
+                    </span>
+                  )}
                 </div>
                 <div class="issue-meta">
                   #{issue.number} opened by {author.username}{" "}
@@ -168,6 +317,7 @@ issueRoutes.get("/:owner/:repo/issues", softAuth, async (c) => {
         </div>
       )}
     </Layout>
+    )
   );
 });
 

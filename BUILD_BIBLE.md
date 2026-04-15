@@ -46,6 +46,13 @@ GlueCron is a GitHub replacement — AI-native code intelligence, green ecosyste
 - Users can opt out per feature but defaults are maximum-green.
 - Nothing broken ever reaches production, the website, or the customer.
 
+### 1.7 Parallelism rule (added per owner request)
+- **Default to spawning sub-agents whenever work can be parallelised.** Owner-cost of an idle main thread is high; owner-cost of an extra agent is near-zero.
+- Independent files = parallel agents. Schema-only edits, new route files, doc updates, test additions, codebase research — all of these run in parallel by default unless they collide.
+- Coordinate file ownership: one agent per file. Never let two agents edit the same file. Mounting + middleware integration stay on the main thread to avoid merge conflicts.
+- When launching multiple agents, send them in a single message with multiple Agent tool calls so they actually run concurrently.
+- The main thread is responsible for: reviewing each agent's output before integrating, running the test suite, and committing. Trust-but-verify — read the changes, don't just rely on the agent's summary.
+
 ---
 
 ## 2. GITHUB PARITY SCORECARD

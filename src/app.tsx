@@ -88,6 +88,7 @@ import responseTimeRoutes from "./routes/response-time";
 import branchAgeRoutes from "./routes/branch-age";
 import issueSimilarityRoutes from "./routes/issue-similarity";
 import prLeadTimeRoutes from "./routes/pr-lead-time";
+import languageRoutes from "./routes/languages";
 import webRoutes from "./routes/web";
 
 const app = new Hono();
@@ -320,6 +321,9 @@ app.route("/", branchAgeRoutes);
 // PR lead-time metric — /:owner/:repo/insights/lead-time (Block J29)
 // Mounted alongside response-time before insightsRoutes.
 app.route("/", prLeadTimeRoutes);
+
+// Repository language breakdown — /:owner/:repo/languages (Block J30)
+app.route("/", languageRoutes);
 
 // Insights + milestones
 app.route("/", insightsRoutes);

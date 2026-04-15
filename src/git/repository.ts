@@ -629,6 +629,46 @@ export async function getReadme(
 }
 
 /**
+ * Recursive flat tree listing at `ref` — returns every blob (file) path +
+ * size in bytes. Useful for language breakdowns and large-file audits.
+ * Skips symlinks and submodules. Returns `[]` on any git failure.
+ */
+export async function listTreeRecursive(
+  owner: string,
+  name: string,
+  ref: string
+): Promise<Array<{ path: string; size: number }>> {
+  return cached(
+    gitCache as any,
+    `${owner}/${name}:tree-recursive:${ref}`,
+    async () => {
+      const path = repoPath(owner, name);
+      const { stdout, exitCode } = await exec(
+        ["git", "ls-tree", "-r", "-l", "-z", ref],
+        { cwd: path }
+      );
+      if (exitCode !== 0) return [];
+      const entries: Array<{ path: string; size: number }> = [];
+      for (const line of stdout.split("\0")) {
+        if (!line) continue;
+        // Format: <mode> SP <type> SP <sha> SP <size> TAB <name>
+        const match = line.match(
+          /^(\d+)\s+(blob|tree|commit)\s+[0-9a-f]+\s+(-|\d+)\t(.+)$/
+        );
+        if (!match) continue;
+        if (match[2] !== "blob") continue; // skip submodules / trees
+        // Mode 120000 is a symlink — skip so size doesn't skew stats.
+        if (match[1] === "120000") continue;
+        const sz = match[3] === "-" ? 0 : Number.parseInt(match[3]!, 10);
+        if (!Number.isFinite(sz) || sz < 0) continue;
+        entries.push({ path: match[4]!, size: sz });
+      }
+      return entries;
+    }
+  );
+}
+
+/**
  * Count commits ahead and behind: commits on `head` not on `base` (ahead) and
  * commits on `base` not on `head` (behind). Returns null when either ref is
  * missing or git errors out.

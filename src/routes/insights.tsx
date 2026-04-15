@@ -170,6 +170,12 @@ insights.get("/:owner/:repo/insights", async (c) => {
           >
             Pulse &rarr;
           </a>
+          <a
+            href={`/${owner}/${repo}/languages`}
+            style="font-size: 12px; color: var(--accent)"
+          >
+            Languages &rarr;
+          </a>
         </div>
       </div>
 

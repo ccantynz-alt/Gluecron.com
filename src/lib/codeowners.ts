@@ -6,17 +6,37 @@
  *     *            @alice
  *     src/api/**   @bob @carol
  *     /docs        @alice
+ *     api/**       @acme/backend        # Block B3: team reference
  *
- * Ownership is resolved by last-matching rule (that's how GitHub does it).
+ * Ownership is resolved by last-matching rule (GitHub parity).
+ *
+ * Tokens containing a `/` are treated as team references of the form
+ * `@orgSlug/teamSlug`. They are stored as-is and expanded to the team's
+ * current membership at review-request time.
  */
 
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "../db";
-import { codeOwners } from "../db/schema";
+import {
+  codeOwners,
+  organizations,
+  teams,
+  teamMembers,
+  users,
+} from "../db/schema";
 
 export interface OwnerRule {
   pattern: string;
-  owners: string[]; // usernames, stripped of leading @
+  /**
+   * Owner tokens. Usernames are stored without the leading `@`;
+   * team references are stored as `org/team` (also no `@`).
+   * Use `isTeamToken(tok)` to distinguish.
+   */
+  owners: string[];
+}
+
+export function isTeamToken(token: string): boolean {
+  return token.includes("/");
 }
 
 export function parseCodeowners(content: string): OwnerRule[] {
@@ -93,8 +113,61 @@ export async function syncCodeowners(
 }
 
 /**
+ * Resolve a single `org/team` token to the set of usernames currently on
+ * the team. Returns `[]` on unknown org, unknown team, or DB error — never
+ * throws. Pure helper; exported for unit tests.
+ */
+export async function expandTeamToken(token: string): Promise<string[]> {
+  if (!isTeamToken(token)) return [];
+  const [orgSlug, teamSlug] = token.split("/", 2);
+  if (!orgSlug || !teamSlug) return [];
+  try {
+    const [org] = await db
+      .select({ id: organizations.id })
+      .from(organizations)
+      .where(eq(organizations.slug, orgSlug))
+      .limit(1);
+    if (!org) return [];
+    const [team] = await db
+      .select({ id: teams.id })
+      .from(teams)
+      .where(and(eq(teams.orgId, org.id), eq(teams.slug, teamSlug)))
+      .limit(1);
+    if (!team) return [];
+    const rows = await db
+      .select({ username: users.username })
+      .from(teamMembers)
+      .innerJoin(users, eq(users.id, teamMembers.userId))
+      .where(eq(teamMembers.teamId, team.id));
+    return rows.map((r) => r.username);
+  } catch (err) {
+    console.error("[codeowners] expandTeamToken:", err);
+    return [];
+  }
+}
+
+/**
+ * Expand a list of owner tokens to concrete usernames.
+ * - Plain usernames pass through.
+ * - `org/team` tokens are expanded to the team's current members.
+ * - Unknown tokens are dropped.
+ */
+export async function expandOwnerTokens(tokens: string[]): Promise<string[]> {
+  const out = new Set<string>();
+  for (const t of tokens) {
+    if (!t) continue;
+    if (isTeamToken(t)) {
+      for (const u of await expandTeamToken(t)) out.add(u);
+    } else {
+      out.add(t);
+    }
+  }
+  return [...out];
+}
+
+/**
  * Given a PR's changed file list, return all unique owner usernames to
- * auto-request review from.
+ * auto-request review from. Team references are expanded.
  */
 export async function reviewersForChangedFiles(
   repositoryId: string,
@@ -109,11 +182,11 @@ export async function reviewersForChangedFiles(
       pattern: r.pathPattern,
       owners: r.ownerUsernames.split(",").filter(Boolean),
     }));
-    const result = new Set<string>();
+    const tokens = new Set<string>();
     for (const p of paths) {
-      for (const u of ownersForPath(p, parsed)) result.add(u);
+      for (const u of ownersForPath(p, parsed)) tokens.add(u);
     }
-    return [...result];
+    return await expandOwnerTokens([...tokens]);
   } catch {
     return [];
   }

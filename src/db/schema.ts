@@ -33,6 +33,10 @@ export const sessions = pgTable("sessions", {
     .references(() => users.id, { onDelete: "cascade" }),
   token: text("token").notNull().unique(),
   expiresAt: timestamp("expires_at").notNull(),
+  // B4: true when the user has entered their password but not yet their TOTP
+  // code. softAuth/requireAuth treat such sessions as anonymous; only
+  // /login/2fa can consume them. Flips to false on successful 2FA.
+  requires2fa: boolean("requires_2fa").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -41,9 +45,14 @@ export const repositories = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     name: text("name").notNull(),
+    // ownerId = creator / user-owner. Always set (for attribution + user
+    // namespace uniqueness). For org-owned repos, also represents "created by".
     ownerId: uuid("owner_id")
       .notNull()
       .references(() => users.id),
+    // Block B2: nullable org owner. When set, the repo lives in the org
+    // namespace and URL resolution routes `/:orgSlug/:repo` to it.
+    orgId: uuid("org_id"),
     description: text("description"),
     isPrivate: boolean("is_private").default(false).notNull(),
     isArchived: boolean("is_archived").default(false).notNull(),
@@ -59,7 +68,12 @@ export const repositories = pgTable(
     forkCount: integer("fork_count").default(0).notNull(),
     issueCount: integer("issue_count").default(0).notNull(),
   },
-  (table) => [uniqueIndex("repos_owner_name").on(table.ownerId, table.name)]
+  (table) => [
+    // Partial: uniqueness only in the user namespace (org-owned rows exempt).
+    // Matches the partial index in migration 0004.
+    uniqueIndex("repos_owner_name").on(table.ownerId, table.name),
+    index("repos_org").on(table.orgId),
+  ]
 );
 
 /**
@@ -763,3 +777,199 @@ export type Team = typeof teams.$inferSelect;
 export type TeamMember = typeof teamMembers.$inferSelect;
 export type OrgRole = "owner" | "admin" | "member";
 export type TeamRole = "maintainer" | "member";
+
+/**
+ * 2FA / TOTP (Block B4).
+ *
+ * Secret is stored in plain Base32 for now — the DB has row-level-secure
+ * access and the app boundary is the only code that reads it. A follow-up
+ * (B4.1) will wrap it with AES-GCM at rest once we standardise the KEK.
+ *
+ * `enabledAt` is set only after the user has successfully entered their
+ * first code (confirming the authenticator was set up correctly). Rows with
+ * `enabledAt = NULL` represent pending enrolment.
+ */
+export const userTotp = pgTable("user_totp", {
+  userId: uuid("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  secret: text("secret").notNull(),
+  enabledAt: timestamp("enabled_at"),
+  lastUsedAt: timestamp("last_used_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+/**
+ * Recovery codes — single-use fallback when the authenticator is lost.
+ * Stored as SHA-256 hashes; used rows are marked with `usedAt` rather than
+ * deleted so the audit log keeps the full history.
+ */
+export const userRecoveryCodes = pgTable(
+  "user_recovery_codes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    codeHash: text("code_hash").notNull(),
+    usedAt: timestamp("used_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("recovery_codes_user").on(table.userId),
+    uniqueIndex("recovery_codes_user_hash").on(table.userId, table.codeHash),
+  ]
+);
+
+export type UserTotp = typeof userTotp.$inferSelect;
+export type UserRecoveryCode = typeof userRecoveryCodes.$inferSelect;
+
+/**
+ * WebAuthn passkeys (Block B5).
+ *
+ * Each row is one registered authenticator. The `credentialId` is the
+ * globally-unique identifier the browser returns; `publicKey` is the
+ * COSE-encoded public key we use to verify signatures. `counter` tracks
+ * the authenticator's signature counter for replay-protection.
+ *
+ * `transports` is a JSON array (stored as text) of the
+ * AuthenticatorTransport values ("usb" | "nfc" | "ble" | "internal" | "hybrid").
+ */
+export const userPasskeys = pgTable(
+  "user_passkeys",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    credentialId: text("credential_id").notNull().unique(),
+    publicKey: text("public_key").notNull(), // base64url of COSE key
+    counter: integer("counter").default(0).notNull(),
+    transports: text("transports"), // JSON array string
+    name: text("name").notNull().default("Passkey"),
+    lastUsedAt: timestamp("last_used_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [index("passkeys_user").on(table.userId)]
+);
+
+/**
+ * Short-lived WebAuthn challenges. A row is written when we issue options
+ * (registration or authentication) and deleted after the verify step or when
+ * it expires (5 min). Keeping them in the DB lets us verify without sticky
+ * sessions or client-side state.
+ */
+export const webauthnChallenges = pgTable(
+  "webauthn_challenges",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
+    // For passwordless login we don't know the user yet, so userId is nullable
+    // and we bind the challenge to a short-lived cookie token instead.
+    sessionKey: text("session_key").notNull().unique(),
+    challenge: text("challenge").notNull(),
+    kind: text("kind").notNull(), // "register" | "authenticate"
+    expiresAt: timestamp("expires_at").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [index("webauthn_challenges_expires").on(table.expiresAt)]
+);
+
+export type UserPasskey = typeof userPasskeys.$inferSelect;
+export type WebauthnChallenge = typeof webauthnChallenges.$inferSelect;
+
+/**
+ * OAuth 2.0 provider (Block B6).
+ *
+ * `oauthApps` is a third-party app registered by a developer. Each app has
+ * a public `client_id`, a hashed `client_secret`, and one or more allowed
+ * `redirect_uris` (newline-separated). The plaintext secret is shown to the
+ * developer exactly once at creation and cannot be recovered; they can
+ * rotate it instead.
+ *
+ * `oauthAuthorizations` is a short-lived authorization code issued after
+ * the user consents at /oauth/authorize. Single-use: `usedAt` is set on
+ * redemption so a replay after-the-fact fails.
+ *
+ * `oauthAccessTokens` is a long-lived bearer token plus an optional
+ * refresh token. Both are stored as SHA-256 hashes; the plaintext values
+ * are only returned to the client once in the /oauth/token response.
+ */
+export const oauthApps = pgTable(
+  "oauth_apps",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ownerId: uuid("owner_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    clientId: text("client_id").notNull().unique(),
+    clientSecretHash: text("client_secret_hash").notNull(),
+    clientSecretPrefix: text("client_secret_prefix").notNull(), // first 8 chars for display
+    /** Newline-separated list of allowed redirect URIs. */
+    redirectUris: text("redirect_uris").notNull(),
+    homepageUrl: text("homepage_url"),
+    description: text("description"),
+    /**
+     * If `true`, the app must present its client_secret at /oauth/token.
+     * Public SPA/mobile apps should set this to `false` and use PKCE.
+     */
+    confidential: boolean("confidential").default(true).notNull(),
+    revokedAt: timestamp("revoked_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [index("oauth_apps_owner").on(table.ownerId)]
+);
+
+export const oauthAuthorizations = pgTable(
+  "oauth_authorizations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    appId: uuid("app_id")
+      .notNull()
+      .references(() => oauthApps.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    codeHash: text("code_hash").notNull().unique(),
+    redirectUri: text("redirect_uri").notNull(),
+    scopes: text("scopes").notNull().default(""),
+    codeChallenge: text("code_challenge"),
+    codeChallengeMethod: text("code_challenge_method"), // "S256" | "plain"
+    expiresAt: timestamp("expires_at").notNull(),
+    usedAt: timestamp("used_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [index("oauth_authorizations_expires").on(table.expiresAt)]
+);
+
+export const oauthAccessTokens = pgTable(
+  "oauth_access_tokens",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    appId: uuid("app_id")
+      .notNull()
+      .references(() => oauthApps.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    accessTokenHash: text("access_token_hash").notNull().unique(),
+    refreshTokenHash: text("refresh_token_hash").unique(),
+    scopes: text("scopes").notNull().default(""),
+    expiresAt: timestamp("expires_at").notNull(),
+    refreshExpiresAt: timestamp("refresh_expires_at"),
+    revokedAt: timestamp("revoked_at"),
+    lastUsedAt: timestamp("last_used_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("oauth_access_tokens_user").on(table.userId),
+    index("oauth_access_tokens_app").on(table.appId),
+    index("oauth_access_tokens_expires").on(table.expiresAt),
+  ]
+);
+
+export type OauthApp = typeof oauthApps.$inferSelect;
+export type OauthAuthorization = typeof oauthAuthorizations.$inferSelect;
+export type OauthAccessToken = typeof oauthAccessTokens.$inferSelect;

@@ -133,7 +133,7 @@ Legend: ✅ shipped · 🟡 partial · ❌ not built
 | OAuth app provider | ❌ | |
 | GitHub Apps equivalent | ❌ | |
 | GraphQL API | ❌ | REST only |
-| Organizations + teams | ❌ | user-owned only |
+| Organizations + teams | 🟡 | schema + routes shipped (B1): `/orgs`, `/orgs/new`, `/orgs/:slug/people`, `/orgs/:slug/teams`, last-owner guard, audit logged. Org-owned repos = B2 next |
 | Enterprise SAML / SSO | ❌ | |
 | 2FA / TOTP | ❌ | |
 | Passkeys / WebAuthn | ❌ | |
@@ -184,7 +184,11 @@ Polish what's shipped before adding more. **Priority: do this first if parity ga
 **BLOCK A COMPLETE.** Next: BLOCK B (Identity + orgs).
 
 ### BLOCK B — Identity + orgs
-- **B1** — Organizations (schema: `organizations`, `org_members`, `teams`, `team_members`)
+- **B1** — Organizations (schema: `organizations`, `org_members`, `teams`, `team_members`) ✅
+  - Helpers in `src/lib/orgs.ts`: slug validation, role rank, reserved-slug set, loaders
+  - Routes in `src/routes/orgs.tsx`: list / create / profile / people / teams / team detail
+  - Role-based guards: admin adds members, owner grants owner, last-owner demote/remove blocked
+  - All sensitive actions `audit()`'d (org.create, member.add/role/remove, team.create, team.member.add/remove)
 - **B2** — Repos owned by orgs (nullable `repositories.orgId`)
 - **B3** — Team-based CODEOWNERS (`@org/team` resolution)
 - **B4** — 2FA / TOTP (enroll, recovery codes)
@@ -314,6 +318,8 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `src/routes/insights.tsx` — insights + milestones
 - `src/routes/search.tsx` — global search + `/shortcuts`
 - `src/routes/health.ts` — `/healthz` `/readyz` `/metrics`
+- `src/routes/orgs.tsx` — `/orgs` list, `/orgs/new` create, `/orgs/:slug` profile, `/orgs/:slug/people` + add/role/remove, `/orgs/:slug/teams` + create, `/orgs/:slug/teams/:teamSlug` + member add/remove. All require auth. Role guards via `orgRoleAtLeast`; last-owner cannot be demoted or removed; every write path `audit()`'d.
+- `src/lib/orgs.ts` — `isValidSlug` (rejects reserved + too-short/long + consecutive/leading/trailing hyphens), `normalizeSlug`, `orgRoleAtLeast` (owner>admin>member), `isValidOrgRole`, `isValidTeamRole`, `loadOrgForUser`, `listOrgsForUser`, `listOrgMembers`, `listTeamsForOrg`, `listTeamMembers`, `__test` export for unit tests.
 
 ### 4.7 Views (locked contracts)
 - `src/views/layout.tsx` — `Layout` accepts `title`, `user`, `notificationCount`

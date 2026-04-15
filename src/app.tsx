@@ -9,6 +9,7 @@ import gitRoutes from "./routes/git";
 import apiRoutes from "./routes/api";
 import authRoutes from "./routes/auth";
 import settingsRoutes from "./routes/settings";
+import settings2faRoutes from "./routes/settings-2fa";
 import issueRoutes from "./routes/issues";
 import repoSettings from "./routes/repo-settings";
 import compareRoutes from "./routes/compare";
@@ -33,6 +34,8 @@ import auditRoutes from "./routes/audit";
 import reactionRoutes from "./routes/reactions";
 import savedReplyRoutes from "./routes/saved-replies";
 import deploymentRoutes from "./routes/deployments";
+import orgRoutes from "./routes/orgs";
+import passkeyRoutes from "./routes/passkeys";
 import webRoutes from "./routes/web";
 
 const app = new Hono();
@@ -70,6 +73,12 @@ app.route("/", authRoutes);
 // Settings routes (profile, SSH keys)
 app.route("/", settingsRoutes);
 
+// 2FA / TOTP settings (Block B4)
+app.route("/", settings2faRoutes);
+
+// WebAuthn / passkey routes (Block B5)
+app.route("/", passkeyRoutes);
+
 // Theme toggle (dark/light cookie)
 app.route("/", themeRoutes);
 
@@ -84,6 +93,9 @@ app.route("/", savedReplyRoutes);
 
 // Environments + deployment history UI
 app.route("/", deploymentRoutes);
+
+// Organizations + teams (Block B1)
+app.route("/", orgRoutes);
 
 // API tokens
 app.route("/", tokenRoutes);

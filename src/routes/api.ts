@@ -3,11 +3,12 @@
  */
 
 import { Hono } from "hono";
-import { eq, and } from "drizzle-orm";
+import { eq, and, isNull } from "drizzle-orm";
 import { db } from "../db";
-import { users, repositories } from "../db/schema";
+import { users, repositories, organizations, orgMembers } from "../db/schema";
 import { initBareRepo, repoExists } from "../git/repository";
 import { hashPassword } from "../lib/auth";
+import { orgRoleAtLeast } from "../lib/orgs";
 
 const api = new Hono().basePath("/api");
 
@@ -16,6 +17,7 @@ api.post("/repos", async (c) => {
   let body: {
     name: string;
     owner: string;
+    orgSlug?: string;
     description?: string;
     isPrivate?: boolean;
   };
@@ -35,7 +37,7 @@ api.post("/repos", async (c) => {
   }
 
   try {
-    // Find owner
+    // Find creator (user who is performing the action)
     const [owner] = await db
       .select()
       .from(users)
@@ -45,13 +47,66 @@ api.post("/repos", async (c) => {
       return c.json({ error: "Owner not found" }, 404);
     }
 
-    // Check duplicate
-    if (await repoExists(body.owner, body.name)) {
+    // B2: if orgSlug supplied, place the repo in the org namespace.
+    // Requires the creator to be an admin+ of the org.
+    let orgId: string | null = null;
+    let namespaceSlug = body.owner;
+    if (body.orgSlug) {
+      const [org] = await db
+        .select({ id: organizations.id, slug: organizations.slug })
+        .from(organizations)
+        .where(eq(organizations.slug, body.orgSlug))
+        .limit(1);
+      if (!org) return c.json({ error: "Organization not found" }, 404);
+
+      const [mem] = await db
+        .select({ role: orgMembers.role })
+        .from(orgMembers)
+        .where(
+          and(eq(orgMembers.orgId, org.id), eq(orgMembers.userId, owner.id))
+        )
+        .limit(1);
+      if (!mem || !orgRoleAtLeast(mem.role, "admin")) {
+        return c.json({ error: "Admin rights required on org" }, 403);
+      }
+      orgId = org.id;
+      namespaceSlug = org.slug;
+    }
+
+    // Duplicate check: scoped to the right namespace.
+    if (orgId) {
+      const [existing] = await db
+        .select({ id: repositories.id })
+        .from(repositories)
+        .where(
+          and(eq(repositories.orgId, orgId), eq(repositories.name, body.name))
+        )
+        .limit(1);
+      if (existing) {
+        return c.json({ error: "Repository already exists" }, 409);
+      }
+    } else {
+      const [existing] = await db
+        .select({ id: repositories.id })
+        .from(repositories)
+        .where(
+          and(
+            eq(repositories.ownerId, owner.id),
+            eq(repositories.name, body.name),
+            isNull(repositories.orgId)
+          )
+        )
+        .limit(1);
+      if (existing) {
+        return c.json({ error: "Repository already exists" }, 409);
+      }
+    }
+    if (await repoExists(namespaceSlug, body.name)) {
       return c.json({ error: "Repository already exists" }, 409);
     }
 
-    // Init bare repo on disk
-    const diskPath = await initBareRepo(body.owner, body.name);
+    // Init bare repo on disk, keyed by the namespace slug (user or org).
+    const diskPath = await initBareRepo(namespaceSlug, body.name);
 
     // Insert into DB
     const [repo] = await db
@@ -59,6 +114,7 @@ api.post("/repos", async (c) => {
       .values({
         name: body.name,
         ownerId: owner.id,
+        orgId,
         description: body.description || null,
         isPrivate: body.isPrivate || false,
         diskPath,
@@ -103,24 +159,13 @@ api.get("/users/:username/repos", async (c) => {
   }
 });
 
-// Get single repository
+// Get single repository (resolves both user- and org-owned namespaces)
 api.get("/repos/:owner/:name", async (c) => {
   const { owner: ownerName, name } = c.req.param();
   try {
-    const [owner] = await db
-      .select()
-      .from(users)
-      .where(eq(users.username, ownerName));
-    if (!owner) return c.json({ error: "Not found" }, 404);
-
-    const [repo] = await db
-      .select()
-      .from(repositories)
-      .where(
-        and(eq(repositories.ownerId, owner.id), eq(repositories.name, name))
-      );
+    const { loadRepoByPath } = await import("../lib/namespace");
+    const repo = await loadRepoByPath(ownerName, name);
     if (!repo) return c.json({ error: "Not found" }, 404);
-
     return c.json(repo);
   } catch (err) {
     console.error("[api] /repos/:owner/:name:", err);

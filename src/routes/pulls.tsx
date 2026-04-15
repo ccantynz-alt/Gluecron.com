@@ -490,6 +490,21 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, async (c) => {
   // J11 — requested reviewers (CODEOWNERS auto-assign + manual add).
   const reviewRequests = await listReviewRequestsForPr(pr.id);
 
+  // J16 — auto-merge opt-in state.
+  let autoMergeState: {
+    enabled: boolean;
+    mergeMethod: string;
+    lastStatus: string | null;
+    notifiedReady: boolean;
+  } = { enabled: false, mergeMethod: "merge", lastStatus: null, notifiedReady: false };
+  try {
+    const { getAutoMergeForPr } = await import("../lib/pr-auto-merge");
+    const am = await getAutoMergeForPr(pr.id);
+    if (am) autoMergeState = am as typeof autoMergeState;
+  } catch {
+    /* ignore */
+  }
+
   // Get diff for "Files changed" tab
   let diffRaw = "";
   let diffFiles: GitDiffFile[] = [];
@@ -649,6 +664,15 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, async (c) => {
               <div class="auth-error" style="margin-top: 16px; padding: 12px; background: rgba(248, 81, 73, 0.1); border: 1px solid var(--red); border-radius: var(--radius); color: var(--red)">
                 {decodeURIComponent(error)}
               </div>
+            )}
+
+            {pr.state === "open" && canManage && (
+              <AutoMergePanel
+                owner={ownerName}
+                repo={repoName}
+                prNumber={pr.number}
+                state={autoMergeState}
+              />
             )}
 
             {pr.state === "open" && gateChecks.length > 0 && (
@@ -1543,6 +1567,172 @@ function ReviewersPanel(props: ReviewersPanelProps) {
             Request
           </button>
         </form>
+      )}
+    </div>
+  );
+}
+
+// J16 — PR auto-merge toggle
+pulls.post(
+  "/:owner/:repo/pulls/:number/auto-merge",
+  softAuth,
+  requireAuth,
+  async (c) => {
+    const { owner: ownerName, repo: repoName } = c.req.param();
+    const prNum = parseInt(c.req.param("number"), 10);
+    const user = c.get("user")!;
+    const body = await c.req.parseBody();
+    const method = String(body.mergeMethod || "merge").trim();
+
+    const resolved = await resolveRepo(ownerName, repoName);
+    if (!resolved) return c.redirect(`/${ownerName}/${repoName}`);
+    const [pr] = await db
+      .select()
+      .from(pullRequests)
+      .where(
+        and(
+          eq(pullRequests.repositoryId, resolved.repo.id),
+          eq(pullRequests.number, prNum)
+        )
+      )
+      .limit(1);
+    if (!pr) return c.notFound();
+    const canManage =
+      user.id === resolved.owner.id || user.id === pr.authorId;
+    if (!canManage) {
+      return c.redirect(`/${ownerName}/${repoName}/pulls/${prNum}`);
+    }
+    if (pr.state !== "open" || pr.isDraft) {
+      return c.redirect(`/${ownerName}/${repoName}/pulls/${prNum}`);
+    }
+    try {
+      const { enableAutoMerge, isValidMergeMethod } = await import(
+        "../lib/pr-auto-merge"
+      );
+      await enableAutoMerge({
+        pullRequestId: pr.id,
+        enabledBy: user.id,
+        mergeMethod: isValidMergeMethod(method) ? (method as any) : "merge",
+      });
+    } catch (err) {
+      console.error("[pr-auto-merge] enable route failed:", err);
+    }
+    return c.redirect(`/${ownerName}/${repoName}/pulls/${prNum}`);
+  }
+);
+
+pulls.post(
+  "/:owner/:repo/pulls/:number/auto-merge/disable",
+  softAuth,
+  requireAuth,
+  async (c) => {
+    const { owner: ownerName, repo: repoName } = c.req.param();
+    const prNum = parseInt(c.req.param("number"), 10);
+    const user = c.get("user")!;
+    const resolved = await resolveRepo(ownerName, repoName);
+    if (!resolved) return c.redirect(`/${ownerName}/${repoName}`);
+    const [pr] = await db
+      .select()
+      .from(pullRequests)
+      .where(
+        and(
+          eq(pullRequests.repositoryId, resolved.repo.id),
+          eq(pullRequests.number, prNum)
+        )
+      )
+      .limit(1);
+    if (!pr) return c.notFound();
+    const canManage =
+      user.id === resolved.owner.id || user.id === pr.authorId;
+    if (!canManage) {
+      return c.redirect(`/${ownerName}/${repoName}/pulls/${prNum}`);
+    }
+    try {
+      const { disableAutoMerge } = await import("../lib/pr-auto-merge");
+      await disableAutoMerge(pr.id);
+    } catch (err) {
+      console.error("[pr-auto-merge] disable route failed:", err);
+    }
+    return c.redirect(`/${ownerName}/${repoName}/pulls/${prNum}`);
+  }
+);
+
+// J16 — UI panel
+interface AutoMergePanelProps {
+  owner: string;
+  repo: string;
+  prNumber: number;
+  state: {
+    enabled: boolean;
+    mergeMethod: string;
+    lastStatus: string | null;
+    notifiedReady: boolean;
+  };
+}
+
+function AutoMergePanel(props: AutoMergePanelProps) {
+  const { owner, repo, prNumber, state } = props;
+  let statusLabel: string;
+  let statusColor: string;
+  if (!state.enabled) {
+    statusLabel = "Auto-merge is off";
+    statusColor = "var(--text-muted)";
+  } else if (state.lastStatus === "success" || state.notifiedReady) {
+    statusLabel = "All checks passed \u2014 ready to merge";
+    statusColor = "var(--green)";
+  } else if (state.lastStatus === "failure" || state.lastStatus === "error") {
+    statusLabel = "Checks failing \u2014 auto-merge paused";
+    statusColor = "var(--red)";
+  } else if (state.lastStatus === "pending") {
+    statusLabel = "Waiting for checks to finish";
+    statusColor = "var(--yellow)";
+  } else {
+    statusLabel = "Enabled \u2014 waiting for first check report";
+    statusColor = "var(--yellow)";
+  }
+
+  return (
+    <div style="margin-top: 20px; padding: 12px 16px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius)">
+      <div style="display: flex; align-items: center; gap: 12px">
+        <div style={`font-size: 13px; font-weight: 600; color: ${statusColor}; flex: 1`}>
+          {"\u26A1"} Auto-merge: {statusLabel}
+        </div>
+        {state.enabled ? (
+          <form
+            method="POST"
+            action={`/${owner}/${repo}/pulls/${prNumber}/auto-merge/disable`}
+            style="margin: 0"
+          >
+            <button type="submit" class="btn" style="padding: 4px 10px; font-size: 12px">
+              Disable auto-merge
+            </button>
+          </form>
+        ) : (
+          <form
+            method="POST"
+            action={`/${owner}/${repo}/pulls/${prNumber}/auto-merge`}
+            style="margin: 0; display: flex; gap: 6px; align-items: center"
+          >
+            <select
+              name="mergeMethod"
+              style="padding: 4px 8px; font-size: 12px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text)"
+            >
+              <option value="merge">Merge</option>
+              <option value="squash">Squash</option>
+              <option value="rebase">Rebase</option>
+            </select>
+            <button type="submit" class="btn" style="padding: 4px 10px; font-size: 12px">
+              Enable auto-merge
+            </button>
+          </form>
+        )}
+      </div>
+      {state.enabled && (
+        <div style="margin-top: 6px; font-size: 11px; color: var(--text-muted)">
+          Chosen method: <code>{state.mergeMethod}</code>. The PR stays open
+          until all commit statuses report success. You'll be notified on the
+          PR when it becomes ready to merge.
+        </div>
       )}
     </div>
   );

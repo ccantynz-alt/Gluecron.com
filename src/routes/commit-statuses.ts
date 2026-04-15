@@ -102,6 +102,23 @@ statuses.post(
 
     if (!row) return c.json({ error: "Could not save status" }, 500);
 
+    // J16 — fire-and-forget auto-merge evaluation. Never block the status POST.
+    (async () => {
+      try {
+        const { attemptAutoMergeForSha } = await import(
+          "../lib/pr-auto-merge-trigger"
+        );
+        await attemptAutoMergeForSha({
+          ownerName,
+          repoName,
+          repositoryId: resolved.repo.id,
+          commitSha: sha,
+        });
+      } catch (err) {
+        console.error("[pr-auto-merge] trigger failed:", err);
+      }
+    })();
+
     return c.json({ ok: true, status: row });
   }
 );

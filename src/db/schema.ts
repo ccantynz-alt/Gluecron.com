@@ -2470,3 +2470,37 @@ export const issueDependencies = pgTable(
 );
 
 export type IssueDependency = typeof issueDependencies.$inferSelect;
+
+// ============================================================================
+// PR AUTO-MERGE (Block J16)
+// ============================================================================
+/**
+ * Per-PR opt-in that auto-merges the PR once combined commit statuses on the
+ * head SHA transition to "success". One row per PR (unique on pull_request_id).
+ * The worker stamps `last_status` + `last_checked_at` on every evaluation so
+ * the UI can show "waiting for checks" / "all checks passed — merging" state.
+ */
+export const prAutoMerge = pgTable(
+  "pr_auto_merge",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    pullRequestId: uuid("pull_request_id")
+      .notNull()
+      .references(() => pullRequests.id, { onDelete: "cascade" }),
+    enabledBy: uuid("enabled_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    mergeMethod: text("merge_method").notNull().default("merge"), // merge | squash | rebase
+    commitTitle: text("commit_title"),
+    commitMessage: text("commit_message"),
+    enabledAt: timestamp("enabled_at").defaultNow().notNull(),
+    lastCheckedAt: timestamp("last_checked_at"),
+    lastStatus: text("last_status"),
+    notifiedReady: boolean("notified_ready").default(false).notNull(),
+  },
+  (table) => [
+    uniqueIndex("pr_auto_merge_pr_unique").on(table.pullRequestId),
+  ]
+);
+
+export type PrAutoMerge = typeof prAutoMerge.$inferSelect;

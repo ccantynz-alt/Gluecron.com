@@ -70,6 +70,7 @@ import symbolsRoutes from "./routes/symbols";
 import mirrorsRoutes from "./routes/mirrors";
 import ssoRoutes from "./routes/sso";
 import depsRoutes from "./routes/deps";
+import advisoriesRoutes from "./routes/advisories";
 import webRoutes from "./routes/web";
 
 const app = new Hono();
@@ -241,6 +242,9 @@ app.route("/", ssoRoutes);
 
 // Dependency graph — /:owner/:repo/dependencies (Block J1)
 app.route("/", depsRoutes);
+
+// Security advisories / dependabot alerts — /:owner/:repo/security/advisories (Block J2)
+app.route("/", advisoriesRoutes);
 
 // Insights + milestones
 app.route("/", insightsRoutes);

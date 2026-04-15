@@ -2110,3 +2110,62 @@ export const repoDependencies = pgTable(
 );
 
 export type RepoDependency = typeof repoDependencies.$inferSelect;
+
+// ----------------------------------------------------------------------------
+// Block J2 — Security advisories + alerts
+// ----------------------------------------------------------------------------
+
+/** CVE-style package advisories. Populated via seed + admin import. */
+export const securityAdvisories = pgTable(
+  "security_advisories",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ghsaId: text("ghsa_id").unique(),
+    cveId: text("cve_id"),
+    summary: text("summary").notNull(),
+    severity: text("severity").default("moderate").notNull(),
+    ecosystem: text("ecosystem").notNull(),
+    packageName: text("package_name").notNull(),
+    affectedRange: text("affected_range").notNull(),
+    fixedVersion: text("fixed_version"),
+    referenceUrl: text("reference_url"),
+    publishedAt: timestamp("published_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("security_advisories_pkg_idx").on(
+      table.ecosystem,
+      table.packageName
+    ),
+  ]
+);
+
+export type SecurityAdvisory = typeof securityAdvisories.$inferSelect;
+
+/** Per-repo match state. One row per (repo, advisory, manifest_path). */
+export const repoAdvisoryAlerts = pgTable(
+  "repo_advisory_alerts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    advisoryId: uuid("advisory_id")
+      .notNull()
+      .references(() => securityAdvisories.id, { onDelete: "cascade" }),
+    dependencyName: text("dependency_name").notNull(),
+    dependencyVersion: text("dependency_version"),
+    manifestPath: text("manifest_path").notNull(),
+    status: text("status").default("open").notNull(),
+    dismissedReason: text("dismissed_reason"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("repo_advisory_alerts_status_idx").on(
+      table.repositoryId,
+      table.status
+    ),
+  ]
+);
+
+export type RepoAdvisoryAlert = typeof repoAdvisoryAlerts.$inferSelect;

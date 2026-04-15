@@ -88,6 +88,7 @@ Legend: ✅ shipped · 🟡 partial · ❌ not built
 | Semantic / embedding search | ✅ | D1 — `code_chunks` table + lexical fallback, optional Voyage `voyage-code-3`; `src/lib/semantic-search.ts`, `src/routes/semantic-search.tsx` |
 | Symbol / xref navigation | ✅ | I8 — `src/lib/symbols.ts` regex-based extractor for ts/js/py/rs/go/rb/java/kt/swift; on-demand indexer persists top-level definitions into `code_symbols` (0025). `src/routes/symbols.tsx` serves `/:owner/:repo/symbols` overview + A–Z list, `/:owner/:repo/symbols/search?q=` prefix search, `/:owner/:repo/symbols/:name` definition detail. Owner-only reindex. |
 | Dependency graph | ✅ | J1 — `src/lib/deps.ts` parses package.json / requirements.txt / pyproject.toml / go.mod / Cargo.toml / Gemfile / composer.json without a TOML lib. `src/routes/deps.tsx` serves `/:owner/:repo/dependencies` grouped by ecosystem with per-ecosystem counts; owner-only reindex walks the default-branch tree (max 200 manifests, 1MB each). `drizzle/0028_repo_dependencies.sql` adds `repo_dependencies`. |
+| Security advisories / Dependabot alerts | ✅ | J2 — curated 12-entry seed list + minimal semver range matcher cross-referenced against J1 dep rows. `src/lib/advisories.ts` + `src/routes/advisories.tsx` serve `/:owner/:repo/security/advisories` (open) + `/all`, owner-only `POST /scan`, and per-alert dismiss/reopen. `drizzle/0029_security_advisories.sql` adds `security_advisories` + `repo_advisory_alerts`. |
 
 ### 2.3 Collaboration
 | Feature | Status | Notes |
@@ -281,6 +282,7 @@ This is where GlueCron beats GitHub outright. **Priority: ship these loud.**
 
 ### BLOCK J — Beyond-parity advanced features
 - **J1** — Dependency graph → ✅ shipped. `drizzle/0028_repo_dependencies.sql` adds `repo_dependencies` (ecosystem + name + version_spec + manifest_path + is_dev + commit_sha) with indexes on `(repository_id, ecosystem)` + `(name)`. `src/lib/deps.ts` parses seven manifest formats (package.json, requirements.txt, pyproject.toml, go.mod, Cargo.toml, Gemfile, composer.json) without a TOML library — each parser is defensive and returns `[]` on malformed input. Walks default-branch tree (max 200 manifests, 1MB each), replaces the prior set on reindex. `src/routes/deps.tsx` serves `/:owner/:repo/dependencies` (grouped by ecosystem with per-ecosystem counts) + owner-only `POST /dependencies/reindex`. Reverse-dep lookup via `repositoriesDependingOn(ecosystem, name)` for future "who depends on me" network-graph UI. 21 new tests.
+- **J2** — Security advisories (Dependabot-style) → ✅ shipped. `drizzle/0029_security_advisories.sql` adds `security_advisories` (GHSA + CVE IDs, severity, affected range, fixed version) + `repo_advisory_alerts` (per-repo match state with open/dismissed/fixed, unique on `(repo, advisory, manifest_path)`). `src/lib/advisories.ts` ships a 12-entry seed list (log4shell, lodash, minimist, vm2, urllib3, jwt-go, etc.), a minimal version-range matcher (`satisfiesRange` + `rangeMatches`) that handles `<`/`<=`/`>`/`>=`/`=` clauses including compound ranges, and `scanRepositoryForAlerts(repoId)` which cross-references J1 dep rows against the advisory list — inserts new alerts, reopens fixed-then-regressed ones, auto-closes alerts whose dep went away. `src/routes/advisories.tsx` serves `/:owner/:repo/security/advisories` (open), `/all` (everything), owner-only `POST /scan`, and per-alert `POST /:id/dismiss` + `POST /:id/reopen` with audit-log entries. 27 new tests (version parser, range matcher, seed shape, route auth).
 
 ### BLOCK H — Marketplace
 - **H1** — App marketplace → ✅ shipped. `src/routes/marketplace.tsx` + `src/lib/marketplace.ts` + `drizzle/0021_marketplace_and_apps.sql` (5 tables: `apps`, `app_installations`, `app_bots`, `app_install_tokens`, `app_events`). Routes: `GET /marketplace` (public directory with search), `GET /marketplace/:slug` (detail + install CTA), `POST /marketplace/:slug/install` (user-target install in v1), `POST /marketplace/installations/:id/uninstall`, `GET /settings/apps` (personal list), `GET+POST /developer/apps-new` (register), `GET /developer/apps/:slug/manage` (event log + install count), `POST /developer/apps/:slug/tokens/new` (show-once token). Install idempotent via soft-update on existing non-uninstalled row.
@@ -296,7 +298,7 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `src/app.tsx` — route composition, middleware order, error handlers
 - `src/index.ts` — Bun server entry
 - `src/lib/config.ts` — env getters (late-binding)
-- `src/db/schema.ts` — 87 tables. New tables only via new migration.
+- `src/db/schema.ts` — 89 tables. New tables only via new migration.
 - `src/db/index.ts` — lazy proxy DB connection
 - `src/db/migrate.ts` — migration runner
 - `drizzle/0000_initial.sql`, `drizzle/0001_green_ecosystem.sql` — migrations
@@ -325,6 +327,7 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `drizzle/0026_repo_mirrors.sql` (Block I9) — migration, never edited in place. Adds `repo_mirrors` (unique on `repository_id`) + `repo_mirror_runs`.
 - `drizzle/0027_sso_oidc.sql` (Block I10) — migration, never edited in place. Adds `sso_config` singleton (`id='default'`) + `sso_user_links` (`subject` unique, FK to `users` with ON DELETE CASCADE).
 - `drizzle/0028_repo_dependencies.sql` (Block J1) — migration, never edited in place. Adds `repo_dependencies` with indexes on `(repository_id, ecosystem)` + `(name)`.
+- `drizzle/0029_security_advisories.sql` (Block J2) — migration, never edited in place. Adds `security_advisories` (`ghsa_id` unique) + `repo_advisory_alerts` (unique on `(repository_id, advisory_id, manifest_path)`, status index).
 
 ### 4.2 Git layer (locked)
 - `src/git/repository.ts` — tree / blob / commits / diff / branches / blame / search / raw / tags / commitsBetween

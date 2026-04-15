@@ -167,7 +167,7 @@ r.get("/:owner/:repo/settings/environments", requireAuth, async (c) => {
             const branches = allowedBranchesOf(env);
             return (
               <form
-                method="POST"
+                method="post"
                 action={`/${owner}/${repo}/settings/environments/${env.id}`}
                 class="panel-item"
                 style="flex-direction: column; align-items: stretch; gap: 8px"
@@ -240,7 +240,7 @@ r.get("/:owner/:repo/settings/environments", requireAuth, async (c) => {
 
       <h3 style="margin-top: 24px; margin-bottom: 12px">New environment</h3>
       <form
-        method="POST"
+        method="post"
         action={`/${owner}/${repo}/settings/environments`}
         class="panel"
         style="padding: 16px"

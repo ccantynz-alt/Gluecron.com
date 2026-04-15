@@ -210,7 +210,7 @@ billing.get("/admin/billing", async (c) => {
                 </div>
               </div>
               <form
-                method="POST"
+                method="post"
                 action={`/admin/billing/${r.id}/plan`}
                 style="display:flex;gap:6px;align-items:center"
               >

@@ -36,7 +36,7 @@ editor.get("/:owner/:repo/new/:ref{.+$}", requireAuth, async (c) => {
       <RepoNav owner={owner} repo={repo} active="code" />
       <div style="max-width: 900px">
         <h2 style="margin-bottom: 16px">Create new file</h2>
-        <form method="POST" action={`/${owner}/${repo}/new/${ref}`}>
+        <form method="post" action={`/${owner}/${repo}/new/${ref}`}>
           <input type="hidden" name="dir_path" value={dirPath} />
           <div class="form-group">
             <label>File path</label>
@@ -210,7 +210,7 @@ editor.get("/:owner/:repo/edit/:ref{.+$}", requireAuth, async (c) => {
       <RepoNav owner={owner} repo={repo} active="code" />
       <Breadcrumb owner={owner} repo={repo} ref={ref} path={filePath} />
       <div style="max-width: 900px">
-        <form method="POST" action={`/${owner}/${repo}/edit/${ref}/${filePath}`}>
+        <form method="post" action={`/${owner}/${repo}/edit/${ref}/${filePath}`}>
           <div class="form-group">
             <textarea
               name="content"

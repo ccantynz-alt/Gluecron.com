@@ -274,6 +274,23 @@ web.get("/:owner", async (c) => {
     profileReadmeHtml = null;
   }
 
+  // Block J13 — pinned repositories. Viewer-aware (private repos filtered
+  // to owner in the lib helper). Always safe on DB failure.
+  let pinnedRepos: Awaited<
+    ReturnType<typeof import("../lib/pinned-repos").listPinnedForUser>
+  > = [];
+  if (ownerUser) {
+    try {
+      const { listPinnedForUser } = await import("../lib/pinned-repos");
+      const all = await listPinnedForUser(ownerUser.id);
+      pinnedRepos = all.filter(
+        (p) => !p.isPrivate || user?.id === ownerUser.id
+      );
+    } catch {
+      pinnedRepos = [];
+    }
+  }
+
   // Block J9 — contribution heatmap. 52-week activity grid sourced from
   // activity_feed rows authored by this user. Failures fall through silently.
   let heatmap: Awaited<
@@ -416,6 +433,50 @@ web.get("/:owner", async (c) => {
           style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius);padding:20px 24px;margin-bottom:24px"
           dangerouslySetInnerHTML={{ __html: profileReadmeHtml }}
         />
+      )}
+      {pinnedRepos.length > 0 && (
+        <div style="margin-bottom: 24px" data-testid="pinned-repos">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px">
+            <h3 style="margin: 0">Pinned</h3>
+            {user && ownerUser && user.id === ownerUser.id && (
+              <a href="/settings/pins" style="font-size: 12px; color: var(--text-muted)">
+                Customize pins
+              </a>
+            )}
+          </div>
+          <div
+            style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px"
+          >
+            {pinnedRepos.map((p) => (
+              <div
+                style="border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; background: var(--bg-secondary)"
+              >
+                <div style="display: flex; align-items: center; gap: 6px">
+                  <a href={`/${p.ownerUsername}/${p.name}`}>
+                    <strong>{p.name}</strong>
+                  </a>
+                  {p.isPrivate && (
+                    <span
+                      style="font-size: 10px; padding: 1px 6px; border-radius: 10px; background: rgba(139, 148, 158, 0.15); color: var(--text-muted); text-transform: uppercase"
+                    >
+                      Private
+                    </span>
+                  )}
+                </div>
+                {p.description && (
+                  <div
+                    style="color: var(--text-muted); font-size: 12px; margin-top: 6px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical"
+                  >
+                    {p.description}
+                  </div>
+                )}
+                <div style="margin-top: 8px; font-size: 11px; color: var(--text-muted)">
+                  {p.starCount} {"\u2605"} · {p.forkCount} forks
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
       <h3 style="margin-bottom: 16px">Repositories</h3>
       {repos.length === 0 ? (

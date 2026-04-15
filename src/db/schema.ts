@@ -2400,3 +2400,37 @@ export const prReviewRequests = pgTable(
 );
 
 export type PrReviewRequest = typeof prReviewRequests.$inferSelect;
+
+// ============================================================================
+// PINNED REPOSITORIES (Block J13)
+// ============================================================================
+/**
+ * User-selected repositories (max 6) shown at the top of a profile. Ordering
+ * is explicit via `position`.
+ */
+export const pinnedRepositories = pgTable(
+  "pinned_repositories",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    position: integer("position").default(0).notNull(),
+    pinnedAt: timestamp("pinned_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("pinned_repositories_user_repo_unique").on(
+      table.userId,
+      table.repositoryId
+    ),
+    index("pinned_repositories_user_position_idx").on(
+      table.userId,
+      table.position
+    ),
+  ]
+);
+
+export type PinnedRepository = typeof pinnedRepositories.$inferSelect;

@@ -77,6 +77,7 @@ import rulesetsRoutes from "./routes/rulesets";
 import commitStatusesRoutes from "./routes/commit-statuses";
 import badgesRoutes from "./routes/badges";
 import communityRoutes from "./routes/community";
+import pinnedReposRoutes from "./routes/pinned-repos";
 import webRoutes from "./routes/web";
 
 const app = new Hono();
@@ -269,6 +270,9 @@ app.route("/", badgesRoutes);
 
 // Community profile / health scorecard — /:owner/:repo/community (Block J12)
 app.route("/", communityRoutes);
+
+// Pinned repositories on user profile — /settings/pins (Block J13)
+app.route("/", pinnedReposRoutes);
 
 // Insights + milestones
 app.route("/", insightsRoutes);

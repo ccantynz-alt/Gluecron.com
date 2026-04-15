@@ -1052,7 +1052,7 @@ web.get("/:owner/:repo/raw/:ref{.+$}", async (c) => {
   if (!data) return c.text("Not found", 404);
 
   const fileName = filePath.split("/").pop() || "file";
-  return new Response(data, {
+  return new Response(data as BodyInit, {
     headers: {
       "Content-Type": "application/octet-stream",
       "Content-Disposition": `attachment; filename="${fileName}"`,

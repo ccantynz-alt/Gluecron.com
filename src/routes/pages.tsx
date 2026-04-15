@@ -168,7 +168,7 @@ pagesRoute.get("/:owner/:repo/pages/*", async (c) => {
         candidate
       );
       if (!raw) continue;
-      return new Response(raw, { status: 200, headers });
+      return new Response(raw as BodyInit, { status: 200, headers });
     }
 
     return new Response(blob.content, { status: 200, headers });

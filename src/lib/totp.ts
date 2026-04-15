@@ -68,12 +68,12 @@ async function hmacSha1(
 ): Promise<Uint8Array> {
   const key = await crypto.subtle.importKey(
     "raw",
-    keyBytes,
+    keyBytes as BufferSource,
     { name: "HMAC", hash: "SHA-1" },
     false,
     ["sign"]
   );
-  const sig = await crypto.subtle.sign("HMAC", key, msgBytes);
+  const sig = await crypto.subtle.sign("HMAC", key, msgBytes as BufferSource);
   return new Uint8Array(sig);
 }
 

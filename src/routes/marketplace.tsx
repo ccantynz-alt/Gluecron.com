@@ -311,7 +311,7 @@ marketplace.get("/developer/apps-new", requireAuth, async (c) => {
         </div>
         <div class="form-group">
           <label>Description</label>
-          <textarea name="description" rows="3" style="width:100%" />
+          <textarea name="description" rows={3} style="width:100%" />
         </div>
         <div class="form-group">
           <label>Homepage URL</label>

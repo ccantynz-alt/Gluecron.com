@@ -328,7 +328,7 @@ sponsors.get("/settings/sponsors", requireAuth, async (c) => {
         </div>
         <div class="form-group">
           <label>Description</label>
-          <textarea name="description" rows="2" style="width:100%" />
+          <textarea name="description" rows={2} style="width:100%" />
         </div>
         <div class="form-group">
           <label>Monthly amount (cents)</label>

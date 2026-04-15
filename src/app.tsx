@@ -81,6 +81,7 @@ import pinnedReposRoutes from "./routes/pinned-repos";
 import pulseRoutes from "./routes/pulse";
 import feedRoutes from "./routes/feeds";
 import staleIssuesRoutes from "./routes/stale-issues";
+import codeownersLintRoutes from "./routes/codeowners-lint";
 import webRoutes from "./routes/web";
 
 const app = new Hono();
@@ -286,6 +287,9 @@ app.route("/", pulseRoutes);
 
 // Atom feeds — /:owner/:repo/{commits,releases,issues}.atom (Block J19)
 app.route("/", feedRoutes);
+
+// CODEOWNERS validator — /:owner/:repo/codeowners (Block J21)
+app.route("/", codeownersLintRoutes);
 
 // Insights + milestones
 app.route("/", insightsRoutes);

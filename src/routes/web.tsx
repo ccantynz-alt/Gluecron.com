@@ -352,7 +352,13 @@ web.get("/:owner/:repo", async (c) => {
           .from(users)
           .where(eq(users.username, owner))
           .limit(1);
-        if (!ownerUser) return { starCount: 0, starred: false };
+        if (!ownerUser)
+          return {
+            starCount: 0,
+            starred: false,
+            archived: false,
+            isTemplate: false,
+          };
         const [repoRow] = await db
           .select()
           .from(repositories)
@@ -363,7 +369,13 @@ web.get("/:owner/:repo", async (c) => {
             )
           )
           .limit(1);
-        if (!repoRow) return { starCount: 0, starred: false };
+        if (!repoRow)
+          return {
+            starCount: 0,
+            starred: false,
+            archived: false,
+            isTemplate: false,
+          };
         let starred = false;
         if (user) {
           const [star] = await db
@@ -378,13 +390,23 @@ web.get("/:owner/:repo", async (c) => {
             .limit(1);
           starred = !!star;
         }
-        return { starCount: repoRow.starCount, starred };
+        return {
+          starCount: repoRow.starCount,
+          starred,
+          archived: repoRow.isArchived,
+          isTemplate: repoRow.isTemplate,
+        };
       } catch {
-        return { starCount: 0, starred: false };
+        return {
+          starCount: 0,
+          starred: false,
+          archived: false,
+          isTemplate: false,
+        };
       }
     })(),
   ]);
-  const { starCount, starred } = starInfo;
+  const { starCount, starred, archived, isTemplate } = starInfo;
 
   if (tree.length === 0) {
     return c.html(
@@ -395,6 +417,8 @@ web.get("/:owner/:repo", async (c) => {
           starCount={starCount}
           starred={starred}
           currentUser={user?.username}
+          archived={archived}
+          isTemplate={isTemplate}
         />
         <RepoNav owner={owner} repo={repo} active="code" />
         <div class="empty-state">
@@ -417,7 +441,36 @@ git push -u gluecron main`}</pre>
         starCount={starCount}
         starred={starred}
         currentUser={user?.username}
+        archived={archived}
+        isTemplate={isTemplate}
       />
+      {isTemplate && user && user.username !== owner && (
+        <div
+          class="panel"
+          style="margin-bottom:16px;padding:12px;display:flex;align-items:center;justify-content:space-between;gap:12px"
+        >
+          <div style="font-size:13px">
+            <strong>Template repository.</strong> Create a new repository from
+            this template's files.
+          </div>
+          <form
+            method="POST"
+            action={`/${owner}/${repo}/use-template`}
+            style="display:flex;gap:8px;align-items:center"
+          >
+            <input
+              type="text"
+              name="name"
+              placeholder="new-repo-name"
+              required
+              style="width:200px"
+            />
+            <button type="submit" class="btn btn-primary">
+              Use this template
+            </button>
+          </form>
+        </div>
+      )}
       <RepoNav owner={owner} repo={repo} active="code" />
       <BranchSwitcher
         owner={owner}

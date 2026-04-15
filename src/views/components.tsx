@@ -11,7 +11,19 @@ export const RepoHeader: FC<{
   forkCount?: number;
   currentUser?: string | null;
   forkedFrom?: string | null;
-}> = ({ owner, repo, starCount, starred, forkCount, currentUser, forkedFrom }) => (
+  archived?: boolean;
+  isTemplate?: boolean;
+}> = ({
+  owner,
+  repo,
+  starCount,
+  starred,
+  forkCount,
+  currentUser,
+  forkedFrom,
+  archived,
+  isTemplate,
+}) => (
   <div class="repo-header">
     <div>
       <div style="display: flex; align-items: center; gap: 8px; font-size: 20px">
@@ -22,6 +34,24 @@ export const RepoHeader: FC<{
         <a href={`/${owner}/${repo}`} class="name">
           {repo}
         </a>
+        {archived && (
+          <span
+            class="badge"
+            style="background:var(--bg-secondary);color:var(--text-muted);font-size:11px;padding:2px 8px;border-radius:10px;text-transform:uppercase;letter-spacing:0.5px"
+            title="Read-only: pushes and new issues/PRs disabled"
+          >
+            Archived
+          </span>
+        )}
+        {isTemplate && (
+          <span
+            class="badge"
+            style="background:var(--bg-secondary);color:var(--accent);font-size:11px;padding:2px 8px;border-radius:10px;text-transform:uppercase;letter-spacing:0.5px"
+            title="This repository can be used as a template"
+          >
+            Template
+          </span>
+        )}
       </div>
       {forkedFrom && (
         <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px">

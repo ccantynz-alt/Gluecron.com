@@ -56,6 +56,7 @@ export const repositories = pgTable(
     description: text("description"),
     isPrivate: boolean("is_private").default(false).notNull(),
     isArchived: boolean("is_archived").default(false).notNull(),
+    isTemplate: boolean("is_template").default(false).notNull(),
     defaultBranch: text("default_branch").default("main").notNull(),
     diskPath: text("disk_path").notNull(),
     forkedFromId: uuid("forked_from_id").references(() => repositories.id, {
@@ -1888,3 +1889,28 @@ export const appEvents = pgTable(
 );
 
 export type AppEvent = typeof appEvents.$inferSelect;
+
+// ---------- Block I3 — Repository transfer history ----------
+
+export const repoTransfers = pgTable(
+  "repo_transfers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    fromOwnerId: uuid("from_owner_id").notNull(),
+    fromOrgId: uuid("from_org_id"),
+    toOwnerId: uuid("to_owner_id").notNull(),
+    toOrgId: uuid("to_org_id"),
+    initiatedBy: uuid("initiated_by")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("repo_transfers_repo").on(table.repositoryId, table.createdAt),
+  ]
+);
+
+export type RepoTransfer = typeof repoTransfers.$inferSelect;

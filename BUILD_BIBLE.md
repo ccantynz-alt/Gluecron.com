@@ -68,9 +68,9 @@ Legend: ✅ shipped · 🟡 partial · ❌ not built
 | Forking | ✅ | `src/routes/fork.ts` |
 | Stars | ✅ | `stars` table, `/:owner/:repo/star` |
 | Topics | ✅ | `repo_topics` table |
-| Archive / disable repo | ❌ | schema has flags; no UI |
-| Repository transfer | ❌ | — |
-| Template repositories | ❌ | — |
+| Archive / disable repo | ✅ | I1 — `src/routes/repo-settings.tsx` archive toggle; `RepoHeader` renders an "Archived" badge when `is_archived=true`. |
+| Repository transfer | ✅ | I3 — `src/routes/repo-settings.tsx` transfer form + `POST /:owner/:repo/settings/transfer`; ownership change recorded in `repo_transfers` audit table. Reject conflicts (target owner already has a repo by that name) with a redirect. |
+| Template repositories | ✅ | I2 — `drizzle/0022_repo_templates.sql` adds `is_template`. `src/routes/templates.ts` serves `POST /:owner/:repo/use-template` (git clone --bare into caller's namespace). "Use this template" CTA rendered on the public repo page. |
 | Repository mirroring | ❌ | — |
 
 ### 2.2 Code browsing
@@ -144,7 +144,7 @@ Legend: ✅ shipped · 🟡 partial · ❌ not built
 | Personal access tokens | ✅ | SHA-256 hashed |
 | OAuth app provider | ✅ | `src/routes/oauth.tsx`, `src/routes/developer-apps.tsx`, `src/lib/oauth.ts`; `oauth_apps` + `oauth_authorizations` + `oauth_access_tokens` tables |
 | GitHub Apps equivalent | ✅ | H2 — `src/lib/marketplace.ts` `generateBearerToken`/`verifyInstallToken` (1h TTL, `ghi_` prefix, sha256 hashed). Each app gets a `<slug>[bot]` identity (`app_bots`). Permissions enforced via `hasPermission` (write implies read). |
-| GraphQL API | ❌ | REST only |
+| GraphQL API | ✅ | G2 — see 2.6 |
 | Organizations + teams | ✅ | B1+B2+B3 shipped: `src/routes/orgs.tsx`, `src/lib/orgs.ts`; org-owned repos (`repositories.orgId`); team-based CODEOWNERS (`@org/team` resolution) |
 | Enterprise SAML / SSO | ❌ | |
 | 2FA / TOTP | ✅ | `src/routes/settings-2fa.tsx`, `src/lib/totp.ts`; `user_totp` + `user_recovery_codes` tables |
@@ -181,7 +181,7 @@ Legend: ✅ shipped · 🟡 partial · ❌ not built
 | Dark mode | ✅ | default |
 | Light-mode toggle | ✅ | `/theme/toggle` + `theme` cookie, pre-paint script avoids FOUC, nav sun/moon icon |
 | Keyboard shortcuts | ✅ | `/shortcuts` page |
-| Command palette | 🟡 | Cmd+K → Ask AI, no generic palette |
+| Command palette | ✅ | I4 — `src/views/layout.tsx` injects a Cmd+K palette with ~20 canonical destinations, arrow-key navigation + fuzzy match. Backdrop click or Esc closes. |
 
 ---
 
@@ -266,6 +266,12 @@ This is where GlueCron beats GitHub outright. **Priority: ship these loud.**
 - **G3** — Official CLI (`gluecron`) → ✅ shipped. `cli/gluecron.ts` is a Bun-compilable single-file CLI. Commands: `login`, `whoami`, `repo ls/show/create`, `issues ls`, `gql`, `host`, `version`. Config in `~/.gluecron/config.json` (0600). Talks to the server via REST + GraphQL.
 - **G4** — VS Code extension → ✅ shipped. `vscode-extension/` contains package.json + `src/extension.ts`. Commands: `gluecron.explainFile`, `gluecron.openOnWeb`, `gluecron.searchSemantic`, `gluecron.generateTests`. Detects Gluecron remotes via `git config remote.origin.url`. Settings: `gluecron.host` + `gluecron.token`.
 
+### BLOCK I — Filling parity gaps
+- **I1** — Archive / unarchive repository → ✅ shipped. `src/routes/repo-settings.tsx` archive/unarchive toggle (existing `repositories.is_archived` column). `RepoHeader` surfaces an "Archived" badge.
+- **I2** — Template repositories → ✅ shipped. `drizzle/0022_repo_templates.sql` adds `is_template` column + partial index. `src/routes/templates.ts` serves `POST /:owner/:repo/use-template` (git clone --bare into caller's namespace, fresh `activity_feed` entry). Settings UI gains a "Mark as template" toggle. Public repo page renders a prominent "Use this template" CTA for non-owners.
+- **I3** — Repository transfer → ✅ shipped. `drizzle/0022_repo_templates.sql` adds `repo_transfers` audit table. `src/routes/repo-settings.tsx` `POST /:owner/:repo/settings/transfer` (validate target user exists, reject name conflicts, update `owner_id`, log to `repo_transfers`).
+- **I4** — Generic command palette → ✅ shipped. `src/views/layout.tsx` injects a Cmd+K palette with ~20 canonical destinations (Dashboard, Explore, Notifications, Ask AI, Create repo, Marketplace, Installed apps, Register app, Shortcuts, Settings, 2FA, Passkeys, PATs, Billing, Audit, Gists, GraphQL, Admin, Theme). Fuzzy-match, arrow-key navigation, Esc/backdrop to close.
+
 ### BLOCK H — Marketplace
 - **H1** — App marketplace → ✅ shipped. `src/routes/marketplace.tsx` + `src/lib/marketplace.ts` + `drizzle/0021_marketplace_and_apps.sql` (5 tables: `apps`, `app_installations`, `app_bots`, `app_install_tokens`, `app_events`). Routes: `GET /marketplace` (public directory with search), `GET /marketplace/:slug` (detail + install CTA), `POST /marketplace/:slug/install` (user-target install in v1), `POST /marketplace/installations/:id/uninstall`, `GET /settings/apps` (personal list), `GET+POST /developer/apps-new` (register), `GET /developer/apps/:slug/manage` (event log + install count), `POST /developer/apps/:slug/tokens/new` (show-once token). Install idempotent via soft-update on existing non-uninstalled row.
 - **H2** — GitHub Apps equivalent (bot identities + installation tokens) → ✅ shipped. Same schema as H1: every app gets a `<slug>[bot]` row in `app_bots`. `generateBearerToken()` produces `ghi_`-prefixed bearers; `hashBearer` (sha256) is the only form persisted. `verifyInstallToken(token)` returns `{installation, app, botUsername, permissions}` or `null` (checks revoked/expired/uninstalled/suspended). Permission vocabulary: `contents:read/write`, `issues:read/write`, `pulls:read/write`, `checks:read/write`, `deployments:read/write`, `metadata:read` — `hasPermission` implements write→read implication.
@@ -280,7 +286,7 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `src/app.tsx` — route composition, middleware order, error handlers
 - `src/index.ts` — Bun server entry
 - `src/lib/config.ts` — env getters (late-binding)
-- `src/db/schema.ts` — 78 tables. New tables only via new migration.
+- `src/db/schema.ts` — 79 tables. New tables only via new migration.
 - `src/db/index.ts` — lazy proxy DB connection
 - `src/db/migrate.ts` — migration runner
 - `drizzle/0000_initial.sql`, `drizzle/0001_green_ecosystem.sql` — migrations
@@ -302,6 +308,7 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `drizzle/0019_protected_tags.sql` (Block E7) — migration, never edited in place. Adds `protected_tags`.
 - `drizzle/0020_analytics_and_admin.sql` (Block F) — migration, never edited in place. Adds `repo_traffic_events`, `system_flags`, `site_admins`, `billing_plans` (seeded free/pro/team/enterprise), `user_quotas`.
 - `drizzle/0021_marketplace_and_apps.sql` (Block H) — migration, never edited in place. Adds `apps`, `app_installations` (partial unique index on `(app_id, target_type, target_id) WHERE uninstalled_at IS NULL`), `app_bots` (one-per-app, `<slug>[bot]` username), `app_install_tokens` (sha256 hash, expires_at, revoked_at), `app_events` (audit trail).
+- `drizzle/0022_repo_templates.sql` (Block I2+I3) — migration, never edited in place. Adds `repositories.is_template` (partial index where true) + `repo_transfers` audit table.
 
 ### 4.2 Git layer (locked)
 - `src/git/repository.ts` — tree / blob / commits / diff / branches / blame / search / raw / tags / commitsBetween
@@ -454,7 +461,7 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 ```bash
 bun install
 bun dev          # hot reload
-bun test         # 543 tests currently pass
+bun test         # 549 tests currently pass
 bun run db:migrate
 ```
 

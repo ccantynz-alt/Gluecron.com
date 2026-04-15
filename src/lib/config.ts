@@ -19,8 +19,16 @@ export const config = {
   get crontechDeployUrl() {
     return (
       process.env.CRONTECH_DEPLOY_URL ||
-      "https://crontech.ai/api/trpc/tenant.deploy"
+      "https://crontech.ai/api/hooks/gluecron/push"
     );
+  },
+  /**
+   * Bearer token sent on outbound deploy webhook to Crontech's
+   * `POST /api/hooks/gluecron/push` endpoint. Default empty → header is
+   * omitted and Crontech will reject with 401 (treated as a failed deploy).
+   */
+  get gluecronWebhookSecret() {
+    return process.env.GLUECRON_WEBHOOK_SECRET || "";
   },
   get anthropicApiKey() {
     return process.env.ANTHROPIC_API_KEY || "";

@@ -2359,3 +2359,44 @@ export const commitStatuses = pgTable(
 );
 
 export type CommitStatus = typeof commitStatuses.$inferSelect;
+
+// ============================================================================
+// PR REVIEW REQUESTS (Block J11)
+// ============================================================================
+/**
+ * Auto-assigned (from CODEOWNERS) or manually requested reviewers on a PR.
+ * One row per (pull_request, reviewer); state tracks lifecycle from pending
+ * → approved / changes_requested / dismissed. Source records the origin
+ * ('codeowners' auto-assign vs 'manual' add vs 'ai' suggestion).
+ */
+export const prReviewRequests = pgTable(
+  "pr_review_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    pullRequestId: uuid("pull_request_id")
+      .notNull()
+      .references(() => pullRequests.id, { onDelete: "cascade" }),
+    reviewerId: uuid("reviewer_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    requestedBy: uuid("requested_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    source: text("source").default("manual").notNull(),
+    state: text("state").default("pending").notNull(),
+    requestedAt: timestamp("requested_at").defaultNow().notNull(),
+    resolvedAt: timestamp("resolved_at"),
+  },
+  (table) => [
+    uniqueIndex("pr_review_requests_pr_reviewer_unique").on(
+      table.pullRequestId,
+      table.reviewerId
+    ),
+    index("pr_review_requests_reviewer_state_idx").on(
+      table.reviewerId,
+      table.state
+    ),
+  ]
+);
+
+export type PrReviewRequest = typeof prReviewRequests.$inferSelect;

@@ -13,6 +13,12 @@ import {
   issues,
   issueComments,
 } from "../db/schema";
+import {
+  autoAssignFromCodeowners,
+  listForPr as listReviewRequestsForPr,
+  requestReviewers,
+  dismissRequest,
+} from "../lib/review-requests";
 import { Layout } from "../views/layout";
 import { RepoHeader, DiffView } from "../views/components";
 import { ReactionsBar } from "../views/reactions";
@@ -378,6 +384,36 @@ pulls.post(
       headBranch,
     }).catch((err) => console.error("[pr-triage] Failed:", err));
 
+    // J11 — fire-and-forget CODEOWNERS auto-assign. Reads diff paths
+    // between base..head and requests review from the matched owners.
+    (async () => {
+      try {
+        const repoDir = getRepoPath(ownerName, repoName);
+        const statProc = Bun.spawn(
+          ["git", "diff", "--numstat", `${baseBranch}...${headBranch}`],
+          { cwd: repoDir, stdout: "pipe", stderr: "pipe" }
+        );
+        const stat = await new Response(statProc.stdout).text();
+        await statProc.exited;
+        const changedPaths = stat
+          .trim()
+          .split("\n")
+          .filter(Boolean)
+          .map((line) => line.split("\t")[2])
+          .filter(Boolean);
+        await autoAssignFromCodeowners({
+          repositoryId: resolved.repo.id,
+          pullRequestId: pr.id,
+          authorId: user.id,
+          changedPaths,
+          prUrl: `/${ownerName}/${repoName}/pulls/${pr.number}`,
+          prTitle: title,
+        });
+      } catch (err) {
+        console.error("[codeowners-assign] Failed:", err);
+      }
+    })();
+
     return c.redirect(`/${ownerName}/${repoName}/pulls/${pr.number}`);
   }
 );
@@ -450,6 +486,9 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, async (c) => {
       gateChecks = gateResult.checks;
     }
   }
+
+  // J11 — requested reviewers (CODEOWNERS auto-assign + manual add).
+  const reviewRequests = await listReviewRequestsForPr(pr.id);
 
   // Get diff for "Files changed" tab
   let diffRaw = "";
@@ -524,6 +563,14 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, async (c) => {
             <code>{pr.baseBranch}</code>
           </span>
         </div>
+
+        <ReviewersPanel
+          reviewers={reviewRequests}
+          canManage={canManage}
+          ownerName={ownerName}
+          repoName={repoName}
+          prNumber={pr.number}
+        />
 
         <div class="issue-tabs" style="margin-bottom: 20px">
           <a
@@ -1328,6 +1375,177 @@ function formatRelative(date: Date | string): string {
     day: "numeric",
     year: "numeric",
   });
+}
+
+// ---------------------------------------------------------------------------
+// J11 — Reviewer request management (manual add + dismiss)
+// ---------------------------------------------------------------------------
+pulls.post(
+  "/:owner/:repo/pulls/:number/reviewers",
+  softAuth,
+  requireAuth,
+  async (c) => {
+    const { owner: ownerName, repo: repoName } = c.req.param();
+    const prNum = parseInt(c.req.param("number"), 10);
+    const user = c.get("user")!;
+    const form = await c.req.parseBody();
+    const usernameRaw = String(form.username || "").trim().replace(/^@/, "");
+    if (!usernameRaw) {
+      return c.redirect(`/${ownerName}/${repoName}/pulls/${prNum}`);
+    }
+    const resolved = await resolveRepo(ownerName, repoName);
+    if (!resolved) return c.notFound();
+    const [pr] = await db
+      .select()
+      .from(pullRequests)
+      .where(
+        and(
+          eq(pullRequests.repositoryId, resolved.repo.id),
+          eq(pullRequests.number, prNum)
+        )
+      )
+      .limit(1);
+    if (!pr) return c.notFound();
+    const canManage =
+      user.id === resolved.owner.id || user.id === pr.authorId;
+    if (!canManage) return c.redirect(`/${ownerName}/${repoName}/pulls/${prNum}`);
+    const [target] = await db
+      .select()
+      .from(users)
+      .where(eq(users.username, usernameRaw))
+      .limit(1);
+    if (!target) {
+      return c.redirect(
+        `/${ownerName}/${repoName}/pulls/${prNum}?error=${encodeURIComponent("User not found")}`
+      );
+    }
+    if (target.id === pr.authorId) {
+      return c.redirect(
+        `/${ownerName}/${repoName}/pulls/${prNum}?error=${encodeURIComponent("PR author cannot be a reviewer")}`
+      );
+    }
+    await requestReviewers(pr.id, [target.id], user.id, "manual");
+    return c.redirect(`/${ownerName}/${repoName}/pulls/${prNum}`);
+  }
+);
+
+pulls.post(
+  "/:owner/:repo/pulls/:number/reviewers/:reviewerId/dismiss",
+  softAuth,
+  requireAuth,
+  async (c) => {
+    const { owner: ownerName, repo: repoName, reviewerId } = c.req.param();
+    const prNum = parseInt(c.req.param("number"), 10);
+    const user = c.get("user")!;
+    const resolved = await resolveRepo(ownerName, repoName);
+    if (!resolved) return c.notFound();
+    const [pr] = await db
+      .select()
+      .from(pullRequests)
+      .where(
+        and(
+          eq(pullRequests.repositoryId, resolved.repo.id),
+          eq(pullRequests.number, prNum)
+        )
+      )
+      .limit(1);
+    if (!pr) return c.notFound();
+    const canManage =
+      user.id === resolved.owner.id ||
+      user.id === pr.authorId ||
+      user.id === reviewerId;
+    if (!canManage) return c.redirect(`/${ownerName}/${repoName}/pulls/${prNum}`);
+    await dismissRequest(pr.id, reviewerId);
+    return c.redirect(`/${ownerName}/${repoName}/pulls/${prNum}`);
+  }
+);
+
+interface ReviewersPanelProps {
+  reviewers: Awaited<ReturnType<typeof listReviewRequestsForPr>>;
+  canManage: boolean | null | undefined;
+  ownerName: string;
+  repoName: string;
+  prNumber: number;
+}
+
+function ReviewersPanel(props: ReviewersPanelProps) {
+  const { reviewers, canManage, ownerName, repoName, prNumber } = props;
+  const stateColor = (s: string) =>
+    s === "approved"
+      ? "var(--green)"
+      : s === "changes_requested"
+        ? "var(--red)"
+        : s === "dismissed"
+          ? "var(--text-muted)"
+          : "var(--text)";
+  return (
+    <div
+      style="margin: 0 0 20px; padding: 12px 16px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius)"
+      data-testid="reviewers-panel"
+    >
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px">
+        <h3 style="margin: 0; font-size: 14px">Reviewers</h3>
+        <span style="color: var(--text-muted); font-size: 12px">
+          {reviewers.length === 0
+            ? "No reviewers requested"
+            : `${reviewers.filter((r) => r.state === "pending").length} pending · ${reviewers.filter((r) => r.state === "approved").length} approved`}
+        </span>
+      </div>
+      {reviewers.length > 0 && (
+        <ul style="list-style: none; padding: 0; margin: 0 0 8px">
+          {reviewers.map((r) => (
+            <li style="display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 13px">
+              <a href={`/${r.username}`}>
+                <strong>@{r.username}</strong>
+              </a>
+              <span
+                style={`font-size: 11px; padding: 1px 6px; border-radius: 10px; background: rgba(139, 148, 158, 0.15); color: ${stateColor(r.state)}; text-transform: capitalize`}
+              >
+                {r.state.replace("_", " ")}
+              </span>
+              <span style="font-size: 11px; color: var(--text-muted)">
+                via {r.source}
+              </span>
+              {canManage && r.state !== "dismissed" && (
+                <form
+                  method="POST"
+                  action={`/${ownerName}/${repoName}/pulls/${prNumber}/reviewers/${r.reviewerId}/dismiss`}
+                  style="margin-left: auto"
+                >
+                  <button
+                    type="submit"
+                    class="btn"
+                    style="padding: 2px 8px; font-size: 11px"
+                    title="Dismiss this review request"
+                  >
+                    Dismiss
+                  </button>
+                </form>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {canManage && (
+        <form
+          method="POST"
+          action={`/${ownerName}/${repoName}/pulls/${prNumber}/reviewers`}
+          style="display: flex; gap: 6px"
+        >
+          <input
+            type="text"
+            name="username"
+            placeholder="Request review from @username"
+            required
+            style="flex: 1; padding: 4px 8px; font-size: 12px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text)"
+          />
+          <button type="submit" class="btn" style="padding: 4px 10px; font-size: 12px">
+            Request
+          </button>
+        </form>
+      )}
+    </div>
+  );
 }
 
 export default pulls;

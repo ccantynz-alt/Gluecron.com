@@ -1994,3 +1994,43 @@ export const codeSymbols = pgTable(
 );
 
 export type CodeSymbol = typeof codeSymbols.$inferSelect;
+
+// Block I9 — Repository mirroring. One row per mirrored repo + an
+// append-only log of sync attempts.
+export const repoMirrors = pgTable("repo_mirrors", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  repositoryId: uuid("repository_id")
+    .notNull()
+    .unique()
+    .references(() => repositories.id, { onDelete: "cascade" }),
+  upstreamUrl: text("upstream_url").notNull(),
+  intervalMinutes: integer("interval_minutes").default(1440).notNull(),
+  lastSyncedAt: timestamp("last_synced_at"),
+  lastStatus: text("last_status"), // "ok" | "error"
+  lastError: text("last_error"),
+  isEnabled: boolean("is_enabled").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export type RepoMirror = typeof repoMirrors.$inferSelect;
+
+export const repoMirrorRuns = pgTable(
+  "repo_mirror_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    mirrorId: uuid("mirror_id")
+      .notNull()
+      .references(() => repoMirrors.id, { onDelete: "cascade" }),
+    startedAt: timestamp("started_at").defaultNow().notNull(),
+    finishedAt: timestamp("finished_at"),
+    status: text("status").default("running").notNull(),
+    message: text("message"),
+    exitCode: integer("exit_code"),
+  },
+  (table) => [
+    index("repo_mirror_runs_mirror_id_idx").on(table.mirrorId, table.startedAt),
+  ]
+);
+
+export type RepoMirrorRun = typeof repoMirrorRuns.$inferSelect;

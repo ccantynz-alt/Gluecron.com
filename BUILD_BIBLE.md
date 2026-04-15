@@ -71,7 +71,7 @@ Legend: ✅ shipped · 🟡 partial · ❌ not built
 | Archive / disable repo | ✅ | I1 — `src/routes/repo-settings.tsx` archive toggle; `RepoHeader` renders an "Archived" badge when `is_archived=true`. |
 | Repository transfer | ✅ | I3 — `src/routes/repo-settings.tsx` transfer form + `POST /:owner/:repo/settings/transfer`; ownership change recorded in `repo_transfers` audit table. Reject conflicts (target owner already has a repo by that name) with a redirect. |
 | Template repositories | ✅ | I2 — `drizzle/0022_repo_templates.sql` adds `is_template`. `src/routes/templates.ts` serves `POST /:owner/:repo/use-template` (git clone --bare into caller's namespace). "Use this template" CTA rendered on the public repo page. |
-| Repository mirroring | ❌ | — |
+| Repository mirroring | ✅ | I9 — pull-style mirror of an upstream git URL. `drizzle/0026_repo_mirrors.sql` adds `repo_mirrors` (one-per-repo config) + `repo_mirror_runs` (audit log). `src/lib/mirrors.ts` validates URLs (https/http/git only, rejects ssh/file/shell metacharacters), runs `git fetch --prune --tags` via `Bun.spawn` with a 5-min timeout + `GIT_TERMINAL_PROMPT=0`. `src/routes/mirrors.tsx` exposes `/:owner/:repo/settings/mirror` + `/admin/mirrors/sync-all`. |
 
 ### 2.2 Code browsing
 | Feature | Status | Notes |
@@ -275,6 +275,7 @@ This is where GlueCron beats GitHub outright. **Priority: ship these loud.**
 - **I6** — Sponsors → ✅ shipped. `drizzle/0023_sponsors.sql` adds `sponsorship_tiers` (maintainer_id, name, monthly_cents, one_time_allowed, is_active) + `sponsorships` (sponsor_id, maintainer_id, tier_id, amount_cents, kind, note, is_public, cancelled_at). `src/routes/sponsors.tsx` serves public `/sponsors/:username` (tier cards + recent public sponsors join) + maintainer `/settings/sponsors` (tier CRUD, soft-retire via is_active=false, activity list). Payment rails deferred — v1 captures intent + thank-you notes.
 - **I7** — Weekly email digest → ✅ shipped. `drizzle/0024_email_digest.sql` adds `users.notify_email_digest_weekly` + `last_digest_sent_at`. `src/lib/email-digest.ts` exposes `composeDigest`/`sendDigestForUser`/`sendDigestsToAll` (never-throws). Pulls notifications + failed/repaired gate_runs + merged PRs from the last 7d, composes escaped HTML + plaintext, and sends via the shared email provider. `/settings/digest/preview` renders the digest inline for self-preview; `/admin/digests` gives site admins a "Send now" trigger + single-user preview, audit-logged as `admin.digests.run`/`admin.digests.preview`.
 - **I8** — Symbol / xref navigation → ✅ shipped. `drizzle/0025_code_symbols.sql` adds a `code_symbols` table. `src/lib/symbols.ts` provides a regex-based top-level extractor for ts/js/py/rs/go/rb/java/kt/swift. On-demand indexing via `POST /:owner/:repo/symbols/reindex` walks the default-branch tree, caps at 2000 files/1MB each, replaces the prior set. Browse at `/:owner/:repo/symbols` (A–Z + per-kind counts), search via `/symbols/search?q=`, inspect at `/symbols/:name`. 14 new tests.
+- **I9** — Repository mirroring → ✅ shipped. `drizzle/0026_repo_mirrors.sql` adds `repo_mirrors` (one-per-repo config) + `repo_mirror_runs` (audit log). `src/lib/mirrors.ts` provides URL validation (https/http/git only, no ssh/file/paths/shell metas), credentials-redaction for logs, and `runMirrorSync` that shells out to `git fetch --prune --tags` with a 5-min timeout and `GIT_TERMINAL_PROMPT=0`. `src/routes/mirrors.tsx` serves owner-only `/:owner/:repo/settings/mirror` + site-admin `/admin/mirrors/sync-all`. 17 new tests.
 
 ### BLOCK H — Marketplace
 - **H1** — App marketplace → ✅ shipped. `src/routes/marketplace.tsx` + `src/lib/marketplace.ts` + `drizzle/0021_marketplace_and_apps.sql` (5 tables: `apps`, `app_installations`, `app_bots`, `app_install_tokens`, `app_events`). Routes: `GET /marketplace` (public directory with search), `GET /marketplace/:slug` (detail + install CTA), `POST /marketplace/:slug/install` (user-target install in v1), `POST /marketplace/installations/:id/uninstall`, `GET /settings/apps` (personal list), `GET+POST /developer/apps-new` (register), `GET /developer/apps/:slug/manage` (event log + install count), `POST /developer/apps/:slug/tokens/new` (show-once token). Install idempotent via soft-update on existing non-uninstalled row.
@@ -290,7 +291,7 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `src/app.tsx` — route composition, middleware order, error handlers
 - `src/index.ts` — Bun server entry
 - `src/lib/config.ts` — env getters (late-binding)
-- `src/db/schema.ts` — 82 tables. New tables only via new migration.
+- `src/db/schema.ts` — 84 tables. New tables only via new migration.
 - `src/db/index.ts` — lazy proxy DB connection
 - `src/db/migrate.ts` — migration runner
 - `drizzle/0000_initial.sql`, `drizzle/0001_green_ecosystem.sql` — migrations
@@ -316,6 +317,7 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `drizzle/0023_sponsors.sql` (Block I6) — migration, never edited in place. Adds `sponsorship_tiers` + `sponsorships` tables.
 - `drizzle/0024_email_digest.sql` (Block I7) — migration, never edited in place. Adds `users.notify_email_digest_weekly` + `users.last_digest_sent_at`.
 - `drizzle/0025_code_symbols.sql` (Block I8) — migration, never edited in place. Adds `code_symbols` table with indexes on `(repository_id, name)` + `(repository_id, path)`.
+- `drizzle/0026_repo_mirrors.sql` (Block I9) — migration, never edited in place. Adds `repo_mirrors` (unique on `repository_id`) + `repo_mirror_runs`.
 
 ### 4.2 Git layer (locked)
 - `src/git/repository.ts` — tree / blob / commits / diff / branches / blame / search / raw / tags / commitsBetween
@@ -441,6 +443,8 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `src/routes/settings.tsx` (extends for I7) — adds `notify_email_digest_weekly` checkbox to email prefs + handler wiring in `POST /settings/notifications`, and `GET /settings/digest/preview` (renders `composeDigest` output inline via `raw(body.html)` with Hono's `hono/html`).
 - `src/lib/symbols.ts` (Block I8) — regex-based top-level symbol extractor. Pure helpers: `detectLanguage(path)` (10 extensions mapped to 8 languages), `extractSymbols(content, lang)` (per-language rule list, 1-based line numbers, 240-char signature cap, skips lines >500 chars). `indexRepositorySymbols(repoId)` walks the default-branch tree, caps at 2000 files / 1MB each, replaces the prior set in batches of 500. `findDefinitions(repoId, name)` + `countSymbolsForRepo(repoId)`. `__internal` exposes `RULES` + `EXT_LANG` for tests.
 - `src/routes/symbols.tsx` (Block I8) — `/:owner/:repo/symbols` overview (total + per-kind counts + A–Z list with blob deep-links), `/:owner/:repo/symbols/search?q=` prefix search (ilike `q%`), `/:owner/:repo/symbols/:name` detail (all definitions with signature preview + deep link). `POST /:owner/:repo/symbols/reindex` is requireAuth + owner-only.
+- `src/lib/mirrors.ts` (Block I9) — upstream URL validator (accepts https/http/git schemes, rejects ssh/file/paths/shell metacharacters, 2048-char cap), `safeUrlForLog` (redacts embedded credentials), `upsertMirror` / `deleteMirror` / `getMirrorForRepo` / `listRecentRuns`, `runMirrorSync` (runs `git fetch --prune --tags --no-write-fetch-head` via `Bun.spawn` with 5-min timeout + `GIT_TERMINAL_PROMPT=0`; updates `last_synced_at` + `last_status` + `last_error`), `listDueMirrors` + `syncAllDue` for the admin trigger.
+- `src/routes/mirrors.tsx` (Block I9) — owner-only config at `/:owner/:repo/settings/mirror` (GET form + recent-runs panel, POST save, POST delete, POST sync-now). Site-admin `POST /admin/mirrors/sync-all` iterates due mirrors. All mutations `audit()`-logged.
 
 ### 4.7 Views (locked contracts)
 - `src/views/layout.tsx` — `Layout` accepts `title`, `user`, `notificationCount`
@@ -475,7 +479,7 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 ```bash
 bun install
 bun dev          # hot reload
-bun test         # 584 tests currently pass
+bun test         # 601 tests currently pass
 bun run db:migrate
 ```
 

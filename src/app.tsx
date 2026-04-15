@@ -67,6 +67,7 @@ import templatesRoutes from "./routes/templates";
 import codeScanningRoutes from "./routes/code-scanning";
 import sponsorsRoutes from "./routes/sponsors";
 import symbolsRoutes from "./routes/symbols";
+import mirrorsRoutes from "./routes/mirrors";
 import webRoutes from "./routes/web";
 
 const app = new Hono();
@@ -229,6 +230,9 @@ app.route("/", sponsorsRoutes);
 
 // Symbol / xref navigation — /:owner/:repo/symbols (Block I8)
 app.route("/", symbolsRoutes);
+
+// Repository mirroring — /:owner/:repo/settings/mirror (Block I9)
+app.route("/", mirrorsRoutes);
 
 // Insights + milestones
 app.route("/", insightsRoutes);

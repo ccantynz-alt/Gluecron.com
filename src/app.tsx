@@ -43,6 +43,11 @@ import packagesApiRoutes from "./routes/packages-api";
 import packagesUiRoutes from "./routes/packages";
 import pagesRoutes from "./routes/pages";
 import environmentsRoutes from "./routes/environments";
+import aiExplainRoutes from "./routes/ai-explain";
+import aiChangelogRoutes from "./routes/ai-changelog";
+import copilotRoutes from "./routes/copilot";
+import depUpdaterRoutes from "./routes/dep-updater";
+import semanticSearchRoutes from "./routes/semantic-search";
 import webRoutes from "./routes/web";
 
 const app = new Hono();
@@ -165,6 +170,13 @@ app.route("/", pagesRoutes);
 
 // Environments with protected approvals (Block C4)
 app.route("/", environmentsRoutes);
+
+// AI-native features (Block D)
+app.route("/", aiExplainRoutes);      // D6 — /:owner/:repo/explain
+app.route("/", aiChangelogRoutes);    // D7 — /:owner/:repo/ai/changelog
+app.route("/", copilotRoutes);        // D9 — /api/copilot/completions
+app.route("/", depUpdaterRoutes);     // D2 — /:owner/:repo/settings/dep-updater
+app.route("/", semanticSearchRoutes); // D1 — /:owner/:repo/search/semantic
 
 // Insights + milestones
 app.route("/", insightsRoutes);

@@ -68,7 +68,10 @@ export const RepoNav: FC<{
     | "releases"
     | "actions"
     | "gates"
-    | "insights";
+    | "insights"
+    | "explain"
+    | "changelog"
+    | "semantic";
 }> = ({ owner, repo, active }) => (
   <div class="repo-nav">
     <a href={`/${owner}/${repo}`} class={active === "code" ? "active" : ""}>
@@ -116,7 +119,14 @@ export const RepoNav: FC<{
     >
       Insights
     </a>
-    <a href={`/${owner}/${repo}/ask`} style="margin-left: auto; color: #bc8cff">
+    <a
+      href={`/${owner}/${repo}/explain`}
+      class={active === "explain" ? "active" : ""}
+      style="margin-left: auto; color: #bc8cff"
+    >
+      {"\u2728"} Explain
+    </a>
+    <a href={`/${owner}/${repo}/ask`} style="color: #bc8cff">
       {"\u2728"} Ask AI
     </a>
   </div>

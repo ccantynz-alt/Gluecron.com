@@ -1261,3 +1261,86 @@ export const deploymentApprovals = pgTable(
 
 export type Environment = typeof environments.$inferSelect;
 export type DeploymentApproval = typeof deploymentApprovals.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Block D — AI-native differentiation (migration 0012)
+// ---------------------------------------------------------------------------
+
+// D6 — cached "explain this codebase" markdown keyed on commit sha.
+export const codebaseExplanations = pgTable(
+  "codebase_explanations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    commitSha: text("commit_sha").notNull(),
+    summary: text("summary").notNull(),
+    markdown: text("markdown").notNull(),
+    model: text("model").notNull(),
+    generatedAt: timestamp("generated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("codebase_explanations_repo_sha").on(
+      table.repositoryId,
+      table.commitSha
+    ),
+  ]
+);
+
+// D2 — AI dependency bumper run history.
+export const depUpdateRuns = pgTable(
+  "dep_update_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    status: text("status").notNull().default("pending"), // pending|running|success|failed|no_updates
+    ecosystem: text("ecosystem").notNull(), // npm|bun
+    manifestPath: text("manifest_path").notNull(),
+    attemptedBumps: text("attempted_bumps").notNull().default("[]"), // JSON
+    appliedBumps: text("applied_bumps").notNull().default("[]"), // JSON
+    branchName: text("branch_name"),
+    prNumber: integer("pr_number"),
+    errorMessage: text("error_message"),
+    triggeredBy: uuid("triggered_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    completedAt: timestamp("completed_at"),
+  },
+  (table) => [
+    index("dep_update_runs_repo").on(table.repositoryId),
+    index("dep_update_runs_created").on(table.createdAt),
+  ]
+);
+
+// D1 — code chunks for semantic search. Embedding stored as JSON-encoded
+// number array in text to avoid requiring pgvector; cosine similarity is
+// computed in JS. Upgrade path: ALTER COLUMN embedding TYPE vector(1024).
+export const codeChunks = pgTable(
+  "code_chunks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    commitSha: text("commit_sha").notNull(),
+    path: text("path").notNull(),
+    startLine: integer("start_line").notNull(),
+    endLine: integer("end_line").notNull(),
+    content: text("content").notNull(),
+    embedding: text("embedding"), // JSON number[]
+    embeddingModel: text("embedding_model"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("code_chunks_repo").on(table.repositoryId),
+    index("code_chunks_repo_path").on(table.repositoryId, table.path),
+  ]
+);
+
+export type CodebaseExplanation = typeof codebaseExplanations.$inferSelect;
+export type DepUpdateRun = typeof depUpdateRuns.$inferSelect;
+export type CodeChunk = typeof codeChunks.$inferSelect;

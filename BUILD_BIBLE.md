@@ -85,7 +85,7 @@ Legend: ✅ shipped · 🟡 partial · ❌ not built
 | Branch switcher | ✅ | |
 | Tag listing | ✅ | new this build |
 | Code search (ILIKE) | ✅ | per-repo + global |
-| Semantic / embedding search | ❌ | pgvector not wired |
+| Semantic / embedding search | ✅ | D1 — `code_chunks` table + lexical fallback, optional Voyage `voyage-code-3`; `src/lib/semantic-search.ts`, `src/routes/semantic-search.tsx` |
 | Symbol / xref navigation | ❌ | — |
 
 ### 2.3 Collaboration
@@ -119,14 +119,17 @@ Legend: ✅ shipped · 🟡 partial · ❌ not built
 | AI security review | ✅ | Sonnet 4, `src/lib/security-scan.ts` |
 | AI commit messages | ✅ | `src/lib/ai-generators.ts` |
 | AI PR summaries | ✅ | |
-| AI changelogs | ✅ | auto on release create |
+| AI changelogs | ✅ | auto on release create; arbitrary-range viewer at `/:owner/:repo/ai/changelog?from=&to=` (D7) |
 | AI code review | ✅ | `src/lib/ai-review.ts` |
 | AI merge conflict resolver | ✅ | `src/lib/merge-resolver.ts` |
 | AI chat (global + repo) | ✅ | `src/routes/ask.tsx` |
+| AI explain-this-codebase | ✅ | D6 — per-commit cached markdown, `GET /:owner/:repo/explain`, `src/lib/ai-explain.ts` + `src/routes/ai-explain.tsx` |
+| AI PR triage | ✅ | D3 — Claude Haiku suggests labels/reviewers/priority as an AI comment on PR create; `triagePullRequest` in `src/lib/ai-generators.ts`, wired in `src/routes/pulls.tsx` |
 | GitHub Actions equivalent (workflow runner) | ✅ | `src/lib/workflow-parser.ts`, `src/lib/workflow-runner.ts`, `src/routes/workflows.tsx`; `.gluecron/workflows/*.yml` auto-discovered on push; Bun subprocess executor, per-step timeouts, size-capped logs |
-| Dependabot equivalent (AI dep bumper) | ❌ | |
+| Dependabot equivalent (AI dep bumper) | ✅ | D2 — `dep_update_runs` table, npm registry fetch, plan + apply bumps, creates `gluecron/dep-update-*` branch + PR row via git plumbing. `src/lib/dep-updater.ts`, `src/routes/dep-updater.tsx`, settings UI at `/:owner/:repo/settings/dep-updater`. |
 | Code scanning UI | 🟡 | data exists, no dedicated UI page |
-| Copilot code completion | ❌ | |
+| Copilot code completion | ✅ | D9 — `POST /api/copilot/completions` (PAT/OAuth/session), `GET /api/copilot/ping`. `src/lib/ai-completion.ts`, `src/routes/copilot.ts`. LRU-cached, rate-limited 60/min. |
+| Semantic code search | ✅ | D1 — see 2.2 |
 
 ### 2.5 Platform
 | Feature | Status | Notes |
@@ -223,15 +226,15 @@ Polish what's shipped before adding more. **Priority: do this first if parity ga
 
 ### BLOCK D — AI-native differentiation
 This is where GlueCron beats GitHub outright. **Priority: ship these loud.**
-- **D1** — Semantic code search (pgvector + Claude embeddings)
-- **D2** — AI dependency updater (reads lockfile, opens PRs, verifies green)
-- **D3** — AI PR triage agent (auto-assigns reviewers, labels, milestones)
-- **D4** — AI incident responder (on deploy failure, opens issue with root cause)
-- **D5** — AI code reviewer that blocks merges (enforced via branch protection "AI approval required")
-- **D6** — AI "explain this codebase" on repo landing (auto-generated, cached)
-- **D7** — AI changelog for every commit range (`/:owner/:repo/ai/changelog?from=...&to=...`)
-- **D8** — AI-generated test suite (reads public API, generates failing tests)
-- **D9** — Copilot-style completion endpoint for IDE plugins
+- **D1** — Semantic code search → ✅ shipped. `src/lib/semantic-search.ts` + `src/routes/semantic-search.tsx`. `code_chunks` table stores chunk embeddings as JSON (upgrade path to `pgvector`). Embedding provider: Voyage AI `voyage-code-3` when `VOYAGE_API_KEY` is set, otherwise deterministic 512-dim hashing fallback. Index via `POST /:owner/:repo/search/semantic/reindex` (owner-only).
+- **D2** — AI dependency updater → ✅ shipped. `src/lib/dep-updater.ts` + `src/routes/dep-updater.tsx`. `dep_update_runs` table tracks run history. Parses `package.json`, queries `registry.npmjs.org`, plans bumps (skips workspace/github specs + downgrades), writes an `gluecron/dep-update-<ts>` branch via git plumbing (`hash-object` + `mktree` + `commit-tree` + `update-ref`), inserts a pull_requests row with a markdown bump table. Settings UI at `/:owner/:repo/settings/dep-updater` with "Run now".
+- **D3** — AI PR triage → ✅ shipped. `triagePullRequest` in `src/lib/ai-generators.ts`; hooked into PR create in `src/routes/pulls.tsx` (fire-and-forget). Posts a non-applied "## AI Triage" comment with suggested labels, reviewers, priority, and risk area. Suggestions only — PR author stays in control.
+- **D4** — AI incident responder (on deploy failure, opens issue with root cause) — NOT STARTED
+- **D5** — AI code reviewer that blocks merges (enforced via branch protection "AI approval required") — PARTIAL (AI review exists; no branch-protection hook yet)
+- **D6** — AI "explain this codebase" → ✅ shipped. `src/lib/ai-explain.ts` + `src/routes/ai-explain.tsx`. Samples up to ~25 representative files (~60KB cap), generates a Markdown explanation via Sonnet 4, caches per (repo, commit sha) in `codebase_explanations`. `GET /:owner/:repo/explain` + owner-only `POST /:owner/:repo/explain/regenerate`. Explain link added to `RepoNav`.
+- **D7** — AI changelog for every commit range → ✅ shipped. `src/routes/ai-changelog.tsx`. `GET /:owner/:repo/ai/changelog?from=&to=(&format=markdown)` — runs `git log` on the range, calls existing `generateChangelog`, renders form + rendered Markdown + copy-box; `format=markdown` returns `text/markdown` for CLI/CI consumers. Caps at 500 commits.
+- **D8** — AI-generated test suite (reads public API, generates failing tests) — NOT STARTED
+- **D9** — Copilot-style completion endpoint → ✅ shipped. `src/lib/ai-completion.ts` + `src/routes/copilot.ts`. `POST /api/copilot/completions` (requireAuth accepts PAT/OAuth/session), `GET /api/copilot/ping`. Claude Haiku; in-memory LRU (size 200, 5-min TTL); code-fence stripping; 60/min rate limit per caller.
 
 ### BLOCK E — Collaboration parity
 - **E1** — Projects / kanban boards (`projects`, `project_items`, `project_fields`)
@@ -280,6 +283,7 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `drizzle/0009_packages.sql` (Block C2) — migration, never edited in place
 - `drizzle/0010_pages.sql` (Block C3) — migration, never edited in place
 - `drizzle/0011_environments.sql` (Block C4) — migration, never edited in place
+- `drizzle/0012_ai_native.sql` (Block D) — migration, never edited in place. Adds `codebase_explanations`, `dep_update_runs`, `code_chunks`.
 
 ### 4.2 Git layer (locked)
 - `src/git/repository.ts` — tree / blob / commits / diff / branches / blame / search / raw / tags / commitsBetween
@@ -304,11 +308,15 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 
 ### 4.4 AI layer (locked)
 - `src/lib/ai-client.ts` — Anthropic client + model constants
-- `src/lib/ai-generators.ts` — commit / PR / changelog / issue-triage
+- `src/lib/ai-generators.ts` — commit / PR / changelog / issue-triage / **pull-request-triage (D3)**
 - `src/lib/ai-chat.ts` — conversational chat
 - `src/lib/ai-review.ts` — PR code review
 - `src/lib/auto-repair.ts` — worktree-backed repair commits
 - `src/lib/merge-resolver.ts` — AI merge conflict resolution
+- `src/lib/ai-explain.ts` (Block D6) — `explainCodebase(...)` + `getCachedExplanation(...)`. Samples up to ~25 representative files (~60KB cap), Sonnet 4, upserts into `codebase_explanations`. Fallback to README-ish synthesis when no key. Never throws.
+- `src/lib/ai-completion.ts` (Block D9) — `completeCode({prefix, suffix?, language?, maxTokens?, repoHint?})` via Haiku. Inline LRU (size 200, 5-min TTL) keyed on sha256 of prefix+suffix+language. Code-fence stripping. Never throws. `__test` bundle exposed.
+- `src/lib/dep-updater.ts` (Block D2) — `parseManifest`, `queryNpmLatest`, `planUpdates` (injectable `fetchLatest`), `applyBumps`, `runDepUpdateRun`. Creates `gluecron/dep-update-<ts>` branch via git plumbing + opens a PR row. Never throws.
+- `src/lib/semantic-search.ts` (Block D1) — `tokenize`, `hashEmbed` (512-dim L2-normalised FNV-1a + sign trick), `embedBatch` (Voyage `voyage-code-3` when `VOYAGE_API_KEY` set, else fallback), `chunkFile`, `isCodeFile`, `indexRepository`, `searchRepository`, `cosine`, `isEmbeddingsProviderAvailable`, `__test` bundle.
 
 ### 4.5 Platform (locked)
 - `src/lib/notify.ts` — notification creation + audit log (swallow-failures pattern). Also fans out email to opted-in recipients for `mention|review_requested|assigned|gate_failed`. Exports `__internal` for tests.
@@ -361,10 +369,15 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `src/routes/packages.tsx` (Block C2) — UI: `/:owner/:repo/packages` list + `/:owner/:repo/packages/:pkgName` detail.
 - `src/routes/pages.tsx` (Block C3) — `GET /:owner/:repo/pages/*` serves static files from latest gh-pages commit (binary via `getRawBlob`, text via `getBlob`). `GET/POST /:owner/:repo/settings/pages` settings + redeploy.
 - `src/routes/environments.tsx` (Block C4) — settings CRUD at `/:owner/:repo/settings/environments`; approval endpoints at `/:owner/:repo/deployments/:id/{approve,reject}`.
+- `src/routes/ai-explain.tsx` (Block D6) — `GET /:owner/:repo/explain` (softAuth), `POST /:owner/:repo/explain/regenerate` (requireAuth, owner-only).
+- `src/routes/ai-changelog.tsx` (Block D7) — `GET /:owner/:repo/ai/changelog` (softAuth). Form + rendered output; `?format=markdown` returns `text/markdown`.
+- `src/routes/copilot.ts` (Block D9) — `POST /api/copilot/completions` (requireAuth, 60/min rate limit), `GET /api/copilot/ping` (public).
+- `src/routes/dep-updater.tsx` (Block D2) — `GET /:owner/:repo/settings/dep-updater` + `POST /:owner/:repo/settings/dep-updater/run` (requireAuth, owner-only).
+- `src/routes/semantic-search.tsx` (Block D1) — `GET /:owner/:repo/search/semantic?q=` (softAuth) + `POST /:owner/:repo/search/semantic/reindex` (requireAuth, owner-only).
 
 ### 4.7 Views (locked contracts)
 - `src/views/layout.tsx` — `Layout` accepts `title`, `user`, `notificationCount`
-- `src/views/components.tsx` — `RepoHeader`, `RepoNav` (active: `code|issues|pulls|commits|releases|actions|gates|insights|...`), `RepoCard`, etc.
+- `src/views/components.tsx` — `RepoHeader`, `RepoNav` (active: `code|issues|pulls|commits|releases|actions|gates|insights|explain|changelog|semantic`), `RepoCard`, etc.
 - `src/views/reactions.tsx` — `ReactionsBar` (no-JS compatible, form-per-emoji)
 - Nav links: logo · search · theme-toggle · Explore · Ask · Notifications · New · Profile (or Sign in / Register)
 - Keyboard chords: `/`, `Cmd+K`, `?`, `n`, `g d`, `g n`, `g e`, `g a`
@@ -408,6 +421,7 @@ bun run db:migrate
 - `EMAIL_FROM` — sender address for outbound mail
 - `RESEND_API_KEY` — required when `EMAIL_PROVIDER=resend`
 - `APP_BASE_URL` — canonical URL used to build absolute links in emails
+- `VOYAGE_API_KEY` — optional; when set, D1 semantic search uses Voyage `voyage-code-3` embeddings. Otherwise falls back to a deterministic 512-dim hashing embedder.
 
 ### 5.3 Models
 - `claude-sonnet-4-20250514` — code review, security, chat

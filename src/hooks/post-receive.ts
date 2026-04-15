@@ -26,13 +26,14 @@ import {
 import { getOrCreateSettings } from "../lib/repo-bootstrap";
 import { getBlob, getDefaultBranch, getTree } from "../git/repository";
 import { parseCodeowners, syncCodeowners } from "../lib/codeowners";
-import { notify } from "../lib/notify";
+import { notify, audit } from "../lib/notify";
 import { workflows, pagesSettings } from "../db/schema";
 import { parseWorkflow } from "../lib/workflow-parser";
 import { enqueueRun } from "../lib/workflow-runner";
 import { onPagesPush } from "../lib/pages";
 import { requiresApprovalFor } from "../lib/environments";
 import { onDeployFailure } from "../lib/ai-incident";
+import { matchProtectedTag } from "../lib/protected-tags";
 
 interface PushRef {
   oldSha: string;
@@ -89,6 +90,38 @@ export async function onPostReceive(
       }
     } catch (err) {
       console.error("[post-receive] activity/pushedAt:", err);
+    }
+  }
+
+  // --- 1b. Protected-tag advisory logging (Block E7) ---
+  // v1 is non-blocking: we log violations to the audit log and fan a notify
+  // event out to the repo owner. Actual pre-receive blocking is future work.
+  if (repoRow) {
+    for (const ref of refs) {
+      if (!ref.refName.startsWith("refs/tags/")) continue;
+      const rule = await matchProtectedTag(repoRow.id, ref.refName);
+      if (!rule) continue;
+      const isDelete = ref.newSha.startsWith("0000");
+      const isCreate = ref.oldSha.startsWith("0000");
+      const action = isDelete
+        ? "delete"
+        : isCreate
+          ? "create"
+          : "update";
+      try {
+        await audit({
+          userId: ownerRow?.id || null,
+          repositoryId: repoRow.id,
+          action: `protected_tags.${action}_violation_candidate`,
+          targetType: "ref",
+          targetId: ref.refName,
+          metadata: {
+            pattern: rule.pattern,
+            oldSha: ref.oldSha,
+            newSha: ref.newSha,
+          },
+        });
+      } catch {}
     }
   }
 

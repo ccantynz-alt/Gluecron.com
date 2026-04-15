@@ -53,6 +53,9 @@ import discussionRoutes from "./routes/discussions";
 import gistRoutes from "./routes/gists";
 import projectRoutes from "./routes/projects";
 import wikiRoutes from "./routes/wikis";
+import mergeQueueRoutes from "./routes/merge-queue";
+import requiredChecksRoutes from "./routes/required-checks";
+import protectedTagsRoutes from "./routes/protected-tags";
 import webRoutes from "./routes/web";
 
 const app = new Hono();
@@ -187,6 +190,9 @@ app.route("/", discussionRoutes);     // E2 — /:owner/:repo/discussions
 app.route("/", gistRoutes);           // E4 — /gists, /gists/:slug, /:user/gists
 app.route("/", projectRoutes);        // E1 — /:owner/:repo/projects
 app.route("/", wikiRoutes);           // E3 — /:owner/:repo/wiki
+app.route("/", mergeQueueRoutes);     // E5 — /:owner/:repo/queue
+app.route("/", requiredChecksRoutes); // E6 — /:owner/:repo/gates/protection/:id/checks
+app.route("/", protectedTagsRoutes);  // E7 — /:owner/:repo/settings/protected-tags
 
 // Insights + milestones
 app.route("/", insightsRoutes);

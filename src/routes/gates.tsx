@@ -301,15 +301,24 @@ gates.get("/:owner/:repo/gates/settings", requireAuth, async (c) => {
                   {!p.allowDeletion ? "No deletion" : ""}
                 </div>
               </div>
-              <form
-                method="POST"
-                action={`/${owner}/${repo}/gates/protection/${p.id}/delete`}
-                onsubmit="return confirm('Remove this rule?')"
-              >
-                <button type="submit" class="btn btn-sm btn-danger">
-                  Remove
-                </button>
-              </form>
+              <div style="display:flex;gap:6px">
+                <a
+                  href={`/${owner}/${repo}/gates/protection/${p.id}/checks`}
+                  class="btn btn-sm"
+                  title="Manage required status checks for this rule"
+                >
+                  Required checks
+                </a>
+                <form
+                  method="POST"
+                  action={`/${owner}/${repo}/gates/protection/${p.id}/delete`}
+                  onsubmit="return confirm('Remove this rule?')"
+                >
+                  <button type="submit" class="btn btn-sm btn-danger">
+                    Remove
+                  </button>
+                </form>
+              </div>
             </div>
           ))
         )}

@@ -35,6 +35,8 @@ import {
   matchProtection,
   evaluateProtection,
   countHumanApprovals,
+  listRequiredChecks,
+  passingCheckNames,
 } from "../lib/branch-protection";
 
 const pulls = new Hono<AuthEnv>();
@@ -669,6 +671,14 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, async (c) => {
                             </button>
                             <button
                               type="submit"
+                              formaction={`/${ownerName}/${repoName}/pulls/${pr.number}/enqueue`}
+                              class="btn"
+                              title="Queue this PR — gates will re-run against latest base before merge"
+                            >
+                              Add to merge queue
+                            </button>
+                            <button
+                              type="submit"
                               formaction={`/${ownerName}/${repoName}/pulls/${pr.number}/draft`}
                               class="btn"
                               title="Convert back to draft"
@@ -832,12 +842,21 @@ pulls.post(
     );
     if (protectionRule) {
       const humanApprovals = await countHumanApprovals(pr.id);
-      const decision = evaluateProtection(protectionRule, {
-        aiApproved,
-        humanApprovalCount: humanApprovals,
-        gateResultGreen: hardFailures.length === 0,
-        hasFailedGates: hardFailures.length > 0,
-      });
+      const required = await listRequiredChecks(protectionRule.id);
+      const passingNames = required.length > 0
+        ? await passingCheckNames(resolved.repo.id, headSha)
+        : [];
+      const decision = evaluateProtection(
+        protectionRule,
+        {
+          aiApproved,
+          humanApprovalCount: humanApprovals,
+          gateResultGreen: hardFailures.length === 0,
+          hasFailedGates: hardFailures.length > 0,
+          passingCheckNames: passingNames,
+        },
+        required.map((r) => r.checkName)
+      );
       if (!decision.allowed) {
         return c.redirect(
           `/${ownerName}/${repoName}/pulls/${prNum}?error=${encodeURIComponent(

@@ -1612,3 +1612,89 @@ export const wikiRevisions = pgTable(
 
 export type WikiPage = typeof wikiPages.$inferSelect;
 export type WikiRevision = typeof wikiRevisions.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Block E5 — Merge queues (migration 0017)
+// ---------------------------------------------------------------------------
+
+export const mergeQueueEntries = pgTable(
+  "merge_queue_entries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    pullRequestId: uuid("pull_request_id")
+      .notNull()
+      .references(() => pullRequests.id, { onDelete: "cascade" }),
+    baseBranch: text("base_branch").notNull(),
+    // queued | running | merged | failed | dequeued
+    state: text("state").notNull().default("queued"),
+    position: integer("position").notNull().default(0),
+    enqueuedBy: uuid("enqueued_by").references(() => users.id),
+    enqueuedAt: timestamp("enqueued_at").defaultNow().notNull(),
+    startedAt: timestamp("started_at"),
+    finishedAt: timestamp("finished_at"),
+    errorMessage: text("error_message"),
+  },
+  (table) => [
+    index("merge_queue_repo_branch").on(
+      table.repositoryId,
+      table.baseBranch,
+      table.state
+    ),
+  ]
+);
+
+export type MergeQueueEntry = typeof mergeQueueEntries.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Block E6 — Required status checks matrix (migration 0018)
+// ---------------------------------------------------------------------------
+
+export const branchRequiredChecks = pgTable(
+  "branch_required_checks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    branchProtectionId: uuid("branch_protection_id")
+      .notNull()
+      .references(() => branchProtection.id, { onDelete: "cascade" }),
+    checkName: text("check_name").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("branch_required_checks_rule").on(table.branchProtectionId),
+    uniqueIndex("branch_required_checks_unique").on(
+      table.branchProtectionId,
+      table.checkName
+    ),
+  ]
+);
+
+export type BranchRequiredCheck = typeof branchRequiredChecks.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Block E7 — Protected tags (migration 0019)
+// ---------------------------------------------------------------------------
+
+export const protectedTags = pgTable(
+  "protected_tags",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    pattern: text("pattern").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    createdBy: uuid("created_by").references(() => users.id),
+  },
+  (table) => [
+    index("protected_tags_repo").on(table.repositoryId),
+    uniqueIndex("protected_tags_repo_pattern").on(
+      table.repositoryId,
+      table.pattern
+    ),
+  ]
+);
+
+export type ProtectedTag = typeof protectedTags.$inferSelect;

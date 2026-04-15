@@ -155,8 +155,9 @@ Legend: ✅ shipped · 🟡 partial · ❌ not built
 | Sponsors | ❌ | |
 | Marketplace | ❌ | |
 | Environments / deployment tracking | ✅ | `src/routes/deployments.tsx` — grouped by env, success-rate rollup, per-deploy detail. Protected environments (`src/routes/environments.tsx`, `src/lib/environments.ts`) with reviewer-gated approval, branch-glob restrictions, approve/reject decisions recorded in `deployment_approvals` |
-| Merge queues | ❌ | |
-| Required checks matrix | 🟡 | branch_protection has single flag, no matrix |
+| Merge queues | ✅ | E5 — serialised merge with re-test. `src/lib/merge-queue.ts`, `src/routes/merge-queue.tsx`, `drizzle/0017_merge_queue.sql`; per `(repo, base_branch)` queue, owner-only process-next re-runs gates against latest base before merging. |
+| Required checks matrix | ✅ | E6 — per branch-protection named check list. `src/routes/required-checks.tsx`, `drizzle/0018_required_checks.sql`; `listRequiredChecks` + `passingCheckNames` helpers in `src/lib/branch-protection.ts`; merge handler verifies every required name has a passing gate_run or workflow_run. |
+| Protected tags | ✅ | E7 — owners can mark tag patterns (`v*`, `release-*`) protected. `src/lib/protected-tags.ts`, `src/routes/protected-tags.tsx`, `drizzle/0019_protected_tags.sql`; advisory enforcement via post-receive audit log (v1). |
 
 ### 2.6 Observability + safety
 | Feature | Status | Notes |
@@ -243,9 +244,9 @@ This is where GlueCron beats GitHub outright. **Priority: ship these loud.**
 - **E2** — Discussions (forum threads per repo) → ✅ shipped. `src/routes/discussions.tsx`, tables `discussions`/`discussion_comments` (migration 0013). Categorised (general/q-and-a/ideas/announcements/show-and-tell), pinnable, lockable, q-and-a answers.
 - **E3** — Wikis → ✅ shipped as DB-backed v1. `src/routes/wikis.tsx`, tables `wiki_pages`/`wiki_revisions` (migration 0016). Slug auto-derived; every edit bumps revision + appends a revision row; owner can revert. Git-backed mirror deferred.
 - **E4** — Gists → ✅ shipped. `src/routes/gists.tsx`, tables `gists`/`gist_files`/`gist_revisions`/`gist_stars` (migration 0014). Multi-file; each edit takes a JSON snapshot into `gist_revisions` keyed on revision number; stars toggle; secret gists hidden from non-owners.
-- **E5** — Merge queues (serialised merge with re-test) — NOT STARTED
-- **E6** — Required status checks matrix (multiple named checks per branch protection rule) — NOT STARTED
-- **E7** — Protected tags — NOT STARTED
+- **E5** — Merge queues → ✅ shipped. `src/lib/merge-queue.ts`, `src/routes/merge-queue.tsx`, table `merge_queue_entries` (migration 0017). Per `(repo, base_branch)` FIFO queue; `POST /:owner/:repo/pulls/:n/enqueue` adds from the PR page; owner-only `POST /queue/process-next` re-runs gates against latest base before merging the head. Entries have queued | running | merged | failed | dequeued states.
+- **E6** — Required status checks matrix → ✅ shipped. `src/routes/required-checks.tsx`, table `branch_required_checks` (migration 0018); helpers `listRequiredChecks` + `passingCheckNames` in `src/lib/branch-protection.ts`. Settings UI at `/:owner/:repo/gates/protection/:id/checks`; merge handler (`src/routes/pulls.tsx`) loads required names + computes passing set from `gate_runs` (passed/repaired) + `workflow_runs` (success) and blocks if any required name is missing.
+- **E7** — Protected tags → ✅ shipped. `src/lib/protected-tags.ts`, `src/routes/protected-tags.tsx`, table `protected_tags` (migration 0019). Settings CRUD at `/:owner/:repo/settings/protected-tags`; patterns use same glob syntax as branch protection. v1 enforcement is advisory: post-receive logs audit entries (`protected_tags.{create|update|delete}_violation_candidate`) so owners can see violations; pre-receive blocking is future work.
 
 ### BLOCK F — Observability + admin
 - **F1** — Traffic analytics per repo (views, clones, unique visitors)
@@ -290,6 +291,9 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `drizzle/0014_gists.sql` (Block E4) — migration, never edited in place. Adds `gists`, `gist_files`, `gist_revisions`, `gist_stars`.
 - `drizzle/0015_projects.sql` (Block E1) — migration, never edited in place. Adds `projects`, `project_columns`, `project_items`.
 - `drizzle/0016_wikis.sql` (Block E3) — migration, never edited in place. Adds `wiki_pages`, `wiki_revisions`.
+- `drizzle/0017_merge_queue.sql` (Block E5) — migration, never edited in place. Adds `merge_queue_entries` (with partial unique index on `pull_request_id WHERE state IN ('queued','running')`).
+- `drizzle/0018_required_checks.sql` (Block E6) — migration, never edited in place. Adds `branch_required_checks`.
+- `drizzle/0019_protected_tags.sql` (Block E7) — migration, never edited in place. Adds `protected_tags`.
 
 ### 4.2 Git layer (locked)
 - `src/git/repository.ts` — tree / blob / commits / diff / branches / blame / search / raw / tags / commitsBetween
@@ -388,6 +392,12 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `src/routes/gists.tsx` (Block E4) — `GET /gists` discover, `/gists/new|:slug|:slug/edit|:slug/delete|:slug/star|:slug/revisions|:slug/revisions/:rev` + `/:username/gists`. Exports `generateSlug()` (8-hex) and `snapshotOf(files)` JSON serializer. Retries on slug collision up to 5x.
 - `src/routes/projects.tsx` (Block E1) — kanban board CRUD. Auto-seeds three default columns on project create. `/:owner/:repo/projects/:number/items/:itemId/move` recomputes position via `max+1` of target column.
 - `src/routes/wikis.tsx` (Block E3) — DB-backed wiki with revision history + revert. Exports `slugifyTitle(title)` (lowercase alphanumerics joined by single dashes, trimmed). Every edit appends a `wiki_revisions` row; revert creates a new revision.
+- `src/routes/merge-queue.tsx` (Block E5) — `GET /:owner/:repo/queue` list, `POST /:owner/:repo/pulls/:n/enqueue` (requireAuth), `POST /:owner/:repo/queue/:id/dequeue` (owner-or-enqueuer), `POST /:owner/:repo/queue/process-next?base=X` (owner-only, re-runs gates against base then updates base ref). PR page has an extra "Add to merge queue" button.
+- `src/lib/merge-queue.ts` (Block E5) — `enqueuePr`, `dequeueEntry`, `peekHead`, `markHeadRunning`, `completeEntry`, `isQueued`, `queueDepth`, `listQueue`, `listQueueWithPrs`. No side effects beyond the `merge_queue_entries` table; callers own gate execution + git updates.
+- `src/routes/required-checks.tsx` (Block E6) — `/:owner/:repo/gates/protection/:id/checks` CRUD (owner-only, requireAuth). "Required checks" link added on gates settings UI next to each branch protection rule.
+- `src/lib/branch-protection.ts` extends for E6 — `listRequiredChecks(branchProtectionId)`, `passingCheckNames(repositoryId, commitSha)` (scans `gate_runs` + `workflow_runs`), and `evaluateProtection(rule, ctx, requiredChecks[])` now takes a third param + reports `missingChecks`.
+- `src/routes/protected-tags.tsx` (Block E7) — `/:owner/:repo/settings/protected-tags` CRUD (owner-only, requireAuth).
+- `src/lib/protected-tags.ts` (Block E7) — `matchProtectedTag`, `isProtectedTag`, `canBypassProtectedTag`, `listProtectedTags`, `addProtectedTag`, `removeProtectedTag`, `userIdFromUsername`. Matching uses `matchGlob` from environments.ts with `refs/tags/` prefix stripped. Post-receive hook writes audit log entries (`protected_tags.{create|update|delete}_violation_candidate`) on matched pushes.
 
 ### 4.7 Views (locked contracts)
 - `src/views/layout.tsx` — `Layout` accepts `title`, `user`, `notificationCount`
@@ -422,7 +432,7 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 ```bash
 bun install
 bun dev          # hot reload
-bun test         # 99 tests currently pass
+bun test         # 435 tests currently pass
 bun run db:migrate
 ```
 

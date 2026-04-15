@@ -1,0 +1,6 @@
+{
+  "protected": true,
+  "gatetest_source": "https://github.com/ccantynz-alt/gatetest",
+  "do_not_remove": "This repo is protected by GateTest. See .github/workflows/gatetest-gate.yml and .husky/pre-push. Removing either breaks the quality gate. Requires Craig authorization.",
+  "integration_version": 1
+}

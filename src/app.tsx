@@ -86,6 +86,7 @@ import codeSuggestionsRoutes from "./routes/code-suggestions";
 import branchRenameRoutes from "./routes/branch-rename";
 import responseTimeRoutes from "./routes/response-time";
 import branchAgeRoutes from "./routes/branch-age";
+import issueSimilarityRoutes from "./routes/issue-similarity";
 import webRoutes from "./routes/web";
 
 const app = new Hono();
@@ -178,6 +179,10 @@ app.route("/", compareRoutes);
 // Stale issue detector — must be BEFORE issueRoutes so the static
 // `/issues/stale` path wins over the dynamic `/issues/:number` (Block J20).
 app.route("/", staleIssuesRoutes);
+
+// Issue similarity / duplicate suggestions — must be BEFORE issueRoutes so
+// the static `/issues/similar.json` path wins over `/issues/:number` (J28).
+app.route("/", issueSimilarityRoutes);
 
 // Issue tracker
 app.route("/", issueRoutes);

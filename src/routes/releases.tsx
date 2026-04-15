@@ -34,6 +34,7 @@ import {
   getDefaultBranch,
 } from "../git/repository";
 import { generateChangelog } from "../lib/ai-generators";
+import { renderNotesMarkdown } from "../lib/release-notes";
 import { notifyMany, audit } from "../lib/notify";
 import { renderMarkdown } from "../lib/markdown";
 import { getUnreadCount } from "../lib/unread";
@@ -179,13 +180,24 @@ releasesRoute.get("/:owner/:repo/releases", async (c) => {
   );
 });
 
-releasesRoute.get("/:owner/:repo/releases/new", requireAuth, async (c) => {
-  const user = c.get("user")!;
-  const { owner, repo } = c.req.param();
-  const repoRow = await loadRepo(owner, repo);
-  if (!repoRow) return c.notFound();
-  if (repoRow.ownerId !== user.id) return c.redirect(`/${owner}/${repo}/releases`);
-
+// Shared form renderer — used by GET /new and POST /generate-notes.
+async function renderNewReleaseForm(
+  c: any,
+  user: any,
+  owner: string,
+  repo: string,
+  repoRow: any,
+  prefill: {
+    tag?: string;
+    target?: string;
+    name?: string;
+    previousTag?: string;
+    body?: string;
+    isPrerelease?: boolean;
+    isDraft?: boolean;
+    notice?: string | null;
+  } = {}
+) {
   const branches = await listBranches(owner, repo);
   const tags = await listTags(owner, repo);
   const unread = await getUnreadCount(user.id);
@@ -207,6 +219,13 @@ releasesRoute.get("/:owner/:repo/releases/new", requireAuth, async (c) => {
       <RepoNav owner={owner} repo={repo} active="releases" />
       <h3>Draft a new release</h3>
       {error && <div class="auth-error">{decodeURIComponent(error)}</div>}
+      {prefill.notice && (
+        <div
+          style="padding: 8px 12px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 6px; margin-bottom: 12px; font-size: 13px"
+        >
+          {prefill.notice}
+        </div>
+      )}
       <form
         method="POST"
         action={`/${owner}/${repo}/releases`}
@@ -220,13 +239,21 @@ releasesRoute.get("/:owner/:repo/releases/new", requireAuth, async (c) => {
             required
             placeholder="v1.0.0"
             pattern="[A-Za-z0-9._\\-]+"
+            value={prefill.tag || ""}
           />
         </div>
         <div class="form-group">
           <label>Target branch / commit</label>
           <select name="target">
             {branches.map((b) => (
-              <option value={b} selected={b === repoRow.defaultBranch}>
+              <option
+                value={b}
+                selected={
+                  prefill.target
+                    ? b === prefill.target
+                    : b === repoRow.defaultBranch
+                }
+              >
                 {b}
               </option>
             ))}
@@ -234,38 +261,173 @@ releasesRoute.get("/:owner/:repo/releases/new", requireAuth, async (c) => {
         </div>
         <div class="form-group">
           <label>Release name</label>
-          <input type="text" name="name" required placeholder="v1.0.0 — the big one" />
+          <input
+            type="text"
+            name="name"
+            required
+            placeholder="v1.0.0 — the big one"
+            value={prefill.name || ""}
+          />
         </div>
         <div class="form-group">
-          <label>Previous tag (for AI changelog)</label>
+          <label>Previous tag (for changelog)</label>
           <select name="previousTag">
-            <option value="">(auto — last tag)</option>
+            <option value="" selected={!prefill.previousTag}>
+              (auto — last tag)
+            </option>
             {tags.map((t) => (
-              <option value={t.name}>{t.name}</option>
+              <option value={t.name} selected={t.name === prefill.previousTag}>
+                {t.name}
+              </option>
             ))}
           </select>
         </div>
         <div class="form-group">
           <label>Notes (leave blank for AI-generated)</label>
-          <textarea name="body" rows={10} placeholder="Markdown supported. Leave blank to have Claude generate a grouped changelog from commits."></textarea>
+          <textarea
+            name="body"
+            rows={14}
+            placeholder="Markdown supported. Leave blank to have Claude generate a grouped changelog from commits, or click 'Generate from commits' to prefill a deterministic conventional-commit grouping."
+          >
+            {prefill.body || ""}
+          </textarea>
         </div>
-        <div style="display: flex; gap: 12px">
+        <div style="display: flex; gap: 12px; align-items: center">
           <label style="display: flex; align-items: center; gap: 6px; font-size: 14px">
-            <input type="checkbox" name="isPrerelease" value="1" />
+            <input
+              type="checkbox"
+              name="isPrerelease"
+              value="1"
+              checked={!!prefill.isPrerelease}
+            />
             Pre-release
           </label>
           <label style="display: flex; align-items: center; gap: 6px; font-size: 14px">
-            <input type="checkbox" name="isDraft" value="1" />
+            <input
+              type="checkbox"
+              name="isDraft"
+              value="1"
+              checked={!!prefill.isDraft}
+            />
             Save as draft
           </label>
         </div>
-        <button type="submit" class="btn btn-primary" style="margin-top: 16px">
-          Publish release
-        </button>
+        <div style="display: flex; gap: 8px; margin-top: 16px">
+          <button type="submit" class="btn btn-primary">
+            Publish release
+          </button>
+          <button
+            type="submit"
+            class="btn"
+            formaction={`/${owner}/${repo}/releases/generate-notes`}
+            formnovalidate
+            title="Classify commits by conventional-commit prefix and prefill notes"
+          >
+            Generate from commits
+          </button>
+        </div>
       </form>
     </Layout>
   );
+}
+
+releasesRoute.get("/:owner/:repo/releases/new", requireAuth, async (c) => {
+  const user = c.get("user")!;
+  const { owner, repo } = c.req.param();
+  const repoRow = await loadRepo(owner, repo);
+  if (!repoRow) return c.notFound();
+  if (repoRow.ownerId !== user.id) return c.redirect(`/${owner}/${repo}/releases`);
+  return renderNewReleaseForm(c, user, owner, repo, repoRow);
 });
+
+// J15 — deterministic notes prefill from conventional commits.
+releasesRoute.post(
+  "/:owner/:repo/releases/generate-notes",
+  requireAuth,
+  async (c) => {
+    const user = c.get("user")!;
+    const { owner, repo } = c.req.param();
+    const repoRow = await loadRepo(owner, repo);
+    if (!repoRow) return c.notFound();
+    if (repoRow.ownerId !== user.id) {
+      return c.redirect(`/${owner}/${repo}/releases`);
+    }
+
+    const body = await c.req.parseBody();
+    const tag = String(body.tag || "").trim();
+    const name = String(body.name || "").trim();
+    const target = String(body.target || repoRow.defaultBranch).trim();
+    const previousTag = String(body.previousTag || "").trim();
+    const existingBody = String(body.body || "");
+    const isDraft = !!body.isDraft;
+    const isPrerelease = !!body.isPrerelease;
+
+    let autoPrev = previousTag;
+    if (!autoPrev) {
+      try {
+        const tags = await listTags(owner, repo);
+        autoPrev = tags[0]?.name || "";
+      } catch {
+        autoPrev = "";
+      }
+    }
+
+    let notice = "Prefilled notes from conventional-commit grouping.";
+    let generated = "";
+    try {
+      const sha = await resolveRef(owner, repo, target);
+      if (!sha) {
+        notice = `Could not resolve target "${target}". Notes left unchanged.`;
+        return renderNewReleaseForm(c, user, owner, repo, repoRow, {
+          tag,
+          target,
+          name,
+          previousTag: autoPrev,
+          body: existingBody,
+          isDraft,
+          isPrerelease,
+          notice,
+        });
+      }
+      const commits = await commitsBetween(owner, repo, autoPrev || null, sha);
+      generated = renderNotesMarkdown(
+        commits.map((cmt) => ({
+          sha: cmt.sha,
+          message: cmt.message,
+          author: cmt.author,
+        })),
+        {
+          ownerRepo: `${owner}/${repo}`,
+          previousTag: autoPrev || null,
+          newTag: tag || "HEAD",
+        }
+      );
+      if (commits.length === 0) {
+        notice = `No commits between ${autoPrev || "<root>"} and ${target}.`;
+      }
+    } catch (err) {
+      console.error("[releases] generate-notes failed:", err);
+      notice = "Failed to read commits — please try again.";
+    }
+
+    // Preserve whatever the owner had typed; append generated draft below.
+    const combined =
+      existingBody.trim().length === 0
+        ? generated
+        : `${existingBody.trimEnd()}\n\n${generated}`;
+
+    return renderNewReleaseForm(c, user, owner, repo, repoRow, {
+      tag,
+      target,
+      name,
+      previousTag: autoPrev,
+      body: combined,
+      isDraft,
+      isPrerelease,
+      notice,
+    });
+  }
+);
 
 releasesRoute.post("/:owner/:repo/releases", requireAuth, async (c) => {
   const user = c.get("user")!;
@@ -315,6 +477,25 @@ releasesRoute.post("/:owner/:repo/releases", requireAuth, async (c) => {
   if (!finalBody && aiEnabled) {
     const commits = await commitsBetween(owner, repo, autoPrev || null, sha);
     finalBody = await generateChangelog(`${owner}/${repo}`, autoPrev || null, tag, commits);
+  } else if (!finalBody) {
+    // J15 — AI disabled: deterministic grouping from conventional commits.
+    try {
+      const commits = await commitsBetween(owner, repo, autoPrev || null, sha);
+      finalBody = renderNotesMarkdown(
+        commits.map((cmt) => ({
+          sha: cmt.sha,
+          message: cmt.message,
+          author: cmt.author,
+        })),
+        {
+          ownerRepo: `${owner}/${repo}`,
+          previousTag: autoPrev || null,
+          newTag: tag,
+        }
+      );
+    } catch {
+      finalBody = "";
+    }
   }
 
   // Create the git tag (best-effort — if it already exists we reuse)

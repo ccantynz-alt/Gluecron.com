@@ -151,12 +151,20 @@ insights.get("/:owner/:repo/insights", async (c) => {
       <RepoNav owner={owner} repo={repo} active="insights" />
       <div style="display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 16px">
         <h3 style="margin: 0">Insights</h3>
-        <a
-          href={`/${owner}/${repo}/pulse`}
-          style="font-size: 12px; color: var(--accent)"
-        >
-          Pulse &rarr;
-        </a>
+        <div style="display: flex; gap: 16px">
+          <a
+            href={`/${owner}/${repo}/insights/response-time`}
+            style="font-size: 12px; color: var(--accent)"
+          >
+            Response time &rarr;
+          </a>
+          <a
+            href={`/${owner}/${repo}/pulse`}
+            style="font-size: 12px; color: var(--accent)"
+          >
+            Pulse &rarr;
+          </a>
+        </div>
       </div>
 
       <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 24px">

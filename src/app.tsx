@@ -84,6 +84,7 @@ import staleIssuesRoutes from "./routes/stale-issues";
 import codeownersLintRoutes from "./routes/codeowners-lint";
 import codeSuggestionsRoutes from "./routes/code-suggestions";
 import branchRenameRoutes from "./routes/branch-rename";
+import responseTimeRoutes from "./routes/response-time";
 import webRoutes from "./routes/web";
 
 const app = new Hono();
@@ -298,6 +299,11 @@ app.route("/", codeSuggestionsRoutes);
 
 // Branch rename — owner-only /:owner/:repo/settings/branches (Block J24)
 app.route("/", branchRenameRoutes);
+
+// Time-to-first-response metric — /:owner/:repo/insights/response-time (Block J25)
+// Must be mounted BEFORE insightsRoutes so the static `/insights/response-time`
+// path wins over any future `/insights/:id` dynamic route that might appear.
+app.route("/", responseTimeRoutes);
 
 // Insights + milestones
 app.route("/", insightsRoutes);

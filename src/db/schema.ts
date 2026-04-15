@@ -1970,3 +1970,27 @@ export const sponsorships = pgTable(
 );
 
 export type Sponsorship = typeof sponsorships.$inferSelect;
+
+// Block I8 — Code symbol index for xref navigation.
+export const codeSymbols = pgTable(
+  "code_symbols",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    commitSha: text("commit_sha").notNull(),
+    name: text("name").notNull(),
+    kind: text("kind").notNull(), // function | class | interface | type | const | variable
+    path: text("path").notNull(),
+    line: integer("line").notNull(),
+    signature: text("signature"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("code_symbols_repo_name_idx").on(table.repositoryId, table.name),
+    index("code_symbols_repo_path_idx").on(table.repositoryId, table.path),
+  ]
+);
+
+export type CodeSymbol = typeof codeSymbols.$inferSelect;

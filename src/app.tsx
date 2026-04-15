@@ -66,6 +66,7 @@ import marketplaceRoutes from "./routes/marketplace";
 import templatesRoutes from "./routes/templates";
 import codeScanningRoutes from "./routes/code-scanning";
 import sponsorsRoutes from "./routes/sponsors";
+import symbolsRoutes from "./routes/symbols";
 import webRoutes from "./routes/web";
 
 const app = new Hono();
@@ -225,6 +226,9 @@ app.route("/", codeScanningRoutes);
 
 // Sponsors — /sponsors/:user + /settings/sponsors (Block I6)
 app.route("/", sponsorsRoutes);
+
+// Symbol / xref navigation — /:owner/:repo/symbols (Block I8)
+app.route("/", symbolsRoutes);
 
 // Insights + milestones
 app.route("/", insightsRoutes);

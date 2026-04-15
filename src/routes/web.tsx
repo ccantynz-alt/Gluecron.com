@@ -252,6 +252,26 @@ web.get("/:owner", async (c) => {
   }
   const canFollow = !!user && !!ownerUser && user.id !== ownerUser.id;
 
+  // Block J5 — profile README. Render owner/owner repo's README on the
+  // profile page (GitHub convention). Tries "<user>/<user>" first, falling
+  // back to "<user>/.github" for org-style profile repos.
+  let profileReadmeHtml: string | null = null;
+  try {
+    const candidates = [ownerName, ".github"];
+    for (const rname of candidates) {
+      if (await repoExists(ownerName, rname)) {
+        const ref = (await getDefaultBranch(ownerName, rname)) || "main";
+        const md = await getReadme(ownerName, rname, ref);
+        if (md) {
+          profileReadmeHtml = renderMarkdown(md);
+          break;
+        }
+      }
+    }
+  } catch {
+    profileReadmeHtml = null;
+  }
+
   return c.html(
     <Layout title={ownerName} user={user}>
       <div class="user-profile">
@@ -303,6 +323,13 @@ web.get("/:owner", async (c) => {
           </div>
         </div>
       </div>
+      {profileReadmeHtml && (
+        <div
+          class="markdown-body"
+          style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius);padding:20px 24px;margin-bottom:24px"
+          dangerouslySetInnerHTML={{ __html: profileReadmeHtml }}
+        />
+      )}
       <h3 style="margin-bottom: 16px">Repositories</h3>
       {repos.length === 0 ? (
         <p style="color: var(--text-muted)">No repositories yet.</p>

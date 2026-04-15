@@ -56,6 +56,10 @@ import wikiRoutes from "./routes/wikis";
 import mergeQueueRoutes from "./routes/merge-queue";
 import requiredChecksRoutes from "./routes/required-checks";
 import protectedTagsRoutes from "./routes/protected-tags";
+import trafficRoutes from "./routes/traffic";
+import orgInsightsRoutes from "./routes/org-insights";
+import adminRoutes from "./routes/admin";
+import billingRoutes from "./routes/billing";
 import webRoutes from "./routes/web";
 
 const app = new Hono();
@@ -193,6 +197,10 @@ app.route("/", wikiRoutes);           // E3 — /:owner/:repo/wiki
 app.route("/", mergeQueueRoutes);     // E5 — /:owner/:repo/queue
 app.route("/", requiredChecksRoutes); // E6 — /:owner/:repo/gates/protection/:id/checks
 app.route("/", protectedTagsRoutes);  // E7 — /:owner/:repo/settings/protected-tags
+app.route("/", trafficRoutes);        // F1 — /:owner/:repo/traffic
+app.route("/", orgInsightsRoutes);    // F2 — /orgs/:slug/insights
+app.route("/", adminRoutes);          // F3 — /admin
+app.route("/", billingRoutes);        // F4 — /settings/billing + /admin/billing
 
 // Insights + milestones
 app.route("/", insightsRoutes);

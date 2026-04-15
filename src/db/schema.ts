@@ -1698,3 +1698,92 @@ export const protectedTags = pgTable(
 );
 
 export type ProtectedTag = typeof protectedTags.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Block F — Observability + admin (migration 0020)
+// ---------------------------------------------------------------------------
+
+// F1 — Traffic analytics per repo
+export const repoTrafficEvents = pgTable(
+  "repo_traffic_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(), // view | clone | api | ui
+    path: text("path"),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    ipHash: text("ip_hash"),
+    userAgent: text("user_agent"),
+    referer: text("referer"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("repo_traffic_events_repo_time").on(
+      table.repositoryId,
+      table.createdAt
+    ),
+    index("repo_traffic_events_kind").on(
+      table.repositoryId,
+      table.kind,
+      table.createdAt
+    ),
+  ]
+);
+
+export type RepoTrafficEvent = typeof repoTrafficEvents.$inferSelect;
+
+// F3 — Admin panel (site admins + toggleable flags)
+export const systemFlags = pgTable("system_flags", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull().default(""),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  updatedBy: uuid("updated_by").references(() => users.id),
+});
+
+export type SystemFlag = typeof systemFlags.$inferSelect;
+
+export const siteAdmins = pgTable("site_admins", {
+  userId: uuid("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  grantedAt: timestamp("granted_at").defaultNow().notNull(),
+  grantedBy: uuid("granted_by").references(() => users.id),
+});
+
+export type SiteAdmin = typeof siteAdmins.$inferSelect;
+
+// F4 — Billing + quotas
+export const billingPlans = pgTable("billing_plans", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  slug: text("slug").notNull().unique(),
+  name: text("name").notNull(),
+  priceCents: integer("price_cents").notNull().default(0),
+  repoLimit: integer("repo_limit").notNull().default(10),
+  storageMbLimit: integer("storage_mb_limit").notNull().default(1024),
+  aiTokensMonthly: integer("ai_tokens_monthly").notNull().default(100000),
+  bandwidthGbMonthly: integer("bandwidth_gb_monthly").notNull().default(10),
+  privateRepos: boolean("private_repos").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type BillingPlan = typeof billingPlans.$inferSelect;
+
+export const userQuotas = pgTable("user_quotas", {
+  userId: uuid("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  planSlug: text("plan_slug").notNull().default("free"),
+  storageMbUsed: integer("storage_mb_used").notNull().default(0),
+  aiTokensUsedThisMonth: integer("ai_tokens_used_this_month")
+    .notNull()
+    .default(0),
+  bandwidthGbUsedThisMonth: integer("bandwidth_gb_used_this_month")
+    .notNull()
+    .default(0),
+  cycleStart: timestamp("cycle_start").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export type UserQuota = typeof userQuotas.$inferSelect;

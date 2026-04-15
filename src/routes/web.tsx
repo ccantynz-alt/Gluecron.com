@@ -41,6 +41,7 @@ import { renderMarkdown, markdownCss } from "../lib/markdown";
 import { highlightCode } from "../lib/highlight";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
+import { trackByName } from "../lib/traffic";
 
 const web = new Hono<AuthEnv>();
 
@@ -312,6 +313,15 @@ web.post("/:owner/:repo/star", requireAuth, async (c) => {
 web.get("/:owner/:repo", async (c) => {
   const { owner, repo } = c.req.param();
   const user = c.get("user");
+
+  // F1 — fire-and-forget traffic tracking. Never awaits; never throws.
+  trackByName(owner, repo, "view", {
+    userId: user?.id || null,
+    path: `/${owner}/${repo}`,
+    ip: c.req.header("x-forwarded-for") || c.req.header("x-real-ip") || null,
+    userAgent: c.req.header("user-agent") || null,
+    referer: c.req.header("referer") || null,
+  }).catch(() => {});
 
   if (!(await repoExists(owner, repo))) {
     return c.html(

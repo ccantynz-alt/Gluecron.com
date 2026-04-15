@@ -167,7 +167,10 @@ Legend: ✅ shipped · 🟡 partial · ❌ not built
 | Health / readiness / metrics | ✅ | `/healthz` `/readyz` `/metrics` |
 | Audit log (table) | ✅ | `audit_log` table |
 | Audit log UI | ✅ | `/settings/audit` (personal) + `/:owner/:repo/settings/audit` (per-repo, owner-only) |
-| Traffic analytics per repo | ❌ | |
+| Traffic analytics per repo | ✅ | F1 — `src/lib/traffic.ts` + `src/routes/traffic.tsx`, `drizzle/0020_analytics_and_admin.sql`; owner-only 7/14/30/90d windows, ascii-bar daily chart. SHA-256-truncated IP for unique visitors. Fire-and-forget wiring in `web.tsx` + `git.ts`. |
+| Org insights dashboard | ✅ | F2 — `src/routes/org-insights.tsx`; `computeOrgInsights(orgId)` rollup of gate green-rate + PR/issue counts + per-repo breakdown. `GET /orgs/:slug/insights`. |
+| Site admin panel | ✅ | F3 — `src/lib/admin.ts` + `src/routes/admin.tsx`, tables `site_admins` + `system_flags`. Bootstrap rule (oldest user wins until `site_admins` populated). Flags: registration_locked, site_banner_*, read_only_mode. |
+| Billing + quotas | ✅ | F4 — `src/lib/billing.ts` + `src/routes/billing.tsx`, tables `billing_plans` + `user_quotas` seeded free/pro/team/enterprise. `/settings/billing` personal view + `/admin/billing` site-admin override. |
 | Email notifications | ✅ | opt-in per kind (mention/assign/gate-fail) via `/settings`; provider-pluggable `src/lib/email.ts` (log default, resend in prod) |
 | Email digest | ❌ | |
 | Mobile PWA | 🟡 | responsive CSS, no manifest |
@@ -249,10 +252,10 @@ This is where GlueCron beats GitHub outright. **Priority: ship these loud.**
 - **E7** — Protected tags → ✅ shipped. `src/lib/protected-tags.ts`, `src/routes/protected-tags.tsx`, table `protected_tags` (migration 0019). Settings CRUD at `/:owner/:repo/settings/protected-tags`; patterns use same glob syntax as branch protection. v1 enforcement is advisory: post-receive logs audit entries (`protected_tags.{create|update|delete}_violation_candidate`) so owners can see violations; pre-receive blocking is future work.
 
 ### BLOCK F — Observability + admin
-- **F1** — Traffic analytics per repo (views, clones, unique visitors)
-- **F2** — Org-wide insights (green rate across all repos)
-- **F3** — Admin / superuser panel (user moderation, repo audit)
-- **F4** — Billing + quotas (storage, AI tokens, bandwidth)
+- **F1** — Traffic analytics per repo → ✅ shipped. `src/lib/traffic.ts` + `src/routes/traffic.tsx`, table `repo_traffic_events` (migration 0020). `track`/`trackView`/`trackClone`/`trackByName` are fire-and-forget; SHA-256 of IP truncated to 16 chars for unique-visitor approximation. Owner-only `GET /:owner/:repo/traffic` renders 7/14/30/90 day windows with an ascii-bar daily chart. Wired into `src/routes/web.tsx` repo overview + `src/routes/git.ts` git-upload-pack handler.
+- **F2** — Org-wide insights → ✅ shipped. `src/routes/org-insights.tsx` exports `computeOrgInsights(orgId)`. `GET /orgs/:slug/insights` requires org membership; aggregates gate green-rate, open/merged PR counts, open issue count, and per-repo rows sorted by activity. No new tables — live rollup across existing `repositories`, `gate_runs`, `pull_requests`, `issues`.
+- **F3** — Admin / superuser panel → ✅ shipped. `src/lib/admin.ts` + `src/routes/admin.tsx`, tables `site_admins` + `system_flags` (migration 0020). `isSiteAdmin(userId)` with bootstrap rule (empty `site_admins` table → oldest user wins); `KNOWN_FLAGS` = { registration_locked, site_banner_text, site_banner_level, read_only_mode }. Routes: `GET /admin` (dashboard), `GET /admin/users` + toggle grant/revoke, `GET /admin/repos` + nuclear delete, `GET /admin/flags` + save. All mutations audit-logged.
+- **F4** — Billing + quotas → ✅ shipped. `src/lib/billing.ts` + `src/routes/billing.tsx`, tables `billing_plans` + `user_quotas` (migration 0020, seeded with free/pro/team/enterprise). `FALLBACK_PLANS` mirror the seeds so billing works pre-migration. Helpers: `getUserQuota` (auto-initialises free row on first read), `bumpUsage`, `checkQuota` (fail-open), `wouldExceedRepoLimit`, `resetIfCycleExpired`. Routes: `GET /settings/billing` (personal view with usage bars + plan cards), `GET /admin/billing` (site-admin plan override), `POST /admin/billing/:userId/plan`.
 
 ### BLOCK G — Mobile + client
 - **G1** — PWA manifest + service worker
@@ -274,7 +277,7 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `src/app.tsx` — route composition, middleware order, error handlers
 - `src/index.ts` — Bun server entry
 - `src/lib/config.ts` — env getters (late-binding)
-- `src/db/schema.ts` — 27 tables. New tables only via new migration.
+- `src/db/schema.ts` — 73 tables. New tables only via new migration.
 - `src/db/index.ts` — lazy proxy DB connection
 - `src/db/migrate.ts` — migration runner
 - `drizzle/0000_initial.sql`, `drizzle/0001_green_ecosystem.sql` — migrations
@@ -294,6 +297,7 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `drizzle/0017_merge_queue.sql` (Block E5) — migration, never edited in place. Adds `merge_queue_entries` (with partial unique index on `pull_request_id WHERE state IN ('queued','running')`).
 - `drizzle/0018_required_checks.sql` (Block E6) — migration, never edited in place. Adds `branch_required_checks`.
 - `drizzle/0019_protected_tags.sql` (Block E7) — migration, never edited in place. Adds `protected_tags`.
+- `drizzle/0020_analytics_and_admin.sql` (Block F) — migration, never edited in place. Adds `repo_traffic_events`, `system_flags`, `site_admins`, `billing_plans` (seeded free/pro/team/enterprise), `user_quotas`.
 
 ### 4.2 Git layer (locked)
 - `src/git/repository.ts` — tree / blob / commits / diff / branches / blame / search / raw / tags / commitsBetween
@@ -398,6 +402,13 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `src/lib/branch-protection.ts` extends for E6 — `listRequiredChecks(branchProtectionId)`, `passingCheckNames(repositoryId, commitSha)` (scans `gate_runs` + `workflow_runs`), and `evaluateProtection(rule, ctx, requiredChecks[])` now takes a third param + reports `missingChecks`.
 - `src/routes/protected-tags.tsx` (Block E7) — `/:owner/:repo/settings/protected-tags` CRUD (owner-only, requireAuth).
 - `src/lib/protected-tags.ts` (Block E7) — `matchProtectedTag`, `isProtectedTag`, `canBypassProtectedTag`, `listProtectedTags`, `addProtectedTag`, `removeProtectedTag`, `userIdFromUsername`. Matching uses `matchGlob` from environments.ts with `refs/tags/` prefix stripped. Post-receive hook writes audit log entries (`protected_tags.{create|update|delete}_violation_candidate`) on matched pushes.
+- `src/lib/traffic.ts` (Block F1) — `track`, `trackView`, `trackClone`, `trackByName(owner, repo, kind, meta)`, `summarise(repoId, windowDays=14)`, pure `bucketDaily(events)`. SHA-256-truncated IP hashing (16 hex) for unique-visitor approximation. All callers use `.catch(() => {})` fire-and-forget.
+- `src/routes/traffic.tsx` (Block F1) — `GET /:owner/:repo/traffic` (owner-only) with 7/14/30/90d windows, ascii-bar daily chart, top referers, unique visitors.
+- `src/routes/org-insights.tsx` (Block F2) — exports `computeOrgInsights(orgId)` returning `OrgInsightsSummary` (repoCount, gateRunsTotal, greenRate, openIssues, openPrs, mergedPrs30d, perRepo[]). `GET /orgs/:slug/insights` requires org membership. No new tables.
+- `src/lib/admin.ts` (Block F3) — `isSiteAdmin(userId)` with bootstrap rule (empty `site_admins` → oldest user wins), `listSiteAdmins`, `grantSiteAdmin`, `revokeSiteAdmin`, `getFlag`, `setFlag`, `listFlags`, `KNOWN_FLAGS = { registration_locked, site_banner_text, site_banner_level, read_only_mode }`. All helpers swallow DB errors.
+- `src/routes/admin.tsx` (Block F3) — `GET /admin` dashboard (user/repo/admin counts + recent signups), `/admin/users` + toggle grant/revoke, `/admin/repos` + nuclear delete, `/admin/flags` form. All mutations audit-logged via `audit()`. Gated through a `gate(c)` helper that returns `{user} | Response`.
+- `src/lib/billing.ts` (Block F4) — plan + quota helpers. `FALLBACK_PLANS` (free/pro/team/enterprise) mirror the seed rows. `getUserQuota(userId)` auto-initialises free row. `bumpUsage`, `checkQuota` (fail-open), `wouldExceedRepoLimit`, `resetIfCycleExpired`, `formatPrice`. Never throws into request path.
+- `src/routes/billing.tsx` (Block F4) — `GET /settings/billing` (personal view with usage bars + plan cards), `GET /admin/billing` (site-admin user/plan table), `POST /admin/billing/:userId/plan` (override plan, audit-logged).
 
 ### 4.7 Views (locked contracts)
 - `src/views/layout.tsx` — `Layout` accepts `title`, `user`, `notificationCount`
@@ -432,7 +443,7 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 ```bash
 bun install
 bun dev          # hot reload
-bun test         # 435 tests currently pass
+bun test         # 470 tests currently pass
 bun run db:migrate
 ```
 

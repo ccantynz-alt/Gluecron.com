@@ -877,3 +877,99 @@ export const webauthnChallenges = pgTable(
 
 export type UserPasskey = typeof userPasskeys.$inferSelect;
 export type WebauthnChallenge = typeof webauthnChallenges.$inferSelect;
+
+/**
+ * OAuth 2.0 provider (Block B6).
+ *
+ * `oauthApps` is a third-party app registered by a developer. Each app has
+ * a public `client_id`, a hashed `client_secret`, and one or more allowed
+ * `redirect_uris` (newline-separated). The plaintext secret is shown to the
+ * developer exactly once at creation and cannot be recovered; they can
+ * rotate it instead.
+ *
+ * `oauthAuthorizations` is a short-lived authorization code issued after
+ * the user consents at /oauth/authorize. Single-use: `usedAt` is set on
+ * redemption so a replay after-the-fact fails.
+ *
+ * `oauthAccessTokens` is a long-lived bearer token plus an optional
+ * refresh token. Both are stored as SHA-256 hashes; the plaintext values
+ * are only returned to the client once in the /oauth/token response.
+ */
+export const oauthApps = pgTable(
+  "oauth_apps",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ownerId: uuid("owner_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    clientId: text("client_id").notNull().unique(),
+    clientSecretHash: text("client_secret_hash").notNull(),
+    clientSecretPrefix: text("client_secret_prefix").notNull(), // first 8 chars for display
+    /** Newline-separated list of allowed redirect URIs. */
+    redirectUris: text("redirect_uris").notNull(),
+    homepageUrl: text("homepage_url"),
+    description: text("description"),
+    /**
+     * If `true`, the app must present its client_secret at /oauth/token.
+     * Public SPA/mobile apps should set this to `false` and use PKCE.
+     */
+    confidential: boolean("confidential").default(true).notNull(),
+    revokedAt: timestamp("revoked_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [index("oauth_apps_owner").on(table.ownerId)]
+);
+
+export const oauthAuthorizations = pgTable(
+  "oauth_authorizations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    appId: uuid("app_id")
+      .notNull()
+      .references(() => oauthApps.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    codeHash: text("code_hash").notNull().unique(),
+    redirectUri: text("redirect_uri").notNull(),
+    scopes: text("scopes").notNull().default(""),
+    codeChallenge: text("code_challenge"),
+    codeChallengeMethod: text("code_challenge_method"), // "S256" | "plain"
+    expiresAt: timestamp("expires_at").notNull(),
+    usedAt: timestamp("used_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [index("oauth_authorizations_expires").on(table.expiresAt)]
+);
+
+export const oauthAccessTokens = pgTable(
+  "oauth_access_tokens",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    appId: uuid("app_id")
+      .notNull()
+      .references(() => oauthApps.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    accessTokenHash: text("access_token_hash").notNull().unique(),
+    refreshTokenHash: text("refresh_token_hash").unique(),
+    scopes: text("scopes").notNull().default(""),
+    expiresAt: timestamp("expires_at").notNull(),
+    refreshExpiresAt: timestamp("refresh_expires_at"),
+    revokedAt: timestamp("revoked_at"),
+    lastUsedAt: timestamp("last_used_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("oauth_access_tokens_user").on(table.userId),
+    index("oauth_access_tokens_app").on(table.appId),
+    index("oauth_access_tokens_expires").on(table.expiresAt),
+  ]
+);
+
+export type OauthApp = typeof oauthApps.$inferSelect;
+export type OauthAuthorization = typeof oauthAuthorizations.$inferSelect;
+export type OauthAccessToken = typeof oauthAccessTokens.$inferSelect;

@@ -973,3 +973,125 @@ export const oauthAccessTokens = pgTable(
 export type OauthApp = typeof oauthApps.$inferSelect;
 export type OauthAuthorization = typeof oauthAuthorizations.$inferSelect;
 export type OauthAccessToken = typeof oauthAccessTokens.$inferSelect;
+
+/**
+ * Actions-equivalent workflow runner (Block C1).
+ *
+ * `workflows` rows are the YAML files discovered at `.gluecron/workflows/*.yml`
+ * on the repo's default branch. `parsed` is the normalised JSON form used by
+ * the runner so we don't re-parse on every trigger.
+ *
+ * `workflow_runs` is one execution: one row per trigger event. Status
+ * progression: queued → running → success|failure|cancelled. `conclusion`
+ * stays null until `status` is terminal.
+ *
+ * `workflow_jobs` is a single job within a run — each has its own steps
+ * array and concatenated logs. We keep logs inline for v1 (no streaming)
+ * to avoid a fifth table; they're truncated at the runner.
+ *
+ * `workflow_artifacts` persist files a job uploaded. `content` is a bytea;
+ * we'll move this to object storage once we hit size limits.
+ */
+export const workflows = pgTable(
+  "workflows",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    path: text("path").notNull(), // e.g. ".gluecron/workflows/ci.yml"
+    yaml: text("yaml").notNull(),
+    parsed: text("parsed").notNull(), // JSON string
+    onEvents: text("on_events").notNull().default("[]"), // JSON array of event names
+    disabled: boolean("disabled").default(false).notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("workflows_repo").on(table.repositoryId),
+    uniqueIndex("workflows_repo_path").on(table.repositoryId, table.path),
+  ]
+);
+
+export const workflowRuns = pgTable(
+  "workflow_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workflowId: uuid("workflow_id")
+      .notNull()
+      .references(() => workflows.id, { onDelete: "cascade" }),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    runNumber: integer("run_number").notNull(),
+    event: text("event").notNull(), // "push" | "pull_request" | "manual" | ...
+    ref: text("ref"),
+    commitSha: text("commit_sha"),
+    triggeredBy: uuid("triggered_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    status: text("status").notNull().default("queued"), // queued|running|success|failure|cancelled
+    conclusion: text("conclusion"),
+    queuedAt: timestamp("queued_at").defaultNow().notNull(),
+    startedAt: timestamp("started_at"),
+    finishedAt: timestamp("finished_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("workflow_runs_repo").on(table.repositoryId),
+    index("workflow_runs_status").on(table.status),
+    index("workflow_runs_workflow").on(table.workflowId),
+  ]
+);
+
+export const workflowJobs = pgTable(
+  "workflow_jobs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    runId: uuid("run_id")
+      .notNull()
+      .references(() => workflowRuns.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    jobOrder: integer("job_order").default(0).notNull(),
+    runsOn: text("runs_on").notNull().default("default"),
+    status: text("status").notNull().default("queued"),
+    conclusion: text("conclusion"),
+    exitCode: integer("exit_code"),
+    steps: text("steps").notNull().default("[]"), // JSON array of step results
+    logs: text("logs").notNull().default(""),
+    startedAt: timestamp("started_at"),
+    finishedAt: timestamp("finished_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [index("workflow_jobs_run").on(table.runId)]
+);
+
+export const workflowArtifacts = pgTable(
+  "workflow_artifacts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    runId: uuid("run_id")
+      .notNull()
+      .references(() => workflowRuns.id, { onDelete: "cascade" }),
+    jobId: uuid("job_id").references(() => workflowJobs.id, {
+      onDelete: "set null",
+    }),
+    name: text("name").notNull(),
+    sizeBytes: integer("size_bytes").default(0).notNull(),
+    contentType: text("content_type")
+      .default("application/octet-stream")
+      .notNull(),
+    // bytea — drizzle doesn't have a built-in bytea type at the level we use
+    // elsewhere; store as text (base64) for v1. Migration uses real bytea so
+    // we can swap the column type later.
+    content: text("content"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [index("workflow_artifacts_run").on(table.runId)]
+);
+
+export type Workflow = typeof workflows.$inferSelect;
+export type WorkflowRun = typeof workflowRuns.$inferSelect;
+export type WorkflowJob = typeof workflowJobs.$inferSelect;
+export type WorkflowArtifact = typeof workflowArtifacts.$inferSelect;

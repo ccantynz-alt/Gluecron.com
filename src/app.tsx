@@ -38,6 +38,7 @@ import orgRoutes from "./routes/orgs";
 import passkeyRoutes from "./routes/passkeys";
 import oauthRoutes from "./routes/oauth";
 import developerAppsRoutes from "./routes/developer-apps";
+import workflowRoutes from "./routes/workflows";
 import webRoutes from "./routes/web";
 
 const app = new Hono();
@@ -147,6 +148,9 @@ app.route("/", releaseRoutes);
 
 // Gates (history + settings + branch protection)
 app.route("/", gateRoutes);
+
+// Actions-equivalent workflow runner (Block C1)
+app.route("/", workflowRoutes);
 
 // Insights + milestones
 app.route("/", insightsRoutes);

@@ -24,9 +24,12 @@ import {
   runSecretAndSecurityScan,
 } from "../lib/gate";
 import { getOrCreateSettings } from "../lib/repo-bootstrap";
-import { getBlob, getDefaultBranch } from "../git/repository";
+import { getBlob, getDefaultBranch, getTree } from "../git/repository";
 import { parseCodeowners, syncCodeowners } from "../lib/codeowners";
 import { notify } from "../lib/notify";
+import { workflows } from "../db/schema";
+import { parseWorkflow } from "../lib/workflow-parser";
+import { enqueueRun } from "../lib/workflow-runner";
 
 interface PushRef {
   oldSha: string;
@@ -105,6 +108,104 @@ export async function onPostReceive(
       }
     } catch (err) {
       console.error("[post-receive] codeowners sync:", err);
+    }
+  }
+
+  // --- 2b. Workflow sync + trigger (Block C1) ---
+  // On pushes to the default branch, discover `.gluecron/workflows/*.yml`,
+  // upsert them in the workflows table, and enqueue a run for each workflow
+  // whose `on` triggers include `push`.
+  if (mainRef && repoRow) {
+    try {
+      const entries = await getTree(
+        owner,
+        repo,
+        defaultBranch,
+        ".gluecron/workflows"
+      );
+      const existing = await db
+        .select({ id: workflows.id, path: workflows.path })
+        .from(workflows)
+        .where(eq(workflows.repositoryId, repoRow.id));
+      const existingByPath = new Map(existing.map((e) => [e.path, e.id]));
+      const seenPaths = new Set<string>();
+
+      for (const entry of entries) {
+        if (entry.type !== "blob") continue;
+        if (!/\.ya?ml$/i.test(entry.name)) continue;
+        const path = `.gluecron/workflows/${entry.name}`;
+        seenPaths.add(path);
+        const blob = await getBlob(owner, repo, defaultBranch, path);
+        if (!blob || blob.isBinary) continue;
+        const parsed = parseWorkflow(blob.content);
+        if (!parsed.ok) {
+          console.error(
+            `[workflow-sync] ${owner}/${repo}:${path} invalid — ${parsed.error}`
+          );
+          continue;
+        }
+        const onEvents = JSON.stringify(parsed.workflow.on);
+        const parsedJson = JSON.stringify(parsed.workflow);
+        const existingId = existingByPath.get(path);
+        let workflowId: string;
+        if (existingId) {
+          await db
+            .update(workflows)
+            .set({
+              name: parsed.workflow.name,
+              yaml: blob.content,
+              parsed: parsedJson,
+              onEvents,
+              updatedAt: new Date(),
+            })
+            .where(eq(workflows.id, existingId));
+          workflowId = existingId;
+        } else {
+          const [row] = await db
+            .insert(workflows)
+            .values({
+              repositoryId: repoRow.id,
+              name: parsed.workflow.name,
+              path,
+              yaml: blob.content,
+              parsed: parsedJson,
+              onEvents,
+            })
+            .returning({ id: workflows.id });
+          workflowId = row.id;
+        }
+
+        // Enqueue a run if this workflow subscribes to the push event.
+        if (parsed.workflow.on.includes("push")) {
+          try {
+            await enqueueRun({
+              workflowId,
+              repositoryId: repoRow.id,
+              event: "push",
+              ref: mainRef.refName,
+              commitSha: mainRef.newSha,
+              triggeredBy: ownerRow?.id || null,
+            });
+          } catch (err) {
+            console.error(
+              `[workflow-enqueue] ${owner}/${repo}:${path}:`,
+              err
+            );
+          }
+        }
+      }
+
+      // Mark workflows whose files have been removed as disabled (soft-delete).
+      for (const [p, id] of existingByPath) {
+        if (!seenPaths.has(p)) {
+          await db
+            .update(workflows)
+            .set({ disabled: true, updatedAt: new Date() })
+            .where(eq(workflows.id, id));
+        }
+      }
+    } catch (err) {
+      console.error("[post-receive] workflow sync:", err);
     }
   }
 

@@ -80,6 +80,7 @@ import communityRoutes from "./routes/community";
 import pinnedReposRoutes from "./routes/pinned-repos";
 import pulseRoutes from "./routes/pulse";
 import feedRoutes from "./routes/feeds";
+import staleIssuesRoutes from "./routes/stale-issues";
 import webRoutes from "./routes/web";
 
 const app = new Hono();
@@ -168,6 +169,10 @@ app.route("/", webhookRoutes);
 
 // Compare view (branch diffs)
 app.route("/", compareRoutes);
+
+// Stale issue detector — must be BEFORE issueRoutes so the static
+// `/issues/stale` path wins over the dynamic `/issues/:number` (Block J20).
+app.route("/", staleIssuesRoutes);
 
 // Issue tracker
 app.route("/", issueRoutes);

@@ -111,14 +111,23 @@ issueRoutes.get("/:owner/:repo/issues", softAuth, async (c) => {
             {counts?.closed ?? 0} Closed
           </a>
         </div>
-        {user && (
+        <div style="display: flex; gap: 8px; align-items: center">
           <a
-            href={`/${ownerName}/${repoName}/issues/new`}
-            class="btn btn-primary"
+            href={`/${ownerName}/${repoName}/issues/stale`}
+            class="btn"
+            style="padding: 4px 10px; font-size: 12px"
           >
-            New issue
+            Stale
           </a>
-        )}
+          {user && (
+            <a
+              href={`/${ownerName}/${repoName}/issues/new`}
+              class="btn btn-primary"
+            >
+              New issue
+            </a>
+          )}
+        </div>
       </div>
       {issueList.length === 0 ? (
         <div class="empty-state">

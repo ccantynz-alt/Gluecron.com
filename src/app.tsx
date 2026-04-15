@@ -29,6 +29,7 @@ import insightsRoutes from "./routes/insights";
 import searchRoutes from "./routes/search";
 import healthRoutes from "./routes/health";
 import hookRoutes from "./routes/hooks";
+import eventsRoutes from "./routes/events";
 import themeRoutes from "./routes/theme";
 import auditRoutes from "./routes/audit";
 import reactionRoutes from "./routes/reactions";
@@ -102,6 +103,7 @@ app.route("/", healthRoutes);
 
 // Inbound API hooks (GateTest callback + backup PAT-authed /api/v1/gate-runs)
 app.route("/", hookRoutes);
+app.route("/api/events", eventsRoutes);
 
 // REST API
 app.route("/", apiRoutes);

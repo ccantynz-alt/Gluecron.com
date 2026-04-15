@@ -269,7 +269,7 @@ pagesRoute.get(
           </div>
 
           <form
-            method="POST"
+            method="post"
             action={`/${ownerName}/${repoName}/settings/pages`}
           >
             <div class="form-group">
@@ -327,7 +327,7 @@ pagesRoute.get(
             >
               <h3>Recent deployments</h3>
               <form
-                method="POST"
+                method="post"
                 action={`/${ownerName}/${repoName}/settings/pages/redeploy`}
                 style="display: inline"
               >

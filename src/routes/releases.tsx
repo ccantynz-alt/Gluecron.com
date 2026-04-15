@@ -161,7 +161,7 @@ releasesRoute.get("/:owner/:repo/releases", async (c) => {
               )}
               {user && user.id === repoRow.ownerId && (
                 <form
-                  method="POST"
+                  method="post"
                   action={`/${owner}/${repo}/releases/${encodeURIComponent(r.tag)}/delete`}
                   style="margin-top: 12px"
                   onsubmit="return confirm('Delete this release?')"
@@ -208,7 +208,7 @@ releasesRoute.get("/:owner/:repo/releases/new", requireAuth, async (c) => {
       <h3>Draft a new release</h3>
       {error && <div class="auth-error">{decodeURIComponent(error)}</div>}
       <form
-        method="POST"
+        method="post"
         action={`/${owner}/${repo}/releases`}
         style="max-width: 700px"
       >

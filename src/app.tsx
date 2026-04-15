@@ -78,6 +78,7 @@ import commitStatusesRoutes from "./routes/commit-statuses";
 import badgesRoutes from "./routes/badges";
 import communityRoutes from "./routes/community";
 import pinnedReposRoutes from "./routes/pinned-repos";
+import pulseRoutes from "./routes/pulse";
 import webRoutes from "./routes/web";
 
 const app = new Hono();
@@ -273,6 +274,9 @@ app.route("/", communityRoutes);
 
 // Pinned repositories on user profile — /settings/pins (Block J13)
 app.route("/", pinnedReposRoutes);
+
+// Repository pulse — /:owner/:repo/pulse (Block J18)
+app.route("/", pulseRoutes);
 
 // Insights + milestones
 app.route("/", insightsRoutes);

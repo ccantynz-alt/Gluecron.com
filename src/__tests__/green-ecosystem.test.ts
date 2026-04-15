@@ -12,6 +12,8 @@ import { scanForSecrets, SECRET_PATTERNS } from "../lib/security-scan";
 import {
   parseCodeowners,
   ownersForPath,
+  isTeamToken,
+  expandOwnerTokens,
 } from "../lib/codeowners";
 import { generateCommitMessage } from "../lib/ai-generators";
 import { isAiAvailable } from "../lib/ai-client";
@@ -110,6 +112,30 @@ describe("codeowners parser", () => {
     );
     expect(rules.length).toBe(1);
     expect(rules[0].owners).toEqual(["ghost"]);
+  });
+
+  it("preserves @org/team tokens (B3)", () => {
+    const rules = parseCodeowners(
+      "api/**  @acme/backend @alice\nweb/**  @acme/frontend\n"
+    );
+    expect(rules[0].owners).toEqual(["acme/backend", "alice"]);
+    expect(rules[1].owners).toEqual(["acme/frontend"]);
+    expect(isTeamToken("acme/backend")).toBe(true);
+    expect(isTeamToken("alice")).toBe(false);
+  });
+
+  it("expandOwnerTokens passes plain usernames through and drops unknown teams gracefully", async () => {
+    // Real team lookup requires DB rows. Without DB the helper must still
+    // resolve without throwing; plain usernames must always pass through.
+    const result = await expandOwnerTokens([
+      "alice",
+      "bob",
+      "nonexistent-org-xyz/some-team",
+    ]);
+    expect(result).toContain("alice");
+    expect(result).toContain("bob");
+    // Unknown team silently drops (no throw, no crash).
+    expect(result).not.toContain("nonexistent-org-xyz/some-team");
   });
 });
 

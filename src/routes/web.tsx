@@ -855,6 +855,19 @@ web.get("/:owner/:repo/commit/:sha", async (c) => {
   let verification:
     | { verified: boolean; reason: string; signatureType: string | null }
     | null = null;
+  // Block J8 — external CI commit statuses rollup.
+  let statusCombined:
+    | {
+        state: "pending" | "success" | "failure";
+        total: number;
+        contexts: Array<{
+          context: string;
+          state: string;
+          description: string | null;
+          targetUrl: string | null;
+        }>;
+      }
+    | null = null;
   try {
     const [ownerRow] = await db
       .select()
@@ -880,6 +893,24 @@ web.get("/:owner/:repo/commit/:sha", async (c) => {
           reason: v.reason,
           signatureType: v.signatureType,
         };
+        try {
+          const { combinedStatus } = await import("../lib/commit-statuses");
+          const combined = await combinedStatus(repoRow.id, commit.sha);
+          if (combined.total > 0) {
+            statusCombined = {
+              state: combined.state as any,
+              total: combined.total,
+              contexts: combined.contexts.map((c) => ({
+                context: c.context,
+                state: c.state,
+                description: c.description,
+                targetUrl: c.targetUrl,
+              })),
+            };
+          }
+        } catch {
+          statusCombined = null;
+        }
       }
     }
   } catch {
@@ -940,6 +971,53 @@ web.get("/:owner/:repo/commit/:sha", async (c) => {
             </span>
           )}
         </div>
+        {statusCombined && (
+          <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); font-size: 13px">
+            <strong style="color: var(--text)">Checks</strong>
+            <span style="margin-left: 8px; color: var(--text-muted)">
+              {statusCombined.total} total —{" "}
+              <span
+                style={`color:${
+                  statusCombined.state === "success"
+                    ? "var(--green,#2ea043)"
+                    : statusCombined.state === "failure"
+                      ? "var(--red,#da3633)"
+                      : "var(--yellow,#d29922)"
+                }`}
+              >
+                {statusCombined.state}
+              </span>
+            </span>
+            <div style="margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px">
+              {statusCombined.contexts.map((cx) => (
+                <span
+                  style={`font-size:11px;padding:2px 6px;border-radius:3px;color:#fff;background:${
+                    cx.state === "success"
+                      ? "var(--green,#2ea043)"
+                      : cx.state === "pending"
+                        ? "var(--yellow,#d29922)"
+                        : "var(--red,#da3633)"
+                  }`}
+                  title={cx.description || cx.context}
+                >
+                  {cx.targetUrl ? (
+                    <a
+                      href={cx.targetUrl}
+                      style="color: inherit; text-decoration: none"
+                      rel="noopener"
+                    >
+                      {cx.context}: {cx.state}
+                    </a>
+                  ) : (
+                    <>
+                      {cx.context}: {cx.state}
+                    </>
+                  )}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
       <DiffView raw={raw} files={files} />
     </Layout>

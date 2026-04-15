@@ -2316,3 +2316,46 @@ export const rulesetRules = pgTable(
 );
 
 export type RulesetRule = typeof rulesetRules.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Block J8 — Commit statuses.
+// ---------------------------------------------------------------------------
+
+/**
+ * External CI / automation posts per-commit (sha, context) statuses. Upsert
+ * semantics keyed on (repository, commit_sha, context). State vocabulary:
+ * pending | success | failure | error. Combined rollup logic lives in
+ * `src/lib/commit-statuses.ts`.
+ */
+export const commitStatuses = pgTable(
+  "commit_statuses",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    commitSha: text("commit_sha").notNull(),
+    state: text("state").notNull(),
+    context: text("context").default("default").notNull(),
+    description: text("description"),
+    targetUrl: text("target_url"),
+    creatorId: uuid("creator_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("commit_statuses_repo_sha_context_unique").on(
+      table.repositoryId,
+      table.commitSha,
+      table.context
+    ),
+    index("commit_statuses_repo_sha_idx").on(
+      table.repositoryId,
+      table.commitSha
+    ),
+  ]
+);
+
+export type CommitStatus = typeof commitStatuses.$inferSelect;

@@ -74,6 +74,7 @@ import advisoriesRoutes from "./routes/advisories";
 import signingKeysRoutes from "./routes/signing-keys";
 import followsRoutes from "./routes/follows";
 import rulesetsRoutes from "./routes/rulesets";
+import commitStatusesRoutes from "./routes/commit-statuses";
 import webRoutes from "./routes/web";
 
 const app = new Hono();
@@ -257,6 +258,9 @@ app.route("/", followsRoutes);
 
 // Repository rulesets — /:owner/:repo/settings/rulesets (Block J6)
 app.route("/", rulesetsRoutes);
+
+// Commit status API — /api/v1/repos/:o/:r/statuses/:sha (Block J8)
+app.route("/", commitStatusesRoutes);
 
 // Insights + milestones
 app.route("/", insightsRoutes);

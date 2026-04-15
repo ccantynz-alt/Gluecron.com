@@ -10,6 +10,8 @@ import {
   prComments,
   repositories,
   users,
+  issues,
+  issueComments,
 } from "../db/schema";
 import { Layout } from "../views/layout";
 import { RepoHeader, DiffView } from "../views/components";
@@ -925,6 +927,39 @@ pulls.post(
         updatedAt: new Date(),
       })
       .where(eq(pullRequests.id, pr.id));
+
+    // J7 — closing keywords. Scan PR title + body for "closes #N" style refs
+    // and auto-close each matching open issue with a back-link comment. Bounded
+    // to the same repo for v1 (cross-repo refs ignored). Failures never block
+    // the merge redirect.
+    try {
+      const { extractClosingRefsMulti } = await import("../lib/close-keywords");
+      const refs = extractClosingRefsMulti([pr.title, pr.body]);
+      for (const n of refs) {
+        const [issue] = await db
+          .select()
+          .from(issues)
+          .where(
+            and(
+              eq(issues.repositoryId, resolved.repo.id),
+              eq(issues.number, n)
+            )
+          )
+          .limit(1);
+        if (!issue || issue.state !== "open") continue;
+        await db
+          .update(issues)
+          .set({ state: "closed", closedAt: new Date(), updatedAt: new Date() })
+          .where(eq(issues.id, issue.id));
+        await db.insert(issueComments).values({
+          issueId: issue.id,
+          authorId: user.id,
+          body: `Closed by pull request #${pr.number}.`,
+        });
+      }
+    } catch {
+      // Never block the merge on close-keyword failures.
+    }
 
     return c.redirect(`/${ownerName}/${repoName}/pulls/${prNum}`);
   }

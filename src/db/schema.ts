@@ -22,6 +22,9 @@ export const users = pgTable("users", {
   notifyEmailOnMention: boolean("notify_email_on_mention").default(true).notNull(),
   notifyEmailOnAssign: boolean("notify_email_on_assign").default(true).notNull(),
   notifyEmailOnGateFail: boolean("notify_email_on_gate_fail").default(true).notNull(),
+  // Block I7 — weekly digest opt-in.
+  notifyEmailDigestWeekly: boolean("notify_email_digest_weekly").default(false).notNull(),
+  lastDigestSentAt: timestamp("last_digest_sent_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -1914,3 +1917,56 @@ export const repoTransfers = pgTable(
 );
 
 export type RepoTransfer = typeof repoTransfers.$inferSelect;
+
+// ---------- Block I6 — Sponsors ----------
+
+export const sponsorshipTiers = pgTable(
+  "sponsorship_tiers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    maintainerId: uuid("maintainer_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    description: text("description").default("").notNull(),
+    monthlyCents: integer("monthly_cents").notNull(),
+    oneTimeAllowed: boolean("one_time_allowed").default(true).notNull(),
+    isActive: boolean("is_active").default(true).notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("sponsor_tiers_maintainer").on(table.maintainerId, table.isActive),
+  ]
+);
+
+export type SponsorshipTier = typeof sponsorshipTiers.$inferSelect;
+
+export const sponsorships = pgTable(
+  "sponsorships",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sponsorId: uuid("sponsor_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    maintainerId: uuid("maintainer_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    tierId: uuid("tier_id"),
+    amountCents: integer("amount_cents").notNull(),
+    kind: text("kind").notNull(), // one_time | monthly
+    note: text("note"),
+    isPublic: boolean("is_public").default(true).notNull(),
+    externalRef: text("external_ref"),
+    cancelledAt: timestamp("cancelled_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("sponsorships_maintainer").on(
+      table.maintainerId,
+      table.createdAt
+    ),
+    index("sponsorships_sponsor").on(table.sponsorId, table.createdAt),
+  ]
+);
+
+export type Sponsorship = typeof sponsorships.$inferSelect;

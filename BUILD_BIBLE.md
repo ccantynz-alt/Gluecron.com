@@ -129,7 +129,7 @@ Legend: ✅ shipped · 🟡 partial · ❌ not built
 | AI PR triage | ✅ | D3 — Claude Haiku suggests labels/reviewers/priority as an AI comment on PR create; `triagePullRequest` in `src/lib/ai-generators.ts`, wired in `src/routes/pulls.tsx` |
 | GitHub Actions equivalent (workflow runner) | ✅ | `src/lib/workflow-parser.ts`, `src/lib/workflow-runner.ts`, `src/routes/workflows.tsx`; `.gluecron/workflows/*.yml` auto-discovered on push; Bun subprocess executor, per-step timeouts, size-capped logs |
 | Dependabot equivalent (AI dep bumper) | ✅ | D2 — `dep_update_runs` table, npm registry fetch, plan + apply bumps, creates `gluecron/dep-update-*` branch + PR row via git plumbing. `src/lib/dep-updater.ts`, `src/routes/dep-updater.tsx`, settings UI at `/:owner/:repo/settings/dep-updater`. |
-| Code scanning UI | 🟡 | data exists, no dedicated UI page |
+| Code scanning UI | ✅ | I5 — `src/routes/code-scanning.tsx`, `GET /:owner/:repo/security`. Aggregates last-100 `gate_runs` matching `%scan%`/`%security%`, rolls up latest status per gate, shows failed/repaired/total cards + scanner status list + recent runs. |
 | Copilot code completion | ✅ | D9 — `POST /api/copilot/completions` (PAT/OAuth/session), `GET /api/copilot/ping`. `src/lib/ai-completion.ts`, `src/routes/copilot.ts`. LRU-cached, rate-limited 60/min. |
 | Semantic code search | ✅ | D1 — see 2.2 |
 
@@ -152,7 +152,7 @@ Legend: ✅ shipped · 🟡 partial · ❌ not built
 | Packages registry (npm / docker / etc) | ✅ | `src/lib/packages.ts`, `src/routes/packages-api.ts`, `src/routes/packages.tsx`; npm protocol (packument, tarball, publish, yank); PAT (`glc_`) auth via Authorization header; container registry deferred |
 | Pages / static hosting | ✅ | `src/lib/pages.ts`, `src/routes/pages.tsx`; serves blobs from bare git at latest `gh-pages` commit; per-repo settings (source branch/dir, custom domain); short-cache headers |
 | Gists | ✅ | E4 — multi-file tiny repos with per-revision JSON snapshots + stars. `src/routes/gists.tsx` + `drizzle/0014_gists.sql` |
-| Sponsors | ❌ | |
+| Sponsors | ✅ | I6 — `src/routes/sponsors.tsx`, `drizzle/0023_sponsors.sql` (tables `sponsorship_tiers`, `sponsorships`). Public `/sponsors/:user` page with tier cards + recent public sponsors; maintainer view at `/settings/sponsors` with add/retire tiers. Payment rails deferred — captures intent + thank-you notes. |
 | Marketplace | ✅ | H1 — `src/routes/marketplace.tsx` + `src/lib/marketplace.ts`, `drizzle/0021_marketplace_and_apps.sql` (5 tables: `apps`, `app_installations`, `app_bots`, `app_install_tokens`, `app_events`). Public `/marketplace` directory, `/marketplace/:slug` detail + install, `/settings/apps` personal installs, `/developer/apps-new` registration, `/developer/apps/:slug/manage` event log + token issuance. |
 | Environments / deployment tracking | ✅ | `src/routes/deployments.tsx` — grouped by env, success-rate rollup, per-deploy detail. Protected environments (`src/routes/environments.tsx`, `src/lib/environments.ts`) with reviewer-gated approval, branch-glob restrictions, approve/reject decisions recorded in `deployment_approvals` |
 | Merge queues | ✅ | E5 — serialised merge with re-test. `src/lib/merge-queue.ts`, `src/routes/merge-queue.tsx`, `drizzle/0017_merge_queue.sql`; per `(repo, base_branch)` queue, owner-only process-next re-runs gates against latest base before merging. |
@@ -172,7 +172,7 @@ Legend: ✅ shipped · 🟡 partial · ❌ not built
 | Site admin panel | ✅ | F3 — `src/lib/admin.ts` + `src/routes/admin.tsx`, tables `site_admins` + `system_flags`. Bootstrap rule (oldest user wins until `site_admins` populated). Flags: registration_locked, site_banner_*, read_only_mode. |
 | Billing + quotas | ✅ | F4 — `src/lib/billing.ts` + `src/routes/billing.tsx`, tables `billing_plans` + `user_quotas` seeded free/pro/team/enterprise. `/settings/billing` personal view + `/admin/billing` site-admin override. |
 | Email notifications | ✅ | opt-in per kind (mention/assign/gate-fail) via `/settings`; provider-pluggable `src/lib/email.ts` (log default, resend in prod) |
-| Email digest | ❌ | |
+| Email digest | ✅ | I7 — `src/lib/email-digest.ts` + `drizzle/0024_email_digest.sql` (`users.notify_email_digest_weekly` + `last_digest_sent_at`). `composeDigest` pulls notifications + failed/repaired gates + merged PRs over last 7d, renders text + escaped HTML. `/settings/digest/preview` for self-preview; `/admin/digests` dashboard + `POST /admin/digests/run` fires `sendDigestsToAll`; `POST /admin/digests/preview` sends to one user. Never throws. |
 | Mobile PWA | ✅ | G1 — `src/routes/pwa.ts` serves `/manifest.webmanifest` + `/sw.js` + `/icon.svg`; Layout injects manifest link + SW registration. Offline-capable (network-first for HTML). |
 | GraphQL API | ✅ | G2 — `src/lib/graphql.ts` parser + executor, `src/routes/graphql.ts` endpoint at `POST /api/graphql`, GraphiQL-lite explorer at `GET /api/graphql`. Queries only (viewer/user/repository/search/rateLimit). |
 | Official CLI | ✅ | G3 — `cli/gluecron.ts` Bun-compilable single binary. REST + GraphQL client, `~/.gluecron/config.json` 0600. |
@@ -271,6 +271,9 @@ This is where GlueCron beats GitHub outright. **Priority: ship these loud.**
 - **I2** — Template repositories → ✅ shipped. `drizzle/0022_repo_templates.sql` adds `is_template` column + partial index. `src/routes/templates.ts` serves `POST /:owner/:repo/use-template` (git clone --bare into caller's namespace, fresh `activity_feed` entry). Settings UI gains a "Mark as template" toggle. Public repo page renders a prominent "Use this template" CTA for non-owners.
 - **I3** — Repository transfer → ✅ shipped. `drizzle/0022_repo_templates.sql` adds `repo_transfers` audit table. `src/routes/repo-settings.tsx` `POST /:owner/:repo/settings/transfer` (validate target user exists, reject name conflicts, update `owner_id`, log to `repo_transfers`).
 - **I4** — Generic command palette → ✅ shipped. `src/views/layout.tsx` injects a Cmd+K palette with ~20 canonical destinations (Dashboard, Explore, Notifications, Ask AI, Create repo, Marketplace, Installed apps, Register app, Shortcuts, Settings, 2FA, Passkeys, PATs, Billing, Audit, Gists, GraphQL, Admin, Theme). Fuzzy-match, arrow-key navigation, Esc/backdrop to close.
+- **I5** — Code scanning UI → ✅ shipped. `src/routes/code-scanning.tsx` `GET /:owner/:repo/security` aggregates `gate_runs` matching `%scan%`/`%security%` (last 100), computes latest-per-gate status, renders failed/repaired/total summary cards + per-scanner status list + recent-runs table. Private-repo visibility enforced. Zero new tables — pure surfacing layer.
+- **I6** — Sponsors → ✅ shipped. `drizzle/0023_sponsors.sql` adds `sponsorship_tiers` (maintainer_id, name, monthly_cents, one_time_allowed, is_active) + `sponsorships` (sponsor_id, maintainer_id, tier_id, amount_cents, kind, note, is_public, cancelled_at). `src/routes/sponsors.tsx` serves public `/sponsors/:username` (tier cards + recent public sponsors join) + maintainer `/settings/sponsors` (tier CRUD, soft-retire via is_active=false, activity list). Payment rails deferred — v1 captures intent + thank-you notes.
+- **I7** — Weekly email digest → ✅ shipped. `drizzle/0024_email_digest.sql` adds `users.notify_email_digest_weekly` + `last_digest_sent_at`. `src/lib/email-digest.ts` exposes `composeDigest`/`sendDigestForUser`/`sendDigestsToAll` (never-throws). Pulls notifications + failed/repaired gate_runs + merged PRs from the last 7d, composes escaped HTML + plaintext, and sends via the shared email provider. `/settings/digest/preview` renders the digest inline for self-preview; `/admin/digests` gives site admins a "Send now" trigger + single-user preview, audit-logged as `admin.digests.run`/`admin.digests.preview`.
 
 ### BLOCK H — Marketplace
 - **H1** — App marketplace → ✅ shipped. `src/routes/marketplace.tsx` + `src/lib/marketplace.ts` + `drizzle/0021_marketplace_and_apps.sql` (5 tables: `apps`, `app_installations`, `app_bots`, `app_install_tokens`, `app_events`). Routes: `GET /marketplace` (public directory with search), `GET /marketplace/:slug` (detail + install CTA), `POST /marketplace/:slug/install` (user-target install in v1), `POST /marketplace/installations/:id/uninstall`, `GET /settings/apps` (personal list), `GET+POST /developer/apps-new` (register), `GET /developer/apps/:slug/manage` (event log + install count), `POST /developer/apps/:slug/tokens/new` (show-once token). Install idempotent via soft-update on existing non-uninstalled row.
@@ -286,7 +289,7 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `src/app.tsx` — route composition, middleware order, error handlers
 - `src/index.ts` — Bun server entry
 - `src/lib/config.ts` — env getters (late-binding)
-- `src/db/schema.ts` — 79 tables. New tables only via new migration.
+- `src/db/schema.ts` — 81 tables. New tables only via new migration.
 - `src/db/index.ts` — lazy proxy DB connection
 - `src/db/migrate.ts` — migration runner
 - `drizzle/0000_initial.sql`, `drizzle/0001_green_ecosystem.sql` — migrations
@@ -309,6 +312,8 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `drizzle/0020_analytics_and_admin.sql` (Block F) — migration, never edited in place. Adds `repo_traffic_events`, `system_flags`, `site_admins`, `billing_plans` (seeded free/pro/team/enterprise), `user_quotas`.
 - `drizzle/0021_marketplace_and_apps.sql` (Block H) — migration, never edited in place. Adds `apps`, `app_installations` (partial unique index on `(app_id, target_type, target_id) WHERE uninstalled_at IS NULL`), `app_bots` (one-per-app, `<slug>[bot]` username), `app_install_tokens` (sha256 hash, expires_at, revoked_at), `app_events` (audit trail).
 - `drizzle/0022_repo_templates.sql` (Block I2+I3) — migration, never edited in place. Adds `repositories.is_template` (partial index where true) + `repo_transfers` audit table.
+- `drizzle/0023_sponsors.sql` (Block I6) — migration, never edited in place. Adds `sponsorship_tiers` + `sponsorships` tables.
+- `drizzle/0024_email_digest.sql` (Block I7) — migration, never edited in place. Adds `users.notify_email_digest_weekly` + `users.last_digest_sent_at`.
 
 ### 4.2 Git layer (locked)
 - `src/git/repository.ts` — tree / blob / commits / diff / branches / blame / search / raw / tags / commitsBetween
@@ -427,6 +432,11 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `vscode-extension/` (Block G4) — VS Code extension with `package.json` declaring four commands (explainFile, openOnWeb, searchSemantic, generateTests) + `gluecron.host` / `gluecron.token` settings. Detects Gluecron remotes via `git config remote.origin.url`.
 - `src/lib/marketplace.ts` (Block H1+H2) — marketplace + app identity surface. `KNOWN_PERMISSIONS` (10 scopes), `KNOWN_EVENTS` (8 kinds). Pure helpers: `slugify` (40-char cap), `botUsername` (`<slug>[bot]`), `normalisePermissions` (drops unknown, de-dupes), `parsePermissions` (JSON), `hasPermission` (write→read implication), `permissionsSubset`, `generateBearerToken` (`ghi_` prefix + 24-byte hex), `hashBearer` (sha256). DB helpers: `listPublicApps(query)`, `getAppBySlug`, `createApp` (retries slug collisions, creates matching bot row), `installApp` (idempotent soft-update), `uninstallApp` (revokes all tokens), `issueInstallToken` (1h TTL default), `verifyInstallToken` (checks revoked/expired/uninstalled/suspended), `listInstallationsForApp`, `listInstallationsForTarget`, `listEventsForApp`, `countInstalls`. Never throws into request path.
 - `src/routes/marketplace.tsx` (Block H1+H2) — public marketplace + developer UX. `GET /marketplace` (directory + search), `GET /marketplace/:slug` (detail + install form), `POST /marketplace/:slug/install` (v1 user-target only), `POST /marketplace/installations/:id/uninstall` (installer-only), `GET /settings/apps` (personal list), `GET+POST /developer/apps-new` (register), `GET /developer/apps/:slug/manage` (event log + install count, owner-only), `POST /developer/apps/:slug/tokens/new` (show-once `ghi_` token). All mutations audit-logged.
+- `src/routes/code-scanning.tsx` (Block I5) — `GET /:owner/:repo/security` (softAuth, private-repo visibility enforced). Aggregates last-100 scan-related `gate_runs`, builds `latestByName` map, renders summary cards + scanner status list + recent runs.
+- `src/routes/sponsors.tsx` (Block I6) — public `/sponsors/:username` + maintainer `/settings/sponsors` (requireAuth). Tier CRUD (`POST /settings/sponsors/tiers/new`, soft-retire via `is_active=false` on delete). Exports `sponsorshipTotalForUser(userId)` helper and `__internal.formatCents` for tests.
+- `src/lib/email-digest.ts` (Block I7) — `composeDigest(userId, since?)` (never throws, null on failure), `sendDigestForUser(userId)` (opt-out check + updates `last_digest_sent_at` on success), `sendDigestsToAll()` (iterates opted-in users). Pulls notifications + owned-repo gate_runs (failed/repaired) + merged PRs over last 7d. Builds text + escaped HTML body. Exports `__internal = { textToHtml, escapeHtml, fmtRange }` for tests.
+- `src/routes/admin.tsx` (extends Block F3 for I7) — adds `GET /admin/digests` (opted-in count + recently sent list), `POST /admin/digests/run` (calls `sendDigestsToAll`, audit-logged with counts), `POST /admin/digests/preview` (sends to one user by username, audit-logged). New "Email digests" tile on the /admin dashboard grid.
+- `src/routes/settings.tsx` (extends for I7) — adds `notify_email_digest_weekly` checkbox to email prefs + handler wiring in `POST /settings/notifications`, and `GET /settings/digest/preview` (renders `composeDigest` output inline via `raw(body.html)` with Hono's `hono/html`).
 
 ### 4.7 Views (locked contracts)
 - `src/views/layout.tsx` — `Layout` accepts `title`, `user`, `notificationCount`
@@ -461,7 +471,7 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 ```bash
 bun install
 bun dev          # hot reload
-bun test         # 549 tests currently pass
+bun test         # 570 tests currently pass
 bun run db:migrate
 ```
 

@@ -64,6 +64,8 @@ import pwaRoutes from "./routes/pwa";
 import graphqlRoutes from "./routes/graphql";
 import marketplaceRoutes from "./routes/marketplace";
 import templatesRoutes from "./routes/templates";
+import codeScanningRoutes from "./routes/code-scanning";
+import sponsorsRoutes from "./routes/sponsors";
 import webRoutes from "./routes/web";
 
 const app = new Hono();
@@ -217,6 +219,12 @@ app.route("/", marketplaceRoutes);
 
 // Template repositories — POST /:owner/:repo/use-template (Block I2)
 app.route("/", templatesRoutes);
+
+// Code scanning UI — /:owner/:repo/security (Block I5)
+app.route("/", codeScanningRoutes);
+
+// Sponsors — /sponsors/:user + /settings/sponsors (Block I6)
+app.route("/", sponsorsRoutes);
 
 // Insights + milestones
 app.route("/", insightsRoutes);

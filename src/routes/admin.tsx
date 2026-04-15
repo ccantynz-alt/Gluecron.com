@@ -31,6 +31,7 @@ import {
   setFlag,
 } from "../lib/admin";
 import { audit } from "../lib/notify";
+import { sendDigestsToAll, sendDigestForUser } from "../lib/email-digest";
 
 const admin = new Hono<AuthEnv>();
 admin.use("*", softAuth);
@@ -99,7 +100,7 @@ admin.get("/admin", async (c) => {
         </div>
       </div>
 
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:20px">
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:20px">
         <a href="/admin/users" class="btn">
           Manage users
         </a>
@@ -108,6 +109,9 @@ admin.get("/admin", async (c) => {
         </a>
         <a href="/admin/flags" class="btn">
           Site flags
+        </a>
+        <a href="/admin/digests" class="btn">
+          Email digests
         </a>
       </div>
 
@@ -416,5 +420,162 @@ admin.post("/admin/flags", async (c) => {
   await audit({ userId: user.id, action: "admin.flags.save" });
   return c.redirect("/admin/flags");
 });
+
+// ----- Email digests (Block I7) -----
+
+admin.get("/admin/digests", async (c) => {
+  const g = await gate(c);
+  if (g instanceof Response) return g;
+  const { user } = g;
+
+  const [optedRow] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(users)
+    .where(eq(users.notifyEmailDigestWeekly, true));
+  const opted = Number(optedRow?.n || 0);
+
+  const recentlySent = await db
+    .select({
+      id: users.id,
+      username: users.username,
+      lastDigestSentAt: users.lastDigestSentAt,
+    })
+    .from(users)
+    .where(sql`${users.lastDigestSentAt} is not null`)
+    .orderBy(desc(users.lastDigestSentAt))
+    .limit(20);
+
+  const result = c.req.query("result");
+  const error = c.req.query("error");
+
+  return c.html(
+    <Layout title="Admin — Digests" user={user}>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <h2>Email digests</h2>
+        <a href="/admin" class="btn btn-sm">
+          Back
+        </a>
+      </div>
+
+      {result && (
+        <div class="auth-success">{decodeURIComponent(result)}</div>
+      )}
+      {error && (
+        <div class="auth-error">{decodeURIComponent(error)}</div>
+      )}
+
+      <div class="panel" style="padding:16px;margin-bottom:20px">
+        <div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">
+          {opted} user{opted === 1 ? "" : "s"} opted into the weekly digest.
+        </div>
+        <form method="POST" action="/admin/digests/run" style="margin-bottom:8px">
+          <button
+            type="submit"
+            class="btn btn-primary"
+            onclick="return confirm('Send weekly digest to all opted-in users now?')"
+          >
+            Send digests now
+          </button>
+        </form>
+        <form method="POST" action="/admin/digests/preview" style="display:flex;gap:6px;align-items:center">
+          <input
+            type="text"
+            name="username"
+            placeholder="username"
+            required
+            style="width:240px"
+          />
+          <button type="submit" class="btn btn-sm">
+            Send to one user
+          </button>
+        </form>
+      </div>
+
+      <h3>Recently sent</h3>
+      <div class="panel">
+        {recentlySent.length === 0 ? (
+          <div class="panel-empty">No digests have been sent yet.</div>
+        ) : (
+          recentlySent.map((u) => (
+            <div class="panel-item" style="justify-content:space-between">
+              <a href={`/${u.username}`}>{u.username}</a>
+              <span style="font-size:12px;color:var(--text-muted)">
+                {u.lastDigestSentAt
+                  ? new Date(
+                      u.lastDigestSentAt as unknown as string
+                    ).toLocaleString()
+                  : ""}
+              </span>
+            </div>
+          ))
+        )}
+      </div>
+    </Layout>
+  );
+});
+
+admin.post("/admin/digests/run", async (c) => {
+  const g = await gate(c);
+  if (g instanceof Response) return g;
+  const { user } = g;
+  const results = await sendDigestsToAll();
+  const sent = results.filter((r) => r.ok).length;
+  const skipped = results.length - sent;
+  await audit({
+    userId: user.id,
+    action: "admin.digests.run",
+    metadata: { sent, skipped, total: results.length },
+  });
+  return c.redirect(
+    `/admin/digests?result=${encodeURIComponent(
+      `Processed ${results.length} opted-in users: ${sent} sent, ${skipped} skipped.`
+    )}`
+  );
+});
+
+admin.post("/admin/digests/preview", async (c) => {
+  const g = await gate(c);
+  if (g instanceof Response) return g;
+  const { user } = g;
+  const body = await c.req.parseBody();
+  const username = String(body.username || "").trim();
+  if (!username) {
+    return c.redirect("/admin/digests?error=Username+required");
+  }
+  const [target] = await db
+    .select({ id: users.id, username: users.username })
+    .from(users)
+    .where(eq(users.username, username))
+    .limit(1);
+  if (!target) {
+    return c.redirect("/admin/digests?error=User+not+found");
+  }
+  const result = await sendDigestForUser(target.id);
+  await audit({
+    userId: user.id,
+    action: "admin.digests.preview",
+    targetType: "user",
+    targetId: target.id,
+    metadata: {
+      ok: result.ok,
+      skipped: "skipped" in result ? result.skipped : null,
+    },
+  });
+  if (result.ok) {
+    return c.redirect(
+      `/admin/digests?result=${encodeURIComponent(
+        `Digest sent to ${target.username}.`
+      )}`
+    );
+  }
+  return c.redirect(
+    `/admin/digests?error=${encodeURIComponent(
+      `Not sent: ${"skipped" in result ? result.skipped : "unknown reason"}`
+    )}`
+  );
+});
+
+// Keep requireAuth import used even if some routes don't reference it here.
+void requireAuth;
 
 export default admin;

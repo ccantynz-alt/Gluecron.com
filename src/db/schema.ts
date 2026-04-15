@@ -33,6 +33,10 @@ export const sessions = pgTable("sessions", {
     .references(() => users.id, { onDelete: "cascade" }),
   token: text("token").notNull().unique(),
   expiresAt: timestamp("expires_at").notNull(),
+  // B4: true when the user has entered their password but not yet their TOTP
+  // code. softAuth/requireAuth treat such sessions as anonymous; only
+  // /login/2fa can consume them. Flips to false on successful 2FA.
+  requires2fa: boolean("requires_2fa").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -773,3 +777,49 @@ export type Team = typeof teams.$inferSelect;
 export type TeamMember = typeof teamMembers.$inferSelect;
 export type OrgRole = "owner" | "admin" | "member";
 export type TeamRole = "maintainer" | "member";
+
+/**
+ * 2FA / TOTP (Block B4).
+ *
+ * Secret is stored in plain Base32 for now — the DB has row-level-secure
+ * access and the app boundary is the only code that reads it. A follow-up
+ * (B4.1) will wrap it with AES-GCM at rest once we standardise the KEK.
+ *
+ * `enabledAt` is set only after the user has successfully entered their
+ * first code (confirming the authenticator was set up correctly). Rows with
+ * `enabledAt = NULL` represent pending enrolment.
+ */
+export const userTotp = pgTable("user_totp", {
+  userId: uuid("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  secret: text("secret").notNull(),
+  enabledAt: timestamp("enabled_at"),
+  lastUsedAt: timestamp("last_used_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+/**
+ * Recovery codes — single-use fallback when the authenticator is lost.
+ * Stored as SHA-256 hashes; used rows are marked with `usedAt` rather than
+ * deleted so the audit log keeps the full history.
+ */
+export const userRecoveryCodes = pgTable(
+  "user_recovery_codes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    codeHash: text("code_hash").notNull(),
+    usedAt: timestamp("used_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("recovery_codes_user").on(table.userId),
+    uniqueIndex("recovery_codes_user_hash").on(table.userId, table.codeHash),
+  ]
+);
+
+export type UserTotp = typeof userTotp.$inferSelect;
+export type UserRecoveryCode = typeof userRecoveryCodes.$inferSelect;

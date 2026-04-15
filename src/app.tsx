@@ -9,6 +9,7 @@ import gitRoutes from "./routes/git";
 import apiRoutes from "./routes/api";
 import authRoutes from "./routes/auth";
 import settingsRoutes from "./routes/settings";
+import settings2faRoutes from "./routes/settings-2fa";
 import issueRoutes from "./routes/issues";
 import repoSettings from "./routes/repo-settings";
 import compareRoutes from "./routes/compare";
@@ -70,6 +71,9 @@ app.route("/", authRoutes);
 
 // Settings routes (profile, SSH keys)
 app.route("/", settingsRoutes);
+
+// 2FA / TOTP settings (Block B4)
+app.route("/", settings2faRoutes);
 
 // Theme toggle (dark/light cookie)
 app.route("/", themeRoutes);

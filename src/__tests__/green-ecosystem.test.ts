@@ -33,6 +33,16 @@ import {
   isValidTeamRole,
   __test as orgsInternal,
 } from "../lib/orgs";
+import {
+  base32Encode,
+  base32Decode,
+  generateTotpSecret,
+  totpCode,
+  verifyTotpCode,
+  otpauthUrl,
+  generateRecoveryCodes,
+  hashRecoveryCode,
+} from "../lib/totp";
 
 describe("secret scanner", () => {
   it("detects AWS access keys", () => {
@@ -625,5 +635,112 @@ describe("org-owned repos (B2)", () => {
       }),
     });
     expect(res.status).toBe(400);
+  });
+});
+
+describe("TOTP / 2FA (B4)", () => {
+  it("base32 round-trips bytes", () => {
+    const bytes = new Uint8Array([0x74, 0x65, 0x73, 0x74]); // "test"
+    const enc = base32Encode(bytes);
+    const dec = base32Decode(enc);
+    expect(Array.from(dec)).toEqual(Array.from(bytes));
+  });
+
+  it("generateTotpSecret returns 32-char Base32", () => {
+    const s = generateTotpSecret();
+    expect(s.length).toBe(32);
+    expect(/^[A-Z2-7]+$/.test(s)).toBe(true);
+  });
+
+  it("totpCode is 6 digits", async () => {
+    const s = generateTotpSecret();
+    const c = await totpCode(s);
+    expect(/^\d{6}$/.test(c)).toBe(true);
+  });
+
+  it("verifyTotpCode accepts a freshly-generated code", async () => {
+    const s = generateTotpSecret();
+    const c = await totpCode(s);
+    expect(await verifyTotpCode(s, c)).toBe(true);
+  });
+
+  it("verifyTotpCode tolerates a ±30s drift", async () => {
+    const s = generateTotpSecret();
+    const now = Math.floor(Date.now() / 1000);
+    const past = await totpCode(s, now - 30);
+    const future = await totpCode(s, now + 30);
+    expect(await verifyTotpCode(s, past, now)).toBe(true);
+    expect(await verifyTotpCode(s, future, now)).toBe(true);
+  });
+
+  it("verifyTotpCode rejects a wrong code", async () => {
+    const s = generateTotpSecret();
+    expect(await verifyTotpCode(s, "000000")).toBe(false);
+  });
+
+  it("verifyTotpCode rejects non-6-digit input", async () => {
+    const s = generateTotpSecret();
+    expect(await verifyTotpCode(s, "abc")).toBe(false);
+    expect(await verifyTotpCode(s, "12345")).toBe(false);
+    expect(await verifyTotpCode(s, "1234567")).toBe(false);
+  });
+
+  it("otpauthUrl has the expected shape", () => {
+    const u = otpauthUrl({
+      secret: "JBSWY3DPEHPK3PXP",
+      accountName: "alice@example.com",
+      issuer: "gluecron",
+    });
+    expect(u.startsWith("otpauth://totp/")).toBe(true);
+    expect(u).toContain("secret=JBSWY3DPEHPK3PXP");
+    expect(u).toContain("issuer=gluecron");
+    expect(u).toContain("period=30");
+    expect(u).toContain("digits=6");
+  });
+
+  it("generateRecoveryCodes returns the expected count + format", () => {
+    const codes = generateRecoveryCodes(5);
+    expect(codes.length).toBe(5);
+    for (const c of codes) {
+      expect(/^[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}$/.test(c)).toBe(true);
+    }
+    // Uniqueness: ~70 bits of entropy each, collisions should be astronomical.
+    expect(new Set(codes).size).toBe(5);
+  });
+
+  it("hashRecoveryCode is deterministic + normalised", async () => {
+    const a = await hashRecoveryCode("ABCD-1234-efgh");
+    const b = await hashRecoveryCode("abcd-1234-efgh");
+    const c = await hashRecoveryCode("  abcd-1234-efgh  ");
+    expect(a).toBe(b);
+    expect(a).toBe(c);
+    expect(a.length).toBe(64); // SHA-256 hex
+  });
+});
+
+describe("2FA routes (B4)", () => {
+  it("GET /settings/2fa redirects unauthenticated users to /login", async () => {
+    const res = await app.request("/settings/2fa");
+    expect([301, 302, 303, 307]).toContain(res.status);
+    const loc = res.headers.get("location") || "";
+    expect(loc.startsWith("/login")).toBe(true);
+  });
+
+  it("POST /settings/2fa/enroll redirects unauthenticated users to /login", async () => {
+    const res = await app.request("/settings/2fa/enroll", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: "",
+    });
+    expect([301, 302, 303, 307]).toContain(res.status);
+    const loc = res.headers.get("location") || "";
+    expect(loc.startsWith("/login")).toBe(true);
+  });
+
+  it("GET /login/2fa redirects to /login when no session cookie", async () => {
+    const res = await app.request("/login/2fa");
+    expect([301, 302, 303, 307]).toContain(res.status);
+    const loc = res.headers.get("location") || "";
+    expect(loc.startsWith("/login")).toBe(true);
   });
 });

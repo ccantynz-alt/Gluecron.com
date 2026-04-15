@@ -3,10 +3,16 @@
  */
 
 import { Hono } from "hono";
-import { setCookie, deleteCookie } from "hono/cookie";
-import { eq } from "drizzle-orm";
+import { setCookie, deleteCookie, getCookie } from "hono/cookie";
+import { and, eq, isNull } from "drizzle-orm";
 import { db } from "../db";
-import { users, sessions, organizations } from "../db/schema";
+import {
+  users,
+  sessions,
+  organizations,
+  userTotp,
+  userRecoveryCodes,
+} from "../db/schema";
 import {
   hashPassword,
   verifyPassword,
@@ -14,6 +20,7 @@ import {
   sessionCookieOptions,
   sessionExpiry,
 } from "../lib/auth";
+import { verifyTotpCode, hashRecoveryCode } from "../lib/totp";
 import { Layout } from "../views/layout";
 import type { AuthEnv } from "../middleware/auth";
 
@@ -225,15 +232,173 @@ auth.post("/login", async (c) => {
     return c.redirect("/login?error=Invalid+credentials");
   }
 
+  // B4: if the user has TOTP enabled, issue a pending-2fa session and
+  // redirect to the code prompt.
+  const [totp] = await db
+    .select({ enabledAt: userTotp.enabledAt })
+    .from(userTotp)
+    .where(eq(userTotp.userId, user.id))
+    .limit(1);
+  const needs2fa = !!(totp && totp.enabledAt);
+
   const token = generateSessionToken();
   await db.insert(sessions).values({
     userId: user.id,
     token,
     expiresAt: sessionExpiry(),
+    requires2fa: needs2fa,
   });
 
   setCookie(c, "session", token, sessionCookieOptions());
+  if (needs2fa) {
+    return c.redirect(
+      `/login/2fa?redirect=${encodeURIComponent(redirect)}`
+    );
+  }
   return c.redirect(redirect);
+});
+
+// --- 2FA verify (B4) ---
+auth.get("/login/2fa", async (c) => {
+  const token = getCookie(c, "session");
+  if (!token) return c.redirect("/login");
+  const error = c.req.query("error");
+  const redirect = c.req.query("redirect") || "/";
+  return c.html(
+    <Layout title="Two-factor authentication">
+      <div class="auth-container">
+        <h2>Enter your code</h2>
+        <p
+          class="auth-switch"
+          style="margin-bottom: 16px; margin-top: 0"
+        >
+          Open your authenticator app and enter the 6-digit code. Lost your
+          device? Paste a recovery code instead.
+        </p>
+        {error && <div class="auth-error">{decodeURIComponent(error)}</div>}
+        <form
+          method="POST"
+          action={`/login/2fa?redirect=${encodeURIComponent(redirect)}`}
+        >
+          <div class="form-group">
+            <label for="code">Code</label>
+            <input
+              type="text"
+              id="code"
+              name="code"
+              required
+              autocomplete="one-time-code"
+              inputmode="numeric"
+              maxLength={24}
+              placeholder="123456 or xxxx-xxxx-xxxx"
+            />
+          </div>
+          <button type="submit" class="btn btn-primary">
+            Verify
+          </button>
+        </form>
+        <p class="auth-switch">
+          <a href="/logout">Cancel</a>
+        </p>
+      </div>
+    </Layout>
+  );
+});
+
+auth.post("/login/2fa", async (c) => {
+  const token = getCookie(c, "session");
+  if (!token) return c.redirect("/login");
+  const body = await c.req.parseBody();
+  const code = String(body.code || "").trim();
+  const redirect = c.req.query("redirect") || "/";
+
+  if (!code) {
+    return c.redirect(
+      `/login/2fa?error=Code+is+required&redirect=${encodeURIComponent(redirect)}`
+    );
+  }
+
+  try {
+    const [session] = await db
+      .select()
+      .from(sessions)
+      .where(eq(sessions.token, token))
+      .limit(1);
+    if (
+      !session ||
+      new Date(session.expiresAt) < new Date() ||
+      !session.requires2fa
+    ) {
+      return c.redirect("/login");
+    }
+
+    const [totp] = await db
+      .select()
+      .from(userTotp)
+      .where(eq(userTotp.userId, session.userId))
+      .limit(1);
+    if (!totp || !totp.enabledAt) {
+      // User doesn't have 2FA actually enabled — clear the flag and let
+      // them in. This can only happen if 2FA was disabled in another
+      // session between password check and code prompt.
+      await db
+        .update(sessions)
+        .set({ requires2fa: false })
+        .where(eq(sessions.token, token));
+      return c.redirect(redirect);
+    }
+
+    // Try TOTP code first.
+    const isSix = /^\d{6}$/.test(code);
+    let ok = false;
+    if (isSix) {
+      ok = await verifyTotpCode(totp.secret, code);
+    }
+    // Fall through to recovery code.
+    if (!ok) {
+      const hash = await hashRecoveryCode(code);
+      const [rec] = await db
+        .select()
+        .from(userRecoveryCodes)
+        .where(
+          and(
+            eq(userRecoveryCodes.userId, session.userId),
+            eq(userRecoveryCodes.codeHash, hash),
+            isNull(userRecoveryCodes.usedAt)
+          )
+        )
+        .limit(1);
+      if (rec) {
+        await db
+          .update(userRecoveryCodes)
+          .set({ usedAt: new Date() })
+          .where(eq(userRecoveryCodes.id, rec.id));
+        ok = true;
+      }
+    }
+
+    if (!ok) {
+      return c.redirect(
+        `/login/2fa?error=Invalid+code&redirect=${encodeURIComponent(redirect)}`
+      );
+    }
+
+    await db
+      .update(sessions)
+      .set({ requires2fa: false })
+      .where(eq(sessions.token, token));
+    await db
+      .update(userTotp)
+      .set({ lastUsedAt: new Date() })
+      .where(eq(userTotp.userId, session.userId));
+
+    return c.redirect(redirect);
+  } catch (err) {
+    console.error("[auth] 2fa verify:", err);
+    return c.redirect(
+      `/login/2fa?error=Service+unavailable&redirect=${encodeURIComponent(redirect)}`
+    );
+  }
 });
 
 auth.get("/logout", async (c) => {

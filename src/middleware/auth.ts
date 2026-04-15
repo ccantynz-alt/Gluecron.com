@@ -43,7 +43,11 @@ export const softAuth = createMiddleware<AuthEnv>(async (c, next) => {
       .where(eq(sessions.token, token))
       .limit(1);
 
-    if (!session || new Date(session.expiresAt) < new Date()) {
+    if (
+      !session ||
+      new Date(session.expiresAt) < new Date() ||
+      session.requires2fa
+    ) {
       sessionCache.set(token, null as any);
       c.set("user", null);
       return next();
@@ -83,6 +87,14 @@ export const requireAuth = createMiddleware<AuthEnv>(async (c, next) => {
 
     if (!session || new Date(session.expiresAt) < new Date()) {
       return c.redirect(`/login?redirect=${encodeURIComponent(c.req.path)}`);
+    }
+
+    // 2FA pending — route the user to the code prompt instead of letting
+    // them access protected pages.
+    if (session.requires2fa) {
+      return c.redirect(
+        `/login/2fa?redirect=${encodeURIComponent(c.req.path)}`
+      );
     }
 
     const [user] = await db

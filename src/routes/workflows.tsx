@@ -189,7 +189,7 @@ actions.get("/:owner/:repo/actions", async (c) => {
                     </div>
                     {canRun && !w.disabled && (
                       <form
-                        method="POST"
+                        method="post"
                         action={`/${owner}/${repo}/actions/${w.id}/run`}
                         style="margin: 0"
                       >
@@ -376,7 +376,7 @@ actions.get("/:owner/:repo/actions/runs/:runId", async (c) => {
         </div>
         {canCancel && (
           <form
-            method="POST"
+            method="post"
             action={`/${owner}/${repo}/actions/runs/${run.id}/cancel`}
             onsubmit="return confirm('Cancel this run?')"
           >

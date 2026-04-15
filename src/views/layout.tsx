@@ -31,7 +31,7 @@ export const Layout: FC<
               gluecron
             </a>
             <div class="nav-search">
-              <form method="GET" action="/search">
+              <form method="get" action="/search">
                 <input
                   type="search"
                   name="q"

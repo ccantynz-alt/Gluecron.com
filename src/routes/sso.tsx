@@ -107,7 +107,7 @@ sso.get("/admin/sso", requireAuth, async (c) => {
         {error && <div class="auth-error">{decodeURIComponent(error)}</div>}
 
         <form
-          method="POST"
+          method="post"
           action="/admin/sso"
           class="panel"
           style="padding:16px"

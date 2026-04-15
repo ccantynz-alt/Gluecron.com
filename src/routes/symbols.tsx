@@ -88,7 +88,7 @@ symbols.get("/:owner/:repo/symbols", async (c) => {
         <div style="display:flex;justify-content:space-between;align-items:center">
           <h2 style="margin:0">Symbols</h2>
           {isOwner && (
-            <form method="POST" action={`/${ownerName}/${repoName}/symbols/reindex`}>
+            <form method="post" action={`/${ownerName}/${repoName}/symbols/reindex`}>
               <button type="submit" class="btn btn-primary btn-sm">
                 Reindex
               </button>
@@ -106,7 +106,7 @@ symbols.get("/:owner/:repo/symbols", async (c) => {
         </p>
 
         <form
-          method="GET"
+          method="get"
           action={`/${ownerName}/${repoName}/symbols/search`}
           style="display:flex;gap:8px;margin:16px 0"
         >
@@ -218,7 +218,7 @@ symbols.get("/:owner/:repo/symbols/search", async (c) => {
       <div class="settings-container">
         <h2>Symbol search</h2>
         <form
-          method="GET"
+          method="get"
           action={`/${ownerName}/${repoName}/symbols/search`}
           style="display:flex;gap:8px;margin:12px 0"
         >

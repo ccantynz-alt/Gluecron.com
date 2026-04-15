@@ -89,7 +89,7 @@ sponsors.get("/sponsors/:username", async (c) => {
             {targetName} hasn't published any sponsorship tiers yet.
           </p>
           {user ? (
-            <form method="POST" action={`/sponsors/${targetName}`}>
+            <form method="post" action={`/sponsors/${targetName}`}>
               <input
                 type="number"
                 name="amount_cents"
@@ -114,7 +114,7 @@ sponsors.get("/sponsors/:username", async (c) => {
         >
           {tiers.map((t) => (
             <form
-              method="POST"
+              method="post"
               action={`/sponsors/${targetName}`}
               class="panel"
               style="padding:16px;display:flex;flex-direction:column;gap:8px"
@@ -302,7 +302,7 @@ sponsors.get("/settings/sponsors", requireAuth, async (c) => {
                 </div>
               </div>
               <form
-                method="POST"
+                method="post"
                 action={`/settings/sponsors/tiers/${t.id}/delete`}
                 onsubmit="return confirm('Retire this tier?')"
               >
@@ -317,7 +317,7 @@ sponsors.get("/settings/sponsors", requireAuth, async (c) => {
 
       <h3>Add a tier</h3>
       <form
-        method="POST"
+        method="post"
         action="/settings/sponsors/tiers/new"
         class="panel"
         style="padding:16px"

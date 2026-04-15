@@ -156,7 +156,7 @@ rulesets.get("/:owner/:repo/settings/rulesets", requireAuth, async (c) => {
 
         <h3 style="margin-top:24px">New ruleset</h3>
         <form
-          method="POST"
+          method="post"
           action={`/${ownerName}/${repoName}/settings/rulesets`}
           class="auth-form"
           style="max-width:520px"
@@ -278,7 +278,7 @@ rulesets.get(
 
           <h3 style="margin-top:24px">Enforcement</h3>
           <form
-            method="POST"
+            method="post"
             action={base}
             style="display:flex;gap:8px;align-items:center"
           >
@@ -331,7 +331,7 @@ rulesets.get(
                         <span>{ruleDescription(r.ruleType, params)}</span>
                       </div>
                       <form
-                        method="POST"
+                        method="post"
                         action={`${base}/rules/${r.id}/delete`}
                       >
                         <button
@@ -351,7 +351,7 @@ rulesets.get(
 
           <h3 style="margin-top:24px">Add rule</h3>
           <form
-            method="POST"
+            method="post"
             action={`${base}/rules`}
             class="auth-form"
             style="max-width:640px"
@@ -383,7 +383,7 @@ rulesets.get(
           </form>
 
           <h3 style="margin-top:24px;color:var(--red)">Danger zone</h3>
-          <form method="POST" action={`${base}/delete`}>
+          <form method="post" action={`${base}/delete`}>
             <button type="submit" class="btn" style="color:var(--red)">
               Delete ruleset
             </button>

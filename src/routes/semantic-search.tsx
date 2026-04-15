@@ -150,7 +150,7 @@ semanticSearch.get("/:owner/:repo/search/semantic", async (c) => {
       )}
 
       <form
-        method="GET"
+        method="get"
         action={`/${ownerName}/${repoName}/search/semantic`}
         style="margin-bottom: 16px"
       >
@@ -173,7 +173,7 @@ semanticSearch.get("/:owner/:repo/search/semantic", async (c) => {
           </p>
           {isOwner ? (
             <form
-              method="POST"
+              method="post"
               action={`/${ownerName}/${repoName}/search/semantic/reindex`}
               style="margin-top: 12px"
             >
@@ -204,7 +204,7 @@ semanticSearch.get("/:owner/:repo/search/semantic", async (c) => {
             </span>
             {isOwner && (
               <form
-                method="POST"
+                method="post"
                 action={`/${ownerName}/${repoName}/search/semantic/reindex`}
                 style="display: inline"
               >

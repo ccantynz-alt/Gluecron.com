@@ -122,7 +122,7 @@ aiChangelog.get("/:owner/:repo/ai/changelog", async (c) => {
           </div>
         )}
         <form
-          method="GET"
+          method="get"
           action={`/${owner}/${repo}/ai/changelog`}
           style="display: flex; gap: 12px; align-items: center; margin-bottom: 20px; flex-wrap: wrap"
         >
@@ -246,7 +246,7 @@ aiChangelog.get("/:owner/:repo/ai/changelog", async (c) => {
         {commits.length} commit{commits.length !== 1 ? "s" : ""}
       </div>
       <form
-        method="GET"
+        method="get"
         action={`/${owner}/${repo}/ai/changelog`}
         style="display: flex; gap: 8px; align-items: center; margin-bottom: 20px; flex-wrap: wrap"
       >

@@ -12,7 +12,9 @@ import {
   repositories,
   stars,
   commitVerifications,
+  activityFeed,
 } from "../db/schema";
+import { gte } from "drizzle-orm";
 import { Layout } from "../views/layout";
 import {
   RepoHeader,
@@ -272,6 +274,33 @@ web.get("/:owner", async (c) => {
     profileReadmeHtml = null;
   }
 
+  // Block J9 — contribution heatmap. 52-week activity grid sourced from
+  // activity_feed rows authored by this user. Failures fall through silently.
+  let heatmap: Awaited<
+    ReturnType<
+      typeof import("../lib/contribution-heatmap").buildHeatmap
+    >
+  > | null = null;
+  if (ownerUser) {
+    try {
+      const since = new Date();
+      since.setUTCDate(since.getUTCDate() - 365);
+      const activities = await db
+        .select({ createdAt: activityFeed.createdAt })
+        .from(activityFeed)
+        .where(
+          and(
+            eq(activityFeed.userId, ownerUser.id),
+            gte(activityFeed.createdAt, since)
+          )
+        );
+      const { buildHeatmap } = await import("../lib/contribution-heatmap");
+      heatmap = buildHeatmap(activities, 365);
+    } catch {
+      heatmap = null;
+    }
+  }
+
   return c.html(
     <Layout title={ownerName} user={user}>
       <div class="user-profile">
@@ -323,6 +352,64 @@ web.get("/:owner", async (c) => {
           </div>
         </div>
       </div>
+      {heatmap && heatmap.totalContributions > 0 && (
+        <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius);padding:16px 20px;margin-bottom:20px">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px">
+            <strong>
+              {heatmap.totalContributions} contributions in the last year
+            </strong>
+            <span style="color:var(--text-muted);font-size:12px">
+              Longest streak {heatmap.longestStreak}d · Current{" "}
+              {heatmap.currentStreak}d
+            </span>
+          </div>
+          <div style="display:flex;gap:3px;overflow-x:auto;padding-bottom:4px">
+            {heatmap.weeks.map((w) => (
+              <div style="display:flex;flex-direction:column;gap:3px">
+                {w.days.map((d) =>
+                  d ? (
+                    <div
+                      title={`${d.date}: ${d.count} contribution${d.count === 1 ? "" : "s"}`}
+                      style={`width:11px;height:11px;border-radius:2px;background:${
+                        d.level === 0
+                          ? "var(--border)"
+                          : d.level === 1
+                            ? "#0e4429"
+                            : d.level === 2
+                              ? "#006d32"
+                              : d.level === 3
+                                ? "#26a641"
+                                : "#39d353"
+                      }`}
+                    />
+                  ) : (
+                    <div style="width:11px;height:11px" />
+                  )
+                )}
+              </div>
+            ))}
+          </div>
+          <div style="margin-top:8px;display:flex;gap:4px;align-items:center;justify-content:flex-end;font-size:11px;color:var(--text-muted)">
+            <span>Less</span>
+            {[0, 1, 2, 3, 4].map((l) => (
+              <div
+                style={`width:11px;height:11px;border-radius:2px;background:${
+                  l === 0
+                    ? "var(--border)"
+                    : l === 1
+                      ? "#0e4429"
+                      : l === 2
+                        ? "#006d32"
+                        : l === 3
+                          ? "#26a641"
+                          : "#39d353"
+                }`}
+              />
+            ))}
+            <span>More</span>
+          </div>
+        </div>
+      )}
       {profileReadmeHtml && (
         <div
           class="markdown-body"

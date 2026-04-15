@@ -173,7 +173,10 @@ Legend: ✅ shipped · 🟡 partial · ❌ not built
 | Billing + quotas | ✅ | F4 — `src/lib/billing.ts` + `src/routes/billing.tsx`, tables `billing_plans` + `user_quotas` seeded free/pro/team/enterprise. `/settings/billing` personal view + `/admin/billing` site-admin override. |
 | Email notifications | ✅ | opt-in per kind (mention/assign/gate-fail) via `/settings`; provider-pluggable `src/lib/email.ts` (log default, resend in prod) |
 | Email digest | ❌ | |
-| Mobile PWA | 🟡 | responsive CSS, no manifest |
+| Mobile PWA | ✅ | G1 — `src/routes/pwa.ts` serves `/manifest.webmanifest` + `/sw.js` + `/icon.svg`; Layout injects manifest link + SW registration. Offline-capable (network-first for HTML). |
+| GraphQL API | ✅ | G2 — `src/lib/graphql.ts` parser + executor, `src/routes/graphql.ts` endpoint at `POST /api/graphql`, GraphiQL-lite explorer at `GET /api/graphql`. Queries only (viewer/user/repository/search/rateLimit). |
+| Official CLI | ✅ | G3 — `cli/gluecron.ts` Bun-compilable single binary. REST + GraphQL client, `~/.gluecron/config.json` 0600. |
+| VS Code extension | ✅ | G4 — `vscode-extension/` with commands for explain / open-on-web / semantic search / generate tests. |
 | Native mobile apps | ❌ | |
 | Dark mode | ✅ | default |
 | Light-mode toggle | ✅ | `/theme/toggle` + `theme` cookie, pre-paint script avoids FOUC, nav sun/moon icon |
@@ -258,10 +261,10 @@ This is where GlueCron beats GitHub outright. **Priority: ship these loud.**
 - **F4** — Billing + quotas → ✅ shipped. `src/lib/billing.ts` + `src/routes/billing.tsx`, tables `billing_plans` + `user_quotas` (migration 0020, seeded with free/pro/team/enterprise). `FALLBACK_PLANS` mirror the seeds so billing works pre-migration. Helpers: `getUserQuota` (auto-initialises free row on first read), `bumpUsage`, `checkQuota` (fail-open), `wouldExceedRepoLimit`, `resetIfCycleExpired`. Routes: `GET /settings/billing` (personal view with usage bars + plan cards), `GET /admin/billing` (site-admin plan override), `POST /admin/billing/:userId/plan`.
 
 ### BLOCK G — Mobile + client
-- **G1** — PWA manifest + service worker
-- **G2** — GraphQL API mirror of REST
-- **G3** — Official CLI (`gluecron` binary in Bun)
-- **G4** — VS Code extension
+- **G1** — PWA manifest + service worker → ✅ shipped. `src/routes/pwa.ts` serves `/manifest.webmanifest`, `/sw.js`, `/icon.svg`; `Layout` injects `<link rel="manifest">` + a tiny SW registration script. Service worker is network-first for HTML + skips `.git/`/`/api/`/`/login*` routes.
+- **G2** — GraphQL API mirror of REST → ✅ shipped. `src/lib/graphql.ts` is a dependency-free recursive-descent parser + executor over a fixed schema (viewer, user, repository, search, rateLimit). `src/routes/graphql.ts` serves `POST /api/graphql` + a GraphiQL-lite explorer at `GET /api/graphql`. Queries only; writes stay on REST.
+- **G3** — Official CLI (`gluecron`) → ✅ shipped. `cli/gluecron.ts` is a Bun-compilable single-file CLI. Commands: `login`, `whoami`, `repo ls/show/create`, `issues ls`, `gql`, `host`, `version`. Config in `~/.gluecron/config.json` (0600). Talks to the server via REST + GraphQL.
+- **G4** — VS Code extension → ✅ shipped. `vscode-extension/` contains package.json + `src/extension.ts`. Commands: `gluecron.explainFile`, `gluecron.openOnWeb`, `gluecron.searchSemantic`, `gluecron.generateTests`. Detects Gluecron remotes via `git config remote.origin.url`. Settings: `gluecron.host` + `gluecron.token`.
 
 ### BLOCK H — Marketplace
 - **H1** — App marketplace (install third-party apps against a repo)
@@ -409,6 +412,11 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `src/routes/admin.tsx` (Block F3) — `GET /admin` dashboard (user/repo/admin counts + recent signups), `/admin/users` + toggle grant/revoke, `/admin/repos` + nuclear delete, `/admin/flags` form. All mutations audit-logged via `audit()`. Gated through a `gate(c)` helper that returns `{user} | Response`.
 - `src/lib/billing.ts` (Block F4) — plan + quota helpers. `FALLBACK_PLANS` (free/pro/team/enterprise) mirror the seed rows. `getUserQuota(userId)` auto-initialises free row. `bumpUsage`, `checkQuota` (fail-open), `wouldExceedRepoLimit`, `resetIfCycleExpired`, `formatPrice`. Never throws into request path.
 - `src/routes/billing.tsx` (Block F4) — `GET /settings/billing` (personal view with usage bars + plan cards), `GET /admin/billing` (site-admin user/plan table), `POST /admin/billing/:userId/plan` (override plan, audit-logged).
+- `src/routes/pwa.ts` (Block G1) — `/manifest.webmanifest`, `/sw.js`, `/icon.svg`. Exports `MANIFEST`, `SERVICE_WORKER_SRC`, `PWA_REGISTER_SNIPPET` for testing. SW deliberately skips `.git/`, `/api/`, `/login*`, `/register`, `/logout`.
+- `src/lib/graphql.ts` (Block G2) — hand-rolled recursive-descent parser (`parseQuery`) + executor (`execute`) over a fixed schema. Zero dependencies. Root fields: viewer, user, repository, search, rateLimit. No mutations.
+- `src/routes/graphql.ts` (Block G2) — `POST /api/graphql` JSON endpoint + `GET /api/graphql` GraphiQL-lite explorer (Cmd+Enter to run).
+- `cli/gluecron.ts` (Block G3) — single-file Bun CLI. Exports `dispatch(argv, out)` for programmatic use, `HELP` constant, `loadConfig`/`saveConfig`. Config at `~/.gluecron/config.json` (0600). Compile: `bun build cli/gluecron.ts --compile --outfile gluecron`.
+- `vscode-extension/` (Block G4) — VS Code extension with `package.json` declaring four commands (explainFile, openOnWeb, searchSemantic, generateTests) + `gluecron.host` / `gluecron.token` settings. Detects Gluecron remotes via `git config remote.origin.url`.
 
 ### 4.7 Views (locked contracts)
 - `src/views/layout.tsx` — `Layout` accepts `title`, `user`, `notificationCount`
@@ -443,7 +451,7 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 ```bash
 bun install
 bun dev          # hot reload
-bun test         # 470 tests currently pass
+bun test         # 513 tests currently pass
 bun run db:migrate
 ```
 

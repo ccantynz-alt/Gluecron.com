@@ -16,6 +16,9 @@ export const Layout: FC<
       <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <meta name="theme-color" content="#0d1117" />
+        <link rel="manifest" href="/manifest.webmanifest" />
+        <link rel="icon" type="image/svg+xml" href="/icon.svg" />
         <title>{title ? `${title} — gluecron` : "gluecron"}</title>
         <script>{themeInitScript}</script>
         <style>{css}</style>
@@ -98,6 +101,7 @@ export const Layout: FC<
           <span>gluecron — AI-native code intelligence</span>
         </footer>
         <script>{navScript}</script>
+        <script>{pwaRegisterScript}</script>
       </body>
     </html>
   );
@@ -114,6 +118,16 @@ const themeInitScript = `
       document.documentElement.setAttribute('data-theme', t);
     } catch(_){}
   })();
+`;
+
+// Block G1 — register service worker for offline / install support.
+// Kept inline (and tiny) so we don't block first paint.
+const pwaRegisterScript = `
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function(){
+      navigator.serviceWorker.register('/sw.js').catch(function(){});
+    });
+  }
 `;
 
 const navScript = `

@@ -60,6 +60,8 @@ import trafficRoutes from "./routes/traffic";
 import orgInsightsRoutes from "./routes/org-insights";
 import adminRoutes from "./routes/admin";
 import billingRoutes from "./routes/billing";
+import pwaRoutes from "./routes/pwa";
+import graphqlRoutes from "./routes/graphql";
 import webRoutes from "./routes/web";
 
 const app = new Hono();
@@ -201,6 +203,12 @@ app.route("/", trafficRoutes);        // F1 — /:owner/:repo/traffic
 app.route("/", orgInsightsRoutes);    // F2 — /orgs/:slug/insights
 app.route("/", adminRoutes);          // F3 — /admin
 app.route("/", billingRoutes);        // F4 — /settings/billing + /admin/billing
+
+// PWA — manifest + service worker + icon (Block G1)
+app.route("/", pwaRoutes);
+
+// GraphQL mirror of REST (Block G2)
+app.route("/", graphqlRoutes);
 
 // Insights + milestones
 app.route("/", insightsRoutes);

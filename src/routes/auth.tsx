@@ -6,7 +6,7 @@ import { Hono } from "hono";
 import { setCookie, deleteCookie } from "hono/cookie";
 import { eq } from "drizzle-orm";
 import { db } from "../db";
-import { users, sessions } from "../db/schema";
+import { users, sessions, organizations } from "../db/schema";
 import {
   hashPassword,
   verifyPassword,
@@ -105,6 +105,16 @@ auth.post("/register", async (c) => {
     .where(eq(users.username, username))
     .limit(1);
   if (existingUser) {
+    return c.redirect("/register?error=Username+already+taken");
+  }
+
+  // B2: usernames share the URL namespace with org slugs; refuse collisions.
+  const [existingOrg] = await db
+    .select({ id: organizations.id })
+    .from(organizations)
+    .where(eq(organizations.slug, username.toLowerCase()))
+    .limit(1);
+  if (existingOrg) {
     return c.redirect("/register?error=Username+already+taken");
   }
 

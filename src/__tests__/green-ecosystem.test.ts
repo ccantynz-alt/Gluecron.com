@@ -552,3 +552,52 @@ describe("orgs routes (B1)", () => {
     expect(loc.startsWith("/login")).toBe(true);
   });
 });
+
+describe("org-owned repos (B2)", () => {
+  it("GET /orgs/:slug/repos redirects unauthenticated users to /login", async () => {
+    const res = await app.request("/orgs/some-org/repos");
+    expect([301, 302, 303, 307]).toContain(res.status);
+    const loc = res.headers.get("location") || "";
+    expect(loc.startsWith("/login")).toBe(true);
+  });
+
+  it("GET /orgs/:slug/repos/new redirects unauthenticated users to /login", async () => {
+    const res = await app.request("/orgs/some-org/repos/new");
+    expect([301, 302, 303, 307]).toContain(res.status);
+    const loc = res.headers.get("location") || "";
+    expect(loc.startsWith("/login")).toBe(true);
+  });
+
+  it("POST /orgs/:slug/repos/new redirects unauthenticated users to /login", async () => {
+    const res = await app.request("/orgs/some-org/repos/new", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: "name=web",
+    });
+    expect([301, 302, 303, 307]).toContain(res.status);
+    const loc = res.headers.get("location") || "";
+    expect(loc.startsWith("/login")).toBe(true);
+  });
+
+  it("POST /api/repos with orgSlug still validates required fields", async () => {
+    const res = await app.request("/api/repos", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ orgSlug: "acme" }),
+    });
+    // Missing name + owner → 400 before any DB access.
+    expect(res.status).toBe(400);
+  });
+
+  it("POST /api/repos rejects invalid repo names before DB access", async () => {
+    const res = await app.request("/api/repos", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "bad name with spaces",
+        owner: "alice",
+      }),
+    });
+    expect(res.status).toBe(400);
+  });
+});

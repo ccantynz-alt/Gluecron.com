@@ -29,6 +29,7 @@ import {
   teams,
   teamMembers,
   users,
+  repositories,
 } from "../db/schema";
 import type { AuthEnv } from "../middleware/auth";
 import { requireAuth } from "../middleware/auth";
@@ -46,6 +47,7 @@ import {
   listTeamMembers,
 } from "../lib/orgs";
 import { audit } from "../lib/notify";
+import { initBareRepo, repoExists } from "../git/repository";
 
 const orgs = new Hono<AuthEnv>();
 
@@ -331,11 +333,16 @@ orgs.get("/orgs/:slug", async (c) => {
               )}
             </div>
           </div>
-          {role && orgRoleAtLeast(role, "admin") && (
-            <a href={`/orgs/${org.slug}/people`} class="btn">
-              Manage
+          <div style="display: flex; gap: 8px">
+            <a href={`/orgs/${org.slug}/repos`} class="btn">
+              Repositories
             </a>
-          )}
+            {role && orgRoleAtLeast(role, "admin") && (
+              <a href={`/orgs/${org.slug}/people`} class="btn">
+                Manage
+              </a>
+            )}
+          </div>
         </div>
         {org.description && (
           <p style="color: var(--text-muted); margin-bottom: 16px">
@@ -1123,6 +1130,242 @@ orgs.post("/orgs/:slug/teams/:teamSlug/members/:uid/remove", async (c) => {
   }
   return c.redirect(
     successRedirect(`/orgs/${slug}/teams/${teamSlug}`, "Member removed")
+  );
+});
+
+// --- ORG-OWNED REPOS (B2) ---------------------------------------------------
+
+orgs.get("/orgs/:slug/repos/new", async (c) => {
+  const user = c.get("user")!;
+  const slug = c.req.param("slug");
+  const { org, role } = await loadOrgForUser(slug, user.id);
+  if (!org) return c.notFound();
+  if (!role || !orgRoleAtLeast(role, "admin")) {
+    return c.redirect(
+      errorRedirect(`/orgs/${slug}`, "Admin rights required to create repos")
+    );
+  }
+  const error = c.req.query("error");
+
+  return c.html(
+    <Layout title={`New repo — ${org.name}`} user={user}>
+      <div class="settings-container" style="max-width: 560px">
+        <div class="breadcrumb">
+          <a href={`/orgs/${org.slug}`}>{org.slug}</a>
+          <span>/</span>
+          <span>new repo</span>
+        </div>
+        <h2>Create repository in {org.name}</h2>
+        {error && <div class="auth-error">{decodeURIComponent(error)}</div>}
+        <form method="POST" action={`/orgs/${org.slug}/repos/new`}>
+          <div class="form-group">
+            <label for="name">Repository name</label>
+            <input
+              type="text"
+              id="name"
+              name="name"
+              required
+              maxLength={100}
+              pattern="[a-zA-Z0-9._-]+"
+              placeholder="my-repo"
+              autocomplete="off"
+            />
+          </div>
+          <div class="form-group">
+            <label for="description">Description (optional)</label>
+            <textarea
+              id="description"
+              name="description"
+              rows={3}
+              maxLength={500}
+            />
+          </div>
+          <div class="form-group">
+            <label>
+              <input type="checkbox" name="isPrivate" value="1" /> Private
+            </label>
+          </div>
+          <button type="submit" class="btn btn-primary">
+            Create repository
+          </button>
+        </form>
+      </div>
+    </Layout>
+  );
+});
+
+orgs.post("/orgs/:slug/repos/new", async (c) => {
+  const user = c.get("user")!;
+  const slug = c.req.param("slug");
+  const { org, role } = await loadOrgForUser(slug, user.id);
+  if (!org) return c.notFound();
+  if (!role || !orgRoleAtLeast(role, "admin")) {
+    return c.redirect(
+      errorRedirect(`/orgs/${slug}`, "Admin rights required")
+    );
+  }
+
+  const body = await c.req.parseBody();
+  const name = String(body.name || "").trim();
+  const description = String(body.description || "").trim() || null;
+  const isPrivate = body.isPrivate === "1";
+
+  if (!name || !/^[a-zA-Z0-9._-]+$/.test(name)) {
+    return c.redirect(
+      errorRedirect(
+        `/orgs/${slug}/repos/new`,
+        "Invalid repo name (a-z, 0-9, . _ - only)"
+      )
+    );
+  }
+
+  try {
+    // Name collision within the org's namespace
+    const [existing] = await db
+      .select({ id: repositories.id })
+      .from(repositories)
+      .where(
+        and(eq(repositories.orgId, org.id), eq(repositories.name, name))
+      )
+      .limit(1);
+    if (existing) {
+      return c.redirect(
+        errorRedirect(
+          `/orgs/${slug}/repos/new`,
+          "A repo with that name already exists in this org"
+        )
+      );
+    }
+    // Disk-side collision (namespace slug is the org's slug on disk)
+    if (await repoExists(org.slug, name)) {
+      return c.redirect(
+        errorRedirect(
+          `/orgs/${slug}/repos/new`,
+          "On-disk path already exists"
+        )
+      );
+    }
+
+    const diskPath = await initBareRepo(org.slug, name);
+    const [repo] = await db
+      .insert(repositories)
+      .values({
+        name,
+        ownerId: user.id,
+        orgId: org.id,
+        description,
+        isPrivate,
+        diskPath,
+      })
+      .returning();
+
+    if (repo) {
+      const { bootstrapRepository } = await import("../lib/repo-bootstrap");
+      await bootstrapRepository({
+        repositoryId: repo.id,
+        ownerUserId: user.id,
+      });
+      await audit({
+        userId: user.id,
+        repositoryId: repo.id,
+        action: "org.repo.create",
+        targetType: "repository",
+        targetId: repo.id,
+        metadata: { orgSlug: slug, name, isPrivate },
+      });
+    }
+
+    return c.redirect(`/${org.slug}/${name}`);
+  } catch (err) {
+    console.error("[orgs] repo create:", err);
+    return c.redirect(
+      errorRedirect(`/orgs/${slug}/repos/new`, "Failed to create repository")
+    );
+  }
+});
+
+orgs.get("/orgs/:slug/repos", async (c) => {
+  const user = c.get("user")!;
+  const slug = c.req.param("slug");
+  const { org, role } = await loadOrgForUser(slug, user.id);
+  if (!org) return c.notFound();
+  const canCreate = role && orgRoleAtLeast(role, "admin");
+
+  let repos: (typeof repositories.$inferSelect)[] = [];
+  try {
+    repos = await db
+      .select()
+      .from(repositories)
+      .where(eq(repositories.orgId, org.id));
+  } catch (err) {
+    console.error("[orgs] list repos:", err);
+  }
+
+  return c.html(
+    <Layout title={`${org.name} — repositories`} user={user}>
+      <div style="max-width: 900px">
+        <div class="breadcrumb">
+          <a href={`/orgs/${org.slug}`}>{org.slug}</a>
+          <span>/</span>
+          <span>repos</span>
+        </div>
+        <div
+          style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px"
+        >
+          <h2 style="margin: 0">Repositories ({repos.length})</h2>
+          {canCreate && (
+            <a
+              href={`/orgs/${org.slug}/repos/new`}
+              class="btn btn-primary"
+            >
+              New repo
+            </a>
+          )}
+        </div>
+        {repos.length === 0 ? (
+          <div class="empty-state">
+            <h2>No repositories yet</h2>
+            {canCreate ? (
+              <a
+                href={`/orgs/${org.slug}/repos/new`}
+                class="btn btn-primary"
+                style="margin-top: 8px"
+              >
+                Create your first repo
+              </a>
+            ) : (
+              <p>Ask an admin to create one.</p>
+            )}
+          </div>
+        ) : (
+          <div
+            style="display: flex; flex-direction: column; gap: 8px"
+          >
+            {repos.map((r) => (
+              <a
+                href={`/${org.slug}/${r.name}`}
+                style="display: block; padding: 12px 16px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius); text-decoration: none; color: var(--text)"
+              >
+                <strong>{r.name}</strong>
+                {r.isPrivate && (
+                  <span
+                    class="gate-status"
+                    style="font-size: 10px; margin-left: 8px"
+                  >
+                    private
+                  </span>
+                )}
+                {r.description && (
+                  <div style="color: var(--text-muted); font-size: 13px; margin-top: 2px">
+                    {r.description}
+                  </div>
+                )}
+              </a>
+            ))}
+          </div>
+        )}
+      </div>
+    </Layout>
   );
 });
 

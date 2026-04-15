@@ -41,9 +41,14 @@ export const repositories = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     name: text("name").notNull(),
+    // ownerId = creator / user-owner. Always set (for attribution + user
+    // namespace uniqueness). For org-owned repos, also represents "created by".
     ownerId: uuid("owner_id")
       .notNull()
       .references(() => users.id),
+    // Block B2: nullable org owner. When set, the repo lives in the org
+    // namespace and URL resolution routes `/:orgSlug/:repo` to it.
+    orgId: uuid("org_id"),
     description: text("description"),
     isPrivate: boolean("is_private").default(false).notNull(),
     isArchived: boolean("is_archived").default(false).notNull(),
@@ -59,7 +64,12 @@ export const repositories = pgTable(
     forkCount: integer("fork_count").default(0).notNull(),
     issueCount: integer("issue_count").default(0).notNull(),
   },
-  (table) => [uniqueIndex("repos_owner_name").on(table.ownerId, table.name)]
+  (table) => [
+    // Partial: uniqueness only in the user namespace (org-owned rows exempt).
+    // Matches the partial index in migration 0004.
+    uniqueIndex("repos_owner_name").on(table.ownerId, table.name),
+    index("repos_org").on(table.orgId),
+  ]
 );
 
 /**

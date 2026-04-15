@@ -18,6 +18,11 @@ import { RepoHeader, RepoNav } from "../views/components";
 import { ReactionsBar } from "../views/reactions";
 import { summariseReactions } from "../lib/reactions";
 import { loadIssueTemplate } from "../lib/templates";
+import {
+  listIssueTemplates,
+  findTemplateBySlug,
+  type IssueTemplate,
+} from "../lib/issue-templates";
 import { renderMarkdown } from "../lib/markdown";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
@@ -166,7 +171,82 @@ issueRoutes.get(
     const { owner: ownerName, repo: repoName } = c.req.param();
     const user = c.get("user")!;
     const error = c.req.query("error");
-    const template = await loadIssueTemplate(ownerName, repoName);
+    const slug = c.req.query("template");
+
+    // J17 — multi-template selector. Fetch the list first; if there are 2+
+    // templates and the user has not picked one, show a chooser. If exactly
+    // one template exists, use it automatically. Fall back to the legacy
+    // single-file loader when no frontmatter templates are found.
+    const multi = await listIssueTemplates(ownerName, repoName);
+    const picked: IssueTemplate | null = findTemplateBySlug(multi, slug);
+
+    if (!picked && multi.length >= 2 && !slug) {
+      return c.html(
+        <Layout
+          title={`New issue — ${ownerName}/${repoName}`}
+          user={user}
+        >
+          <RepoHeader owner={ownerName} repo={repoName} />
+          <IssueNav owner={ownerName} repo={repoName} active="issues" />
+          <div style="max-width: 720px">
+            <h2 style="margin-bottom: 4px">New issue</h2>
+            <p style="color: var(--text-muted); margin-bottom: 24px">
+              Choose a template to get started, or{" "}
+              <a
+                href={`/${ownerName}/${repoName}/issues/new?template=__blank`}
+              >
+                open a blank issue
+              </a>
+              .
+            </p>
+            <div style="display: flex; flex-direction: column; gap: 12px">
+              {multi.map((t) => (
+                <div style="display: flex; align-items: center; gap: 16px; border: 1px solid var(--border); border-radius: 6px; padding: 16px; background: var(--bg-secondary)">
+                  <div style="flex: 1; min-width: 0">
+                    <div style="font-weight: 600; margin-bottom: 4px">
+                      {t.name}
+                    </div>
+                    {t.about && (
+                      <div style="font-size: 13px; color: var(--text-muted)">
+                        {t.about}
+                      </div>
+                    )}
+                    {t.labels.length > 0 && (
+                      <div style="margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px">
+                        {t.labels.map((l) => (
+                          <span style="display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 10px; background: var(--bg); border: 1px solid var(--border); color: var(--text-muted)">
+                            {l}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <a
+                    href={`/${ownerName}/${repoName}/issues/new?template=${encodeURIComponent(t.slug)}`}
+                    class="btn btn-primary"
+                  >
+                    Get started
+                  </a>
+                </div>
+              ))}
+            </div>
+          </div>
+        </Layout>
+      );
+    }
+
+    // Auto-pick the single template when only one exists and no slug is set.
+    const auto = !picked && !slug && multi.length === 1 ? multi[0] : null;
+    const active = picked || auto;
+
+    // Legacy fallback for repos that ship a plain ISSUE_TEMPLATE.md.
+    const legacy =
+      !active && slug !== "__blank"
+        ? await loadIssueTemplate(ownerName, repoName)
+        : null;
+
+    const prefillTitle = active?.title ?? "";
+    const prefillBody = active ? active.body : legacy || "";
 
     return c.html(
       <Layout title={`New issue — ${ownerName}/${repoName}`} user={user}>
@@ -174,9 +254,32 @@ issueRoutes.get(
         <IssueNav owner={ownerName} repo={repoName} active="issues" />
         <div style="max-width: 800px">
           <h2 style="margin-bottom: 16px">New issue</h2>
-          {template && (
+          {active && (
+            <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px">
+              Using template <code>{active.path}</code>
+              {multi.length >= 2 && (
+                <>
+                  {" — "}
+                  <a href={`/${ownerName}/${repoName}/issues/new`}>
+                    choose a different template
+                  </a>
+                </>
+              )}
+              .
+            </div>
+          )}
+          {!active && legacy && (
             <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px">
               Using <code>ISSUE_TEMPLATE.md</code> from the default branch.
+            </div>
+          )}
+          {active && active.labels.length > 0 && (
+            <div style="margin-bottom: 8px">
+              {active.labels.map((l) => (
+                <span style="display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 10px; background: var(--bg-secondary); border: 1px solid var(--border); color: var(--text-muted); margin-right: 6px">
+                  {l}
+                </span>
+              ))}
             </div>
           )}
           {error && (
@@ -189,6 +292,7 @@ issueRoutes.get(
                 name="title"
                 required
                 placeholder="Title"
+                value={prefillTitle}
                 style="font-size: 16px; padding: 10px 14px"
               />
             </div>
@@ -199,7 +303,7 @@ issueRoutes.get(
                 placeholder="Leave a comment... (Markdown supported)"
                 style="font-family: var(--font-mono); font-size: 13px"
               >
-                {template || ""}
+                {prefillBody}
               </textarea>
             </div>
             <button type="submit" class="btn btn-primary">

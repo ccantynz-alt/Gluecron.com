@@ -100,7 +100,7 @@ admin.get("/admin", async (c) => {
         </div>
       </div>
 
-      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:20px">
+      <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:20px">
         <a href="/admin/users" class="btn">
           Manage users
         </a>
@@ -112,6 +112,9 @@ admin.get("/admin", async (c) => {
         </a>
         <a href="/admin/digests" class="btn">
           Email digests
+        </a>
+        <a href="/admin/sso" class="btn">
+          Enterprise SSO
         </a>
       </div>
 

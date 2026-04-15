@@ -68,6 +68,7 @@ import codeScanningRoutes from "./routes/code-scanning";
 import sponsorsRoutes from "./routes/sponsors";
 import symbolsRoutes from "./routes/symbols";
 import mirrorsRoutes from "./routes/mirrors";
+import ssoRoutes from "./routes/sso";
 import webRoutes from "./routes/web";
 
 const app = new Hono();
@@ -233,6 +234,9 @@ app.route("/", symbolsRoutes);
 
 // Repository mirroring — /:owner/:repo/settings/mirror (Block I9)
 app.route("/", mirrorsRoutes);
+
+// Enterprise SSO via OIDC — /admin/sso + /login/sso (Block I10)
+app.route("/", ssoRoutes);
 
 // Insights + milestones
 app.route("/", insightsRoutes);

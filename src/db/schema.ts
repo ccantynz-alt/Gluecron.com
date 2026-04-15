@@ -2034,3 +2034,44 @@ export const repoMirrorRuns = pgTable(
 );
 
 export type RepoMirrorRun = typeof repoMirrorRuns.$inferSelect;
+
+// ----------------------------------------------------------------------------
+// Block I10 — Enterprise SSO (OIDC)
+// ----------------------------------------------------------------------------
+
+/** Site-wide SSO provider. Singleton row with id = 'default'. */
+export const ssoConfig = pgTable("sso_config", {
+  id: text("id").primaryKey(),
+  enabled: boolean("enabled").default(false).notNull(),
+  providerName: text("provider_name").default("SSO").notNull(),
+  issuer: text("issuer"),
+  authorizationEndpoint: text("authorization_endpoint"),
+  tokenEndpoint: text("token_endpoint"),
+  userinfoEndpoint: text("userinfo_endpoint"),
+  clientId: text("client_id"),
+  clientSecret: text("client_secret"),
+  scopes: text("scopes").default("openid profile email").notNull(),
+  allowedEmailDomains: text("allowed_email_domains"),
+  autoCreateUsers: boolean("auto_create_users").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export type SsoConfig = typeof ssoConfig.$inferSelect;
+
+/** Maps a local user to an IdP `sub` claim. */
+export const ssoUserLinks = pgTable(
+  "sso_user_links",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    subject: text("subject").notNull().unique(),
+    emailAtLink: text("email_at_link").notNull(),
+    linkedAt: timestamp("linked_at").defaultNow().notNull(),
+  },
+  (table) => [index("sso_user_links_user_id_idx").on(table.userId)]
+);
+
+export type SsoUserLink = typeof ssoUserLinks.$inferSelect;

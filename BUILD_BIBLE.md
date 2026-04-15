@@ -146,7 +146,7 @@ Legend: ✅ shipped · 🟡 partial · ❌ not built
 | GitHub Apps equivalent | ✅ | H2 — `src/lib/marketplace.ts` `generateBearerToken`/`verifyInstallToken` (1h TTL, `ghi_` prefix, sha256 hashed). Each app gets a `<slug>[bot]` identity (`app_bots`). Permissions enforced via `hasPermission` (write implies read). |
 | GraphQL API | ✅ | G2 — see 2.6 |
 | Organizations + teams | ✅ | B1+B2+B3 shipped: `src/routes/orgs.tsx`, `src/lib/orgs.ts`; org-owned repos (`repositories.orgId`); team-based CODEOWNERS (`@org/team` resolution) |
-| Enterprise SAML / SSO | ❌ | |
+| Enterprise SAML / SSO | ✅ | I10 — OIDC (Okta / Azure AD / Auth0 / Google Workspace). `src/lib/sso.ts` + `src/routes/sso.tsx`, `drizzle/0027_sso_oidc.sql` (tables `sso_config` singleton + `sso_user_links`). Admin config at `/admin/sso`; `/login/sso` starts auth-code flow with state+nonce cookies; `/login/sso/callback` exchanges code, fetches userinfo, links by `sub` (or by email, or auto-creates). Optional email-domain allow-list + auto-create toggle. |
 | 2FA / TOTP | ✅ | `src/routes/settings-2fa.tsx`, `src/lib/totp.ts`; `user_totp` + `user_recovery_codes` tables |
 | Passkeys / WebAuthn | ✅ | `src/routes/passkeys.tsx`, `src/lib/webauthn.ts`; `user_passkeys` + `webauthn_challenges` tables |
 | Packages registry (npm / docker / etc) | ✅ | `src/lib/packages.ts`, `src/routes/packages-api.ts`, `src/routes/packages.tsx`; npm protocol (packument, tarball, publish, yank); PAT (`glc_`) auth via Authorization header; container registry deferred |
@@ -276,6 +276,7 @@ This is where GlueCron beats GitHub outright. **Priority: ship these loud.**
 - **I7** — Weekly email digest → ✅ shipped. `drizzle/0024_email_digest.sql` adds `users.notify_email_digest_weekly` + `last_digest_sent_at`. `src/lib/email-digest.ts` exposes `composeDigest`/`sendDigestForUser`/`sendDigestsToAll` (never-throws). Pulls notifications + failed/repaired gate_runs + merged PRs from the last 7d, composes escaped HTML + plaintext, and sends via the shared email provider. `/settings/digest/preview` renders the digest inline for self-preview; `/admin/digests` gives site admins a "Send now" trigger + single-user preview, audit-logged as `admin.digests.run`/`admin.digests.preview`.
 - **I8** — Symbol / xref navigation → ✅ shipped. `drizzle/0025_code_symbols.sql` adds a `code_symbols` table. `src/lib/symbols.ts` provides a regex-based top-level extractor for ts/js/py/rs/go/rb/java/kt/swift. On-demand indexing via `POST /:owner/:repo/symbols/reindex` walks the default-branch tree, caps at 2000 files/1MB each, replaces the prior set. Browse at `/:owner/:repo/symbols` (A–Z + per-kind counts), search via `/symbols/search?q=`, inspect at `/symbols/:name`. 14 new tests.
 - **I9** — Repository mirroring → ✅ shipped. `drizzle/0026_repo_mirrors.sql` adds `repo_mirrors` (one-per-repo config) + `repo_mirror_runs` (audit log). `src/lib/mirrors.ts` provides URL validation (https/http/git only, no ssh/file/paths/shell metas), credentials-redaction for logs, and `runMirrorSync` that shells out to `git fetch --prune --tags` with a 5-min timeout and `GIT_TERMINAL_PROMPT=0`. `src/routes/mirrors.tsx` serves owner-only `/:owner/:repo/settings/mirror` + site-admin `/admin/mirrors/sync-all`. 17 new tests.
+- **I10** — Enterprise SSO via OIDC → ✅ shipped. `drizzle/0027_sso_oidc.sql` adds `sso_config` (singleton `id='default'` row with issuer + authorize/token/userinfo endpoints + client credentials + scopes + optional email-domain allow-list + `auto_create_users` toggle) and `sso_user_links` (maps local user to IdP `sub`, unique per-subject). `src/lib/sso.ts` exposes `buildAuthorizeUrl`/`exchangeCode`/`fetchUserinfo`/`findOrCreateUserFromSso` pure helpers — plain OIDC auth-code flow, no XML / no signature verification dep. `src/routes/sso.tsx` serves site-admin `/admin/sso` config page, `/login/sso` initiator (state + nonce cookies, 10-min TTL), `/login/sso/callback` exchanger + session issuer, plus `POST /settings/sso/unlink` for users. `/login` renders "Sign in with &lt;provider name&gt;" when enabled. 24 new tests (pure helpers + route-auth smokes).
 
 ### BLOCK H — Marketplace
 - **H1** — App marketplace → ✅ shipped. `src/routes/marketplace.tsx` + `src/lib/marketplace.ts` + `drizzle/0021_marketplace_and_apps.sql` (5 tables: `apps`, `app_installations`, `app_bots`, `app_install_tokens`, `app_events`). Routes: `GET /marketplace` (public directory with search), `GET /marketplace/:slug` (detail + install CTA), `POST /marketplace/:slug/install` (user-target install in v1), `POST /marketplace/installations/:id/uninstall`, `GET /settings/apps` (personal list), `GET+POST /developer/apps-new` (register), `GET /developer/apps/:slug/manage` (event log + install count), `POST /developer/apps/:slug/tokens/new` (show-once token). Install idempotent via soft-update on existing non-uninstalled row.
@@ -291,7 +292,7 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `src/app.tsx` — route composition, middleware order, error handlers
 - `src/index.ts` — Bun server entry
 - `src/lib/config.ts` — env getters (late-binding)
-- `src/db/schema.ts` — 84 tables. New tables only via new migration.
+- `src/db/schema.ts` — 86 tables. New tables only via new migration.
 - `src/db/index.ts` — lazy proxy DB connection
 - `src/db/migrate.ts` — migration runner
 - `drizzle/0000_initial.sql`, `drizzle/0001_green_ecosystem.sql` — migrations
@@ -318,6 +319,7 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `drizzle/0024_email_digest.sql` (Block I7) — migration, never edited in place. Adds `users.notify_email_digest_weekly` + `users.last_digest_sent_at`.
 - `drizzle/0025_code_symbols.sql` (Block I8) — migration, never edited in place. Adds `code_symbols` table with indexes on `(repository_id, name)` + `(repository_id, path)`.
 - `drizzle/0026_repo_mirrors.sql` (Block I9) — migration, never edited in place. Adds `repo_mirrors` (unique on `repository_id`) + `repo_mirror_runs`.
+- `drizzle/0027_sso_oidc.sql` (Block I10) — migration, never edited in place. Adds `sso_config` singleton (`id='default'`) + `sso_user_links` (`subject` unique, FK to `users` with ON DELETE CASCADE).
 
 ### 4.2 Git layer (locked)
 - `src/git/repository.ts` — tree / blob / commits / diff / branches / blame / search / raw / tags / commitsBetween

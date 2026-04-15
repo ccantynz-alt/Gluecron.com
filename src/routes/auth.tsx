@@ -21,6 +21,7 @@ import {
   sessionExpiry,
 } from "../lib/auth";
 import { verifyTotpCode, hashRecoveryCode } from "../lib/totp";
+import { getSsoConfig } from "../lib/sso";
 import { Layout } from "../views/layout";
 import type { AuthEnv } from "../middleware/auth";
 
@@ -155,9 +156,18 @@ auth.post("/register", async (c) => {
   return c.redirect(redirect);
 });
 
-auth.get("/login", (c) => {
+auth.get("/login", async (c) => {
   const error = c.req.query("error");
   const redirect = c.req.query("redirect") || "";
+  const ssoCfg = await getSsoConfig();
+  const ssoEnabled =
+    !!ssoCfg?.enabled &&
+    !!ssoCfg.authorizationEndpoint &&
+    !!ssoCfg.tokenEndpoint &&
+    !!ssoCfg.userinfoEndpoint &&
+    !!ssoCfg.clientId &&
+    !!ssoCfg.clientSecret;
+  const ssoLabel = ssoCfg?.providerName || "SSO";
   return c.html(
     <Layout title="Sign in">
       <div class="auth-container">
@@ -212,6 +222,17 @@ auth.get("/login", (c) => {
             style="margin-top: 8px; color: var(--text-muted); font-size: 12px; min-height: 16px"
           />
         </div>
+        {ssoEnabled && (
+          <div style="margin-top: 8px; text-align: center">
+            <a
+              href="/login/sso"
+              class="btn"
+              style="width: 100%; display: block"
+            >
+              Sign in with {ssoLabel}
+            </a>
+          </div>
+        )}
         <p class="auth-switch">
           New to gluecron? <a href="/register">Create an account</a>
         </p>

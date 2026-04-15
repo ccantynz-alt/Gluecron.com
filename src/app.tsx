@@ -72,6 +72,7 @@ import ssoRoutes from "./routes/sso";
 import depsRoutes from "./routes/deps";
 import advisoriesRoutes from "./routes/advisories";
 import signingKeysRoutes from "./routes/signing-keys";
+import followsRoutes from "./routes/follows";
 import webRoutes from "./routes/web";
 
 const app = new Hono();
@@ -249,6 +250,9 @@ app.route("/", advisoriesRoutes);
 
 // Commit signature verification / signing keys — /settings/signing-keys (Block J3)
 app.route("/", signingKeysRoutes);
+
+// User following + personalised feed (Block J4)
+app.route("/", followsRoutes);
 
 // Insights + milestones
 app.route("/", insightsRoutes);

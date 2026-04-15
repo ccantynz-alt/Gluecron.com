@@ -2232,3 +2232,35 @@ export const commitVerifications = pgTable(
 );
 
 export type CommitVerification = typeof commitVerifications.$inferSelect;
+
+// ----------------------------------------------------------------------------
+// Block J4 — User following
+// ----------------------------------------------------------------------------
+
+/**
+ * Directed user→user follow edges. Primary key is the composite
+ * (follower_id, following_id) at the SQL level; drizzle sees it as a
+ * regular table with a unique index plus a secondary index on the
+ * reverse-lookup column.
+ */
+export const userFollows = pgTable(
+  "user_follows",
+  {
+    followerId: uuid("follower_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    followingId: uuid("following_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("user_follows_pair_unique").on(
+      table.followerId,
+      table.followingId
+    ),
+    index("user_follows_following_idx").on(table.followingId),
+  ]
+);
+
+export type UserFollow = typeof userFollows.$inferSelect;

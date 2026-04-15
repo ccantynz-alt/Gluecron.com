@@ -231,6 +231,27 @@ web.get("/:owner", async (c) => {
         : allRepos.filter((r) => !r.isPrivate);
   }
 
+  // Block J4 — follow counts + viewer's follow state
+  let followState = {
+    followers: 0,
+    following: 0,
+    viewerFollows: false,
+  };
+  if (ownerUser) {
+    try {
+      const { followCounts, isFollowing } = await import("../lib/follows");
+      const counts = await followCounts(ownerUser.id);
+      followState.followers = counts.followers;
+      followState.following = counts.following;
+      if (user && user.id !== ownerUser.id) {
+        followState.viewerFollows = await isFollowing(user.id, ownerUser.id);
+      }
+    } catch {
+      // DB hiccup — fall back to zeros.
+    }
+  }
+  const canFollow = !!user && !!ownerUser && user.id !== ownerUser.id;
+
   return c.html(
     <Layout title={ownerName} user={user}>
       <div class="user-profile">
@@ -241,6 +262,45 @@ web.get("/:owner", async (c) => {
           <h2>{ownerUser?.displayName || ownerName}</h2>
           <div class="username">@{ownerName}</div>
           {ownerUser?.bio && <div class="bio">{ownerUser.bio}</div>}
+          <div
+            style="margin-top:8px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;font-size:13px"
+          >
+            <a
+              href={`/${ownerName}/followers`}
+              style="color:var(--text-muted)"
+            >
+              <strong style="color:var(--text)">
+                {followState.followers}
+              </strong>{" "}
+              follower{followState.followers === 1 ? "" : "s"}
+            </a>
+            <a
+              href={`/${ownerName}/following`}
+              style="color:var(--text-muted)"
+            >
+              <strong style="color:var(--text)">
+                {followState.following}
+              </strong>{" "}
+              following
+            </a>
+            {canFollow && (
+              <form
+                method="POST"
+                action={`/${ownerName}/${
+                  followState.viewerFollows ? "unfollow" : "follow"
+                }`}
+              >
+                <button
+                  type="submit"
+                  class={`btn ${
+                    followState.viewerFollows ? "" : "btn-primary"
+                  } btn-sm`}
+                >
+                  {followState.viewerFollows ? "Unfollow" : "Follow"}
+                </button>
+              </form>
+            )}
+          </div>
         </div>
       </div>
       <h3 style="margin-bottom: 16px">Repositories</h3>

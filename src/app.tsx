@@ -82,6 +82,7 @@ import pulseRoutes from "./routes/pulse";
 import feedRoutes from "./routes/feeds";
 import staleIssuesRoutes from "./routes/stale-issues";
 import codeownersLintRoutes from "./routes/codeowners-lint";
+import codeSuggestionsRoutes from "./routes/code-suggestions";
 import webRoutes from "./routes/web";
 
 const app = new Hono();
@@ -290,6 +291,9 @@ app.route("/", feedRoutes);
 
 // CODEOWNERS validator — /:owner/:repo/codeowners (Block J21)
 app.route("/", codeownersLintRoutes);
+
+// Code review suggestion blocks — apply ```suggestion fences to head branch (Block J22)
+app.route("/", codeSuggestionsRoutes);
 
 // Insights + milestones
 app.route("/", insightsRoutes);

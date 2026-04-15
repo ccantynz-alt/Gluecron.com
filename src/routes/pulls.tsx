@@ -46,6 +46,7 @@ import {
   listRequiredChecks,
   passingCheckNames,
 } from "../lib/branch-protection";
+import { extractSuggestions } from "../lib/code-suggestions";
 
 const pulls = new Hono<AuthEnv>();
 
@@ -649,6 +650,45 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, async (c) => {
                 <div class="markdown-body">
                   {html([renderMarkdown(comment.body)] as unknown as TemplateStringsArray)}
                 </div>
+                {(() => {
+                  const suggestions = extractSuggestions(comment.body);
+                  if (
+                    suggestions.length === 0 ||
+                    !comment.filePath ||
+                    !comment.lineNumber ||
+                    pr.state !== "open"
+                  ) {
+                    return null as unknown as JSX.Element;
+                  }
+                  const canApply =
+                    !!user &&
+                    (user.id === resolved.owner.id ||
+                      user.id === pr.authorId ||
+                      user.id === comment.authorId);
+                  if (!canApply) return null as unknown as JSX.Element;
+                  return (
+                    <div style="padding: 0 16px 12px; display: flex; gap: 6px; flex-wrap: wrap; border-top: 1px solid var(--border); margin-top: 4px; padding-top: 10px">
+                      {suggestions.map((_, si) => (
+                        <form
+                          method="POST"
+                          action={`/${ownerName}/${repoName}/pulls/${pr.number}/comments/${comment.id}/apply-suggestion`}
+                          style="display: inline"
+                        >
+                          <input type="hidden" name="index" value={String(si)} />
+                          <button
+                            type="submit"
+                            class="btn btn-primary"
+                            style="padding: 3px 10px; font-size: 12px"
+                          >
+                            {suggestions.length === 1
+                              ? "Commit suggestion"
+                              : `Commit suggestion ${si + 1}`}
+                          </button>
+                        </form>
+                      ))}
+                    </div>
+                  );
+                })()}
                 <div style="padding: 0 16px 12px">
                   <ReactionsBar
                     targetType="pr_comment"

@@ -11,11 +11,14 @@ import { auditLog, repositories, users } from "../db/schema";
 import type { AuthEnv } from "../middleware/auth";
 import { requireAuth } from "../middleware/auth";
 import { Layout } from "../views/layout";
+import { formatAuditCsv, auditCsvFilename } from "../lib/audit-csv";
 
 const audit = new Hono<AuthEnv>();
 
 audit.use("/settings/audit", requireAuth);
+audit.use("/settings/audit.csv", requireAuth);
 audit.use("/:owner/:repo/settings/audit", requireAuth);
+audit.use("/:owner/:repo/settings/audit.csv", requireAuth);
 
 const LIMIT = 200;
 
@@ -144,7 +147,16 @@ audit.get("/settings/audit", async (c) => {
   return c.html(
     <Layout title="Audit log" user={user}>
       <div class="settings-container" style="max-width: 1000px">
-        <h2>Audit log</h2>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px">
+          <h2 style="margin: 0">Audit log</h2>
+          <a
+            href="/settings/audit.csv"
+            class="btn-secondary"
+            style="font-size: 13px"
+          >
+            Download CSV
+          </a>
+        </div>
         <p style="color: var(--text-muted); font-size: 14px; margin-bottom: 16px">
           The most recent {LIMIT} sensitive actions tied to your account — logins,
           token activity, merges, deploys, branch protection changes.
@@ -153,6 +165,44 @@ audit.get("/settings/audit", async (c) => {
       </div>
     </Layout>
   );
+});
+
+// Personal audit CSV export — same filter, RFC 4180 output.
+audit.get("/settings/audit.csv", async (c) => {
+  const user = c.get("user")!;
+  let rows: AuditRow[] = [];
+  try {
+    const raw = await db
+      .select({
+        id: auditLog.id,
+        action: auditLog.action,
+        targetType: auditLog.targetType,
+        targetId: auditLog.targetId,
+        ip: auditLog.ip,
+        userAgent: auditLog.userAgent,
+        metadata: auditLog.metadata,
+        createdAt: auditLog.createdAt,
+        actor: users.username,
+      })
+      .from(auditLog)
+      .leftJoin(users, eq(users.id, auditLog.userId))
+      .where(eq(auditLog.userId, user.id))
+      .orderBy(desc(auditLog.createdAt))
+      .limit(LIMIT);
+    rows = raw as AuditRow[];
+  } catch (err) {
+    console.error("[audit] personal csv:", err);
+  }
+  const csv = formatAuditCsv(rows);
+  const filename = auditCsvFilename(`personal-${user.username}`);
+  return new Response(csv, {
+    status: 200,
+    headers: {
+      "Content-Type": "text/csv; charset=utf-8",
+      "Content-Disposition": `attachment; filename="${filename}"`,
+      "Cache-Control": "private, no-store",
+    },
+  });
 });
 
 // Per-repo audit — events with repositoryId = this repo. Owner-only.
@@ -221,7 +271,16 @@ audit.get("/:owner/:repo/settings/audit", async (c) => {
           <span>/</span>
           <span>audit</span>
         </div>
-        <h2>Audit log</h2>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px">
+          <h2 style="margin: 0">Audit log</h2>
+          <a
+            href={`/${owner}/${repo}/settings/audit.csv`}
+            class="btn-secondary"
+            style="font-size: 13px"
+          >
+            Download CSV
+          </a>
+        </div>
         <p style="color: var(--text-muted); font-size: 14px; margin-bottom: 16px">
           Who did what in <code>{owner}/{repo}</code> — most recent {LIMIT} events.
         </p>
@@ -229,6 +288,64 @@ audit.get("/:owner/:repo/settings/audit", async (c) => {
       </div>
     </Layout>
   );
+});
+
+// Per-repo audit CSV export — owner-only, same filter as the HTML page.
+audit.get("/:owner/:repo/settings/audit.csv", async (c) => {
+  const user = c.get("user")!;
+  const { owner, repo } = c.req.param();
+
+  let repoRow: { id: string; ownerId: string; name: string } | null = null;
+  try {
+    const [r] = await db
+      .select({ id: repositories.id, ownerId: repositories.ownerId, name: repositories.name })
+      .from(repositories)
+      .innerJoin(users, eq(users.id, repositories.ownerId))
+      .where(and(eq(users.username, owner), eq(repositories.name, repo)))
+      .limit(1);
+    repoRow = (r as any) || null;
+  } catch (err) {
+    console.error("[audit] repo csv lookup:", err);
+  }
+  if (!repoRow) return c.notFound();
+  if (repoRow.ownerId !== user.id) {
+    return c.text("Forbidden", 403);
+  }
+
+  let rows: AuditRow[] = [];
+  try {
+    const raw = await db
+      .select({
+        id: auditLog.id,
+        action: auditLog.action,
+        targetType: auditLog.targetType,
+        targetId: auditLog.targetId,
+        ip: auditLog.ip,
+        userAgent: auditLog.userAgent,
+        metadata: auditLog.metadata,
+        createdAt: auditLog.createdAt,
+        actor: users.username,
+      })
+      .from(auditLog)
+      .leftJoin(users, eq(users.id, auditLog.userId))
+      .where(eq(auditLog.repositoryId, repoRow.id))
+      .orderBy(desc(auditLog.createdAt))
+      .limit(LIMIT);
+    rows = raw as AuditRow[];
+  } catch (err) {
+    console.error("[audit] repo csv:", err);
+  }
+
+  const csv = formatAuditCsv(rows);
+  const filename = auditCsvFilename(`${owner}-${repo}`);
+  return new Response(csv, {
+    status: 200,
+    headers: {
+      "Content-Type": "text/csv; charset=utf-8",
+      "Content-Disposition": `attachment; filename="${filename}"`,
+      "Cache-Control": "private, no-store",
+    },
+  });
 });
 
 export default audit;

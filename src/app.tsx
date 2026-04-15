@@ -62,6 +62,7 @@ import adminRoutes from "./routes/admin";
 import billingRoutes from "./routes/billing";
 import pwaRoutes from "./routes/pwa";
 import graphqlRoutes from "./routes/graphql";
+import marketplaceRoutes from "./routes/marketplace";
 import webRoutes from "./routes/web";
 
 const app = new Hono();
@@ -209,6 +210,9 @@ app.route("/", pwaRoutes);
 
 // GraphQL mirror of REST (Block G2)
 app.route("/", graphqlRoutes);
+
+// Marketplace + app installations + bot identities (Block H1 + H2)
+app.route("/", marketplaceRoutes);
 
 // Insights + milestones
 app.route("/", insightsRoutes);

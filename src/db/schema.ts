@@ -1787,3 +1787,104 @@ export const userQuotas = pgTable("user_quotas", {
 });
 
 export type UserQuota = typeof userQuotas.$inferSelect;
+
+// Block H — App marketplace + bot identities (GitHub Apps equivalent)
+
+export const apps = pgTable(
+  "apps",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    slug: text("slug").notNull().unique(),
+    name: text("name").notNull(),
+    description: text("description").notNull().default(""),
+    iconUrl: text("icon_url"),
+    homepageUrl: text("homepage_url"),
+    webhookUrl: text("webhook_url"),
+    webhookSecret: text("webhook_secret"),
+    creatorId: uuid("creator_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    permissions: text("permissions").notNull().default("[]"), // JSON array
+    defaultEvents: text("default_events").notNull().default("[]"), // JSON array
+    isPublic: boolean("is_public").notNull().default(true),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [index("apps_public_slug").on(table.isPublic, table.slug)]
+);
+
+export type App = typeof apps.$inferSelect;
+
+export const appInstallations = pgTable(
+  "app_installations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    appId: uuid("app_id")
+      .notNull()
+      .references(() => apps.id, { onDelete: "cascade" }),
+    installedBy: uuid("installed_by")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    targetType: text("target_type").notNull(), // user | org | repository
+    targetId: uuid("target_id").notNull(),
+    grantedPermissions: text("granted_permissions").notNull().default("[]"),
+    suspendedAt: timestamp("suspended_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    uninstalledAt: timestamp("uninstalled_at"),
+  },
+  (table) => [
+    index("app_installations_app").on(table.appId),
+    index("app_installations_target").on(table.targetType, table.targetId),
+  ]
+);
+
+export type AppInstallation = typeof appInstallations.$inferSelect;
+
+export const appBots = pgTable("app_bots", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  appId: uuid("app_id")
+    .notNull()
+    .unique()
+    .references(() => apps.id, { onDelete: "cascade" }),
+  username: text("username").notNull().unique(),
+  displayName: text("display_name").notNull(),
+  avatarUrl: text("avatar_url"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type AppBot = typeof appBots.$inferSelect;
+
+export const appInstallTokens = pgTable(
+  "app_install_tokens",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    installationId: uuid("installation_id")
+      .notNull()
+      .references(() => appInstallations.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull().unique(),
+    expiresAt: timestamp("expires_at").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    revokedAt: timestamp("revoked_at"),
+  },
+  (table) => [index("app_install_tokens_hash").on(table.tokenHash)]
+);
+
+export type AppInstallToken = typeof appInstallTokens.$inferSelect;
+
+export const appEvents = pgTable(
+  "app_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    appId: uuid("app_id")
+      .notNull()
+      .references(() => apps.id, { onDelete: "cascade" }),
+    installationId: uuid("installation_id"),
+    kind: text("kind").notNull(), // installed | uninstalled | delivery_ok | delivery_fail
+    payload: text("payload"),
+    responseStatus: integer("response_status"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [index("app_events_app_time").on(table.appId, table.createdAt)]
+);
+
+export type AppEvent = typeof appEvents.$inferSelect;

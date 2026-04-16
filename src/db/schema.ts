@@ -2359,3 +2359,100 @@ export const commitStatuses = pgTable(
 );
 
 export type CommitStatus = typeof commitStatuses.$inferSelect;
+
+// ── Flywheel / Learning System ──────────────────────────────────────────────
+
+/**
+ * Tracks developer responses to AI review comments — accepted, dismissed,
+ * or fixed differently. This is the ground-truth signal the flywheel learns from.
+ */
+export const reviewOutcomes = pgTable(
+  "review_outcomes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    pullRequestId: uuid("pull_request_id")
+      .notNull()
+      .references(() => pullRequests.id, { onDelete: "cascade" }),
+    commentId: uuid("comment_id")
+      .notNull()
+      .references(() => prComments.id, { onDelete: "cascade" }),
+    outcome: text("outcome").notNull(), // accepted, dismissed, modified, ignored
+    category: text("category").notNull(), // bug, security, perf, style, logic, breaking
+    filePath: text("file_path"),
+    language: text("language"), // ts, js, go, py, etc — derived from file extension
+    wasUseful: boolean("was_useful"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("review_outcomes_repo").on(table.repositoryId),
+    index("review_outcomes_category").on(table.category, table.outcome),
+  ]
+);
+
+/**
+ * Extracted patterns from review history. The learning engine aggregates
+ * review_outcomes and gate_runs into reusable rules that are injected into
+ * future AI review prompts.
+ */
+export const reviewPatterns = pgTable(
+  "review_patterns",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id").references(() => repositories.id, {
+      onDelete: "cascade",
+    }),
+    scope: text("scope").notNull(), // global, repo, language
+    language: text("language"), // null for global patterns
+    category: text("category").notNull(), // bug, security, perf, logic, breaking
+    pattern: text("pattern").notNull(), // natural language rule, e.g. "Always check for null after DB queries"
+    confidence: integer("confidence").notNull().default(50), // 0-100, increases with evidence
+    evidenceCount: integer("evidence_count").notNull().default(1),
+    lastSeenAt: timestamp("last_seen_at").defaultNow().notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    active: boolean("active").default(true).notNull(),
+  },
+  (table) => [
+    index("review_patterns_scope").on(table.scope, table.active),
+    index("review_patterns_repo").on(table.repositoryId, table.active),
+    index("review_patterns_lang").on(table.language, table.active),
+  ]
+);
+
+/**
+ * Gate threshold tuning. Tracks per-repo pass/fail rates per gate so
+ * the system can surface trends (e.g. "Secret scan has 40% false positive
+ * rate in this repo — consider tuning").
+ */
+export const gateMetrics = pgTable(
+  "gate_metrics",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    gateName: text("gate_name").notNull(),
+    period: text("period").notNull(), // YYYY-MM (monthly rollup)
+    totalRuns: integer("total_runs").notNull().default(0),
+    passed: integer("passed").notNull().default(0),
+    failed: integer("failed").notNull().default(0),
+    repaired: integer("repaired").notNull().default(0),
+    skipped: integer("skipped").notNull().default(0),
+    avgDurationMs: integer("avg_duration_ms"),
+    falsePositives: integer("false_positives").notNull().default(0),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("gate_metrics_repo_gate_period").on(
+      table.repositoryId,
+      table.gateName,
+      table.period
+    ),
+  ]
+);
+
+export type ReviewOutcome = typeof reviewOutcomes.$inferSelect;
+export type ReviewPattern = typeof reviewPatterns.$inferSelect;
+export type GateMetric = typeof gateMetrics.$inferSelect;

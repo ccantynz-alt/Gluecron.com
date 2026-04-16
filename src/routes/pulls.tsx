@@ -40,6 +40,7 @@ import {
   listRequiredChecks,
   passingCheckNames,
 } from "../lib/branch-protection";
+import { recordReviewOutcome, extractPatterns } from "../lib/flywheel";
 
 const pulls = new Hono<AuthEnv>();
 
@@ -360,7 +361,7 @@ pulls.post(
 
     // Skip AI review on drafts — it runs again when the PR is marked ready.
     if (!isDraft && isAiReviewEnabled()) {
-      triggerAiReview(ownerName, repoName, pr.id, title, prBody, baseBranch, headBranch).catch(
+      triggerAiReview(ownerName, repoName, pr.id, title, prBody, baseBranch, headBranch, resolved.repo.id).catch(
         (err) => console.error("[ai-review] Failed:", err)
       );
     }
@@ -928,6 +929,11 @@ pulls.post(
       })
       .where(eq(pullRequests.id, pr.id));
 
+    // Flywheel: record AI review outcomes on merge (accepted = dev merged with AI comments present)
+    recordAiOutcomesOnMerge(resolved.repo.id, pr.id).catch((err) =>
+      console.error("[flywheel] outcome recording failed:", err)
+    );
+
     // J7 — closing keywords. Scan PR title + body for "closes #N" style refs
     // and auto-close each matching open issue with a back-link comment. Bounded
     // to the same repo for v1 (cross-repo refs ignored). Failures never block
@@ -1010,7 +1016,8 @@ pulls.post(
           pr.title,
           pr.body,
           pr.baseBranch,
-          pr.headBranch
+          pr.headBranch,
+          resolved.repo.id
         ).catch((err) => console.error("[ai-review] ready trigger failed:", err));
       }
     }
@@ -1100,7 +1107,8 @@ async function triggerAiReview(
   title: string,
   body: string | null,
   baseBranch: string,
-  headBranch: string
+  headBranch: string,
+  repositoryId?: string
 ): Promise<void> {
   const repoDir = getRepoPath(ownerName, repoName);
 
@@ -1120,7 +1128,8 @@ async function triggerAiReview(
     body,
     baseBranch,
     headBranch,
-    diffText
+    diffText,
+    { repositoryId }
   );
 
   // We need a system user for AI reviews — use the PR author for now
@@ -1171,6 +1180,54 @@ async function triggerAiReview(
   console.log(
     `[ai-review] Review posted for PR ${prId}: ${result.approved ? "approved" : "changes requested"}, ${result.comments.length} comments`
   );
+}
+
+/**
+ * Flywheel: when a PR is merged, treat all AI review comments as "accepted"
+ * (the developer saw them and merged anyway). When a PR is closed without
+ * merging, treat them as "ignored". This is the primary signal for learning.
+ */
+async function recordAiOutcomesOnMerge(
+  repositoryId: string,
+  pullRequestId: string
+): Promise<void> {
+  const aiComments = await db
+    .select()
+    .from(prComments)
+    .where(
+      and(
+        eq(prComments.pullRequestId, pullRequestId),
+        eq(prComments.isAiReview, true)
+      )
+    );
+
+  for (const comment of aiComments) {
+    if (!comment.filePath) continue; // skip summary comments
+    const category = inferCategory(comment.body);
+    await recordReviewOutcome({
+      repositoryId,
+      pullRequestId,
+      commentId: comment.id,
+      outcome: "accepted",
+      category,
+      filePath: comment.filePath,
+      language: undefined,
+    });
+  }
+
+  // Periodically trigger pattern extraction
+  if (aiComments.length > 0 && Math.random() < 0.2) {
+    extractPatterns(repositoryId).catch(() => {});
+  }
+}
+
+function inferCategory(commentBody: string): string {
+  const lower = commentBody.toLowerCase();
+  if (lower.includes("security") || lower.includes("injection") || lower.includes("xss") || lower.includes("auth")) return "security";
+  if (lower.includes("performance") || lower.includes("n+1") || lower.includes("blocking")) return "perf";
+  if (lower.includes("breaking") || lower.includes("api contract")) return "breaking";
+  if (lower.includes("logic") || lower.includes("off-by-one") || lower.includes("null")) return "logic";
+  return "bug";
 }
 
 /**

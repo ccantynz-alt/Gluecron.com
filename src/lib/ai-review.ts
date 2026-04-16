@@ -7,11 +7,13 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { config } from "./config";
+import { buildReviewContext } from "./flywheel";
 
 interface ReviewComment {
   filePath: string;
   lineNumber: number | null;
   body: string;
+  category?: string;
 }
 
 interface ReviewResult {
@@ -41,9 +43,17 @@ export async function reviewDiff(
   prBody: string | null,
   baseBranch: string,
   headBranch: string,
-  diffText: string
+  diffText: string,
+  opts?: { repositoryId?: string }
 ): Promise<ReviewResult> {
   const client = getClient();
+
+  // Flywheel: inject learned patterns from historical review data
+  const dominantLang = detectDominantLanguage(diffText);
+  const learnedContext = await buildReviewContext(
+    opts?.repositoryId ?? null,
+    dominantLang ?? undefined
+  ).catch(() => "");
 
   const message = await client.messages.create({
     model: "claude-sonnet-4-20250514",
@@ -65,7 +75,9 @@ Review the following diff. Look for:
 - Missing error handling at system boundaries
 - Breaking changes or API contract violations
 
-Do NOT comment on style, formatting, naming, missing docs, or minor nitpicks. Only flag issues that could cause real problems.
+Do NOT comment on style, formatting, naming, missing docs, or minor nitpicks. Only flag issues that could cause real problems.${learnedContext}
+
+For each comment, classify it into one of these categories: bug, security, perf, logic, breaking.
 
 Respond in JSON format:
 {
@@ -75,7 +87,8 @@ Respond in JSON format:
     {
       "filePath": "path/to/file.ts",
       "lineNumber": 42,
-      "body": "Explain the issue and suggest a fix"
+      "body": "Explain the issue and suggest a fix",
+      "category": "bug"
     }
   ]
 }
@@ -122,4 +135,22 @@ ${diffText.slice(0, 100000)}
  */
 export function isAiReviewEnabled(): boolean {
   return !!config.anthropicApiKey;
+}
+
+function detectDominantLanguage(diff: string): string | null {
+  const extCounts = new Map<string, number>();
+  const fileHeaders = diff.matchAll(/^(?:\+\+\+|---) [ab]\/(.+)$/gm);
+  for (const m of fileHeaders) {
+    const ext = m[1].split(".").pop()?.toLowerCase();
+    if (ext) extCounts.set(ext, (extCounts.get(ext) ?? 0) + 1);
+  }
+  if (extCounts.size === 0) return null;
+  const sorted = [...extCounts.entries()].sort((a, b) => b[1] - a[1]);
+  const extMap: Record<string, string> = {
+    ts: "typescript", tsx: "typescript", js: "javascript", jsx: "javascript",
+    py: "python", rb: "ruby", go: "go", rs: "rust", java: "java",
+    kt: "kotlin", cs: "csharp", cpp: "cpp", c: "c", swift: "swift",
+    php: "php", sql: "sql",
+  };
+  return extMap[sorted[0][0]] ?? sorted[0][0];
 }

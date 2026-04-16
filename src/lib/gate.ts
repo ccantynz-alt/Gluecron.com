@@ -22,6 +22,7 @@ import type { SecretFinding, SecurityFinding } from "./security-scan";
 import { repairSecrets, repairSecurityIssues } from "./auto-repair";
 import { readFile } from "fs/promises";
 import { join } from "path";
+import { updateGateMetrics, extractPatterns } from "./flywheel";
 
 export interface GateCheckResult {
   name: string;
@@ -377,32 +378,44 @@ export async function runAllGateChecks(
     }
   }
 
-  // Persist gate_runs
+  // Persist gate_runs + feed flywheel metrics
   if (repoRow) {
     const duration = Date.now() - started;
     await Promise.all(
-      checks.map((check) =>
-        recordGateRun({
-          repositoryId: repoRow.id,
-          pullRequestId: opts.pullRequestId,
-          commitSha: headSha,
-          ref: `refs/heads/${headBranch}`,
-          gateName: check.name,
-          status: check.skipped
-            ? "skipped"
-            : check.repaired
-              ? "repaired"
-              : check.passed
-                ? "passed"
-                : "failed",
-          summary: check.details,
-          repairAttempted: !!check.repaired,
-          repairSucceeded: !!check.repaired,
-          repairCommitSha: check.repairCommitSha,
-          durationMs: duration,
-        })
-      )
+      checks.map((check) => {
+        const status = check.skipped
+          ? ("skipped" as const)
+          : check.repaired
+            ? ("repaired" as const)
+            : check.passed
+              ? ("passed" as const)
+              : ("failed" as const);
+        return Promise.all([
+          recordGateRun({
+            repositoryId: repoRow.id,
+            pullRequestId: opts.pullRequestId,
+            commitSha: headSha,
+            ref: `refs/heads/${headBranch}`,
+            gateName: check.name,
+            status,
+            summary: check.details,
+            repairAttempted: !!check.repaired,
+            repairSucceeded: !!check.repaired,
+            repairCommitSha: check.repairCommitSha,
+            durationMs: duration,
+          }),
+          updateGateMetrics(repoRow.id, check.name, status, duration),
+        ]);
+      })
     );
+
+    // Trigger pattern extraction periodically (every ~20 gate runs)
+    const runCount = checks.length;
+    if (runCount > 0 && Math.random() < 0.05) {
+      extractPatterns(repoRow.id).catch((err) =>
+        console.error("[flywheel] background pattern extraction failed:", err)
+      );
+    }
   }
 
   return {

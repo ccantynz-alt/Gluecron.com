@@ -57,7 +57,7 @@ marketplace.get("/marketplace", async (c) => {
           </a>
         )}
       </div>
-      <form method="GET" action="/marketplace" style="margin-bottom:16px">
+      <form method="get" action="/marketplace" style="margin-bottom:16px">
         <input
           type="text"
           name="q"
@@ -144,7 +144,7 @@ marketplace.get("/marketplace/:slug", async (c) => {
       </div>
 
       {user ? (
-        <form method="POST" action={`/marketplace/${slug}/install`}>
+        <form method="post" action={`/marketplace/${slug}/install`}>
           <div class="form-group">
             <p
               style="font-size:13px;color:var(--text-muted);margin-bottom:8px"
@@ -281,7 +281,7 @@ marketplace.get("/settings/apps", requireAuth, async (c) => {
                 </div>
               </div>
               <form
-                method="POST"
+                method="post"
                 action={`/marketplace/installations/${i.id}/uninstall`}
                 onsubmit="return confirm('Uninstall this app?')"
               >
@@ -304,14 +304,14 @@ marketplace.get("/developer/apps-new", requireAuth, async (c) => {
   return c.html(
     <Layout title="New app — Marketplace" user={user}>
       <h2>Register a new app</h2>
-      <form method="POST" action="/developer/apps-new" class="panel" style="padding:16px">
+      <form method="post" action="/developer/apps-new" class="panel" style="padding:16px">
         <div class="form-group">
           <label>Name</label>
           <input type="text" name="name" required style="width:100%" />
         </div>
         <div class="form-group">
           <label>Description</label>
-          <textarea name="description" rows="3" style="width:100%" />
+          <textarea name="description" rows={3} style="width:100%" />
         </div>
         <div class="form-group">
           <label>Homepage URL</label>
@@ -466,7 +466,7 @@ marketplace.get("/developer/apps/:slug/manage", requireAuth, async (c) => {
 
       <h3>Installation tokens</h3>
       <form
-        method="POST"
+        method="post"
         action={`/developer/apps/${app.slug}/tokens/new`}
         class="panel"
         style="padding:16px"

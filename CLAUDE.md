@@ -2,6 +2,20 @@
 
 AI-native code intelligence platform — git hosting, automated CI, and green ecosystem enforcement.
 
+## Agent Policy — NEVER IDLE
+
+**This is a revenue-generating product. Idle time = lost revenue.**
+
+Every session must ship value. The rules:
+
+1. **See something broken? Fix it.** Don't report it and wait — fix it, commit, push.
+2. **See a missing feature that would advance the platform? Build it.** Don't ask permission for obvious improvements.
+3. **Finished a task? Start the next one.** Audit the codebase for gaps, performance issues, missing tests, broken flows. Always have the next thing queued.
+4. **Run tests after every change.** `bun test` must pass before pushing. If tests break, fix them immediately.
+5. **Commit and push frequently.** Small, focused commits. Don't batch 10 features into one push.
+6. **Prioritize by impact:** Security fixes > broken functionality > performance > new features > polish.
+7. **When in doubt, build.** The worst outcome is sitting idle. The second worst is asking "should I?" when the answer is obviously yes.
+
 ## READ FIRST — every session
 
 **`BUILD_BIBLE.md` is mandatory reading for every Claude agent before any code changes.**

@@ -109,7 +109,7 @@ api.post("/repos", async (c) => {
     const diskPath = await initBareRepo(namespaceSlug, body.name);
 
     // Insert into DB
-    const [repo] = await db
+    const rows = await db
       .insert(repositories)
       .values({
         name: body.name,
@@ -120,6 +120,7 @@ api.post("/repos", async (c) => {
         diskPath,
       })
       .returning();
+    const repo = (rows as any[])[0];
 
     // Green-ecosystem bootstrap: settings, protection, labels, welcome issue
     if (repo) {

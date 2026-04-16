@@ -102,7 +102,7 @@ explore.get("/explore", async (c) => {
       <h2 style="margin-bottom: 16px">Explore repositories</h2>
       <div style="display: flex; gap: 12px; margin-bottom: 24px; flex-wrap: wrap; align-items: center">
         <form
-          method="GET"
+          method="get"
           action="/explore"
           style="display: flex; gap: 8px; flex: 1; min-width: 250px"
         >

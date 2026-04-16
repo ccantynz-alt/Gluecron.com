@@ -96,7 +96,7 @@ function renderChatView(
           )}
         </div>
 
-        <form method="POST" action={postUrl} class="chat-form">
+        <form method="post" action={postUrl} class="chat-form">
           <textarea
             name="message"
             placeholder={placeholder}

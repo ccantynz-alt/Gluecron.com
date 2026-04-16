@@ -135,7 +135,7 @@ aiExplainRoutes.get(
           <h2 style="margin: 0;">Codebase explanation</h2>
           {canRegenerate && (
             <form
-              method="POST"
+              method="post"
               action={`/${owner}/${repo}/explain/regenerate`}
               style="display: inline"
             >

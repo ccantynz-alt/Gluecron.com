@@ -29,7 +29,7 @@ export const ReactionsBar: FC<{
   return (
     <div class="reactions" data-target={`${targetType}:${targetId}`}>
       {visible.map((s) => (
-        <form method="POST" action={action(s.emoji)} style="display: inline">
+        <form method="post" action={action(s.emoji)} style="display: inline">
           <button
             type="submit"
             class={`reaction-btn ${s.reactedByMe ? "active" : ""}`}
@@ -49,7 +49,7 @@ export const ReactionsBar: FC<{
           <div style="display: flex; gap: 4px; padding: 4px">
             {ALLOWED_EMOJIS.filter((e) => !byEmoji.get(e)?.reactedByMe).map(
               (emoji) => (
-                <form method="POST" action={action(emoji)} style="display: inline">
+                <form method="post" action={action(emoji)} style="display: inline">
                   <button
                     type="submit"
                     class="reaction-btn"

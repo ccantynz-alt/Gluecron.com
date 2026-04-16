@@ -228,7 +228,7 @@ gates.get("/:owner/:repo/gates/settings", requireAuth, async (c) => {
         <div class="auth-success">{decodeURIComponent(success)}</div>
       )}
 
-      <form method="POST" action={`/${owner}/${repo}/gates/settings`}>
+      <form method="post" action={`/${owner}/${repo}/gates/settings`}>
         <div class="panel" style="margin-bottom: 20px; overflow: hidden">
           <div style="padding: 12px 14px; background: var(--bg-tertiary); font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted)">
             Gates
@@ -310,7 +310,7 @@ gates.get("/:owner/:repo/gates/settings", requireAuth, async (c) => {
                   Required checks
                 </a>
                 <form
-                  method="POST"
+                  method="post"
                   action={`/${owner}/${repo}/gates/protection/${p.id}/delete`}
                   onsubmit="return confirm('Remove this rule?')"
                 >
@@ -325,7 +325,7 @@ gates.get("/:owner/:repo/gates/settings", requireAuth, async (c) => {
       </div>
 
       <form
-        method="POST"
+        method="post"
         action={`/${owner}/${repo}/gates/protection`}
         class="panel"
         style="padding: 16px"

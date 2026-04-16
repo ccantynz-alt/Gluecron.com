@@ -150,7 +150,7 @@ projectRoutes.get(
         <RepoHeader owner={ownerName} repo={repoName} />
         <h2 style="margin-top: 20px;">Create a project</h2>
         <form
-          method="POST"
+          method="post"
           action={`/${ownerName}/${repoName}/projects`}
           style="display: flex; flex-direction: column; gap: 12px; margin-top: 16px;"
         >
@@ -291,7 +291,7 @@ projectRoutes.get(
           </h1>
           {user && (
             <form
-              method="POST"
+              method="post"
               action={`/${ownerName}/${repoName}/projects/${project.number}/close`}
               style="display: inline;"
             >
@@ -331,7 +331,7 @@ projectRoutes.get(
                         .filter((oc) => oc.id !== col.id)
                         .map((oc) => (
                           <form
-                            method="POST"
+                            method="post"
                             action={`/${ownerName}/${repoName}/projects/${project.number}/items/${it.id}/move`}
                           >
                             <input
@@ -349,7 +349,7 @@ projectRoutes.get(
                           </form>
                         ))}
                       <form
-                        method="POST"
+                        method="post"
                         action={`/${ownerName}/${repoName}/projects/${project.number}/items/${it.id}/delete`}
                       >
                         <button
@@ -366,7 +366,7 @@ projectRoutes.get(
               ))}
               {user && (
                 <form
-                  method="POST"
+                  method="post"
                   action={`/${ownerName}/${repoName}/projects/${project.number}/items`}
                   style="margin-top: 8px; display: flex; flex-direction: column; gap: 4px;"
                 >
@@ -392,7 +392,7 @@ projectRoutes.get(
           {user && (
             <div class="kcol" style="background: transparent; border-style: dashed;">
               <form
-                method="POST"
+                method="post"
                 action={`/${ownerName}/${repoName}/projects/${project.number}/columns`}
                 style="display: flex; flex-direction: column; gap: 8px;"
               >

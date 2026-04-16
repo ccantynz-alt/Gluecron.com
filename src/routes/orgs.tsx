@@ -172,7 +172,7 @@ orgs.get("/orgs/new", async (c) => {
           invite teammates after creation.
         </p>
         {error && <div class="auth-error">{decodeURIComponent(error)}</div>}
-        <form method="POST" action="/orgs/new">
+        <form method="post" action="/orgs/new">
           <div class="form-group">
             <label for="slug">Slug</label>
             <input
@@ -465,7 +465,7 @@ orgs.get("/orgs/:slug/people", async (c) => {
 
         {canAdmin && (
           <form
-            method="POST"
+            method="post"
             action={`/orgs/${org.slug}/people/add`}
             style="display: flex; gap: 8px; margin-bottom: 16px"
           >
@@ -508,7 +508,7 @@ orgs.get("/orgs/:slug/people", async (c) => {
               <div style="display: flex; gap: 8px; align-items: center">
                 {canOwner && m.userId !== user.id ? (
                   <form
-                    method="POST"
+                    method="post"
                     action={`/orgs/${org.slug}/people/${m.userId}/role`}
                     style="display: flex; gap: 4px"
                   >
@@ -537,7 +537,7 @@ orgs.get("/orgs/:slug/people", async (c) => {
                 )}
                 {canAdmin && m.userId !== user.id && (
                   <form
-                    method="POST"
+                    method="post"
                     action={`/orgs/${org.slug}/people/${m.userId}/remove`}
                     style="display: inline"
                     onsubmit="return confirm('Remove this member?')"
@@ -776,7 +776,7 @@ orgs.get("/orgs/:slug/teams", async (c) => {
 
         {canAdmin && (
           <form
-            method="POST"
+            method="post"
             action={`/orgs/${org.slug}/teams/new`}
             style="display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; margin-bottom: 16px"
           >
@@ -938,7 +938,7 @@ orgs.get("/orgs/:slug/teams/:teamSlug", async (c) => {
 
         {canAdmin && (
           <form
-            method="POST"
+            method="post"
             action={`/orgs/${org.slug}/teams/${team.slug}/members/add`}
             style="display: flex; gap: 8px; margin-bottom: 16px"
           >
@@ -984,7 +984,7 @@ orgs.get("/orgs/:slug/teams/:teamSlug", async (c) => {
                   </span>
                   {canAdmin && (
                     <form
-                      method="POST"
+                      method="post"
                       action={`/orgs/${org.slug}/teams/${team.slug}/members/${m.userId}/remove`}
                       style="display: inline"
                     >
@@ -1157,7 +1157,7 @@ orgs.get("/orgs/:slug/repos/new", async (c) => {
         </div>
         <h2>Create repository in {org.name}</h2>
         {error && <div class="auth-error">{decodeURIComponent(error)}</div>}
-        <form method="POST" action={`/orgs/${org.slug}/repos/new`}>
+        <form method="post" action={`/orgs/${org.slug}/repos/new`}>
           <div class="form-group">
             <label for="name">Repository name</label>
             <input

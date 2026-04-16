@@ -94,7 +94,7 @@ deps.get("/:owner/:repo/dependencies", async (c) => {
             )}
             {isOwner && (
               <form
-                method="POST"
+                method="post"
                 action={`/${ownerName}/${repoName}/dependencies/reindex`}
                 style="margin:0"
               >

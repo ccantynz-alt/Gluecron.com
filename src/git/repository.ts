@@ -326,13 +326,14 @@ export async function getTree(
           /^(\d+)\s+(blob|tree|commit)\s+([0-9a-f]+)\s+(-|\d+)\t(.+)$/
         );
         if (!match) return null;
-        return {
+        const entry: GitTreeEntry = {
           mode: match[1],
           type: match[2] as "blob" | "tree" | "commit",
           sha: match[3],
-          size: match[4] === "-" ? undefined : parseInt(match[4], 10),
           name: match[5],
         };
+        if (match[4] !== "-") entry.size = parseInt(match[4], 10);
+        return entry;
       })
       .filter((e): e is GitTreeEntry => e !== null)
       .sort((a, b) => {

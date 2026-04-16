@@ -92,7 +92,7 @@ async function renderList(
           <h2 style="margin:0">Security advisories</h2>
           {isOwner && (
             <form
-              method="POST"
+              method="post"
               action={`/${ownerName}/${repoName}/security/advisories/scan`}
             >
               <button type="submit" class="btn btn-primary btn-sm">
@@ -207,7 +207,7 @@ async function renderList(
                   <div style="display:flex;gap:6px">
                     {a.status === "open" && (
                       <form
-                        method="POST"
+                        method="post"
                         action={`/${ownerName}/${repoName}/security/advisories/${a.id}/dismiss`}
                         style="display:flex;gap:4px;align-items:center"
                       >
@@ -229,7 +229,7 @@ async function renderList(
                     )}
                     {a.status === "dismissed" && (
                       <form
-                        method="POST"
+                        method="post"
                         action={`/${ownerName}/${repoName}/security/advisories/${a.id}/reopen`}
                       >
                         <button

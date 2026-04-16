@@ -154,7 +154,7 @@ apps.get("/settings/applications/new", async (c) => {
         </div>
         <h2>Register a new OAuth app</h2>
         {error && <div class="auth-error">{decodeURIComponent(error)}</div>}
-        <form method="POST" action="/settings/applications/new">
+        <form method="post" action="/settings/applications/new">
           <div class="form-group">
             <label for="name">Application name</label>
             <input
@@ -351,7 +351,7 @@ apps.get("/settings/applications/:id", async (c) => {
           <dd>{new Date(app.createdAt).toLocaleString()}</dd>
         </dl>
 
-        <form method="POST" action={`/settings/applications/${app.id}`}>
+        <form method="post" action={`/settings/applications/${app.id}`}>
           <div class="form-group">
             <label for="name">Application name</label>
             <input
@@ -408,7 +408,7 @@ apps.get("/settings/applications/:id", async (c) => {
           old secret will fail.
         </p>
         <form
-          method="POST"
+          method="post"
           action={`/settings/applications/${app.id}/rotate`}
           onsubmit="return confirm('Rotate the client secret? The old one will stop working immediately.')"
         >
@@ -421,7 +421,7 @@ apps.get("/settings/applications/:id", async (c) => {
 
         <h3 style="color: var(--red)">Danger zone</h3>
         <form
-          method="POST"
+          method="post"
           action={`/settings/applications/${app.id}/delete`}
           onsubmit="return confirm('Delete this OAuth app? All issued access tokens will be revoked.')"
         >

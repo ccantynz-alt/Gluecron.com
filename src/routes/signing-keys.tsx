@@ -77,7 +77,7 @@ signingKeysRoutes.get("/settings/signing-keys", async (c) => {
                     )}
                   </div>
                   <form
-                    method="POST"
+                    method="post"
                     action={`/settings/signing-keys/${k.id}/delete`}
                   >
                     <button
@@ -101,7 +101,7 @@ signingKeysRoutes.get("/settings/signing-keys", async (c) => {
 
         <h3 style="margin-top:24px">Add a key</h3>
         <form
-          method="POST"
+          method="post"
           action="/settings/signing-keys"
           class="auth-form"
           style="max-width:720px"

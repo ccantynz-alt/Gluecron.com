@@ -149,7 +149,7 @@ function renderPicker(
   const trimmed = allFiles.slice(0, 200);
   return (
     <form
-      method="POST"
+      method="post"
       action={`/${ownerName}/${repoName}/ai/tests/generate`}
       style="margin-top: 16px; display: flex; flex-direction: column; gap: 12px; max-width: 720px;"
     >
@@ -350,7 +350,7 @@ aiTestsRoutes.post(
             </p>
           </div>
           <form
-            method="POST"
+            method="post"
             action={`/${owner}/${repo}/ai/tests/generate`}
             style="display: inline;"
           >

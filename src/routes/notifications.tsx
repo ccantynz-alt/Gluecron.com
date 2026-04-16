@@ -154,7 +154,7 @@ notificationsRoute.get("/notifications", requireAuth, async (c) => {
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px">
         <h2>Notifications</h2>
         {unreadCount > 0 && (
-          <form method="POST" action="/notifications/read-all">
+          <form method="post" action="/notifications/read-all">
             <button type="submit" class="btn btn-sm">
               Mark all as read
             </button>
@@ -223,7 +223,7 @@ notificationsRoute.get("/notifications", requireAuth, async (c) => {
                 </div>
                 <div class="notification-actions">
                   {unread && (
-                    <form method="POST" action={`/notifications/${n.id}/read`}>
+                    <form method="post" action={`/notifications/${n.id}/read`}>
                       <button
                         type="submit"
                         class="btn btn-sm"
@@ -233,7 +233,7 @@ notificationsRoute.get("/notifications", requireAuth, async (c) => {
                       </button>
                     </form>
                   )}
-                  <form method="POST" action={`/notifications/${n.id}/delete`}>
+                  <form method="post" action={`/notifications/${n.id}/delete`}>
                     <button
                       type="submit"
                       class="btn btn-sm"

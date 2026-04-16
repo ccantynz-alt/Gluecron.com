@@ -182,7 +182,7 @@ issueRoutes.get(
           {error && (
             <div class="auth-error">{decodeURIComponent(error)}</div>
           )}
-          <form method="POST" action={`/${ownerName}/${repoName}/issues/new`}>
+          <form method="post" action={`/${ownerName}/${repoName}/issues/new`}>
             <div class="form-group">
               <input
                 type="text"
@@ -395,7 +395,7 @@ issueRoutes.get("/:owner/:repo/issues/:number", softAuth, async (c) => {
         {user && (
           <div style="margin-top: 20px">
             <form
-              method="POST"
+              method="post"
               action={`/${ownerName}/${repoName}/issues/${issue.number}/comment`}
             >
               <div class="form-group">

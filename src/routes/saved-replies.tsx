@@ -61,7 +61,7 @@ replies.get("/settings/replies", async (c) => {
           <div class="auth-success">{decodeURIComponent(success)}</div>
         )}
 
-        <form method="POST" action="/settings/replies" style="margin-bottom: 24px">
+        <form method="post" action="/settings/replies" style="margin-bottom: 24px">
           <div class="form-group">
             <label for="shortcut">Shortcut</label>
             <input
@@ -106,7 +106,7 @@ replies.get("/settings/replies", async (c) => {
                     </span>
                   </summary>
                   <div style="padding: 12px 16px; background: var(--bg-secondary); border-top: 1px solid var(--border)">
-                    <form method="POST" action={`/settings/replies/${r.id}`}>
+                    <form method="post" action={`/settings/replies/${r.id}`}>
                       <div class="form-group">
                         <label>Shortcut</label>
                         <input

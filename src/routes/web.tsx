@@ -97,7 +97,7 @@ web.get("/new", requireAuth, (c) => {
       <div class="new-repo-form">
         <h2>Create a new repository</h2>
         {error && <div class="auth-error">{decodeURIComponent(error)}</div>}
-        <form method="POST" action="/new">
+        <form method="post" action="/new">
           <div class="form-group">
             <label>Owner</label>
             <input type="text" value={user.username} disabled class="input-disabled" />
@@ -305,7 +305,7 @@ web.get("/:owner", async (c) => {
             </a>
             {canFollow && (
               <form
-                method="POST"
+                method="post"
                 action={`/${ownerName}/${
                   followState.viewerFollows ? "unfollow" : "follow"
                 }`}
@@ -546,7 +546,7 @@ git push -u gluecron main`}</pre>
             this template's files.
           </div>
           <form
-            method="POST"
+            method="post"
             action={`/${owner}/${repo}/use-template`}
             style="display:flex;gap:8px;align-items:center"
           >
@@ -1168,7 +1168,7 @@ web.get("/:owner/:repo/search", async (c) => {
       <RepoHeader owner={owner} repo={repo} />
       <RepoNav owner={owner} repo={repo} active="code" />
       <form
-        method="GET"
+        method="get"
         action={`/${owner}/${repo}/search`}
         style="margin-bottom: 20px"
       >

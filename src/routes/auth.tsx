@@ -27,6 +27,13 @@ import type { AuthEnv } from "../middleware/auth";
 
 const auth = new Hono<AuthEnv>();
 
+function safeRedirect(url: string): string {
+  if (!url || typeof url !== "string") return "/";
+  const trimmed = url.trim();
+  if (trimmed.startsWith("/") && !trimmed.startsWith("//")) return trimmed;
+  return "/";
+}
+
 // --- Web UI ---
 
 auth.get("/register", (c) => {
@@ -36,7 +43,7 @@ auth.get("/register", (c) => {
       <div class="auth-container">
         <h2>Create account</h2>
         {error && <div class="auth-error">{decodeURIComponent(error)}</div>}
-        <form method="POST" action="/register">
+        <form method="post" action="/register">
           <div class="form-group">
             <label for="username">Username</label>
             <input
@@ -152,13 +159,13 @@ auth.post("/register", async (c) => {
 
   setCookie(c, "session", token, sessionCookieOptions());
 
-  const redirect = c.req.query("redirect") || "/";
+  const redirect = safeRedirect(c.req.query("redirect") || "/");
   return c.redirect(redirect);
 });
 
 auth.get("/login", async (c) => {
   const error = c.req.query("error");
-  const redirect = c.req.query("redirect") || "";
+  const redirect = safeRedirect(c.req.query("redirect") || "");
   const ssoCfg = await getSsoConfig();
   const ssoEnabled =
     !!ssoCfg?.enabled &&
@@ -174,7 +181,7 @@ auth.get("/login", async (c) => {
         <h2>Sign in</h2>
         {error && <div class="auth-error">{decodeURIComponent(error)}</div>}
         <form
-          method="POST"
+          method="post"
           action={`/login${redirect ? `?redirect=${encodeURIComponent(redirect)}` : ""}`}
         >
           <div class="form-group">
@@ -322,7 +329,7 @@ auth.post("/login", async (c) => {
   const body = await c.req.parseBody();
   const identifier = String(body.username || "").trim();
   const password = String(body.password || "");
-  const redirect = c.req.query("redirect") || "/";
+  const redirect = safeRedirect(c.req.query("redirect") || "/");
 
   if (!identifier || !password) {
     return c.redirect("/login?error=All+fields+are+required");
@@ -380,7 +387,7 @@ auth.get("/login/2fa", async (c) => {
   const token = getCookie(c, "session");
   if (!token) return c.redirect("/login");
   const error = c.req.query("error");
-  const redirect = c.req.query("redirect") || "/";
+  const redirect = safeRedirect(c.req.query("redirect") || "/");
   return c.html(
     <Layout title="Two-factor authentication">
       <div class="auth-container">
@@ -394,7 +401,7 @@ auth.get("/login/2fa", async (c) => {
         </p>
         {error && <div class="auth-error">{decodeURIComponent(error)}</div>}
         <form
-          method="POST"
+          method="post"
           action={`/login/2fa?redirect=${encodeURIComponent(redirect)}`}
         >
           <div class="form-group">
@@ -427,7 +434,7 @@ auth.post("/login/2fa", async (c) => {
   if (!token) return c.redirect("/login");
   const body = await c.req.parseBody();
   const code = String(body.code || "").trim();
-  const redirect = c.req.query("redirect") || "/";
+  const redirect = safeRedirect(c.req.query("redirect") || "/");
 
   if (!code) {
     return c.redirect(

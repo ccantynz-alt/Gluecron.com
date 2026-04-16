@@ -85,7 +85,7 @@ tokens.get("/settings/tokens", async (c) => {
                   </div>
                 </div>
                 <form
-                  method="POST"
+                  method="post"
                   action={`/settings/tokens/${token.id}/delete`}
                 >
                   <button type="submit" class="btn btn-danger btn-sm">
@@ -100,7 +100,7 @@ tokens.get("/settings/tokens", async (c) => {
         <h3 style="margin-top: 24px; margin-bottom: 12px">
           Generate new token
         </h3>
-        <form method="POST" action="/settings/tokens">
+        <form method="post" action="/settings/tokens">
           <div class="form-group">
             <label for="name">Token name</label>
             <input

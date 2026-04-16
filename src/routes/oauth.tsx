@@ -232,7 +232,7 @@ oauth.get("/oauth/authorize", async (c) => {
           You can revoke access at any time from{" "}
           <a href="/settings/authorizations">Authorized applications</a>.
         </p>
-        <form method="POST" action="/oauth/authorize/decision">
+        <form method="post" action="/oauth/authorize/decision">
           <input type="hidden" name="client_id" value={clientId} />
           <input type="hidden" name="redirect_uri" value={redirectUri} />
           <input type="hidden" name="response_type" value={responseType} />
@@ -722,7 +722,7 @@ oauth.get("/settings/authorizations", async (c) => {
                   </div>
                 </div>
                 <form
-                  method="POST"
+                  method="post"
                   action={`/settings/authorizations/${token.appId}/revoke`}
                   onsubmit="return confirm('Revoke access for this application?')"
                 >

@@ -133,7 +133,7 @@ gistRoutes.get("/gists/new", requireAuth, async (c) => {
     <Layout title="New gist" user={user}>
       <h1 style="margin-top: 20px;">Create a gist</h1>
       <form
-        method="POST"
+        method="post"
         action="/gists"
         style="display: flex; flex-direction: column; gap: 12px; margin-top: 16px;"
       >
@@ -190,7 +190,7 @@ gistRoutes.get("/gists/new", requireAuth, async (c) => {
             div.style.cssText = "border: 1px solid var(--border); padding: 12px; margin-bottom: 8px;";
             div.innerHTML =
               '<input type="text" name="filename[]" placeholder="filename.ext" required style="padding: 6px; width: 300px;" />' +
-              '<textarea name="content[]" rows="12" placeholder="File contents..." required style="width: 100%; padding: 8px; font-family: monospace; margin-top: 8px;"></textarea>';
+              '<textarea name="content[]" rows={12} placeholder="File contents..." required style="width: 100%; padding: 8px; font-family: monospace; margin-top: 8px;"></textarea>';
             document.getElementById("files").appendChild(div);
           });
         </script>
@@ -331,7 +331,7 @@ gistRoutes.get("/gists/:slug", softAuth, async (c) => {
         <div style="display: flex; gap: 8px;">
           {user && !isOwner && (
             <form
-              method="POST"
+              method="post"
               action={`/gists/${slug}/star`}
               style="display: inline;"
             >
@@ -355,7 +355,7 @@ gistRoutes.get("/gists/:slug", softAuth, async (c) => {
                 Edit
               </a>
               <form
-                method="POST"
+                method="post"
                 action={`/gists/${slug}/delete`}
                 style="display: inline;"
                 onsubmit="return confirm('Delete this gist?')"
@@ -416,7 +416,7 @@ gistRoutes.get("/gists/:slug/edit", requireAuth, async (c) => {
     <Layout title={`Edit ${gist.slug}`} user={user}>
       <h1 style="margin-top: 20px;">Edit gist</h1>
       <form
-        method="POST"
+        method="post"
         action={`/gists/${slug}/edit`}
         style="display: flex; flex-direction: column; gap: 12px; margin-top: 16px;"
       >
@@ -474,7 +474,7 @@ gistRoutes.get("/gists/:slug/edit", requireAuth, async (c) => {
             div.style.cssText = "border: 1px solid var(--border); padding: 12px; margin-bottom: 8px;";
             div.innerHTML =
               '<input type="text" name="filename[]" placeholder="filename.ext" required style="padding: 6px; width: 300px;" />' +
-              '<textarea name="content[]" rows="12" required style="width: 100%; padding: 8px; font-family: monospace; margin-top: 8px;"></textarea>';
+              '<textarea name="content[]" rows={12} required style="width: 100%; padding: 8px; font-family: monospace; margin-top: 8px;"></textarea>';
             document.getElementById("files").appendChild(div);
           });
         </script>

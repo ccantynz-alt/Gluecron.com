@@ -184,7 +184,7 @@ admin.get("/admin/users", async (c) => {
   return c.html(
     <Layout title="Admin — Users" user={user}>
       <h2>Users</h2>
-      <form method="GET" action="/admin/users" style="margin-bottom:16px">
+      <form method="get" action="/admin/users" style="margin-bottom:16px">
         <input
           type="text"
           name="q"
@@ -221,7 +221,7 @@ admin.get("/admin/users", async (c) => {
                   )}
                 </div>
                 <form
-                  method="POST"
+                  method="post"
                   action={`/admin/users/${u.id}/admin`}
                   onsubmit={
                     isAdmin
@@ -280,7 +280,7 @@ admin.get("/admin/repos", async (c) => {
       id: repositories.id,
       name: repositories.name,
       ownerUsername: users.username,
-      visibility: repositories.visibility,
+      isPrivate: repositories.isPrivate,
       createdAt: repositories.createdAt,
       starCount: repositories.starCount,
     })
@@ -313,7 +313,7 @@ admin.get("/admin/repos", async (c) => {
                 <span
                   style="margin-left:6px;font-size:11px;color:var(--text-muted);text-transform:uppercase"
                 >
-                  {r.visibility}
+                  {r.isPrivate ? "private" : "public"}
                 </span>
                 <div style="font-size:12px;color:var(--text-muted);margin-top:2px">
                   {r.starCount} stars ·{" "}
@@ -323,7 +323,7 @@ admin.get("/admin/repos", async (c) => {
                 </div>
               </div>
               <form
-                method="POST"
+                method="post"
                 action={`/admin/repos/${r.id}/delete`}
                 onsubmit="return confirm('Delete repository permanently? This cannot be undone.')"
               >
@@ -378,7 +378,7 @@ admin.get("/admin/flags", async (c) => {
         </a>
       </div>
       <form
-        method="POST"
+        method="post"
         action="/admin/flags"
         class="panel"
         style="padding:16px"
@@ -471,7 +471,7 @@ admin.get("/admin/digests", async (c) => {
         <div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">
           {opted} user{opted === 1 ? "" : "s"} opted into the weekly digest.
         </div>
-        <form method="POST" action="/admin/digests/run" style="margin-bottom:8px">
+        <form method="post" action="/admin/digests/run" style="margin-bottom:8px">
           <button
             type="submit"
             class="btn btn-primary"
@@ -480,7 +480,7 @@ admin.get("/admin/digests", async (c) => {
             Send digests now
           </button>
         </form>
-        <form method="POST" action="/admin/digests/preview" style="display:flex;gap:6px;align-items:center">
+        <form method="post" action="/admin/digests/preview" style="display:flex;gap:6px;align-items:center">
           <input
             type="text"
             name="username"

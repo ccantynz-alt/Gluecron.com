@@ -61,7 +61,7 @@ export const RepoHeader: FC<{
     </div>
     <div class="repo-header-actions">
       {currentUser && currentUser !== owner && (
-        <form method="POST" action={`/${owner}/${repo}/fork`} style="display:inline">
+        <form method="post" action={`/${owner}/${repo}/fork`} style="display:inline">
           <button type="submit" class="star-btn">
             {"\u2442"} Fork {forkCount !== undefined && forkCount > 0 ? forkCount : ""}
           </button>
@@ -69,7 +69,7 @@ export const RepoHeader: FC<{
       )}
       {starCount !== undefined && (
         currentUser ? (
-          <form method="POST" action={`/${owner}/${repo}/star`} style="display:inline">
+          <form method="post" action={`/${owner}/${repo}/star`} style="display:inline">
             <button
               type="submit"
               class={`star-btn${starred ? " starred" : ""}`}
@@ -103,7 +103,8 @@ export const RepoNav: FC<{
     | "changelog"
     | "semantic"
     | "wiki"
-    | "projects";
+    | "projects"
+    | "settings";
 }> = ({ owner, repo, active }) => (
   <div class="repo-nav">
     <a href={`/${owner}/${repo}`} class={active === "code" ? "active" : ""}>

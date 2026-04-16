@@ -25,6 +25,10 @@ export const Layout: FC<
         <style>{hljsThemeCss}</style>
       </head>
       <body>
+        <div class="prelaunch-banner" role="status" aria-live="polite">
+          Pre-launch &mdash; Gluecron is in final validation. Public signups
+          and git hosting for non-owner users open after launch review.
+        </div>
         <header>
           <nav>
             <a href="/" class="logo">
@@ -366,6 +370,19 @@ const css = `
 
   a { color: var(--text-link); text-decoration: none; }
   a:hover { text-decoration: underline; }
+
+  /* Pre-launch banner - always visible, not dismissible. Amber tone, readable
+     on both light and dark themes via the shared --yellow token. */
+  .prelaunch-banner {
+    background: rgba(210, 153, 34, 0.15);
+    border-bottom: 1px solid var(--yellow);
+    color: var(--yellow);
+    padding: 8px 24px;
+    font-size: 13px;
+    font-weight: 500;
+    text-align: center;
+    line-height: 1.4;
+  }
 
   header {
     border-bottom: 1px solid var(--border);

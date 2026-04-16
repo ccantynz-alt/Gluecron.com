@@ -18,6 +18,7 @@ import {
   listDependenciesForRepo,
   summarizeDependencies,
 } from "../lib/deps";
+import { generateSpdx, generateCycloneDx } from "../lib/sbom";
 
 const deps = new Hono<AuthEnv>();
 deps.use("*", softAuth);
@@ -76,16 +77,29 @@ deps.get("/:owner/:repo/dependencies", async (c) => {
       <div class="settings-container">
         <div style="display:flex;justify-content:space-between;align-items:center">
           <h2 style="margin:0">Dependencies</h2>
-          {isOwner && (
-            <form
-              method="POST"
-              action={`/${ownerName}/${repoName}/dependencies/reindex`}
-            >
-              <button type="submit" class="btn btn-primary btn-sm">
-                Reindex
-              </button>
-            </form>
-          )}
+          <div style="display:flex;gap:8px;align-items:center">
+            {all.length > 0 && (
+              <>
+                <a href={`/${ownerName}/${repoName}/dependencies/sbom/spdx`} class="btn btn-sm" style="text-decoration:none">
+                  SPDX
+                </a>
+                <a href={`/${ownerName}/${repoName}/dependencies/sbom/cyclonedx`} class="btn btn-sm" style="text-decoration:none">
+                  CycloneDX
+                </a>
+              </>
+            )}
+            {isOwner && (
+              <form
+                method="POST"
+                action={`/${ownerName}/${repoName}/dependencies/reindex`}
+                style="margin:0"
+              >
+                <button type="submit" class="btn btn-primary btn-sm">
+                  Reindex
+                </button>
+              </form>
+            )}
+          </div>
         </div>
         {message && (
           <div class="auth-success" style="margin-top:12px">
@@ -228,6 +242,57 @@ deps.post("/:owner/:repo/dependencies/reindex", requireAuth, async (c) => {
       `Indexed ${result.indexed} dependencies across ${result.manifests} manifests.`
     )}`
   );
+});
+
+// ---------- SBOM Export (SPDX) ----------
+
+deps.get("/:owner/:repo/dependencies/sbom/spdx", async (c) => {
+  const user = c.get("user");
+  const { owner: ownerName, repo: repoName } = c.req.param();
+  const ctx = await loadRepo(ownerName, repoName);
+  if (!ctx) return c.notFound();
+  const { repo } = ctx;
+  if (repo.isPrivate && (!user || user.id !== repo.ownerId)) return c.notFound();
+
+  const spdx = await generateSpdx(repo.id, `${ownerName}/${repoName}`);
+  return c.json(spdx, 200, {
+    "Content-Disposition": `attachment; filename="${repoName}-sbom-spdx.json"`,
+  });
+});
+
+// ---------- SBOM Export (CycloneDX) ----------
+
+deps.get("/:owner/:repo/dependencies/sbom/cyclonedx", async (c) => {
+  const user = c.get("user");
+  const { owner: ownerName, repo: repoName } = c.req.param();
+  const ctx = await loadRepo(ownerName, repoName);
+  if (!ctx) return c.notFound();
+  const { repo } = ctx;
+  if (repo.isPrivate && (!user || user.id !== repo.ownerId)) return c.notFound();
+
+  const bom = await generateCycloneDx(repo.id, `${ownerName}/${repoName}`);
+  return c.json(bom, 200, {
+    "Content-Disposition": `attachment; filename="${repoName}-sbom-cyclonedx.json"`,
+  });
+});
+
+// ---------- SBOM API (JSON) ----------
+
+deps.get("/api/repos/:owner/:repo/sbom", softAuth, async (c) => {
+  const user = c.get("user");
+  const { owner: ownerName, repo: repoName } = c.req.param();
+  const format = c.req.query("format") || "cyclonedx";
+  const ctx = await loadRepo(ownerName, repoName);
+  if (!ctx) return c.json({ error: "Not found" }, 404);
+  const { repo } = ctx;
+  if (repo.isPrivate && (!user || user.id !== repo.ownerId)) {
+    return c.json({ error: "Not found" }, 404);
+  }
+
+  if (format === "spdx") {
+    return c.json(await generateSpdx(repo.id, `${ownerName}/${repoName}`));
+  }
+  return c.json(await generateCycloneDx(repo.id, `${ownerName}/${repoName}`));
 });
 
 export default deps;

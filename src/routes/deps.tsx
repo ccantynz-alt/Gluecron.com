@@ -19,6 +19,7 @@ import {
   summarizeDependencies,
 } from "../lib/deps";
 import { generateSpdx, generateCycloneDx } from "../lib/sbom";
+import { scanLicenses, type LicenseReport, type LicenseRisk } from "../lib/license-scan";
 
 const deps = new Hono<AuthEnv>();
 deps.use("*", softAuth);
@@ -80,6 +81,9 @@ deps.get("/:owner/:repo/dependencies", async (c) => {
           <div style="display:flex;gap:8px;align-items:center">
             {all.length > 0 && (
               <>
+                <a href={`/${ownerName}/${repoName}/dependencies/licenses`} class="btn btn-sm" style="text-decoration:none">
+                  License Scan
+                </a>
                 <a href={`/${ownerName}/${repoName}/dependencies/sbom/spdx`} class="btn btn-sm" style="text-decoration:none">
                   SPDX
                 </a>
@@ -242,6 +246,144 @@ deps.post("/:owner/:repo/dependencies/reindex", requireAuth, async (c) => {
       `Indexed ${result.indexed} dependencies across ${result.manifests} manifests.`
     )}`
   );
+});
+
+// ---------- License Compliance ----------
+
+deps.get("/:owner/:repo/dependencies/licenses", async (c) => {
+  const user = c.get("user");
+  const { owner: ownerName, repo: repoName } = c.req.param();
+  const ctx = await loadRepo(ownerName, repoName);
+  if (!ctx) return c.notFound();
+  const { repo } = ctx;
+  if (repo.isPrivate && (!user || user.id !== repo.ownerId)) return c.notFound();
+
+  const report = await scanLicenses(repo.id);
+
+  const riskColor = (risk: LicenseRisk): string => {
+    if (risk === "high") return "#f85149";
+    if (risk === "medium") return "#d29922";
+    if (risk === "low") return "#58a6ff";
+    if (risk === "unknown") return "#8b949e";
+    return "#3fb950";
+  };
+
+  const riskBadge = (risk: LicenseRisk) => (
+    <span style={`font-size:11px;padding:2px 8px;border-radius:3px;background:${riskColor(risk)}22;color:${riskColor(risk)};font-weight:600;text-transform:uppercase`}>
+      {risk}
+    </span>
+  );
+
+  return c.html(
+    <Layout title={`License Compliance — ${ownerName}/${repoName}`} user={user}>
+      <RepoHeader owner={ownerName} repo={repoName} />
+      <RepoNav owner={ownerName} repo={repoName} active="code" />
+      <div class="settings-container">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <h2 style="margin:0">License Compliance</h2>
+          <a href={`/${ownerName}/${repoName}/dependencies`} class="btn btn-sm" style="text-decoration:none">
+            Back to Dependencies
+          </a>
+        </div>
+
+        <div class={`panel ${report.compliant ? "" : "auth-error"}`} style="padding:16px;margin-top:16px">
+          <div style="font-weight:600;font-size:16px;margin-bottom:4px">
+            {report.compliant ? "Compliant" : "Action Required"}
+          </div>
+          <div style="color:var(--text-muted)">{report.summary}</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:8px">
+            {report.scanned} of {report.totalDeps} dependencies scanned
+          </div>
+        </div>
+
+        {report.risks.high.length > 0 && (
+          <>
+            <h3 style="margin-top:24px;color:#f85149">High Risk ({report.risks.high.length})</h3>
+            <div class="panel">
+              {report.risks.high.map((d) => (
+                <div class="panel-item" style="justify-content:space-between;flex-wrap:wrap;gap:6px">
+                  <div>
+                    <span style="font-family:var(--font-mono);font-weight:600">{d.name}</span>
+                    <span style="margin-left:8px;font-size:12px;color:var(--text-muted)">{d.version}</span>
+                    {riskBadge(d.risk)}
+                  </div>
+                  <div style="font-size:12px;color:var(--text-muted)">{d.license} — {d.reason}</div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
+        {report.risks.medium.length > 0 && (
+          <>
+            <h3 style="margin-top:24px;color:#d29922">Medium Risk ({report.risks.medium.length})</h3>
+            <div class="panel">
+              {report.risks.medium.map((d) => (
+                <div class="panel-item" style="justify-content:space-between;flex-wrap:wrap;gap:6px">
+                  <div>
+                    <span style="font-family:var(--font-mono);font-weight:600">{d.name}</span>
+                    <span style="margin-left:8px;font-size:12px;color:var(--text-muted)">{d.version}</span>
+                    {riskBadge(d.risk)}
+                  </div>
+                  <div style="font-size:12px;color:var(--text-muted)">{d.license} — {d.reason}</div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
+        {report.risks.unknown.length > 0 && (
+          <>
+            <h3 style="margin-top:24px;color:#8b949e">Unknown License ({report.risks.unknown.length})</h3>
+            <div class="panel">
+              {report.risks.unknown.map((d) => (
+                <div class="panel-item" style="justify-content:space-between;flex-wrap:wrap;gap:6px">
+                  <div>
+                    <span style="font-family:var(--font-mono);font-weight:600">{d.name}</span>
+                    <span style="margin-left:8px;font-size:12px;color:var(--text-muted)">{d.version}</span>
+                    {riskBadge(d.risk)}
+                  </div>
+                  <div style="font-size:12px;color:var(--text-muted)">{d.ecosystem} — {d.reason}</div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
+        {report.risks.low.length > 0 && (
+          <>
+            <h3 style="margin-top:24px">Other ({report.risks.low.length})</h3>
+            <div class="panel">
+              {report.risks.low.map((d) => (
+                <div class="panel-item" style="justify-content:space-between;flex-wrap:wrap;gap:6px">
+                  <div>
+                    <span style="font-family:var(--font-mono);font-weight:600">{d.name}</span>
+                    <span style="margin-left:8px;font-size:12px;color:var(--text-muted)">{d.version}</span>
+                    {riskBadge(d.risk)}
+                  </div>
+                  <div style="font-size:12px;color:var(--text-muted)">{d.license} — {d.reason}</div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+    </Layout>
+  );
+});
+
+// ---------- License API ----------
+
+deps.get("/api/repos/:owner/:repo/licenses", softAuth, async (c) => {
+  const user = c.get("user");
+  const { owner: ownerName, repo: repoName } = c.req.param();
+  const ctx = await loadRepo(ownerName, repoName);
+  if (!ctx) return c.json({ error: "Not found" }, 404);
+  const { repo } = ctx;
+  if (repo.isPrivate && (!user || user.id !== repo.ownerId)) {
+    return c.json({ error: "Not found" }, 404);
+  }
+  return c.json(await scanLicenses(repo.id));
 });
 
 // ---------- SBOM Export (SPDX) ----------

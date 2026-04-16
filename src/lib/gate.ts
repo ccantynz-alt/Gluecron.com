@@ -23,6 +23,7 @@ import { repairSecrets, repairSecurityIssues } from "./auto-repair";
 import { readFile } from "fs/promises";
 import { join } from "path";
 import { updateGateMetrics, extractPatterns } from "./flywheel";
+import { broadcast } from "./sse";
 
 export interface GateCheckResult {
   name: string;
@@ -317,6 +318,17 @@ export async function runAllGateChecks(
   const runAiReview = settings?.aiReviewEnabled !== false;
   const enableRepair = opts.enableAutoRepair !== false && settings?.autoFixEnabled !== false;
 
+  // SSE: broadcast that gate checks are starting
+  const sseChannel = repoRow ? `gate:${repoRow.id}` : null;
+  if (sseChannel) {
+    broadcast(sseChannel, "gate:started", {
+      repoId: repoRow!.id,
+      prId: opts.pullRequestId,
+      sha: headSha,
+      gates: ["GateTest", "Secret scan", "Security scan", "Merge check", "AI Review"],
+    });
+  }
+
   const [gateTestResult, mergeResult, scanResults] = await Promise.all([
     runGateTest
       ? runGateTestScan(owner, repo, `refs/heads/${headBranch}`, headSha)
@@ -418,8 +430,28 @@ export async function runAllGateChecks(
     }
   }
 
-  return {
+  const result = {
     allPassed: checks.every((c) => c.passed || c.skipped),
     checks,
   };
+
+  // SSE: broadcast gate completion with full results
+  if (sseChannel) {
+    broadcast(sseChannel, "gate:completed", {
+      repoId: repoRow!.id,
+      prId: opts.pullRequestId,
+      sha: headSha,
+      allPassed: result.allPassed,
+      checks: result.checks.map((c) => ({
+        name: c.name,
+        passed: c.passed,
+        skipped: c.skipped,
+        repaired: c.repaired,
+        details: c.details,
+      })),
+      durationMs: Date.now() - started,
+    });
+  }
+
+  return result;
 }

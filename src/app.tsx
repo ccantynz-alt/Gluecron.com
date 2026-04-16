@@ -75,6 +75,7 @@ import signingKeysRoutes from "./routes/signing-keys";
 import followsRoutes from "./routes/follows";
 import rulesetsRoutes from "./routes/rulesets";
 import commitStatusesRoutes from "./routes/commit-statuses";
+import eventsRoutes from "./routes/events";
 import webRoutes from "./routes/web";
 
 const app = new Hono();
@@ -102,6 +103,9 @@ app.route("/", healthRoutes);
 
 // Inbound API hooks (GateTest callback + backup PAT-authed /api/v1/gate-runs)
 app.route("/", hookRoutes);
+
+// SSE event streams (real-time gate updates, notifications)
+app.route("/", eventsRoutes);
 
 // REST API
 app.route("/", apiRoutes);

@@ -289,12 +289,26 @@ export async function onPostReceive(
     if (ref.newSha.startsWith("0000")) continue;
 
     if (settings?.gateTestEnabled !== false) {
+      const branch = ref.refName.replace(/^refs\/heads\//, "");
       promises.push(
         runGateTestScan(owner, repo, ref.refName, ref.newSha)
-          .then((result) => {
+          .then(async (result) => {
             console.log(
               `[gatetest] ${owner}/${repo} ${ref.refName}: ${result.passed ? "PASSED" : "FAILED"} — ${result.details}`
             );
+            // Self-healing: if gate failed, trigger the heal loop
+            if (!result.passed && !result.skipped && settings?.autoFixEnabled !== false && repoRow) {
+              try {
+                const { runHealLoop, isHealLoopEnabled } = await import("../lib/heal-loop");
+                if (isHealLoopEnabled()) {
+                  console.log(`[heal-loop] Triggering for ${owner}/${repo}:${branch}`);
+                  runHealLoop(owner, repo, branch, {
+                    repositoryId: repoRow.id,
+                    triggerSource: "post-receive",
+                  }).catch((err) => console.error("[heal-loop] Error:", err));
+                }
+              } catch {}
+            }
           })
           .catch((err) => {
             console.error(`[gatetest] scan error for ${owner}/${repo}:`, err);

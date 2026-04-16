@@ -2,7 +2,48 @@
 
 AI-native code intelligence platform — git hosting, automated CI, and green ecosystem enforcement.
 
-## Agent Policy — NEVER IDLE
+## Section 0 — SESSION START PROTOCOL (mandatory)
+
+Every session begins by loading memory. Do these in order:
+
+1. Read `.memory/project-state.md` — current status snapshot
+2. Read `.memory/last-session.md` — what was just built, what's next
+3. Read `.memory/open-questions.md` — anything needing owner input
+4. Run `git log --oneline -5` — verify branch state
+5. Run `bun test 2>&1 | tail -3` — verify tests pass
+
+If any file is missing, note it and proceed. Never ask the user to provide context you can read from these files.
+
+## Section 1 — HARD RULES
+
+### Rule 1: Never forget context
+- Session memory lives in `.memory/`. Read it. Use it. Update it.
+- If you don't know something, check memory files before asking.
+- Cross-session continuity is non-negotiable.
+
+### Rule 2: Never sit idle
+- This is a revenue-generating product. Idle time = lost revenue.
+- See something broken? Fix it. See a gap? Build it. Finished a task? Start the next one.
+- Prioritize: Security fixes > broken functionality > performance > new features > polish.
+- When in doubt, build. The worst outcome is sitting idle.
+
+### Rule 3: Never ship broken code
+- `bun test` must pass before every commit.
+- Run tests after every change. If tests break, fix them immediately.
+- Commit and push frequently. Small, focused commits.
+- Every user-facing failure mode has a fallback — no 500s reach the UI.
+
+## Section 2 — SESSION END PROTOCOL (mandatory)
+
+Before the session ends or context compacts:
+
+1. Update `.memory/last-session.md` with: what was built, what was fixed, branch state, what's next
+2. Update `.memory/project-state.md` if architecture changed
+3. Append new decisions to `.memory/decisions-log.md`
+4. Update `.memory/open-questions.md` if new questions arose
+5. Commit memory files with message: `chore: update session memory`
+
+## Section 3 — Agent Policy — NEVER IDLE
 
 **This is a revenue-generating product. Idle time = lost revenue.**
 
@@ -16,7 +57,7 @@ Every session must ship value. The rules:
 6. **Prioritize by impact:** Security fixes > broken functionality > performance > new features > polish.
 7. **When in doubt, build.** The worst outcome is sitting idle. The second worst is asking "should I?" when the answer is obviously yes.
 
-## READ FIRST — every session
+## Section 4 — READ FIRST — every session
 
 **`BUILD_BIBLE.md` is mandatory reading for every Claude agent before any code changes.**
 
@@ -29,14 +70,14 @@ It contains:
 
 Do not skip it. Do not refactor locked files. Do not stop mid-block.
 
-## Stack
+## Section 5 — Stack
 
 - **Runtime:** Bun
 - **Framework:** Hono (with JSX for server-rendered views)
 - **Database:** Drizzle ORM + Neon (PostgreSQL)
 - **Git:** Smart HTTP protocol via git CLI subprocesses
 
-## Development
+## Section 6 — Development
 
 ```bash
 bun install        # install dependencies
@@ -45,7 +86,7 @@ bun test           # run tests
 bun run db:migrate # run database migrations
 ```
 
-## Architecture
+## Section 7 — Architecture
 
 ```
 src/
@@ -117,3 +158,32 @@ See `.env.example` for required variables. Key ones:
 - `DATABASE_URL` — Neon PostgreSQL connection string
 - `GIT_REPOS_PATH` — directory for bare git repos (default: `./repos`)
 - `PORT` — HTTP port (default: 3000)
+
+## Section 8 — ESCAPE HATCHES
+
+User can override any rule at any time:
+
+- `just do X` — skip memory protocol and just do the thing
+- `rule check` — agent re-reads CLAUDE.md and confirms compliance
+- `memory check` — agent reads all .memory/ files and summarizes current state
+- `skip tests` — commit without running tests (use sparingly)
+- `stop` — end the session immediately, update memory first
+
+## Section 9 — DRIFT PREVENTION
+
+Every 10 tool calls, silently verify:
+1. Am I still following the hard rules?
+2. Has the conversation drifted from the build plan?
+3. Are tests still passing?
+
+If drift is detected, self-correct without being asked. If tests are failing, fix before continuing.
+
+## Section 10 — COMPETITIVE INTELLIGENCE
+
+The mission: **annihilate GitHub**. Continuously evaluate:
+- What does GitHub charge enterprise prices for that we ship free?
+- What is GitHub slow at that we can make instant?
+- What manual workflow can we automate with AI?
+- What's missing from every code hosting platform that developers wish existed?
+
+Every session should advance at least one competitive advantage.

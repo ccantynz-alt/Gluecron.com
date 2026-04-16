@@ -76,6 +76,7 @@ import followsRoutes from "./routes/follows";
 import rulesetsRoutes from "./routes/rulesets";
 import commitStatusesRoutes from "./routes/commit-statuses";
 import eventsRoutes from "./routes/events";
+import memoryRoutes from "./routes/memory";
 import webRoutes from "./routes/web";
 
 const app = new Hono();
@@ -106,6 +107,9 @@ app.route("/", hookRoutes);
 
 // SSE event streams (real-time gate updates, notifications)
 app.route("/", eventsRoutes);
+
+// Platform memory API (AI continuity)
+app.route("/", memoryRoutes);
 
 // REST API
 app.route("/", apiRoutes);

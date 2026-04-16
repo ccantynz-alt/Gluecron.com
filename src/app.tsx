@@ -76,6 +76,10 @@ import signingKeysRoutes from "./routes/signing-keys";
 import followsRoutes from "./routes/follows";
 import rulesetsRoutes from "./routes/rulesets";
 import commitStatusesRoutes from "./routes/commit-statuses";
+import legalTermsRoutes from "./routes/legal/terms";
+import legalPrivacyRoutes from "./routes/legal/privacy";
+import legalAcceptableUseRoutes from "./routes/legal/acceptable-use";
+import legalDmcaRoutes from "./routes/legal/dmca";
 import webRoutes from "./routes/web";
 
 const app = new Hono();
@@ -263,6 +267,13 @@ app.route("/", rulesetsRoutes);
 
 // Commit status API — /api/v1/repos/:o/:r/statuses/:sha (Block J8)
 app.route("/", commitStatusesRoutes);
+
+// Legal pages — /legal/terms, /legal/privacy, /legal/acceptable-use, /legal/dmca
+// Static JSX, read-only. DRAFT — requires attorney review before launch.
+app.route("/", legalTermsRoutes);
+app.route("/", legalPrivacyRoutes);
+app.route("/", legalAcceptableUseRoutes);
+app.route("/", legalDmcaRoutes);
 
 // Insights + milestones
 app.route("/", insightsRoutes);

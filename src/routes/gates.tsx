@@ -503,4 +503,100 @@ gates.post(
   }
 );
 
+// ---------- Self-healing loop trigger ----------
+
+gates.post(
+  "/:owner/:repo/gates/heal",
+  requireAuth,
+  async (c) => {
+    const user = c.get("user")!;
+    const { owner, repo } = c.req.param();
+    const branch = (await c.req.parseBody())["branch"] as string || "main";
+
+    const [ownerRow] = await db
+      .select()
+      .from(users)
+      .where(eq(users.username, owner))
+      .limit(1);
+    if (!ownerRow) return c.notFound();
+    const [repoRow] = await db
+      .select()
+      .from(repositories)
+      .where(
+        and(
+          eq(repositories.ownerId, ownerRow.id),
+          eq(repositories.name, repo)
+        )
+      )
+      .limit(1);
+    if (!repoRow) return c.notFound();
+    if (user.id !== repoRow.ownerId) {
+      return c.text("Only the repository owner can trigger the heal loop", 403);
+    }
+
+    const { runHealLoop, isHealLoopEnabled } = await import("../lib/heal-loop");
+    if (!isHealLoopEnabled()) {
+      return c.redirect(
+        `/${owner}/${repo}/gates?error=${encodeURIComponent("Self-healing requires ANTHROPIC_API_KEY")}`
+      );
+    }
+
+    // Fire async — don't block the response
+    runHealLoop(owner, repo, branch, {
+      repositoryId: repoRow.id,
+      triggerSource: "manual",
+    }).catch((err) => console.error("[heal-loop] Error:", err));
+
+    return c.redirect(
+      `/${owner}/${repo}/gates?success=${encodeURIComponent(`Self-healing loop started on ${branch}`)}`
+    );
+  }
+);
+
+// ---------- Heal loop API ----------
+
+gates.post(
+  "/api/repos/:owner/:repo/heal",
+  requireAuth,
+  async (c) => {
+    const user = c.get("user")!;
+    const { owner, repo } = c.req.param();
+    const body = await c.req.json().catch(() => ({}));
+    const branch = (body as any).branch || "main";
+
+    const [ownerRow] = await db
+      .select()
+      .from(users)
+      .where(eq(users.username, owner))
+      .limit(1);
+    if (!ownerRow) return c.json({ error: "Not found" }, 404);
+    const [repoRow] = await db
+      .select()
+      .from(repositories)
+      .where(
+        and(
+          eq(repositories.ownerId, ownerRow.id),
+          eq(repositories.name, repo)
+        )
+      )
+      .limit(1);
+    if (!repoRow) return c.json({ error: "Not found" }, 404);
+    if (user.id !== repoRow.ownerId) {
+      return c.json({ error: "Forbidden" }, 403);
+    }
+
+    const { runHealLoop, isHealLoopEnabled } = await import("../lib/heal-loop");
+    if (!isHealLoopEnabled()) {
+      return c.json({ error: "ANTHROPIC_API_KEY not configured" }, 503);
+    }
+
+    const result = await runHealLoop(owner, repo, branch, {
+      repositoryId: repoRow.id,
+      triggerSource: "api",
+    });
+
+    return c.json(result);
+  }
+);
+
 export default gates;

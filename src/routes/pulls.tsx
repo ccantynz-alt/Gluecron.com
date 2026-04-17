@@ -30,6 +30,7 @@ import type { GitDiffFile } from "../git/repository";
 import { html } from "hono/html";
 import { reviewDiff, isAiReviewEnabled } from "../lib/ai-review";
 import { triagePullRequest } from "../lib/ai-generators";
+import { runReviewResponseAgent } from "../lib/agents";
 import { mergeWithAutoResolve } from "../lib/merge-resolver";
 import { runAllGateChecks, type GateCheckResult } from "../lib/gate";
 import { labels as labelsTable } from "../db/schema";
@@ -741,11 +742,30 @@ pulls.post(
 
     if (!pr) return c.redirect(`/${ownerName}/${repoName}/pulls`);
 
-    await db.insert(prComments).values({
-      pullRequestId: pr.id,
-      authorId: user.id,
-      body: commentBody,
-    });
+    const [newComment] = await db
+      .insert(prComments)
+      .values({
+        pullRequestId: pr.id,
+        authorId: user.id,
+        body: commentBody,
+      })
+      .returning();
+
+    // K6 review-response agent (fire-and-forget — never throws)
+    if (newComment) {
+      runReviewResponseAgent({
+        repositoryId: resolved.repo.id,
+        prId: pr.id,
+        prNumber: pr.number,
+        commentId: newComment.id,
+        commentBody: newComment.body,
+        commenterId: user.id,
+        filePath: newComment.filePath ?? undefined,
+        lineNumber: newComment.lineNumber ?? undefined,
+      }).catch((err) =>
+        console.error("[review-response-agent] fire-and-forget:", err)
+      );
+    }
 
     return c.redirect(`/${ownerName}/${repoName}/pulls/${prNum}`);
   }

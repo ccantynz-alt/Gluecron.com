@@ -2441,3 +2441,19 @@ export const prodSignals = pgTable(
 );
 
 export type ProdSignal = typeof prodSignals.$inferSelect;
+
+// ---------- Block K8 — Per-repo agent enable toggles + budget caps ----------
+
+export const repoAgentSettings = pgTable("repo_agent_settings", {
+  repositoryId: uuid("repository_id")
+    .primaryKey()
+    .references(() => repositories.id, { onDelete: "cascade" }),
+  enabledKinds: text("enabled_kinds").default("[]").notNull(),
+  dailyBudgetCents: integer("daily_budget_cents").default(100).notNull(),
+  monthlyBudgetCents: integer("monthly_budget_cents").default(2000).notNull(),
+  maxRunsPerHour: integer("max_runs_per_hour").default(20).notNull(),
+  paused: boolean("paused").default(false).notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export type RepoAgentSettings = typeof repoAgentSettings.$inferSelect;

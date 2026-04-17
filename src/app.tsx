@@ -76,6 +76,7 @@ import followsRoutes from "./routes/follows";
 import rulesetsRoutes from "./routes/rulesets";
 import commitStatusesRoutes from "./routes/commit-statuses";
 import signalsRoutes from "./routes/signals";
+import agentsRoutes from "./routes/agents";
 import webRoutes from "./routes/web";
 
 const app = new Hono();
@@ -265,6 +266,9 @@ app.route("/", commitStatusesRoutes);
 
 // Prod/test signal ingestion — /api/v1/signals/* (Block K9)
 app.route("/", signalsRoutes);
+
+// Agent inbox + per-repo settings + site-admin (Block K8)
+app.route("/", agentsRoutes);
 
 // Insights + milestones
 app.route("/", insightsRoutes);

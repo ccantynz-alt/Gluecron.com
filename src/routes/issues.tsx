@@ -22,6 +22,7 @@ import { renderMarkdown } from "../lib/markdown";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
 import { html } from "hono/html";
+import { runTriageAgent } from "../lib/agents";
 
 const issueRoutes = new Hono<AuthEnv>();
 
@@ -248,6 +249,17 @@ issueRoutes.post(
       .update(repositories)
       .set({ issueCount: resolved.repo.issueCount + 1 })
       .where(eq(repositories.id, resolved.repo.id));
+
+    // K4 triage agent (fire-and-forget — never throws)
+    void runTriageAgent({
+      kind: "issue",
+      repositoryId: resolved.repo.id,
+      itemId: issue.id,
+      itemNumber: issue.number,
+      title: issue.title,
+      body: issue.body || "",
+      authorId: user.id,
+    });
 
     return c.redirect(
       `/${ownerName}/${repoName}/issues/${issue.number}`

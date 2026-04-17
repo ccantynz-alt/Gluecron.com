@@ -36,3 +36,30 @@ export {
   type RunHealBotResult,
   type RunHealBotForAllResult,
 } from "./heal-bot";
+
+export {
+  runFixAgent,
+  renderFixAgentComment,
+  buildFixAgentSummary,
+  FIX_AGENT_COST_CENTS,
+  FIX_AGENT_MAX_REPAIRS_IN_COMMENT,
+  FIX_AGENT_SLUG,
+  FIX_AGENT_BOT_USERNAME,
+  type RunFixAgentArgs,
+  type RunFixAgentResult,
+} from "./fix-agent";
+
+export {
+  runDeployWatcher,
+  renderIncidentIssueBody,
+  buildDeployWatcherSummary,
+  shouldRollback,
+  DEPLOY_WATCHER_COST_CENTS,
+  DEPLOY_WATCHER_ERROR_THRESHOLD,
+  DEPLOY_WATCHER_WINDOW_MS,
+  DEPLOY_WATCHER_POLL_MS,
+  DEPLOY_WATCHER_SLUG,
+  DEPLOY_WATCHER_BOT_USERNAME,
+  type RunDeployWatcherArgs,
+  type RunDeployWatcherResult,
+} from "./deploy-watcher";

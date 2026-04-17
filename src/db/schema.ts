@@ -2457,3 +2457,54 @@ export const repoAgentSettings = pgTable("repo_agent_settings", {
 });
 
 export type RepoAgentSettings = typeof repoAgentSettings.$inferSelect;
+
+// ---------- Block K10 — Agent Marketplace listings ----------
+
+export const marketplaceAgentListings = pgTable("marketplace_agent_listings", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  slug: text("slug").notNull().unique(),
+  name: text("name").notNull(),
+  tagline: text("tagline").notNull(),
+  description: text("description").notNull().default(""),
+  publisherUserId: uuid("publisher_user_id").references(() => users.id, {
+    onDelete: "set null",
+  }),
+  appBotId: uuid("app_bot_id")
+    .notNull()
+    .references(() => appBots.id, { onDelete: "cascade" }),
+  kind: text("kind").notNull(),
+  homepageUrl: text("homepage_url"),
+  iconUrl: text("icon_url"),
+  pricingCentsPerMonth: integer("pricing_cents_per_month")
+    .notNull()
+    .default(0),
+  published: boolean("published").notNull().default(false),
+  installCount: integer("install_count").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export type MarketplaceAgentListing =
+  typeof marketplaceAgentListings.$inferSelect;
+
+// ---------- Block K11 — Cross-product identity tokens ----------
+
+export const crossProductTokens = pgTable("cross_product_tokens", {
+  jti: uuid("jti").primaryKey(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  audience: text("audience").notNull(),
+  scopes: text("scopes").notNull().default("[]"),
+  issuedAt: timestamp("issued_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+});
+
+export type CrossProductToken = typeof crossProductTokens.$inferSelect;

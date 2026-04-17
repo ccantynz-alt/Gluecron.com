@@ -77,6 +77,8 @@ import rulesetsRoutes from "./routes/rulesets";
 import commitStatusesRoutes from "./routes/commit-statuses";
 import signalsRoutes from "./routes/signals";
 import agentsRoutes from "./routes/agents";
+import agentMarketplaceRoutes from "./routes/agent-marketplace";
+import crossProductRoutes from "./routes/cross-product";
 import webRoutes from "./routes/web";
 
 const app = new Hono();
@@ -216,6 +218,11 @@ app.route("/", requiredChecksRoutes); // E6 — /:owner/:repo/gates/protection/:
 app.route("/", protectedTagsRoutes);  // E7 — /:owner/:repo/settings/protected-tags
 app.route("/", trafficRoutes);        // F1 — /:owner/:repo/traffic
 app.route("/", orgInsightsRoutes);    // F2 — /orgs/:slug/insights
+// K10 agent marketplace — must mount BEFORE adminRoutes + marketplaceRoutes
+// so `/admin/marketplace/agents` and `/marketplace/agents` resolve to the
+// agent listings handler rather than the generic admin / app-marketplace
+// :slug handlers.
+app.route("/", agentMarketplaceRoutes);
 app.route("/", adminRoutes);          // F3 — /admin
 app.route("/", billingRoutes);        // F4 — /settings/billing + /admin/billing
 
@@ -269,6 +276,9 @@ app.route("/", signalsRoutes);
 
 // Agent inbox + per-repo settings + site-admin (Block K8)
 app.route("/", agentsRoutes);
+
+// Cross-product identity — unified auth across Gluecron/Crontech/Gatetest (Block K11)
+app.route("/", crossProductRoutes);
 
 // Insights + milestones
 app.route("/", insightsRoutes);

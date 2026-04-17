@@ -2359,3 +2359,85 @@ export const commitStatuses = pgTable(
 );
 
 export type CommitStatus = typeof commitStatuses.$inferSelect;
+
+// ---------- Block K1 — Autonomous agent runs ----------
+
+export const agentRuns = pgTable(
+  "agent_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    trigger: text("trigger").notNull(),
+    triggerRef: text("trigger_ref"),
+    status: text("status").default("queued").notNull(),
+    summary: text("summary"),
+    log: text("log").default("").notNull(),
+    costInputTokens: integer("cost_input_tokens").default(0).notNull(),
+    costOutputTokens: integer("cost_output_tokens").default(0).notNull(),
+    costCents: integer("cost_cents").default(0).notNull(),
+    startedAt: timestamp("started_at"),
+    finishedAt: timestamp("finished_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    errorMessage: text("error_message"),
+  },
+  (table) => [
+    index("agent_runs_repo_created_idx").on(
+      table.repositoryId,
+      table.createdAt
+    ),
+    index("agent_runs_status_idx").on(table.status),
+    index("agent_runs_kind_status_idx").on(table.kind, table.status),
+  ]
+);
+
+export type AgentRun = typeof agentRuns.$inferSelect;
+
+// ---------- Block K9 — Production + test signal ingestion ----------
+
+export const prodSignals = pgTable(
+  "prod_signals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    commitSha: text("commit_sha").notNull(),
+    errorHash: text("error_hash").notNull(),
+    source: text("source").notNull(),
+    kind: text("kind").notNull(),
+    severity: text("severity").default("error").notNull(),
+    status: text("status").default("open").notNull(),
+    message: text("message").default("").notNull(),
+    stackTrace: text("stack_trace"),
+    deployId: text("deploy_id"),
+    environment: text("environment"),
+    samplePayload: text("sample_payload"),
+    count: integer("count").default(1).notNull(),
+    firstSeen: timestamp("first_seen").defaultNow().notNull(),
+    lastSeen: timestamp("last_seen").defaultNow().notNull(),
+    resolvedAt: timestamp("resolved_at"),
+    resolvedByCommit: text("resolved_by_commit"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("prod_signals_repo_hash_unique").on(
+      table.repositoryId,
+      table.errorHash
+    ),
+    index("prod_signals_repo_sha_idx").on(
+      table.repositoryId,
+      table.commitSha
+    ),
+    index("prod_signals_repo_status_seen_idx").on(
+      table.repositoryId,
+      table.status,
+      table.lastSeen
+    ),
+    index("prod_signals_source_kind_idx").on(table.source, table.kind),
+  ]
+);
+
+export type ProdSignal = typeof prodSignals.$inferSelect;

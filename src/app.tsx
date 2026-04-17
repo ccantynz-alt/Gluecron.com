@@ -75,6 +75,7 @@ import signingKeysRoutes from "./routes/signing-keys";
 import followsRoutes from "./routes/follows";
 import rulesetsRoutes from "./routes/rulesets";
 import commitStatusesRoutes from "./routes/commit-statuses";
+import signalsRoutes from "./routes/signals";
 import webRoutes from "./routes/web";
 
 const app = new Hono();
@@ -261,6 +262,9 @@ app.route("/", rulesetsRoutes);
 
 // Commit status API — /api/v1/repos/:o/:r/statuses/:sha (Block J8)
 app.route("/", commitStatusesRoutes);
+
+// Prod/test signal ingestion — /api/v1/signals/* (Block K9)
+app.route("/", signalsRoutes);
 
 // Insights + milestones
 app.route("/", insightsRoutes);

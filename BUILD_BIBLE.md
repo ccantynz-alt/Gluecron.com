@@ -188,6 +188,22 @@ Legend: ✅ shipped · 🟡 partial · ❌ not built
 | Keyboard shortcuts | ✅ | `/shortcuts` page |
 | Command palette | ✅ | I4 — `src/views/layout.tsx` injects a Cmd+K palette with ~20 canonical destinations, arrow-key navigation + fuzzy match. Backdrop click or Esc closes. |
 
+### 2.7 Autonomous agent loop (beyond-parity)
+| Feature | Status | Notes |
+|---|---|---|
+| Agent runtime + run ledger | ✅ | K1 — `src/lib/agent-runtime.ts`, `agent_runs` (0034). Cost-metered, never-throws. |
+| Agent identities (bot accounts) | ✅ | K2 — reuses `app_bots` via `src/lib/agent-identity.ts`; `<slug>[bot]` identity per agent. |
+| Gatetest bridge | ✅ | K3 — `src/lib/gatetest-client.ts`, offline fallback when `GATETEST_API_KEY` unset. |
+| Heal-bot (repo-wide test healer) | ✅ | K3/K12 — `src/lib/agents/heal-bot.ts`; opens PR with repaired tests. `runHealBotForAll` for scheduled runs. |
+| Triage agent | ✅ | K4 — `src/lib/agents/triage-agent.ts`; Haiku classification on issue/PR create. |
+| Fix agent (@agent-fix) | ✅ | K5 — `src/lib/agents/fix-agent.ts`; posts AI-review PR comment with repair list. |
+| Review-response agent | ✅ | K6 — `src/lib/agents/review-response-agent.ts`. |
+| Deploy watcher + auto-rollback | ✅ | K7 — `src/lib/agents/deploy-watcher.ts` + `src/lib/crontech-client.ts`; opens P0 incident on threshold. |
+| Agent inbox + per-repo config | ✅ | K8 — `src/routes/agents.tsx`, `repo_agent_settings` (0036). |
+| Production signal ingestion | ✅ | K9 — `src/lib/prod-signals.ts`, `src/routes/signals.ts`, `prod_signals` (0035). |
+| Agent marketplace | ✅ | K10 — `src/routes/agent-marketplace.tsx`, `marketplace_agent_listings` (0037). |
+| Cross-product identity (Gluecron/Crontech/Gatetest SSO) | ✅ | K11 — `src/lib/cross-product-auth.ts`, `src/routes/cross-product.tsx`, `cross_product_tokens` (0038). JWT HS256 with jti revocation. |
+
 ---
 
 ## 3. BUILD PLAN (BLOCKS)
@@ -297,6 +313,21 @@ This is where GlueCron beats GitHub outright. **Priority: ship these loud.**
 - **H1** — App marketplace → ✅ shipped. `src/routes/marketplace.tsx` + `src/lib/marketplace.ts` + `drizzle/0021_marketplace_and_apps.sql` (5 tables: `apps`, `app_installations`, `app_bots`, `app_install_tokens`, `app_events`). Routes: `GET /marketplace` (public directory with search), `GET /marketplace/:slug` (detail + install CTA), `POST /marketplace/:slug/install` (user-target install in v1), `POST /marketplace/installations/:id/uninstall`, `GET /settings/apps` (personal list), `GET+POST /developer/apps-new` (register), `GET /developer/apps/:slug/manage` (event log + install count), `POST /developer/apps/:slug/tokens/new` (show-once token). Install idempotent via soft-update on existing non-uninstalled row.
 - **H2** — GitHub Apps equivalent (bot identities + installation tokens) → ✅ shipped. Same schema as H1: every app gets a `<slug>[bot]` row in `app_bots`. `generateBearerToken()` produces `ghi_`-prefixed bearers; `hashBearer` (sha256) is the only form persisted. `verifyInstallToken(token)` returns `{installation, app, botUsername, permissions}` or `null` (checks revoked/expired/uninstalled/suspended). Permission vocabulary: `contents:read/write`, `issues:read/write`, `pulls:read/write`, `checks:read/write`, `deployments:read/write`, `metadata:read` — `hasPermission` implements write→read implication.
 
+### BLOCK K — Autonomous agent loop (beyond-parity)
+The K-series wires the Trinity (Gluecron brain + Crontech runtime + Gatetest immune system) into an autonomous software-delivery loop. Every agent is never-throws, cost-metered (`cost_cents` on `agent_runs`), and gated by per-repo settings.
+- **K1** — Agent runtime + run ledger → ✅ shipped. `drizzle/0034_agent_runs.sql` adds `agent_runs` (kind/trigger/status state machine, token counters, cost_cents, log TEXT). `src/lib/agent-runtime.ts` exposes `startAgentRun` + `executeAgentRun(runId, async ctx ⇒ { ok, summary })` with `appendLog` / `recordCost` context helpers. All downstream agents run through this shell.
+- **K2** — Agent identities (reuses Block H app_bots) → ✅ shipped. `src/lib/agent-identity.ts` — `ensureAgentApp`, `installAgentForRepo`, `uninstallAgent`, `agent:invoke` permission.
+- **K3** — Gatetest bridge + heal-bot → ✅ shipped. `src/lib/gatetest-client.ts` (`runAndRepair`, `healSuite`, `stackTraceToTest`; offline fallback when `GATETEST_API_KEY` unset) + `src/lib/agents/heal-bot.ts` (opens PR with repaired test files, 5¢/run).
+- **K4** — Triage agent → ✅ shipped. `src/lib/agents/triage-agent.ts` — Haiku classification of new issues/PRs, posts AI-review comment with priority + suggested labels.
+- **K5** — Fix agent → ✅ shipped. `src/lib/agents/fix-agent.ts` — per-PR `@agent-fix` invocation, runs `runAndRepair`, posts AI-review comment with repair diff list (3¢/run, cap 20 repairs per comment, skips on closed/merged PRs, skips comment when offline or no changes). 17 tests.
+- **K6** — Review-response agent → ✅ shipped. `src/lib/agents/review-response-agent.ts` — auto-replies to PR review comments that `@agent-review` mention, posts suggested diffs.
+- **K7** — Deploy watcher + auto-rollback → ✅ shipped. `src/lib/crontech-client.ts` (`watchDeployment`, `rollbackDeployment`, `getDeploymentForCommit`, `triggerRedeploy`) + `src/lib/agents/deploy-watcher.ts` — watches a Crontech deploy + counts `prod_signals` (severity `error|critical`) in a 15-min window. On ≥5 errors: `rollbackDeployment` + opens a P0 incident issue with top-errors table. Pure `shouldRollback` helper, 2¢/run. 23 tests.
+- **K8** — Agent inbox + per-repo settings → ✅ shipped. `drizzle/0036_repo_agent_settings.sql` + `src/routes/agents.tsx` — `/:owner/:repo/agents` run list, `/:owner/:repo/settings/agents` enable/disable + JSON config, `/admin/agents` site-admin cost dashboard.
+- **K9** — Production signal ingestion → ✅ shipped. `drizzle/0035_prod_signals.sql` + `src/lib/prod-signals.ts` + `src/routes/signals.ts`. `POST /api/v1/signals` (PAT-authed) upserts on `(repo, sha, error_hash)` incrementing `count`. Consumed by K7 deploy-watcher threshold check.
+- **K10** — Agent marketplace → ✅ shipped. `drizzle/0037_marketplace_agent_listings.sql` + `src/routes/agent-marketplace.tsx`. Publishable listings (kind vocabulary: `triage | fix | review | heal_bot | deploy_watch | custom`), site-admin publish flow, install/uninstall routes hitting `installAgentForRepo`. Pure `parseListingForm` validator. **Mounted before `adminRoutes` + `marketplaceRoutes` in `src/app.tsx` to avoid the generic `/marketplace/:slug` and `/admin/*` handlers swallowing agent-specific paths.** 27 tests.
+- **K11** — Cross-product identity (Gluecron/Crontech/Gatetest SSO) → ✅ shipped. `drizzle/0038_cross_product_tokens.sql` + `src/lib/cross-product-auth.ts` (JWT HS256 with jti revocation list) + `src/routes/cross-product.tsx` (`/settings/cross-product` issue + revoke UI). Audience vocabulary: `gluecron | crontech | gatetest`. 35 tests.
+- **K12** — Heal-bot scheduler → ✅ shipped as `runHealBotForAll` in `src/lib/agents/heal-bot.ts`; triggered by workflow cron or manual admin action.
+
 ---
 
 ## 4. LOCKED BLOCKS (DO NOT UNDO)
@@ -341,6 +372,11 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `drizzle/0031_user_follows.sql` (Block J4) — migration, never edited in place. Adds `user_follows` (composite PK on `(follower_id, following_id)`, CHECK no-self-follow, reverse index on `following_id`).
 - `drizzle/0032_repo_rulesets.sql` (Block J6) — migration, never edited in place. Adds `repo_rulesets` (unique on `(repository_id, name)`, enforcement enum) + `ruleset_rules` (JSON params).
 - `drizzle/0033_commit_statuses.sql` (Block J8) — migration, never edited in place. Adds `commit_statuses` (unique on `(repository_id, commit_sha, context)`, state vocabulary pending/success/failure/error).
+- `drizzle/0034_agent_runs.sql` (Block K1) — migration, never edited in place. Adds `agent_runs` (kind / trigger / status state machine, cost_cents, token counters, log TEXT, indices on repo+created_at and status).
+- `drizzle/0035_prod_signals.sql` (Block K9) — migration, never edited in place. Adds `prod_signals` (repo / commit / error_hash / severity / count / last_seen, unique on `(repository_id, commit_sha, error_hash)`).
+- `drizzle/0036_repo_agent_settings.sql` (Block K8) — migration, never edited in place. Adds `repo_agent_settings` (per-repo per-agent enable/disable + JSON config, unique on `(repository_id, agent_slug)`).
+- `drizzle/0037_marketplace_agent_listings.sql` (Block K10) — migration, never edited in place. Adds `marketplace_agent_listings` (slug unique, publisher/app_bot FKs, kind enum, pricing_cents_per_month, published flag, install_count).
+- `drizzle/0038_cross_product_tokens.sql` (Block K11) — migration, never edited in place. Adds `cross_product_tokens` (jti PK, audience, scopes JSON, issued/expires/revoked-at) for JWT jti revocation across Gluecron / Crontech / Gatetest.
 
 ### 4.2 Git layer (locked)
 - `src/git/repository.ts` — tree / blob / commits / diff / branches / blame / search / raw / tags / commitsBetween
@@ -474,18 +510,38 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `src/lib/commit-statuses.ts` (Block J8) — pure helpers: `isValidSha`, `isValidState`, `sanitiseContext`, `reduceCombined`. DB helpers: `setStatus` (delete-then-insert upsert on `(repo, sha, context)`, SHA lowercased, description/url clamped to 1000/2048 chars), `listStatuses` (newest first), `combinedStatus` (latest per context, reduces to worst state, returns counts + context pills). `STATUS_STATES` exported array. Never throws on clamping; null/empty description returns null.
 - `src/routes/commit-statuses.ts` (Block J8) — `POST /api/v1/repos/:owner/:repo/statuses/:sha` (requireAuth — accepts session/OAuth/PAT; owner-only), `GET /api/v1/repos/:owner/:repo/commits/:sha/statuses` (softAuth, private-repo visibility enforced), `GET /api/v1/repos/:owner/:repo/commits/:sha/status` (combined rollup, same visibility rules).
 
-### 4.7 Views (locked contracts)
+### 4.7 Block K — autonomous agent loop (locked)
+Every file below is load-bearing for the K-series agent loop. Never-throws contract: entry functions return a result shape, never reject. Costs are recorded via `ctx.recordCost(0, 0, cents)` inside `executeAgentRun`.
+
+- `src/lib/agent-runtime.ts` (Block K1) — core runtime. `startAgentRun({ kind, trigger, repositoryId, ... })` inserts an `agent_runs` row; `executeAgentRun(runId, async (ctx) => ({ ok, summary }))` wraps execution with try/catch, updates status (`queued → running → {completed|failed|cancelled}`), persists `log` + `token_input` + `token_output` + `cost_cents`. `AgentExecutorContext` exposes `appendLog(line)` + `recordCost(inputTokens, outputTokens, extraCents)`. All agents below run through this.
+- `src/lib/agent-identity.ts` (Block K2) — reuses `app_bots` / `app_installations` from Block H to give every agent a `<slug>[bot]` identity. Exports `ensureAgentApp(slug, displayName, permissions)` (idempotent), `installAgentForRepo(agentSlug, repoId, installerUserId, grantedPermissions)`, `uninstallAgent(agentSlug, repoId)`. Adds `agent:invoke` to the permission vocabulary.
+- `src/lib/prod-signals.ts` (Block K9) — production signal ingestion. `recordSignal({ repoId, commitSha, errorHash, severity, message, stackTrace })` upserts on `(repository_id, commit_sha, error_hash)` incrementing `count` + bumping `last_seen`. `listSignalsForCommit(repoId, sha)` + `countSignalsSince(repoId, sha, sinceMs, severities)`. Severities: `info|warn|error|critical`.
+- `src/lib/gatetest-client.ts` (Block K3) — Gatetest HTTP client. `runAndRepair({ repo, ref, targetGlob })` → `{ passed, totalTests, failedBefore, failedAfter, repairs[{file,before,after,reason}], unfixable[{file,reason}], durationMs, offline }`. `healSuite(repo)` + `stackTraceToTest({...})`. Offline fallback (no `GATETEST_API_KEY`) returns `{ offline: true, passed: true, repairs: [], unfixable: [] }` so agents degrade gracefully. Never throws.
+- `src/lib/crontech-client.ts` (Block K7) — Crontech deploy client. `watchDeployment({ repo, deployId, maxWaitMs, pollIntervalMs })` → `DeployWatchResult { deployId, finalStatus, errors, watchedForMs, offline }`. `rollbackDeployment({ repo, deployId })` → boolean. `getDeploymentForCommit` + `triggerRedeploy`. Offline stubs when `CRONTECH_API_KEY` unset. Never throws.
+- `src/lib/cross-product-auth.ts` (Block K11) — JWT HS256 cross-product auth. `issueToken({ userId, audience, scopes, ttlSeconds })` creates a `cross_product_tokens` row (jti PK) + returns signed JWT. `verifyToken(jwt)` checks signature + exp + revocation list. `revokeToken(jti)`, `listTokensForUser(userId)`. Audience vocabulary: `gluecron | crontech | gatetest`. Never throws.
+- `src/lib/agents/index.ts` — barrel, re-exports every agent entry. Add new exports; never replace the file.
+- `src/lib/agents/triage-agent.ts` (Block K4) — Haiku-powered issue/PR triage. Entry: `runTriageAgent({ repositoryId, itemKind, itemId, triggeredByUserId })`. Pure helpers exported: `normaliseTriagePayload`, `validateTriageArgs`, `estimateHaikuCents`, `renderTriageComment`, `buildRunSummary`. Inserts an AI-review comment with classification + priority + suggested labels.
+- `src/lib/agents/review-response-agent.ts` (Block K6) — auto-responds to PR review comments that `@agent-review` mention. Never-throws; posts a markdown reply with suggested diffs.
+- `src/lib/agents/heal-bot.ts` (Block K3) — repo-wide test suite healer. Exports `runHealBot`, `runHealBotForAll`, `renderHealBotPrBody`, `renderHealBotPrTitle`, `buildHealBotSummary`, `HEAL_BOT_SLUG="agent-heal"`, `HEAL_BOT_BOT_USERNAME="agent-heal[bot]"`. Opens a PR against the default branch with repaired test files. `HEAL_BOT_COST_CENTS=5`.
+- `src/lib/agents/fix-agent.ts` (Block K5) — per-PR fix agent. Exports `runFixAgent`, `renderFixAgentComment`, `buildFixAgentSummary`, `FIX_AGENT_COST_CENTS=3`, `FIX_AGENT_MAX_REPAIRS_IN_COMMENT=20`, `FIX_AGENT_SLUG="agent-fix"`, `FIX_AGENT_BOT_USERNAME="agent-fix[bot]"`. Short-circuits on closed/merged PRs. Posts AI-review PR comment listing repairs + unfixable files. Skips comment entirely when offline or no changes.
+- `src/lib/agents/deploy-watcher.ts` (Block K7) — post-deploy watcher. Exports `runDeployWatcher`, `renderIncidentIssueBody`, `buildDeployWatcherSummary`, `shouldRollback`, `DEPLOY_WATCHER_COST_CENTS=2`, `DEPLOY_WATCHER_ERROR_THRESHOLD=5`, `DEPLOY_WATCHER_WINDOW_MS=15*60_000`, `DEPLOY_WATCHER_POLL_MS=30_000`, `DEPLOY_WATCHER_SLUG="agent-deploy-watch"`, `DEPLOY_WATCHER_BOT_USERNAME="agent-deploy-watch[bot]"`. Watches Crontech deploy + counts `prod_signals` (severity IN `error|critical`) inside the window. On threshold hit: `rollbackDeployment` + opens a P0 incident issue with top-errors table.
+- `src/routes/signals.ts` (Block K9) — prod signal ingestion + listing. `POST /api/v1/signals` (PAT-authed) records a signal; `GET /api/v1/signals` (requireAuth, owner-only) lists recent signals by repo+commit.
+- `src/routes/agents.tsx` (Block K8) — agent inbox + per-repo settings + site-admin dashboard. `/:owner/:repo/agents` lists runs (status + cost + log preview), `/:owner/:repo/settings/agents` toggles per-agent enable/disable + per-agent JSON config, `/admin/agents` site-admin cost dashboard. All writes `audit()`-logged.
+- `src/routes/agent-marketplace.tsx` (Block K10) — public agent directory + listing publisher flow. Pure exports: `parseListingForm`, `ALLOWED_LISTING_KINDS` (`triage|fix|review|heal_bot|deploy_watch|custom`), `SLUG_RE = /^[a-z][a-z0-9-]{2,48}$/`, `TAGLINE_MAX=200`, `DESCRIPTION_MAX=5000`, `PRICING_MAX_CENTS=100_000`. Routes: `GET /marketplace/agents` (public), `GET /marketplace/agents/:slug` (detail), `POST /marketplace/agents/:slug/install|uninstall` (requireAuth), `GET+POST /settings/agent-listings` + `POST /settings/agent-listings/:id/publish|unpublish` (site-admin), `GET /admin/marketplace/agents`. **Must be mounted BEFORE `adminRoutes` and `marketplaceRoutes` in `src/app.tsx` so `/marketplace/:slug` and `/admin/marketplace/*` resolve to the agent handlers rather than the generic `:slug` routes in marketplace.tsx / admin.tsx.**
+- `src/routes/cross-product.tsx` (Block K11) — token issuance + revocation UI. `GET /settings/cross-product` lists active tokens; `POST /settings/cross-product/issue` mints a JWT for `audience ∈ {crontech, gatetest}` (shown once); `POST /settings/cross-product/:jti/revoke`. All mutations `audit()`-logged. Never-throws contract on verification.
+
+### 4.8 Views (locked contracts)
 - `src/views/layout.tsx` — `Layout` accepts `title`, `user`, `notificationCount`
 - `src/views/components.tsx` — `RepoHeader`, `RepoNav` (active: `code|issues|pulls|commits|releases|actions|gates|insights|explain|changelog|semantic`), `RepoCard`, etc.
 - `src/views/reactions.tsx` — `ReactionsBar` (no-JS compatible, form-per-emoji)
 - Nav links: logo · search · theme-toggle · Explore · Ask · Notifications · New · Profile (or Sign in / Register)
 - Keyboard chords: `/`, `Cmd+K`, `?`, `n`, `g d`, `g n`, `g e`, `g a`
 
-### 4.8 Tests (locked)
+### 4.9 Tests (locked)
 - `src/__tests__/green-ecosystem.test.ts` — secret scanner, codeowners, AI fallback, health, rate-limit headers, `/shortcuts`, `/search`
 - All other existing test files — do not delete without owner permission
 
-### 4.9 Invariants (never break these)
+### 4.10 Invariants (never break these)
 - `isAiAvailable()` guard returns true fallback strings when no ANTHROPIC_API_KEY. AI features degrade gracefully.
 - `getUnreadCount` never throws; returns 0 on any error.
 - Rate-limit middleware adds `X-RateLimit-Limit` + `X-RateLimit-Remaining` to every response, including 500s.
@@ -507,7 +563,7 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 ```bash
 bun install
 bun dev          # hot reload
-bun test         # 601 tests currently pass
+bun test         # 1067 tests currently pass
 bun run db:migrate
 ```
 

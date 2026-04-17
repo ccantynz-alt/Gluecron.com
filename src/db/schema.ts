@@ -2508,3 +2508,33 @@ export const crossProductTokens = pgTable("cross_product_tokens", {
 });
 
 export type CrossProductToken = typeof crossProductTokens.$inferSelect;
+
+// ---------- Block L — GitHub importer job ledger ----------
+
+export const githubImports = pgTable(
+  "github_imports",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id").references(() => repositories.id, {
+      onDelete: "cascade",
+    }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    sourceOwner: text("source_owner").notNull(),
+    sourceRepo: text("source_repo").notNull(),
+    status: text("status").notNull().default("pending"),
+    stats: text("stats").notNull().default("{}"),
+    error: text("error"),
+    startedAt: timestamp("started_at").defaultNow().notNull(),
+    finishedAt: timestamp("finished_at"),
+  },
+  (table) => [
+    index("github_imports_user_idx").on(table.userId, table.startedAt),
+    index("github_imports_repo_idx").on(table.repositoryId),
+  ]
+);
+
+export type GithubImport = typeof githubImports.$inferSelect;
+
+export type CrossProductToken = typeof crossProductTokens.$inferSelect;

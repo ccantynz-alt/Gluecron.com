@@ -328,6 +328,10 @@ The K-series wires the Trinity (Gluecron brain + Crontech runtime + Gatetest imm
 - **K11** — Cross-product identity (Gluecron/Crontech/Gatetest SSO) → ✅ shipped. `drizzle/0038_cross_product_tokens.sql` + `src/lib/cross-product-auth.ts` (JWT HS256 with jti revocation list) + `src/routes/cross-product.tsx` (`/settings/cross-product` issue + revoke UI). Audience vocabulary: `gluecron | crontech | gatetest`. 35 tests.
 - **K12** — Heal-bot scheduler → ✅ shipped as `runHealBotForAll` in `src/lib/agents/heal-bot.ts`; triggered by workflow cron or manual admin action.
 
+### BLOCK L — GitHub importer (migration onboarding)
+Needed for dogfooding: pull existing repos + their metadata out of GitHub into Gluecron so every project the owner already runs (Crontech, Gatetest, etc.) can live here.
+- **L1** — Importer lib + route → ✅ shipped. `drizzle/0039_github_imports.sql` + `src/lib/github-import.ts` (pure walkers against `api.github.com` with per-endpoint caps, mappers for labels/issues/pulls/comments/releases, PAT-authed `git clone --mirror` URL builder that rejects CR/LF + URL-encodes the token) + `src/routes/github-import.tsx` (`GET /new/import` form, `POST /new/import` synchronous clone + walk + redirect, `GET /api/imports/:id` JSON status poll). Green-by-default bootstrap runs on import just like `/new`. 31 new tests.
+
 ---
 
 ## 4. LOCKED BLOCKS (DO NOT UNDO)
@@ -377,6 +381,7 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `drizzle/0036_repo_agent_settings.sql` (Block K8) — migration, never edited in place. Adds `repo_agent_settings` (per-repo per-agent enable/disable + JSON config, unique on `(repository_id, agent_slug)`).
 - `drizzle/0037_marketplace_agent_listings.sql` (Block K10) — migration, never edited in place. Adds `marketplace_agent_listings` (slug unique, publisher/app_bot FKs, kind enum, pricing_cents_per_month, published flag, install_count).
 - `drizzle/0038_cross_product_tokens.sql` (Block K11) — migration, never edited in place. Adds `cross_product_tokens` (jti PK, audience, scopes JSON, issued/expires/revoked-at) for JWT jti revocation across Gluecron / Crontech / Gatetest.
+- `drizzle/0039_github_imports.sql` (Block L) — migration, never edited in place. Adds `github_imports` (per-run import ledger: source owner/repo, status pending→cloning→walking→ok|error, JSON stats, started/finished timestamps).
 
 ### 4.2 Git layer (locked)
 - `src/git/repository.ts` — tree / blob / commits / diff / branches / blame / search / raw / tags / commitsBetween
@@ -530,18 +535,22 @@ Every file below is load-bearing for the K-series agent loop. Never-throws contr
 - `src/routes/agent-marketplace.tsx` (Block K10) — public agent directory + listing publisher flow. Pure exports: `parseListingForm`, `ALLOWED_LISTING_KINDS` (`triage|fix|review|heal_bot|deploy_watch|custom`), `SLUG_RE = /^[a-z][a-z0-9-]{2,48}$/`, `TAGLINE_MAX=200`, `DESCRIPTION_MAX=5000`, `PRICING_MAX_CENTS=100_000`. Routes: `GET /marketplace/agents` (public), `GET /marketplace/agents/:slug` (detail), `POST /marketplace/agents/:slug/install|uninstall` (requireAuth), `GET+POST /settings/agent-listings` + `POST /settings/agent-listings/:id/publish|unpublish` (site-admin), `GET /admin/marketplace/agents`. **Must be mounted BEFORE `adminRoutes` and `marketplaceRoutes` in `src/app.tsx` so `/marketplace/:slug` and `/admin/marketplace/*` resolve to the agent handlers rather than the generic `:slug` routes in marketplace.tsx / admin.tsx.**
 - `src/routes/cross-product.tsx` (Block K11) — token issuance + revocation UI. `GET /settings/cross-product` lists active tokens; `POST /settings/cross-product/issue` mints a JWT for `audience ∈ {crontech, gatetest}` (shown once); `POST /settings/cross-product/:jti/revoke`. All mutations `audit()`-logged. Never-throws contract on verification.
 
-### 4.8 Views (locked contracts)
+### 4.8 Block L — GitHub importer (locked)
+- `src/lib/github-import.ts` (Block L) — pure helpers + orchestrator. Exports `buildAuthedCloneUrl` (rejects whitespace/CRLF, URL-encodes token), `redactCloneUrl`, `ghFetch`, `parseNextLink`, `paginate<T>(token, url, cap, fetchImpl?)` (walks `Link: rel=next` up to cap, 20-page safety ceiling). Endpoint walkers `fetchRepo`, `fetchLabels`, `fetchIssuesAndPulls`, `fetchPullRequests`, `fetchIssueComments`, `fetchReleases`. Pure mappers `normaliseColor` (falls back `#8b949e`), `mapLabel`, `mapIssue`, `mapPull` (merged > closed > open precedence), `mapRelease`. Orchestrator `runImport({ token, sourceOwner, sourceRepo, targetRepoId, importerUserId, caps?, fetchImpl? })` synchronously walks + inserts labels → issues+labels+comments → pulls+comments → releases → stargazers (count bump), per-endpoint caps (`DEFAULT_CAPS = { labels: 200, issues: 200, pulls: 100, issueComments: 500, prComments: 500, releases: 50, stargazers: 200 }`). Ledger helpers `createImportRow`, `finaliseImportRow`. Never throws.
+- `src/routes/github-import.tsx` (Block L) — `GET /new/import` form (requireAuth, shows last-10 imports by user); `POST /new/import` validates `owner/repo` source + target name, rejects dupes, `buildAuthedCloneUrl` → `Bun.spawn(["git","clone","--mirror",...])` with 10-min timeout + `GIT_TERMINAL_PROMPT=0`, inserts target repository row, calls `bootstrapRepository` (green-by-default, skipWelcomeIssue), runs `runImport`, updates ledger, `audit("github_import", { source, stats, walkError })`, redirects to new repo. `GET /api/imports/:id` returns JSON status (requireAuth, owner-only).
+
+### 4.9 Views (locked contracts)
 - `src/views/layout.tsx` — `Layout` accepts `title`, `user`, `notificationCount`
 - `src/views/components.tsx` — `RepoHeader`, `RepoNav` (active: `code|issues|pulls|commits|releases|actions|gates|insights|explain|changelog|semantic`), `RepoCard`, etc.
 - `src/views/reactions.tsx` — `ReactionsBar` (no-JS compatible, form-per-emoji)
 - Nav links: logo · search · theme-toggle · Explore · Ask · Notifications · New · Profile (or Sign in / Register)
 - Keyboard chords: `/`, `Cmd+K`, `?`, `n`, `g d`, `g n`, `g e`, `g a`
 
-### 4.9 Tests (locked)
+### 4.10 Tests (locked)
 - `src/__tests__/green-ecosystem.test.ts` — secret scanner, codeowners, AI fallback, health, rate-limit headers, `/shortcuts`, `/search`
 - All other existing test files — do not delete without owner permission
 
-### 4.10 Invariants (never break these)
+### 4.11 Invariants (never break these)
 - `isAiAvailable()` guard returns true fallback strings when no ANTHROPIC_API_KEY. AI features degrade gracefully.
 - `getUnreadCount` never throws; returns 0 on any error.
 - Rate-limit middleware adds `X-RateLimit-Limit` + `X-RateLimit-Remaining` to every response, including 500s.
@@ -563,7 +572,7 @@ Every file below is load-bearing for the K-series agent loop. Never-throws contr
 ```bash
 bun install
 bun dev          # hot reload
-bun test         # 1067 tests currently pass
+bun test         # 1098 tests currently pass
 bun run db:migrate
 ```
 

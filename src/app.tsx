@@ -79,6 +79,7 @@ import signalsRoutes from "./routes/signals";
 import agentsRoutes from "./routes/agents";
 import agentMarketplaceRoutes from "./routes/agent-marketplace";
 import crossProductRoutes from "./routes/cross-product";
+import githubImportRoutes from "./routes/github-import";
 import webRoutes from "./routes/web";
 
 const app = new Hono();
@@ -279,6 +280,9 @@ app.route("/", agentsRoutes);
 
 // Cross-product identity — unified auth across Gluecron/Crontech/Gatetest (Block K11)
 app.route("/", crossProductRoutes);
+
+// GitHub importer — /new/import (Block L). Must be before webRoutes catch-all.
+app.route("/", githubImportRoutes);
 
 // Insights + milestones
 app.route("/", insightsRoutes);

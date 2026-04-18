@@ -76,9 +76,9 @@ export const apiAuth = createMiddleware<ApiAuthEnv>(async (c, next) => {
   }
 
   // Fall back to session cookie
-  const sessionToken = getCookie(c, "session");
-  if (sessionToken) {
-    try {
+  try {
+    const sessionToken = getCookie(c, "session");
+    if (sessionToken) {
       const [session] = await db
         .select()
         .from(sessions)
@@ -99,9 +99,9 @@ export const apiAuth = createMiddleware<ApiAuthEnv>(async (c, next) => {
           return next();
         }
       }
-    } catch {
-      // Fall through
     }
+  } catch {
+    // DB unavailable — fall through to unauthenticated
   }
 
   c.set("user", null);

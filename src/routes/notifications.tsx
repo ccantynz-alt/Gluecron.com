@@ -10,6 +10,19 @@ import { users, repositories } from "../db/schema";
 import { Layout } from "../views/layout";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
+import {
+  Container,
+  PageHeader,
+  Flex,
+  FilterTabs,
+  EmptyState,
+  List,
+  ListItem,
+  Form,
+  Button,
+  Text,
+  formatRelative,
+} from "../views/ui";
 
 const notificationRoutes = new Hono<AuthEnv>();
 
@@ -17,6 +30,7 @@ const notificationRoutes = new Hono<AuthEnv>();
 notificationRoutes.get("/notifications", softAuth, requireAuth, async (c) => {
   const user = c.get("user")!;
   const filter = c.req.query("filter") || "unread";
+  const csrfToken = (c as any).get("csrfToken") || "";
 
   const query = db
     .select()
@@ -47,39 +61,40 @@ notificationRoutes.get("/notifications", softAuth, requireAuth, async (c) => {
     // Table may not exist yet
   }
 
+  const markAllReadAction = unreadCount > 0 ? (
+    <Form action="/notifications/read-all" csrfToken={csrfToken}>
+      <Button size="sm" type="submit">Mark all read</Button>
+    </Form>
+  ) : null;
+
   return c.html(
     <Layout title="Notifications" user={user}>
-      <div style="max-width:800px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
-          <h2>Notifications</h2>
-          <div style="display:flex;gap:8px">
-            {unreadCount > 0 && (
-              <form method="post" action="/notifications/read-all">
-                <input type="hidden" name="_csrf" value={(c as any).get("csrfToken") || ""} />
-                <button type="submit" class="btn btn-sm">Mark all read</button>
-              </form>
-            )}
-          </div>
-        </div>
+      <Container maxWidth={800}>
+        <PageHeader title="Notifications" actions={markAllReadAction} />
 
-        <div class="issue-tabs" style="margin-bottom:16px">
-          <a href="/notifications?filter=unread" class={filter === "unread" ? "active" : ""}>
-            Unread {unreadCount > 0 && `(${unreadCount})`}
-          </a>
-          <a href="/notifications?filter=all" class={filter === "all" ? "active" : ""}>
-            All
-          </a>
+        <div style="margin-bottom:16px">
+          <FilterTabs tabs={[
+            {
+              label: `Unread${unreadCount > 0 ? ` (${unreadCount})` : ""}`,
+              href: "/notifications?filter=unread",
+              active: filter === "unread",
+            },
+            {
+              label: "All",
+              href: "/notifications?filter=all",
+              active: filter === "all",
+            },
+          ]} />
         </div>
 
         {items.length === 0 ? (
-          <div class="empty-state">
-            <h2>All caught up</h2>
+          <EmptyState title="All caught up">
             <p>No {filter === "unread" ? "unread " : ""}notifications.</p>
-          </div>
+          </EmptyState>
         ) : (
-          <div class="issue-list">
+          <List>
             {items.map((n: any) => (
-              <div class="issue-item" style={n.isRead ? "opacity:0.6" : ""}>
+              <ListItem style={n.isRead ? "opacity:0.6" : ""}>
                 <div style="font-size:18px;padding-top:2px">
                   {n.type === "issue_comment" ? "\u{1F4AC}" :
                    n.type === "pr_review" ? "\u{1F50D}" :
@@ -87,32 +102,33 @@ notificationRoutes.get("/notifications", softAuth, requireAuth, async (c) => {
                    n.type === "star" ? "\u2B50" :
                    n.type === "ci_status" ? "\u2699\uFE0F" : "\u{1F514}"}
                 </div>
-                <div style="flex:1">
-                  <div style="font-size:14px;font-weight:500">
+                <Flex direction="column" style="flex:1">
+                  <Text size={14} weight={500}>
                     {n.url ? <a href={n.url} style="color:var(--text)">{n.title}</a> : n.title}
-                  </div>
+                  </Text>
                   {n.body && (
-                    <div style="font-size:13px;color:var(--text-muted);margin-top:2px">
+                    <Text size={13} muted style="margin-top:2px">
                       {n.body.length > 120 ? n.body.slice(0, 120) + "..." : n.body}
-                    </div>
+                    </Text>
                   )}
-                  <div style="font-size:12px;color:var(--text-muted);margin-top:4px">
+                  <Text size={12} muted style="margin-top:4px">
                     {formatRelative(n.createdAt)}
-                  </div>
-                </div>
+                  </Text>
+                </Flex>
                 {!n.isRead && (
-                  <form method="post" action={`/notifications/${n.id}/read`} style="flex-shrink:0">
-                    <input type="hidden" name="_csrf" value={(c as any).get("csrfToken") || ""} />
-                    <button type="submit" class="btn btn-sm btn-ghost" title="Mark as read">
-                      \u2713
-                    </button>
-                  </form>
+                  <div style="flex-shrink:0">
+                    <Form action={`/notifications/${n.id}/read`} csrfToken={csrfToken}>
+                      <Button size="sm" variant="ghost" type="submit">
+                        {"\u2713"}
+                      </Button>
+                    </Form>
+                  </div>
                 )}
-              </div>
+              </ListItem>
             ))}
-          </div>
+          </List>
         )}
-      </div>
+      </Container>
     </Layout>
   );
 });
@@ -165,19 +181,5 @@ notificationRoutes.get("/api/notifications/count", softAuth, async (c) => {
     return c.json({ count: 0 });
   }
 });
-
-function formatRelative(date: Date | string): string {
-  const d = typeof date === "string" ? new Date(date) : date;
-  const now = new Date();
-  const diffMs = now.getTime() - d.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  if (diffMins < 1) return "just now";
-  if (diffMins < 60) return `${diffMins}m ago`;
-  const diffHours = Math.floor(diffMins / 60);
-  if (diffHours < 24) return `${diffHours}h ago`;
-  const diffDays = Math.floor(diffHours / 24);
-  if (diffDays < 30) return `${diffDays}d ago`;
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-}
 
 export default notificationRoutes;

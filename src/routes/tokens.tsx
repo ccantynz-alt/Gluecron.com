@@ -9,6 +9,21 @@ import { apiTokens } from "../db/schema";
 import { Layout } from "../views/layout";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
+import {
+  Container,
+  PageHeader,
+  Section,
+  Alert,
+  EmptyState,
+  ListItem,
+  Flex,
+  Form,
+  FormGroup,
+  Input,
+  Button,
+  InlineCode,
+  Text,
+} from "../views/ui";
 
 const tokens = new Hono<AuthEnv>();
 
@@ -46,32 +61,33 @@ tokens.get("/settings/tokens", async (c) => {
 
   return c.html(
     <Layout title="API Tokens" user={user}>
-      <div class="settings-container">
-        <h2>Personal access tokens</h2>
+      <Container class="settings-container">
+        <PageHeader title="Personal access tokens" />
         {success && (
-          <div class="auth-success" style="margin-top: 12px">
+          <Alert variant="success">
             {decodeURIComponent(success)}
-          </div>
+          </Alert>
         )}
         {newToken && (
-          <div
-            class="auth-success"
-            style="margin-top: 12px; font-family: var(--font-mono); word-break: break-all"
-          >
-            New token (copy now — it won't be shown again):{" "}
-            <strong>{decodeURIComponent(newToken)}</strong>
-          </div>
+          <Alert variant="success">
+            <span style="font-family: var(--font-mono); word-break: break-all">
+              New token (copy now — it won't be shown again):{" "}
+              <strong>{decodeURIComponent(newToken)}</strong>
+            </span>
+          </Alert>
         )}
         <div style="margin-top: 16px">
           {userTokens.length === 0 ? (
-            <p style="color: var(--text-muted)">No tokens yet.</p>
+            <EmptyState>
+              <Text muted>No tokens yet.</Text>
+            </EmptyState>
           ) : (
             userTokens.map((token) => (
-              <div class="ssh-key-item">
+              <ListItem>
                 <div>
                   <strong>{token.name}</strong>
                   <div class="ssh-key-meta">
-                    <code>{token.tokenPrefix}...</code>
+                    <InlineCode>{token.tokenPrefix}...</InlineCode>
                     <span style="margin-left: 8px">
                       Scopes: {token.scopes}
                     </span>
@@ -84,54 +100,50 @@ tokens.get("/settings/tokens", async (c) => {
                     )}
                   </div>
                 </div>
-                <form
-                  method="post"
+                <Form
                   action={`/settings/tokens/${token.id}/delete`}
+                  method="POST"
                 >
-                  <button type="submit" class="btn btn-danger btn-sm">
+                  <Button type="submit" variant="danger" size="sm">
                     Revoke
-                  </button>
-                </form>
-              </div>
+                  </Button>
+                </Form>
+              </ListItem>
             ))
           )}
         </div>
 
-        <h3 style="margin-top: 24px; margin-bottom: 12px">
-          Generate new token
-        </h3>
-        <form method="post" action="/settings/tokens">
-          <div class="form-group">
-            <label for="name">Token name</label>
-            <input
-              type="text"
-              id="name"
-              name="name"
-              required
-              placeholder="e.g. CI/CD pipeline"
-            />
-          </div>
-          <div class="form-group">
-            <label>Scopes</label>
-            <div style="display: flex; gap: 16px; flex-wrap: wrap">
-              {["repo", "user", "admin"].map((scope) => (
-                <label style="display: flex; align-items: center; gap: 4px; font-size: 14px; cursor: pointer">
-                  <input
-                    type="checkbox"
-                    name="scopes"
-                    value={scope}
-                    checked={scope === "repo"}
-                  />{" "}
-                  {scope}
-                </label>
-              ))}
-            </div>
-          </div>
-          <button type="submit" class="btn btn-primary">
-            Generate token
-          </button>
-        </form>
-      </div>
+        <Section title="Generate new token" style="margin-top: 24px">
+          <Form action="/settings/tokens" method="POST">
+            <FormGroup label="Token name" htmlFor="name">
+              <Input
+                name="name"
+                id="name"
+                required
+                placeholder="e.g. CI/CD pipeline"
+              />
+            </FormGroup>
+            <FormGroup label="Scopes">
+              <Flex gap={16} wrap>
+                {["repo", "user", "admin"].map((scope) => (
+                  <label style="display: flex; align-items: center; gap: 4px; font-size: 14px; cursor: pointer">
+                    <input
+                      type="checkbox"
+                      name="scopes"
+                      value={scope}
+                      checked={scope === "repo"}
+                    />{" "}
+                    {scope}
+                  </label>
+                ))}
+              </Flex>
+            </FormGroup>
+            <Button type="submit" variant="primary">
+              Generate token
+            </Button>
+          </Form>
+        </Section>
+      </Container>
     </Layout>
   );
 });

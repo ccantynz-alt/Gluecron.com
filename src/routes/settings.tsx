@@ -9,6 +9,18 @@ import { users, sshKeys } from "../db/schema";
 import type { AuthEnv } from "../middleware/auth";
 import { requireAuth } from "../middleware/auth";
 import { Layout } from "../views/layout";
+import {
+  Alert,
+  Button,
+  Flex,
+  Form,
+  FormGroup,
+  Input,
+  PageHeader,
+  Section,
+  Text,
+  TextArea,
+} from "../views/ui";
 
 const settings = new Hono<AuthEnv>();
 
@@ -24,58 +36,51 @@ settings.get("/settings", (c) => {
   return c.html(
     <Layout title="Settings">
       <div class="settings-container">
-        <h2>Profile settings</h2>
+        <PageHeader title="Profile settings" />
         {success && (
-          <div class="auth-success">
+          <Alert variant="success">
             {decodeURIComponent(success)}
-          </div>
+          </Alert>
         )}
-        <form method="post" action="/settings/profile">
-          <div class="form-group">
-            <label for="username">Username</label>
-            <input
-              type="text"
+        <Form action="/settings/profile" method="post">
+          <FormGroup label="Username" htmlFor="username">
+            <Input
+              name="username"
               id="username"
               value={user.username}
               disabled
-              class="input-disabled"
             />
-          </div>
-          <div class="form-group">
-            <label for="display_name">Display name</label>
-            <input
-              type="text"
-              id="display_name"
+          </FormGroup>
+          <FormGroup label="Display name" htmlFor="display_name">
+            <Input
               name="display_name"
+              id="display_name"
               value={user.displayName || ""}
               placeholder="Your display name"
             />
-          </div>
-          <div class="form-group">
-            <label for="bio">Bio</label>
-            <textarea
-              id="bio"
+          </FormGroup>
+          <FormGroup label="Bio" htmlFor="bio">
+            <TextArea
               name="bio"
+              id="bio"
               rows={3}
               placeholder="Tell us about yourself"
-            >
-              {user.bio || ""}
-            </textarea>
-          </div>
-          <div class="form-group">
-            <label for="email">Email</label>
-            <input
-              type="email"
-              id="email"
+              value={user.bio || ""}
+            />
+          </FormGroup>
+          <FormGroup label="Email" htmlFor="email">
+            <Input
               name="email"
+              id="email"
+              type="email"
               value={user.email}
               required
             />
-          </div>
-          <button type="submit" class="btn btn-primary">
+          </FormGroup>
+          <Button type="submit" variant="primary">
             Update profile
-          </button>
-        </form>
+          </Button>
+        </Form>
       </div>
     </Layout>
   );
@@ -112,18 +117,18 @@ settings.get("/settings/keys", async (c) => {
   return c.html(
     <Layout title="SSH Keys">
       <div class="settings-container">
-        <h2>SSH Keys</h2>
+        <PageHeader title="SSH Keys" />
         {success && (
-          <div class="auth-success">{decodeURIComponent(success)}</div>
+          <Alert variant="success">{decodeURIComponent(success)}</Alert>
         )}
         {error && (
-          <div class="auth-error">{decodeURIComponent(error)}</div>
+          <Alert variant="error">{decodeURIComponent(error)}</Alert>
         )}
         <div class="ssh-keys-list">
           {keys.length === 0 ? (
-            <p style="color: var(--text-muted)">
+            <Text muted>
               No SSH keys yet. Add one below.
-            </p>
+            </Text>
           ) : (
             keys.map((key) => (
               <div class="ssh-key-item">
@@ -147,43 +152,41 @@ settings.get("/settings/keys", async (c) => {
                     )}
                   </div>
                 </div>
-                <form method="post" action={`/settings/keys/${key.id}/delete`}>
-                  <button type="submit" class="btn btn-danger btn-sm">
+                <Form action={`/settings/keys/${key.id}/delete`} method="post">
+                  <Button type="submit" variant="danger" size="sm">
                     Delete
-                  </button>
-                </form>
+                  </Button>
+                </Form>
               </div>
             ))
           )}
         </div>
 
-        <h3 style="margin-top: 24px">Add new SSH key</h3>
-        <form method="post" action="/settings/keys">
-          <div class="form-group">
-            <label for="title">Title</label>
-            <input
-              type="text"
-              id="title"
-              name="title"
-              required
-              placeholder="e.g. My laptop"
-            />
-          </div>
-          <div class="form-group">
-            <label for="public_key">Public key</label>
-            <textarea
-              id="public_key"
-              name="public_key"
-              rows={4}
-              required
-              placeholder="ssh-ed25519 AAAA... or ssh-rsa AAAA..."
-              style="font-family: var(--font-mono); font-size: 12px"
-            />
-          </div>
-          <button type="submit" class="btn btn-primary">
-            Add SSH key
-          </button>
-        </form>
+        <Section title="Add new SSH key" style="margin-top:24px">
+          <Form action="/settings/keys" method="post">
+            <FormGroup label="Title" htmlFor="title">
+              <Input
+                name="title"
+                id="title"
+                required
+                placeholder="e.g. My laptop"
+              />
+            </FormGroup>
+            <FormGroup label="Public key" htmlFor="public_key">
+              <TextArea
+                name="public_key"
+                id="public_key"
+                rows={4}
+                required
+                placeholder="ssh-ed25519 AAAA... or ssh-rsa AAAA..."
+                mono
+              />
+            </FormGroup>
+            <Button type="submit" variant="primary">
+              Add SSH key
+            </Button>
+          </Form>
+        </Section>
       </div>
     </Layout>
   );

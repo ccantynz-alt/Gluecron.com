@@ -75,6 +75,10 @@ export function rateLimit(
 /**
  * Pre-configured rate limiters for different route groups.
  */
+export function clearRateLimitStore() {
+  store.clear();
+}
+
 export const apiRateLimit = rateLimit(100, 60_000, "api"); // 100 req/min
 export const authRateLimit = rateLimit(10, 60_000, "auth"); // 10 req/min (login/register)
 export const gitRateLimit = rateLimit(60, 60_000, "git"); // 60 req/min

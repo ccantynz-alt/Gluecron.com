@@ -10,6 +10,27 @@ import { users, repositories } from "../db/schema";
 import { Layout } from "../views/layout";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
+import {
+  Container,
+  PageHeader,
+  Form,
+  FormGroup,
+  Input,
+  TextArea,
+  Select,
+  Button,
+  LinkButton,
+  Alert,
+  EmptyState,
+  Flex,
+  Grid,
+  Text,
+  Badge,
+  Section,
+  Avatar,
+  List,
+  ListItem,
+} from "../views/ui";
 
 const orgRoutes = new Hono<AuthEnv>();
 
@@ -21,31 +42,25 @@ orgRoutes.get("/orgs/new", softAuth, requireAuth, (c) => {
 
   return c.html(
     <Layout title="New Organization" user={user}>
-      <div style="max-width:500px">
-        <h2 style="margin-bottom:16px">Create a new organization</h2>
-        {error && <div class="auth-error">{decodeURIComponent(error)}</div>}
-        <form method="post" action="/orgs/new">
-          <input type="hidden" name="_csrf" value={(c as any).get("csrfToken") || ""} />
-          <div class="form-group">
-            <label for="name">Organization name</label>
-            <input type="text" id="name" name="name" required pattern="^[a-zA-Z0-9._-]+$" placeholder="my-org" autocomplete="off" />
-            <span style="font-size:12px;color:var(--text-muted)">Letters, numbers, hyphens, dots, underscores only</span>
-          </div>
-          <div class="form-group">
-            <label for="displayName">Display name</label>
-            <input type="text" id="displayName" name="displayName" placeholder="My Organization" />
-          </div>
-          <div class="form-group">
-            <label for="description">Description</label>
-            <textarea id="description" name="description" rows={3} placeholder="What does this organization do?" />
-          </div>
-          <div class="form-group">
-            <label for="website">Website</label>
-            <input type="url" id="website" name="website" placeholder="https://example.com" />
-          </div>
-          <button type="submit" class="btn btn-primary">Create organization</button>
-        </form>
-      </div>
+      <Container maxWidth={500}>
+        <PageHeader title="Create a new organization" />
+        {error && <Alert variant="error">{decodeURIComponent(error)}</Alert>}
+        <Form action="/orgs/new" csrfToken={(c as any).get("csrfToken") || ""}>
+          <FormGroup label="Organization name" htmlFor="name" hint="Letters, numbers, hyphens, dots, underscores only">
+            <Input name="name" required pattern="^[a-zA-Z0-9._-]+$" placeholder="my-org" autocomplete="off" />
+          </FormGroup>
+          <FormGroup label="Display name" htmlFor="displayName">
+            <Input name="displayName" placeholder="My Organization" />
+          </FormGroup>
+          <FormGroup label="Description" htmlFor="description">
+            <TextArea name="description" rows={3} placeholder="What does this organization do?" />
+          </FormGroup>
+          <FormGroup label="Website" htmlFor="website">
+            <Input name="website" type="url" placeholder="https://example.com" />
+          </FormGroup>
+          <Button type="submit" variant="primary">Create organization</Button>
+        </Form>
+      </Container>
     </Layout>
   );
 });
@@ -139,15 +154,13 @@ orgRoutes.get("/orgs/:org", softAuth, async (c) => {
 
   return c.html(
     <Layout title={org.displayName || org.name} user={user}>
-      <div style="max-width:900px">
-        <div style="display:flex;gap:24px;margin-bottom:32px">
-          <div class="user-avatar" style="width:80px;height:80px;font-size:32px">
-            {(org.displayName || org.name)[0].toUpperCase()}
-          </div>
+      <Container maxWidth={900}>
+        <Flex gap={24} style="margin-bottom:32px">
+          <Avatar name={org.displayName || org.name} size={80} />
           <div>
             <h2>{org.displayName || org.name}</h2>
-            <div style="font-size:14px;color:var(--text-muted)">@{org.name}</div>
-            {org.description && <p style="margin-top:8px;font-size:14px;color:var(--text-muted)">{org.description}</p>}
+            <Text size={14} muted>@{org.name}</Text>
+            {org.description && <p style="margin-top:8px"><Text size={14} muted>{org.description}</Text></p>}
             {org.website && (
               <a href={org.website} style="font-size:13px" target="_blank" rel="noopener noreferrer">
                 {org.website}
@@ -156,62 +169,66 @@ orgRoutes.get("/orgs/:org", softAuth, async (c) => {
           </div>
           {isOwner && (
             <div style="margin-left:auto">
-              <a href={`/orgs/${org.name}/settings`} class="btn btn-sm">Settings</a>
+              <LinkButton href={`/orgs/${org.name}/settings`} size="sm">Settings</LinkButton>
             </div>
           )}
-        </div>
+        </Flex>
 
-        <div style="display:grid;grid-template-columns:1fr 300px;gap:32px">
+        <Grid cols="1fr 300px" gap={32}>
           <div>
-            <h3 style="margin-bottom:16px">Teams</h3>
-            {teamList.length === 0 ? (
-              <div class="empty-state" style="padding:24px">
-                <p>No teams yet.</p>
-                {isOwner && <a href={`/orgs/${org.name}/teams/new`} class="btn btn-sm btn-primary" style="margin-top:8px">Create a team</a>}
-              </div>
-            ) : (
-              <div class="issue-list">
-                {teamList.map((team: any) => (
-                  <div class="issue-item">
-                    <div>
-                      <div style="font-weight:500;font-size:15px">
-                        <a href={`/orgs/${org.name}/teams/${team.name}`} style="color:var(--text)">{team.name}</a>
+            <Section title="Teams">
+              {teamList.length === 0 ? (
+                <EmptyState>
+                  <p>No teams yet.</p>
+                  {isOwner && <LinkButton href={`/orgs/${org.name}/teams/new`} variant="primary" size="sm">Create a team</LinkButton>}
+                </EmptyState>
+              ) : (
+                <List>
+                  {teamList.map((team: any) => (
+                    <ListItem>
+                      <div>
+                        <div style="font-weight:500;font-size:15px">
+                          <a href={`/orgs/${org.name}/teams/${team.name}`} style="color:var(--text)">{team.name}</a>
+                        </div>
+                        {team.description && <Text size={13} muted>{team.description}</Text>}
                       </div>
-                      {team.description && <div style="font-size:13px;color:var(--text-muted)">{team.description}</div>}
-                    </div>
-                    <span class="badge">{team.permission}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-            {isOwner && teamList.length > 0 && (
-              <a href={`/orgs/${org.name}/teams/new`} class="btn btn-sm btn-primary" style="margin-top:12px">Create team</a>
-            )}
+                      <Badge>{team.permission}</Badge>
+                    </ListItem>
+                  ))}
+                </List>
+              )}
+              {isOwner && teamList.length > 0 && (
+                <div style="margin-top:12px">
+                  <LinkButton href={`/orgs/${org.name}/teams/new`} variant="primary" size="sm">Create team</LinkButton>
+                </div>
+              )}
+            </Section>
           </div>
 
           <div>
-            <h3 style="margin-bottom:16px">Members ({members.length})</h3>
-            <div style="display:flex;flex-direction:column;gap:8px">
-              {members.map((m: any) => (
-                <div style="display:flex;align-items:center;gap:8px;padding:8px;border:1px solid var(--border);border-radius:var(--radius)">
-                  <div class="user-avatar" style="width:32px;height:32px;font-size:14px">
-                    {(m.user.displayName || m.user.username)[0].toUpperCase()}
-                  </div>
-                  <div style="flex:1">
-                    <a href={`/${m.user.username}`} style="font-size:14px;font-weight:500">{m.user.username}</a>
-                  </div>
-                  <span class="badge" style="font-size:11px">{m.member.role}</span>
+            <Section title={`Members (${members.length})`}>
+              <List>
+                {members.map((m: any) => (
+                  <ListItem>
+                    <Flex align="center" gap={8} style="width:100%">
+                      <Avatar name={m.user.displayName || m.user.username} size={32} />
+                      <div style="flex:1">
+                        <a href={`/${m.user.username}`} style="font-size:14px;font-weight:500">{m.user.username}</a>
+                      </div>
+                      <Badge style="font-size:11px">{m.member.role}</Badge>
+                    </Flex>
+                  </ListItem>
+                ))}
+              </List>
+              {isOwner && (
+                <div style="margin-top:12px">
+                  <LinkButton href={`/orgs/${org.name}/members/invite`} size="sm">Invite member</LinkButton>
                 </div>
-              ))}
-            </div>
-            {isOwner && (
-              <a href={`/orgs/${org.name}/members/invite`} class="btn btn-sm" style="margin-top:12px;width:100%;text-align:center">
-                Invite member
-              </a>
-            )}
+              )}
+            </Section>
           </div>
-        </div>
-      </div>
+        </Grid>
+      </Container>
     </Layout>
   );
 });
@@ -245,38 +262,32 @@ orgRoutes.get("/orgs/:org/settings", softAuth, requireAuth, async (c) => {
 
   return c.html(
     <Layout title={`Settings — ${org.name}`} user={user}>
-      <div style="max-width:600px">
-        <h2 style="margin-bottom:20px">Organization Settings</h2>
-        {success && <div class="auth-success">Settings updated.</div>}
-        <form method="post" action={`/orgs/${orgName}/settings`}>
-          <input type="hidden" name="_csrf" value={(c as any).get("csrfToken") || ""} />
-          <div class="form-group">
-            <label for="displayName">Display name</label>
-            <input type="text" id="displayName" name="displayName" value={org.displayName || ""} />
-          </div>
-          <div class="form-group">
-            <label for="description">Description</label>
-            <textarea id="description" name="description" rows={3}>{org.description || ""}</textarea>
-          </div>
-          <div class="form-group">
-            <label for="website">Website</label>
-            <input type="url" id="website" name="website" value={org.website || ""} />
-          </div>
-          <div class="form-group">
-            <label for="location">Location</label>
-            <input type="text" id="location" name="location" value={org.location || ""} />
-          </div>
-          <button type="submit" class="btn btn-primary">Save changes</button>
-        </form>
+      <Container maxWidth={600}>
+        <PageHeader title="Organization Settings" />
+        {success && <Alert variant="success">Settings updated.</Alert>}
+        <Form action={`/orgs/${orgName}/settings`} csrfToken={(c as any).get("csrfToken") || ""}>
+          <FormGroup label="Display name" htmlFor="displayName">
+            <Input name="displayName" value={org.displayName || ""} />
+          </FormGroup>
+          <FormGroup label="Description" htmlFor="description">
+            <TextArea name="description" rows={3} value={org.description || ""} />
+          </FormGroup>
+          <FormGroup label="Website" htmlFor="website">
+            <Input name="website" type="url" value={org.website || ""} />
+          </FormGroup>
+          <FormGroup label="Location" htmlFor="location">
+            <Input name="location" value={org.location || ""} />
+          </FormGroup>
+          <Button type="submit" variant="primary">Save changes</Button>
+        </Form>
 
         <div style="margin-top:40px;padding-top:24px;border-top:1px solid var(--red)">
           <h3 style="color:var(--red);margin-bottom:12px">Danger Zone</h3>
-          <form method="post" action={`/orgs/${orgName}/delete`} class="confirm-action" data-confirm="This will permanently delete the organization. Are you sure?">
-            <input type="hidden" name="_csrf" value={(c as any).get("csrfToken") || ""} />
-            <button type="submit" class="btn btn-danger">Delete organization</button>
-          </form>
+          <Form action={`/orgs/${orgName}/delete`} csrfToken={(c as any).get("csrfToken") || ""} class="confirm-action" >
+            <Button type="submit" variant="danger">Delete organization</Button>
+          </Form>
         </div>
-      </div>
+      </Container>
     </Layout>
   );
 });
@@ -336,27 +347,24 @@ orgRoutes.get("/orgs/:org/members/invite", softAuth, requireAuth, async (c) => {
 
   return c.html(
     <Layout title={`Invite Member — ${orgName}`} user={user}>
-      <div style="max-width:500px">
-        <h2 style="margin-bottom:16px">Invite a member to {orgName}</h2>
-        {error && <div class="auth-error">{decodeURIComponent(error)}</div>}
-        {success && <div class="auth-success">Member invited successfully.</div>}
-        <form method="post" action={`/orgs/${orgName}/members/invite`}>
-          <input type="hidden" name="_csrf" value={(c as any).get("csrfToken") || ""} />
-          <div class="form-group">
-            <label for="username">Username</label>
-            <input type="text" id="username" name="username" required placeholder="Enter username" autocomplete="off" />
-          </div>
-          <div class="form-group">
-            <label for="role">Role</label>
-            <select id="role" name="role">
+      <Container maxWidth={500}>
+        <PageHeader title={`Invite a member to ${orgName}`} />
+        {error && <Alert variant="error">{decodeURIComponent(error)}</Alert>}
+        {success && <Alert variant="success">Member invited successfully.</Alert>}
+        <Form action={`/orgs/${orgName}/members/invite`} csrfToken={(c as any).get("csrfToken") || ""}>
+          <FormGroup label="Username" htmlFor="username">
+            <Input name="username" required placeholder="Enter username" autocomplete="off" />
+          </FormGroup>
+          <FormGroup label="Role" htmlFor="role">
+            <Select name="role">
               <option value="member">Member — can view</option>
               <option value="admin">Admin — can manage teams</option>
               <option value="owner">Owner — full control</option>
-            </select>
-          </div>
-          <button type="submit" class="btn btn-primary">Send invitation</button>
-        </form>
-      </div>
+            </Select>
+          </FormGroup>
+          <Button type="submit" variant="primary">Send invitation</Button>
+        </Form>
+      </Container>
     </Layout>
   );
 });
@@ -415,30 +423,26 @@ orgRoutes.get("/orgs/:org/teams/new", softAuth, requireAuth, async (c) => {
 
   return c.html(
     <Layout title={`New Team — ${orgName}`} user={user}>
-      <div style="max-width:500px">
-        <h2 style="margin-bottom:16px">Create a new team</h2>
-        {error && <div class="auth-error">{decodeURIComponent(error)}</div>}
-        <form method="post" action={`/orgs/${orgName}/teams/new`}>
-          <input type="hidden" name="_csrf" value={(c as any).get("csrfToken") || ""} />
-          <div class="form-group">
-            <label for="name">Team name</label>
-            <input type="text" id="name" name="name" required placeholder="engineering" autocomplete="off" />
-          </div>
-          <div class="form-group">
-            <label for="description">Description</label>
-            <textarea id="description" name="description" rows={2} placeholder="What does this team do?" />
-          </div>
-          <div class="form-group">
-            <label for="permission">Default permission</label>
-            <select id="permission" name="permission">
+      <Container maxWidth={500}>
+        <PageHeader title="Create a new team" />
+        {error && <Alert variant="error">{decodeURIComponent(error)}</Alert>}
+        <Form action={`/orgs/${orgName}/teams/new`} csrfToken={(c as any).get("csrfToken") || ""}>
+          <FormGroup label="Team name" htmlFor="name">
+            <Input name="name" required placeholder="engineering" autocomplete="off" />
+          </FormGroup>
+          <FormGroup label="Description" htmlFor="description">
+            <TextArea name="description" rows={2} placeholder="What does this team do?" />
+          </FormGroup>
+          <FormGroup label="Default permission" htmlFor="permission">
+            <Select name="permission">
               <option value="read">Read — view repos</option>
               <option value="write">Write — push to repos</option>
               <option value="admin">Admin — manage repos</option>
-            </select>
-          </div>
-          <button type="submit" class="btn btn-primary">Create team</button>
-        </form>
-      </div>
+            </Select>
+          </FormGroup>
+          <Button type="submit" variant="primary">Create team</Button>
+        </Form>
+      </Container>
     </Layout>
   );
 });
@@ -516,48 +520,52 @@ orgRoutes.get("/orgs/:org/teams/:team", softAuth, async (c) => {
 
   return c.html(
     <Layout title={`${teamName} — ${orgName}`} user={user}>
-      <div style="max-width:800px">
-        <div style="margin-bottom:24px">
-          <div style="font-size:14px;color:var(--text-muted);margin-bottom:4px">
+      <Container maxWidth={800}>
+        <Section style="margin-bottom:24px">
+          <Text size={14} muted>
             <a href={`/orgs/${orgName}`}>{orgName}</a> / teams
-          </div>
+          </Text>
           <h2>{team.name}</h2>
-          {team.description && <p style="color:var(--text-muted);margin-top:4px">{team.description}</p>}
-          <span class="badge" style="margin-top:8px">{team.permission} access</span>
-        </div>
+          {team.description && <p style="margin-top:4px"><Text muted>{team.description}</Text></p>}
+          <div style="margin-top:8px">
+            <Badge>{team.permission} access</Badge>
+          </div>
+        </Section>
 
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px">
+        <Grid cols="1fr 1fr" gap={24}>
           <div>
-            <h3 style="margin-bottom:12px">Members ({members.length})</h3>
-            {members.length === 0 ? (
-              <p style="color:var(--text-muted);font-size:14px">No members yet.</p>
-            ) : (
-              <div style="display:flex;flex-direction:column;gap:8px">
-                {members.map((m: any) => (
-                  <div style="padding:8px;border:1px solid var(--border);border-radius:var(--radius)">
-                    <a href={`/${m.user.username}`}>{m.user.username}</a>
-                  </div>
-                ))}
-              </div>
-            )}
+            <Section title={`Members (${members.length})`}>
+              {members.length === 0 ? (
+                <EmptyState><Text size={14} muted>No members yet.</Text></EmptyState>
+              ) : (
+                <List>
+                  {members.map((m: any) => (
+                    <ListItem>
+                      <a href={`/${m.user.username}`}>{m.user.username}</a>
+                    </ListItem>
+                  ))}
+                </List>
+              )}
+            </Section>
           </div>
           <div>
-            <h3 style="margin-bottom:12px">Repositories ({repos.length})</h3>
-            {repos.length === 0 ? (
-              <p style="color:var(--text-muted);font-size:14px">No repositories assigned.</p>
-            ) : (
-              <div style="display:flex;flex-direction:column;gap:8px">
-                {repos.map((r: any) => (
-                  <div style="padding:8px;border:1px solid var(--border);border-radius:var(--radius)">
-                    {r.repo.name}
-                    <span class="badge" style="margin-left:8px;font-size:11px">{r.teamRepo.permission}</span>
-                  </div>
-                ))}
-              </div>
-            )}
+            <Section title={`Repositories (${repos.length})`}>
+              {repos.length === 0 ? (
+                <EmptyState><Text size={14} muted>No repositories assigned.</Text></EmptyState>
+              ) : (
+                <List>
+                  {repos.map((r: any) => (
+                    <ListItem>
+                      <span>{r.repo.name}</span>
+                      <Badge style="margin-left:8px;font-size:11px">{r.teamRepo.permission}</Badge>
+                    </ListItem>
+                  ))}
+                </List>
+              )}
+            </Section>
           </div>
-        </div>
-      </div>
+        </Grid>
+      </Container>
     </Layout>
   );
 });

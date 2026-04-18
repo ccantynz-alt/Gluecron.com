@@ -15,6 +15,14 @@ import {
   sessionExpiry,
 } from "../lib/auth";
 import { Layout } from "../views/layout";
+import {
+  Form,
+  FormGroup,
+  Input,
+  Button,
+  Alert,
+  Text,
+} from "../views/ui";
 import type { AuthEnv } from "../middleware/auth";
 
 const auth = new Hono<AuthEnv>();
@@ -27,13 +35,11 @@ auth.get("/register", (c) => {
     <Layout title="Register">
       <div class="auth-container">
         <h2>Create account</h2>
-        {error && <div class="auth-error">{decodeURIComponent(error)}</div>}
-        <form method="post" action="/register">
-          <div class="form-group">
-            <label for="username">Username</label>
-            <input
+        {error && <Alert variant="error">{decodeURIComponent(error)}</Alert>}
+        <Form action="/register">
+          <FormGroup label="Username" htmlFor="username">
+            <Input
               type="text"
-              id="username"
               name="username"
               required
               pattern="^[a-zA-Z0-9_-]+$"
@@ -42,36 +48,32 @@ auth.get("/register", (c) => {
               placeholder="your-username"
               autocomplete="username"
             />
-          </div>
-          <div class="form-group">
-            <label for="email">Email</label>
-            <input
+          </FormGroup>
+          <FormGroup label="Email" htmlFor="email">
+            <Input
               type="email"
-              id="email"
               name="email"
               required
               placeholder="you@example.com"
               autocomplete="email"
             />
-          </div>
-          <div class="form-group">
-            <label for="password">Password</label>
-            <input
+          </FormGroup>
+          <FormGroup label="Password" htmlFor="password">
+            <Input
               type="password"
-              id="password"
               name="password"
               required
               minLength={8}
               placeholder="Min 8 characters"
               autocomplete="new-password"
             />
-          </div>
-          <button type="submit" class="btn btn-primary">
+          </FormGroup>
+          <Button type="submit" variant="primary">
             Create account
-          </button>
-        </form>
+          </Button>
+        </Form>
         <p class="auth-switch">
-          Already have an account? <a href="/login">Sign in</a>
+          <Text>Already have an account? <a href="/login">Sign in</a></Text>
         </p>
       </div>
     </Layout>
@@ -145,39 +147,34 @@ auth.get("/login", (c) => {
     <Layout title="Sign in">
       <div class="auth-container">
         <h2>Sign in</h2>
-        {error && <div class="auth-error">{decodeURIComponent(error)}</div>}
-        <form
-          method="post"
+        {error && <Alert variant="error">{decodeURIComponent(error)}</Alert>}
+        <Form
           action={`/login${redirect ? `?redirect=${encodeURIComponent(redirect)}` : ""}`}
         >
-          <div class="form-group">
-            <label for="username">Username or email</label>
-            <input
+          <FormGroup label="Username or email" htmlFor="username">
+            <Input
               type="text"
-              id="username"
               name="username"
               required
               placeholder="username or email"
               autocomplete="username"
             />
-          </div>
-          <div class="form-group">
-            <label for="password">Password</label>
-            <input
+          </FormGroup>
+          <FormGroup label="Password" htmlFor="password">
+            <Input
               type="password"
-              id="password"
               name="password"
               required
               placeholder="Password"
               autocomplete="current-password"
             />
-          </div>
-          <button type="submit" class="btn btn-primary">
+          </FormGroup>
+          <Button type="submit" variant="primary">
             Sign in
-          </button>
-        </form>
+          </Button>
+        </Form>
         <p class="auth-switch">
-          New to gluecron? <a href="/register">Create an account</a>
+          <Text>New to gluecron? <a href="/register">Create an account</a></Text>
         </p>
       </div>
     </Layout>

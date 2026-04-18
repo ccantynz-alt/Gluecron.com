@@ -6,6 +6,18 @@ import { Hono } from "hono";
 import { Layout } from "../views/layout";
 import { RepoHeader, RepoNav, Breadcrumb } from "../views/components";
 import {
+  Container,
+  Flex,
+  Form,
+  FormGroup,
+  Input,
+  TextArea,
+  Button,
+  LinkButton,
+  EmptyState,
+  Text,
+} from "../views/ui";
+import {
   getBlob,
   getDefaultBranch,
   getRepoPath,
@@ -34,51 +46,47 @@ editor.get("/:owner/:repo/new/:ref{.+$}", requireAuth, async (c) => {
     <Layout title={`New file — ${owner}/${repo}`} user={user}>
       <RepoHeader owner={owner} repo={repo} />
       <RepoNav owner={owner} repo={repo} active="code" />
-      <div style="max-width: 900px">
+      <Container maxWidth={900}>
         <h2 style="margin-bottom: 16px">Create new file</h2>
-        <form method="post" action={`/${owner}/${repo}/new/${ref}`}>
+        <Form action={`/${owner}/${repo}/new/${ref}`}>
           <input type="hidden" name="dir_path" value={dirPath} />
-          <div class="form-group">
-            <label>File path</label>
-            <div style="display: flex; align-items: center; gap: 4px">
+          <FormGroup label="File path">
+            <Flex align="center" gap={4}>
               {dirPath && (
-                <span style="color: var(--text-muted); font-size: 14px">
+                <Text muted size={14}>
                   {dirPath}/
-                </span>
+                </Text>
               )}
-              <input
-                type="text"
+              <Input
                 name="filename"
                 required
                 placeholder="filename.ts"
                 style="flex: 1"
                 autocomplete="off"
               />
-            </div>
-          </div>
-          <div class="form-group">
-            <label>Content</label>
-            <textarea
+            </Flex>
+          </FormGroup>
+          <FormGroup label="Content">
+            <TextArea
               name="content"
               rows={20}
-              style="font-family: var(--font-mono); font-size: 13px; line-height: 1.5; tab-size: 2"
               placeholder="Enter file content..."
+              mono
+              style="line-height: 1.5; tab-size: 2"
             />
-          </div>
-          <div class="form-group">
-            <label>Commit message</label>
-            <input
-              type="text"
+          </FormGroup>
+          <FormGroup label="Commit message">
+            <Input
               name="message"
               placeholder="Create new file"
               required
             />
-          </div>
-          <button type="submit" class="btn btn-primary">
+          </FormGroup>
+          <Button type="submit" variant="primary">
             Commit new file
-          </button>
-        </form>
-      </div>
+          </Button>
+        </Form>
+      </Container>
     </Layout>
   );
 });
@@ -196,9 +204,7 @@ editor.get("/:owner/:repo/edit/:ref{.+$}", requireAuth, async (c) => {
   if (!blob || blob.isBinary) {
     return c.html(
       <Layout title="Cannot edit" user={user}>
-        <div class="empty-state">
-          <h2>{blob?.isBinary ? "Cannot edit binary file" : "File not found"}</h2>
-        </div>
+        <EmptyState title={blob?.isBinary ? "Cannot edit binary file" : "File not found"} />
       </Layout>,
       404
     );
@@ -209,36 +215,34 @@ editor.get("/:owner/:repo/edit/:ref{.+$}", requireAuth, async (c) => {
       <RepoHeader owner={owner} repo={repo} />
       <RepoNav owner={owner} repo={repo} active="code" />
       <Breadcrumb owner={owner} repo={repo} ref={ref} path={filePath} />
-      <div style="max-width: 900px">
-        <form method="post" action={`/${owner}/${repo}/edit/${ref}/${filePath}`}>
-          <div class="form-group">
-            <textarea
+      <Container maxWidth={900}>
+        <Form action={`/${owner}/${repo}/edit/${ref}/${filePath}`}>
+          <FormGroup>
+            <TextArea
               name="content"
               rows={25}
-              style="font-family: var(--font-mono); font-size: 13px; line-height: 1.5; tab-size: 2; width: 100%"
-            >
-              {blob.content}
-            </textarea>
-          </div>
-          <div class="form-group">
-            <label>Commit message</label>
-            <input
-              type="text"
+              value={blob.content}
+              mono
+              style="line-height: 1.5; tab-size: 2; width: 100%"
+            />
+          </FormGroup>
+          <FormGroup label="Commit message">
+            <Input
               name="message"
               placeholder={`Update ${filePath.split("/").pop()}`}
               required
             />
-          </div>
-          <div style="display: flex; gap: 8px">
-            <button type="submit" class="btn btn-primary">
+          </FormGroup>
+          <Flex gap={8}>
+            <Button type="submit" variant="primary">
               Commit changes
-            </button>
-            <a href={`/${owner}/${repo}/blob/${ref}/${filePath}`} class="btn">
+            </Button>
+            <LinkButton href={`/${owner}/${repo}/blob/${ref}/${filePath}`}>
               Cancel
-            </a>
-          </div>
-        </form>
-      </div>
+            </LinkButton>
+          </Flex>
+        </Form>
+      </Container>
     </Layout>
   );
 });

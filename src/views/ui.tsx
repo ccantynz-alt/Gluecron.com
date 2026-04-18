@@ -145,6 +145,8 @@ export const Input: FC<{
   pattern?: string;
   autocomplete?: string;
   autofocus?: boolean;
+  minLength?: number;
+  maxLength?: number;
   style?: string;
 }> = (props) => (
   <input
@@ -158,6 +160,8 @@ export const Input: FC<{
     pattern={props.pattern}
     autocomplete={props.autocomplete}
     autofocus={props.autofocus}
+    minLength={props.minLength}
+    maxLength={props.maxLength}
     class={props.disabled ? "input-disabled" : ""}
     style={props.style}
   />

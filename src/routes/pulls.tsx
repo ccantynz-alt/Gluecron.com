@@ -22,6 +22,28 @@ import {
 } from "../git/repository";
 import type { GitDiffFile } from "../git/repository";
 import { html } from "hono/html";
+import {
+  Flex,
+  Container,
+  Badge,
+  Button,
+  LinkButton,
+  Form,
+  FormGroup,
+  Input,
+  TextArea,
+  Select,
+  EmptyState,
+  FilterTabs,
+  TabNav,
+  List,
+  ListItem,
+  Text,
+  Alert,
+  MarkdownContent,
+  CommentBox,
+  formatRelative,
+} from "../views/ui";
 
 const pulls = new Hono<AuthEnv>();
 
@@ -53,29 +75,14 @@ const PrNav = ({
   repo: string;
   active: "code" | "issues" | "pulls" | "commits";
 }) => (
-  <div class="repo-nav">
-    <a href={`/${owner}/${repo}`} class={active === "code" ? "active" : ""}>
-      Code
-    </a>
-    <a
-      href={`/${owner}/${repo}/issues`}
-      class={active === "issues" ? "active" : ""}
-    >
-      Issues
-    </a>
-    <a
-      href={`/${owner}/${repo}/pulls`}
-      class={active === "pulls" ? "active" : ""}
-    >
-      Pull Requests
-    </a>
-    <a
-      href={`/${owner}/${repo}/commits`}
-      class={active === "commits" ? "active" : ""}
-    >
-      Commits
-    </a>
-  </div>
+  <TabNav
+    tabs={[
+      { label: "Code", href: `/${owner}/${repo}`, active: active === "code" },
+      { label: "Issues", href: `/${owner}/${repo}/issues`, active: active === "issues" },
+      { label: "Pull Requests", href: `/${owner}/${repo}/pulls`, active: active === "pulls" },
+      { label: "Commits", href: `/${owner}/${repo}/commits`, active: active === "commits" },
+    ]}
+  />
 );
 
 // List PRs
@@ -115,44 +122,28 @@ pulls.get("/:owner/:repo/pulls", softAuth, async (c) => {
     <Layout title={`Pull Requests — ${ownerName}/${repoName}`} user={user}>
       <RepoHeader owner={ownerName} repo={repoName} />
       <PrNav owner={ownerName} repo={repoName} active="pulls" />
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px">
-        <div class="issue-tabs">
-          <a
-            href={`/${ownerName}/${repoName}/pulls?state=open`}
-            class={state === "open" ? "active" : ""}
-          >
-            {counts?.open ?? 0} Open
-          </a>
-          <a
-            href={`/${ownerName}/${repoName}/pulls?state=merged`}
-            class={state === "merged" ? "active" : ""}
-          >
-            {counts?.merged ?? 0} Merged
-          </a>
-          <a
-            href={`/${ownerName}/${repoName}/pulls?state=closed`}
-            class={state === "closed" ? "active" : ""}
-          >
-            {counts?.closed ?? 0} Closed
-          </a>
-        </div>
+      <Flex justify="space-between" align="center" style="margin-bottom:16px">
+        <FilterTabs
+          tabs={[
+            { label: `${counts?.open ?? 0} Open`, href: `/${ownerName}/${repoName}/pulls?state=open`, active: state === "open" },
+            { label: `${counts?.merged ?? 0} Merged`, href: `/${ownerName}/${repoName}/pulls?state=merged`, active: state === "merged" },
+            { label: `${counts?.closed ?? 0} Closed`, href: `/${ownerName}/${repoName}/pulls?state=closed`, active: state === "closed" },
+          ]}
+        />
         {user && (
-          <a
-            href={`/${ownerName}/${repoName}/pulls/new`}
-            class="btn btn-primary"
-          >
+          <LinkButton href={`/${ownerName}/${repoName}/pulls/new`} variant="primary">
             New pull request
-          </a>
+          </LinkButton>
         )}
-      </div>
+      </Flex>
       {prList.length === 0 ? (
-        <div class="empty-state">
+        <EmptyState>
           <p>No {state} pull requests.</p>
-        </div>
+        </EmptyState>
       ) : (
-        <div class="issue-list">
+        <List>
           {prList.map(({ pr, author }) => (
-            <div class="issue-item">
+            <ListItem>
               <div
                 class={`issue-state-icon ${pr.state === "open" ? "state-open" : pr.state === "merged" ? "state-merged" : "state-closed"}`}
               >
@@ -175,9 +166,9 @@ pulls.get("/:owner/:repo/pulls", softAuth, async (c) => {
                   {formatRelative(pr.createdAt)}
                 </div>
               </div>
-            </div>
+            </ListItem>
           ))}
-        </div>
+        </List>
       )}
     </Layout>
   );
@@ -199,52 +190,51 @@ pulls.get(
       <Layout title={`New PR — ${ownerName}/${repoName}`} user={user}>
         <RepoHeader owner={ownerName} repo={repoName} />
         <PrNav owner={ownerName} repo={repoName} active="pulls" />
-        <div style="max-width: 800px">
-          <h2 style="margin-bottom: 16px">Open a pull request</h2>
+        <Container maxWidth={800}>
+          <h2 style="margin-bottom:16px">Open a pull request</h2>
           {error && (
-            <div class="auth-error">{decodeURIComponent(error)}</div>
+            <Alert variant="error">{decodeURIComponent(error)}</Alert>
           )}
-          <form method="post" action={`/${ownerName}/${repoName}/pulls/new`}>
-            <div style="display: flex; gap: 12px; align-items: center; margin-bottom: 16px">
-              <select name="base" style="padding: 6px 12px; background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); font-size: 13px">
+          <Form action={`/${ownerName}/${repoName}/pulls/new`} method="POST">
+            <Flex gap={12} align="center" style="margin-bottom:16px">
+              <Select name="base" value={defaultBase}>
                 {branches.map((b) => (
                   <option value={b} selected={b === defaultBase}>
                     {b}
                   </option>
                 ))}
-              </select>
-              <span style="color: var(--text-muted)">&larr;</span>
-              <select name="head" style="padding: 6px 12px; background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); font-size: 13px">
+              </Select>
+              <Text muted>&larr;</Text>
+              <Select name="head">
                 {branches
                   .filter((b) => b !== defaultBase)
                   .concat(defaultBase === branches[0] ? [] : [branches[0]])
                   .map((b) => (
                     <option value={b}>{b}</option>
                   ))}
-              </select>
-            </div>
-            <div class="form-group">
-              <input
-                type="text"
+              </Select>
+            </Flex>
+            <FormGroup>
+              <Input
                 name="title"
                 required
                 placeholder="Title"
-                style="font-size: 16px; padding: 10px 14px"
+                style="font-size:16px;padding:10px 14px"
               />
-            </div>
-            <div class="form-group">
-              <textarea
+            </FormGroup>
+            <FormGroup>
+              <TextArea
                 name="body"
                 rows={8}
                 placeholder="Description (Markdown supported)"
-                style="font-family: var(--font-mono); font-size: 13px"
+                mono
               />
-            </div>
-            <button type="submit" class="btn btn-primary">
+            </FormGroup>
+            <Button type="submit" variant="primary">
               Create pull request
-            </button>
-          </form>
-        </div>
+            </Button>
+          </Form>
+        </Container>
       </Layout>
     );
   }
@@ -383,58 +373,54 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, async (c) => {
       <div class="issue-detail">
         <h2>
           {pr.title}{" "}
-          <span style="color: var(--text-muted); font-weight: 400">
+          <Text color="var(--text-muted)" weight={400}>
             #{pr.number}
-          </span>
+          </Text>
         </h2>
-        <div style="margin: 8px 0 20px; display: flex; align-items: center; gap: 8px">
-          <span
-            class={`issue-badge ${pr.state === "open" ? "badge-open" : pr.state === "merged" ? "badge-merged" : "badge-closed"}`}
+        <Flex align="center" gap={8} style="margin:8px 0 20px">
+          <Badge
+            variant={pr.state === "open" ? "open" : pr.state === "merged" ? "merged" : "closed"}
           >
             {pr.state === "open"
               ? "\u25CB Open"
               : pr.state === "merged"
                 ? "\u2B8C Merged"
                 : "\u2713 Closed"}
-          </span>
-          <span style="color: var(--text-muted); font-size: 14px">
-            <strong style="color: var(--text)">
+          </Badge>
+          <Text size={14} muted>
+            <strong style="color:var(--text)">
               {author?.username}
             </strong>{" "}
             wants to merge <code>{pr.headBranch}</code> into{" "}
             <code>{pr.baseBranch}</code>
-          </span>
-        </div>
+          </Text>
+        </Flex>
 
-        <div class="issue-tabs" style="margin-bottom: 20px">
-          <a
-            href={`/${ownerName}/${repoName}/pulls/${pr.number}`}
-            class={tab === "conversation" ? "active" : ""}
-          >
-            Conversation
-          </a>
-          <a
-            href={`/${ownerName}/${repoName}/pulls/${pr.number}?tab=files`}
-            class={tab === "files" ? "active" : ""}
-          >
-            Files changed
-          </a>
-        </div>
+        <FilterTabs
+          tabs={[
+            {
+              label: "Conversation",
+              href: `/${ownerName}/${repoName}/pulls/${pr.number}`,
+              active: tab === "conversation",
+            },
+            {
+              label: "Files changed",
+              href: `/${ownerName}/${repoName}/pulls/${pr.number}?tab=files`,
+              active: tab === "files",
+            },
+          ]}
+        />
 
         {tab === "files" ? (
           <DiffView raw={diffRaw} files={diffFiles} />
         ) : (
           <>
             {pr.body && (
-              <div class="issue-comment-box">
-                <div class="comment-header">
-                  <strong>{author?.username}</strong> commented{" "}
-                  {formatRelative(pr.createdAt)}
-                </div>
-                <div class="markdown-body">
-                  {html([renderMarkdown(pr.body)] as unknown as TemplateStringsArray)}
-                </div>
-              </div>
+              <CommentBox
+                author={author?.username ?? "unknown"}
+                date={pr.createdAt}
+                body={renderMarkdown(pr.body)}
+              />
             )}
 
             {comments.map(({ comment, author: commentAuthor }) => (
@@ -442,67 +428,68 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, async (c) => {
                 class={`issue-comment-box ${comment.isAiReview ? "ai-review" : ""}`}
               >
                 <div class="comment-header">
-                  <strong>{commentAuthor.username}</strong>
-                  {comment.isAiReview && (
-                    <span class="badge" style="margin-left: 8px; background: rgba(31, 111, 235, 0.15); color: var(--text-link); border-color: var(--accent)">
-                      AI Review
-                    </span>
-                  )}
-                  {" "}
-                  commented {formatRelative(comment.createdAt)}
-                  {comment.filePath && (
-                    <span style="margin-left: 8px; font-family: var(--font-mono); font-size: 11px">
-                      {comment.filePath}
-                      {comment.lineNumber ? `:${comment.lineNumber}` : ""}
-                    </span>
-                  )}
+                  <Flex gap={8} align="center">
+                    <strong>{commentAuthor.username}</strong>
+                    {comment.isAiReview && (
+                      <Badge variant="default" style="margin-left:8px;background:rgba(31,111,235,0.15);color:var(--text-link);border-color:var(--accent)">
+                        AI Review
+                      </Badge>
+                    )}
+                    <Text size={13} muted>
+                      commented {formatRelative(comment.createdAt)}
+                    </Text>
+                    {comment.filePath && (
+                      <Text size={11} mono style="margin-left:8px">
+                        {comment.filePath}
+                        {comment.lineNumber ? `:${comment.lineNumber}` : ""}
+                      </Text>
+                    )}
+                  </Flex>
                 </div>
-                <div class="markdown-body">
-                  {html([renderMarkdown(comment.body)] as unknown as TemplateStringsArray)}
-                </div>
+                <MarkdownContent html={renderMarkdown(comment.body)} />
               </div>
             ))}
 
             {user && pr.state === "open" && (
-              <div style="margin-top: 20px">
-                <form
-                  method="post"
+              <div style="margin-top:20px">
+                <Form
                   action={`/${ownerName}/${repoName}/pulls/${pr.number}/comment`}
+                  method="POST"
                 >
-                  <div class="form-group">
-                    <textarea
+                  <FormGroup>
+                    <TextArea
                       name="body"
                       rows={6}
                       required
                       placeholder="Leave a comment... (Markdown supported)"
-                      style="font-family: var(--font-mono); font-size: 13px"
+                      mono
                     />
-                  </div>
-                  <div style="display: flex; gap: 8px">
-                    <button type="submit" class="btn btn-primary">
+                  </FormGroup>
+                  <Flex gap={8}>
+                    <Button type="submit" variant="primary">
                       Comment
-                    </button>
+                    </Button>
                     {canManage && (
                       <>
                         <button
                           type="submit"
                           formaction={`/${ownerName}/${repoName}/pulls/${pr.number}/merge`}
                           class="btn"
-                          style="background: rgba(63, 185, 80, 0.15); border-color: var(--green); color: var(--green)"
+                          style="background:rgba(63,185,80,0.15);border-color:var(--green);color:var(--green)"
                         >
                           Merge pull request
                         </button>
-                        <button
+                        <Button
                           type="submit"
+                          variant="danger"
                           formaction={`/${ownerName}/${repoName}/pulls/${pr.number}/close`}
-                          class="btn btn-danger"
                         >
                           Close
-                        </button>
+                        </Button>
                       </>
                     )}
-                  </div>
-                </form>
+                  </Flex>
+                </Form>
               </div>
             )}
           </>
@@ -659,23 +646,5 @@ pulls.post(
     return c.redirect(`/${ownerName}/${repoName}/pulls/${prNum}`);
   }
 );
-
-function formatRelative(date: Date | string): string {
-  const d = typeof date === "string" ? new Date(date) : date;
-  const now = new Date();
-  const diffMs = now.getTime() - d.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  if (diffMins < 1) return "just now";
-  if (diffMins < 60) return `${diffMins}m ago`;
-  const diffHours = Math.floor(diffMins / 60);
-  if (diffHours < 24) return `${diffHours}h ago`;
-  const diffDays = Math.floor(diffHours / 24);
-  if (diffDays < 30) return `${diffDays}d ago`;
-  return d.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
 
 export default pulls;

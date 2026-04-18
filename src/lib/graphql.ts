@@ -310,7 +310,7 @@ const ROOT: Record<string, Resolver> = {
         .select({
           id: repositories.id,
           name: repositories.name,
-          visibility: repositories.visibility,
+          isPrivate: repositories.isPrivate,
           starCount: repositories.starCount,
           createdAt: repositories.createdAt,
         })
@@ -318,7 +318,7 @@ const ROOT: Record<string, Resolver> = {
         .where(
           and(
             eq(repositories.ownerId, u.id),
-            eq(repositories.visibility, "public")
+            eq(repositories.isPrivate, false)
           )
         )
         .orderBy(desc(repositories.createdAt))
@@ -336,7 +336,7 @@ const ROOT: Record<string, Resolver> = {
         id: repositories.id,
         name: repositories.name,
         description: repositories.description,
-        visibility: repositories.visibility,
+        isPrivate: repositories.isPrivate,
         starCount: repositories.starCount,
         forkCount: repositories.forkCount,
         createdAt: repositories.createdAt,
@@ -347,7 +347,7 @@ const ROOT: Record<string, Resolver> = {
       .innerJoin(users, eq(repositories.ownerId, users.id))
       .where(and(eq(users.username, owner), eq(repositories.name, name)))
       .limit(1);
-    if (!r || r.visibility !== "public") return null;
+    if (!r || r.isPrivate) return null;
 
     const payload: Record<string, any> = {
       ...r,
@@ -414,7 +414,7 @@ const ROOT: Record<string, Resolver> = {
       .innerJoin(users, eq(repositories.ownerId, users.id))
       .where(
         and(
-          eq(repositories.visibility, "public"),
+          eq(repositories.isPrivate, false),
           or(
             ilike(repositories.name, `%${q}%`),
             ilike(repositories.description, `%${q}%`)

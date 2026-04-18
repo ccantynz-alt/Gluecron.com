@@ -27,6 +27,60 @@ import insightRoutes from "./routes/insights";
 import dashboardRoutes from "./routes/dashboard";
 import legalRoutes from "./routes/legal";
 import webRoutes from "./routes/web";
+import hookRoutes from "./routes/hooks";
+import eventsRoutes from "./routes/events";
+import passkeyRoutes from "./routes/passkeys";
+import oauthRoutes from "./routes/oauth";
+import developerAppsRoutes from "./routes/developer-apps";
+import themeRoutes from "./routes/theme";
+import auditRoutes from "./routes/audit";
+import reactionRoutes from "./routes/reactions";
+import savedReplyRoutes from "./routes/saved-replies";
+import deploymentRoutes from "./routes/deployments";
+import orgRoutes from "./routes/orgs";
+import notificationRoutes from "./routes/notifications";
+import onboardingRoutes from "./routes/onboarding";
+import adminRoutes from "./routes/admin";
+import advisoriesRoutes from "./routes/advisories";
+import aiChangelogRoutes from "./routes/ai-changelog";
+import aiExplainRoutes from "./routes/ai-explain";
+import aiTestsRoutes from "./routes/ai-tests";
+import askRoutes from "./routes/ask";
+import billingRoutes from "./routes/billing";
+import codeScanningRoutes from "./routes/code-scanning";
+import commitStatusesRoutes from "./routes/commit-statuses";
+import copilotRoutes from "./routes/copilot";
+import depUpdaterRoutes from "./routes/dep-updater";
+import depsRoutes from "./routes/deps";
+import discussionsRoutes from "./routes/discussions";
+import environmentsRoutes from "./routes/environments";
+import followsRoutes from "./routes/follows";
+import gatesRoutes from "./routes/gates";
+import gistsRoutes from "./routes/gists";
+import graphqlRoutes from "./routes/graphql";
+import marketplaceRoutes from "./routes/marketplace";
+import mergeQueueRoutes from "./routes/merge-queue";
+import mirrorsRoutes from "./routes/mirrors";
+import orgInsightsRoutes from "./routes/org-insights";
+import packagesRoutes from "./routes/packages";
+import packagesApiRoutes from "./routes/packages-api";
+import pagesRoutes from "./routes/pages";
+import projectsRoutes from "./routes/projects";
+import protectedTagsRoutes from "./routes/protected-tags";
+import pwaRoutes from "./routes/pwa";
+import releasesRoutes from "./routes/releases";
+import requiredChecksRoutes from "./routes/required-checks";
+import rulesetsRoutes from "./routes/rulesets";
+import searchRoutes from "./routes/search";
+import semanticSearchRoutes from "./routes/semantic-search";
+import signingKeysRoutes from "./routes/signing-keys";
+import sponsorsRoutes from "./routes/sponsors";
+import ssoRoutes from "./routes/sso";
+import symbolsRoutes from "./routes/symbols";
+import templatesRoutes from "./routes/templates";
+import trafficRoutes from "./routes/traffic";
+import wikisRoutes from "./routes/wikis";
+import workflowsRoutes from "./routes/workflows";
 import { authRateLimit, gitRateLimit, searchRateLimit } from "./middleware/rate-limit";
 import { csrfToken, csrfProtect } from "./middleware/csrf";
 
@@ -43,9 +97,9 @@ app.use("*", async (c, next) => {
 });
 app.use("/api/*", cors());
 // Rate-limit API + auth endpoints (generous default)
-app.use("/api/*", rateLimit({ windowMs: 60_000, max: 120 }));
-app.use("/login", rateLimit({ windowMs: 60_000, max: 20 }));
-app.use("/register", rateLimit({ windowMs: 60_000, max: 10 }));
+app.use("/api/*", rateLimit(120, 60_000, "api"));
+app.use("/login", rateLimit(20, 60_000, "login"));
+app.use("/register", rateLimit(10, 60_000, "register"));
 
 // CSRF protection — set token on all requests, validate on mutations
 app.use("*", csrfToken);
@@ -67,6 +121,9 @@ app.route("/", gitRoutes);
 
 // REST API v1 (legacy)
 app.route("/", apiRoutes);
+
+// REST API v2 (basePath /api/v2)
+app.route("/", apiV2Routes);
 
 // Inbound API hooks (GateTest callback + backup PAT-authed /api/v1/gate-runs)
 app.route("/", hookRoutes);
@@ -159,6 +216,49 @@ app.route("/", exploreRoutes);
 
 // Onboarding
 app.route("/", onboardingRoutes);
+
+// Admin + feature routes
+app.route("/", adminRoutes);
+app.route("/", advisoriesRoutes);
+app.route("/", aiChangelogRoutes);
+app.route("/", aiExplainRoutes);
+app.route("/", aiTestsRoutes);
+app.route("/", askRoutes);
+app.route("/", billingRoutes);
+app.route("/", codeScanningRoutes);
+app.route("/", commitStatusesRoutes);
+app.route("/", copilotRoutes);
+app.route("/", depUpdaterRoutes);
+app.route("/", depsRoutes);
+app.route("/", discussionsRoutes);
+app.route("/", environmentsRoutes);
+app.route("/", followsRoutes);
+app.route("/", gatesRoutes);
+app.route("/", gistsRoutes);
+app.route("/", graphqlRoutes);
+app.route("/", marketplaceRoutes);
+app.route("/", mergeQueueRoutes);
+app.route("/", mirrorsRoutes);
+app.route("/", orgInsightsRoutes);
+app.route("/", packagesRoutes);
+app.route("/", packagesApiRoutes);
+app.route("/", pagesRoutes);
+app.route("/", projectsRoutes);
+app.route("/", protectedTagsRoutes);
+app.route("/", pwaRoutes);
+app.route("/", releasesRoutes);
+app.route("/", requiredChecksRoutes);
+app.route("/", rulesetsRoutes);
+app.route("/", searchRoutes);
+app.route("/", semanticSearchRoutes);
+app.route("/", signingKeysRoutes);
+app.route("/", sponsorsRoutes);
+app.route("/", ssoRoutes);
+app.route("/", symbolsRoutes);
+app.route("/", templatesRoutes);
+app.route("/", trafficRoutes);
+app.route("/", wikisRoutes);
+app.route("/", workflowsRoutes);
 
 // Web UI (catch-all, must be last)
 app.route("/", webRoutes);

@@ -44,10 +44,10 @@ auth.get("/register", (c) => {
       <div class="auth-container">
         <h2>Create account</h2>
         {error && <div class="auth-error">{decodeURIComponent(error)}</div>}
-        <form method="post" action="/register">
-          <div class="form-group">
-            <label for="username">Username</label>
-            <input
+        <Form method="post" action="/register">
+          <FormGroup label="Username" htmlFor="username">
+            <Input
+              id="username"
               type="text"
               name="username"
               required
@@ -176,7 +176,7 @@ auth.get("/login", async (c) => {
       <div class="auth-container">
         <h2>Sign in</h2>
         {error && <div class="auth-error">{decodeURIComponent(error)}</div>}
-        <form
+        <Form
           method="post"
           action={`/login${redirect ? `?redirect=${encodeURIComponent(redirect)}` : ""}`}
         >

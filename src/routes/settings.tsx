@@ -9,6 +9,8 @@ import { users, sshKeys } from "../db/schema";
 import type { AuthEnv } from "../middleware/auth";
 import { requireAuth } from "../middleware/auth";
 import { Layout } from "../views/layout";
+import { raw } from "hono/html";
+import { composeDigest } from "../lib/email-digest";
 import {
   Alert,
   Button,
@@ -42,12 +44,12 @@ settings.get("/settings", (c) => {
             {decodeURIComponent(success)}
           </Alert>
         )}
-        <form method="post" action="/settings/profile">
-          <div class="form-group">
-            <label for="username">Username</label>
-            <input
-              type="text"
+        <Form method="post" action="/settings/profile">
+          <FormGroup label="Username" htmlFor="username">
+            <Input
+              name="username"
               id="username"
+              type="text"
               value={user.username}
               disabled
             />
@@ -80,8 +82,8 @@ settings.get("/settings", (c) => {
           </FormGroup>
           <Button type="submit" variant="primary">
             Update profile
-          </button>
-        </form>
+          </Button>
+        </Form>
 
         <h3 style="margin-top: 32px; font-size: 16px">Email notifications</h3>
         <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 12px">
@@ -273,8 +275,8 @@ settings.get("/settings/keys", async (c) => {
                 <form method="post" action={`/settings/keys/${key.id}/delete`}>
                   <button type="submit" class="btn btn-danger btn-sm">
                     Delete
-                  </Button>
-                </Form>
+                  </button>
+                </form>
               </div>
             ))
           )}

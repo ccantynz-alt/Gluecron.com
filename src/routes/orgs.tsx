@@ -10,6 +10,7 @@ import { users, repositories } from "../db/schema";
 import { Layout } from "../views/layout";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
+import { loadOrgForUser, listOrgMembers, orgRoleAtLeast } from "../lib/orgs";
 import {
   Container,
   PageHeader,
@@ -267,7 +268,7 @@ orgRoutes.get("/orgs/:org", softAuth, async (c) => {
 
 // --- PEOPLE -----------------------------------------------------------------
 
-orgs.get("/orgs/:slug/people", async (c) => {
+orgRoutes.get("/orgs/:slug/people", async (c) => {
   const user = c.get("user")!;
   const slug = c.req.param("slug");
   const { org, role } = await loadOrgForUser(slug, user.id);
@@ -411,6 +412,12 @@ orgRoutes.get("/orgs/:org/settings", softAuth, requireAuth, async (c) => {
   if (!isOwner) return c.redirect(`/orgs/${orgName}`);
 
   const success = c.req.query("success");
+  const error = c.req.query("error");
+  const canAdmin = isOwner;
+  let orgTeams: any[] = [];
+  try {
+    orgTeams = await db.select().from(teams).where(eq(teams.orgId, org.id));
+  } catch { /* */ }
 
   return c.html(
     <Layout title={`${org.name} — teams`} user={user}>
@@ -481,7 +488,7 @@ orgRoutes.get("/orgs/:org/settings", softAuth, requireAuth, async (c) => {
             ))
           )}
         </div>
-      </Container>
+      </div>
     </Layout>
   );
 });
@@ -540,90 +547,39 @@ orgRoutes.get("/orgs/:org/members/invite", softAuth, requireAuth, async (c) => {
   const success = c.req.query("success");
 
   return c.html(
-    <Layout title={`${team.name} — ${org.name}`} user={user}>
-      <div style="max-width: 800px">
+    <Layout title={`Invite — ${orgName}`} user={user}>
+      <div style="max-width: 560px">
         <div class="breadcrumb">
-          <a href={`/orgs/${org.slug}`}>{org.slug}</a>
+          <a href={`/orgs/${orgName}`}>{orgName}</a>
           <span>/</span>
-          <a href={`/orgs/${org.slug}/teams`}>teams</a>
-          <span>/</span>
-          <span>{team.slug}</span>
+          <span>invite</span>
         </div>
-        <h2>{team.name}</h2>
-        {team.description && (
-          <p style="color: var(--text-muted)">{team.description}</p>
-        )}
+        <h2>Invite a member</h2>
         {error && <div class="auth-error">{decodeURIComponent(error)}</div>}
         {success && (
           <div class="auth-success">{decodeURIComponent(success)}</div>
         )}
-
-        <h3 style="font-size: 15px; margin-top: 16px">
-          Members ({members.length})
-        </h3>
-
-        {canAdmin && (
-          <form
-            method="post"
-            action={`/orgs/${org.slug}/teams/${team.slug}/members/add`}
-            style="display: flex; gap: 8px; margin-bottom: 16px"
-          >
-            <input
-              type="text"
-              name="username"
-              placeholder="username"
-              required
-              maxLength={64}
-              style="flex: 1"
-            />
-            <select name="role">
-              <option value="member">member</option>
-              <option value="maintainer">maintainer</option>
-            </select>
-            <button type="submit" class="btn btn-primary">
-              Add
-            </button>
-          </form>
-        )}
-
-        <div
-          style="border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden"
+        <form
+          method="post"
+          action={`/orgs/${orgName}/members/invite`}
+          style="display: flex; gap: 8px; margin-bottom: 16px"
         >
-          {members.length === 0 ? (
-            <div
-              style="padding: 16px; color: var(--text-muted); font-size: 13px; background: var(--bg-secondary)"
-            >
-              No members yet.
-            </div>
-          ) : (
-            members.map((m) => (
-              <div
-                style="padding: 10px 16px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; background: var(--bg-secondary)"
-              >
-                <a href={`/${m.username}`}>{m.username}</a>
-                <div style="display: flex; gap: 8px; align-items: center">
-                  <span
-                    class="gate-status"
-                    style="font-size: 11px; text-transform: uppercase"
-                  >
-                    {m.role}
-                  </span>
-                  {canAdmin && (
-                    <form
-                      method="post"
-                      action={`/orgs/${org.slug}/teams/${team.slug}/members/${m.userId}/remove`}
-                      style="display: inline"
-                    >
-                      <button type="submit" class="btn btn-sm btn-danger">
-                        remove
-                      </button>
-                    </form>
-                  )}
-                </div>
-              </div>
-            ))
-          )}
-        </div>
+          <input
+            type="text"
+            name="username"
+            placeholder="username"
+            required
+            maxLength={64}
+            style="flex: 1"
+          />
+          <select name="role">
+            <option value="member">member</option>
+            <option value="admin">admin</option>
+          </select>
+          <button type="submit" class="btn btn-primary">
+            Invite
+          </button>
+        </form>
       </div>
     </Layout>
   );
@@ -681,27 +637,35 @@ orgRoutes.get("/orgs/:org/teams/new", softAuth, requireAuth, async (c) => {
   const user = c.get("user")!;
   const error = c.req.query("error");
 
+  let org: any;
+  try {
+    const [found] = await db.select().from(organizations).where(eq(organizations.name, orgName)).limit(1);
+    org = found;
+  } catch {
+    return c.notFound();
+  }
+  if (!org) return c.notFound();
+
   return c.html(
-    <Layout title={`New repo — ${org.name}`} user={user}>
+    <Layout title={`New team — ${org.name}`} user={user}>
       <div class="settings-container" style="max-width: 560px">
         <div class="breadcrumb">
           <a href={`/orgs/${org.slug}`}>{org.slug}</a>
           <span>/</span>
-          <span>new repo</span>
+          <span>new team</span>
         </div>
-        <h2>Create repository in {org.name}</h2>
+        <h2>Create team in {org.name}</h2>
         {error && <div class="auth-error">{decodeURIComponent(error)}</div>}
-        <form method="post" action={`/orgs/${org.slug}/repos/new`}>
+        <form method="post" action={`/orgs/${org.slug}/teams/new`}>
           <div class="form-group">
-            <label for="name">Repository name</label>
+            <label for="name">Team name</label>
             <input
               type="text"
               id="name"
               name="name"
               required
-              maxLength={100}
-              pattern="[a-zA-Z0-9._-]+"
-              placeholder="my-repo"
+              maxLength={80}
+              placeholder="Platform engineers"
               autocomplete="off"
             />
           </div>
@@ -715,12 +679,15 @@ orgRoutes.get("/orgs/:org/teams/new", softAuth, requireAuth, async (c) => {
             />
           </div>
           <div class="form-group">
-            <label>
-              <input type="checkbox" name="isPrivate" value="1" /> Private
-            </label>
+            <label for="permission">Default permission</label>
+            <select id="permission" name="permission">
+              <option value="read">read</option>
+              <option value="write">write</option>
+              <option value="admin">admin</option>
+            </select>
           </div>
           <button type="submit" class="btn btn-primary">
-            Create repository
+            Create team
           </button>
         </form>
       </div>

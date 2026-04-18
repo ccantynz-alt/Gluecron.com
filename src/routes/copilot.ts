@@ -25,11 +25,7 @@ const copilot = new Hono<AuthEnv>();
 // prefix when Authorization is present, otherwise by IP — so session-cookie
 // callers share a single IP bucket. That's acceptable for an IDE endpoint
 // where the expected caller is almost always a PAT/OAuth token.
-const completionLimit = rateLimit({
-  windowMs: 60_000,
-  max: 60,
-  prefix: "copilot",
-});
+const completionLimit = rateLimit(60, 60_000, "copilot");
 
 copilot.get("/api/copilot/ping", (c) => {
   return c.json({ ok: true, aiAvailable: isAiAvailable() });

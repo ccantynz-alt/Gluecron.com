@@ -58,8 +58,7 @@ web.get("/", async (c) => {
   const user = c.get("user");
 
   if (user) {
-    const { renderDashboard } = await import("./dashboard");
-    return renderDashboard(c);
+    return c.redirect("/dashboard");
   }
 
   return c.html(

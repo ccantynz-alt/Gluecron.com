@@ -99,14 +99,14 @@ webhookRoutes.get(
                     <Button type="submit" variant="danger" size="sm">
                       Delete
                     </Button>
-                  </Form>
+                  </form>
                 </div>
               ))}
             </div>
           )}
 
           <h3 style="margin-bottom: 12px">Add webhook</h3>
-          <form
+          <Form
             method="post"
             action={`/${ownerName}/${repoName}/settings/webhooks`}
           >

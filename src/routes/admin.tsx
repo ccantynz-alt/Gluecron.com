@@ -280,7 +280,7 @@ admin.get("/admin/repos", async (c) => {
       id: repositories.id,
       name: repositories.name,
       ownerUsername: users.username,
-      visibility: repositories.visibility,
+      isPrivate: repositories.isPrivate,
       createdAt: repositories.createdAt,
       starCount: repositories.starCount,
     })
@@ -313,7 +313,7 @@ admin.get("/admin/repos", async (c) => {
                 <span
                   style="margin-left:6px;font-size:11px;color:var(--text-muted);text-transform:uppercase"
                 >
-                  {r.visibility}
+                  {r.isPrivate ? "private" : "public"}
                 </span>
                 <div style="font-size:12px;color:var(--text-muted);margin-top:2px">
                   {r.starCount} stars ·{" "}

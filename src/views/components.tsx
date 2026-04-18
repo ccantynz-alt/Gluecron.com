@@ -103,7 +103,8 @@ export const RepoNav: FC<{
     | "changelog"
     | "semantic"
     | "wiki"
-    | "projects";
+    | "projects"
+    | "settings";
 }> = ({ owner, repo, active }) => (
   <div class="repo-nav">
     <a href={`/${owner}/${repo}`} class={active === "code" ? "active" : ""}>

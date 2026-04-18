@@ -195,9 +195,9 @@ issueRoutes.get(
           {error && (
             <Alert variant="error">{decodeURIComponent(error)}</Alert>
           )}
-          <form method="post" action={`/${ownerName}/${repoName}/issues/new`}>
-            <div class="form-group">
-              <input
+          <Form method="post" action={`/${ownerName}/${repoName}/issues/new`}>
+            <FormGroup>
+              <Input
                 type="text"
                 name="title"
                 required

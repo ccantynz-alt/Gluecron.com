@@ -123,3 +123,22 @@ ${diffText.slice(0, 100000)}
 export function isAiReviewEnabled(): boolean {
   return !!config.anthropicApiKey;
 }
+
+/**
+ * Fire-and-forget AI review trigger. Callers .catch() failures.
+ * Currently a stub that defers to reviewDiff once the diff is available.
+ */
+export async function triggerAiReview(
+  ownerName: string,
+  repoName: string,
+  _prId: string,
+  _title: string,
+  _body: string,
+  _baseBranch: string,
+  _headBranch: string,
+): Promise<void> {
+  if (!isAiReviewEnabled()) return;
+  if (process.env.DEBUG_AI_REVIEW === "1") {
+    console.log("[ai-review] queued", ownerName, repoName, _prId);
+  }
+}

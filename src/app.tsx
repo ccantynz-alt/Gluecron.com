@@ -26,6 +26,7 @@ import healthRoutes from "./routes/health";
 import insightRoutes from "./routes/insights";
 import dashboardRoutes from "./routes/dashboard";
 import legalRoutes from "./routes/legal";
+import importRoutes from "./routes/import";
 import webRoutes from "./routes/web";
 import { authRateLimit, gitRateLimit, searchRateLimit } from "./middleware/rate-limit";
 import { csrfToken, csrfProtect } from "./middleware/csrf";
@@ -153,6 +154,9 @@ app.route("/", dashboardRoutes);
 
 // Legal pages (terms, privacy, AUP)
 app.route("/", legalRoutes);
+
+// GitHub import / migration
+app.route("/", importRoutes);
 
 // Explore page
 app.route("/", exploreRoutes);

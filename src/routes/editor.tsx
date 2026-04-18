@@ -48,7 +48,7 @@ editor.get("/:owner/:repo/new/:ref{.+$}", requireAuth, async (c) => {
       <RepoNav owner={owner} repo={repo} active="code" />
       <Container maxWidth={900}>
         <h2 style="margin-bottom: 16px">Create new file</h2>
-        <Form action={`/${owner}/${repo}/new/${ref}`}>
+        <form method="post" action={`/${owner}/${repo}/new/${ref}`}>
           <input type="hidden" name="dir_path" value={dirPath} />
           <FormGroup label="File path">
             <Flex align="center" gap={4}>
@@ -215,10 +215,10 @@ editor.get("/:owner/:repo/edit/:ref{.+$}", requireAuth, async (c) => {
       <RepoHeader owner={owner} repo={repo} />
       <RepoNav owner={owner} repo={repo} active="code" />
       <Breadcrumb owner={owner} repo={repo} ref={ref} path={filePath} />
-      <Container maxWidth={900}>
-        <Form action={`/${owner}/${repo}/edit/${ref}/${filePath}`}>
-          <FormGroup>
-            <TextArea
+      <div style="max-width: 900px">
+        <form method="post" action={`/${owner}/${repo}/edit/${ref}/${filePath}`}>
+          <div class="form-group">
+            <textarea
               name="content"
               rows={25}
               value={blob.content}

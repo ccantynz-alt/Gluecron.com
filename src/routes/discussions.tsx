@@ -196,7 +196,7 @@ discussionRoutes.get(
         <RepoHeader owner={ownerName} repo={repoName} />
         <h2 style="margin-top: 20px;">Start a discussion</h2>
         <form
-          method="POST"
+          method="post"
           action={`/${ownerName}/${repoName}/discussions`}
           style="display: flex; flex-direction: column; gap: 12px; margin-top: 16px;"
         >
@@ -366,7 +366,7 @@ discussionRoutes.get(
                   discussion.d.category === "q-and-a" &&
                   !isAnswer && (
                     <form
-                      method="POST"
+                      method="post"
                       action={`/${ownerName}/${repoName}/discussions/${discussion.d.number}/answer/${com.c.id}`}
                       style="display: inline;"
                     >
@@ -387,7 +387,7 @@ discussionRoutes.get(
         })}
         {user && !discussion.d.locked && discussion.d.state === "open" && (
           <form
-            method="POST"
+            method="post"
             action={`/${ownerName}/${repoName}/discussions/${discussion.d.number}/comment`}
             style="margin-top: 24px; display: flex; flex-direction: column; gap: 8px;"
           >
@@ -407,7 +407,7 @@ discussionRoutes.get(
           <div style="margin-top: 24px; display: flex; gap: 8px;">
             {canModerate && (
               <form
-                method="POST"
+                method="post"
                 action={`/${ownerName}/${repoName}/discussions/${discussion.d.number}/close`}
                 style="display: inline;"
               >
@@ -419,7 +419,7 @@ discussionRoutes.get(
             {isOwner && (
               <>
                 <form
-                  method="POST"
+                  method="post"
                   action={`/${ownerName}/${repoName}/discussions/${discussion.d.number}/lock`}
                   style="display: inline;"
                 >
@@ -428,7 +428,7 @@ discussionRoutes.get(
                   </button>
                 </form>
                 <form
-                  method="POST"
+                  method="post"
                   action={`/${ownerName}/${repoName}/discussions/${discussion.d.number}/pin`}
                   style="display: inline;"
                 >

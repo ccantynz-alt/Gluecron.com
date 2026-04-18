@@ -305,7 +305,7 @@ web.get("/:owner", async (c) => {
             </a>
             {canFollow && (
               <form
-                method="POST"
+                method="post"
                 action={`/${ownerName}/${
                   followState.viewerFollows ? "unfollow" : "follow"
                 }`}
@@ -546,7 +546,7 @@ git push -u gluecron main`}</pre>
             this template's files.
           </div>
           <form
-            method="POST"
+            method="post"
             action={`/${owner}/${repo}/use-template`}
             style="display:flex;gap:8px;align-items:center"
           >
@@ -1052,7 +1052,7 @@ web.get("/:owner/:repo/raw/:ref{.+$}", async (c) => {
   if (!data) return c.text("Not found", 404);
 
   const fileName = filePath.split("/").pop() || "file";
-  return new Response(data.buffer as ArrayBuffer, {
+  return new Response(data as BodyInit, {
     headers: {
       "Content-Type": "application/octet-stream",
       "Content-Disposition": `attachment; filename="${fileName}"`,

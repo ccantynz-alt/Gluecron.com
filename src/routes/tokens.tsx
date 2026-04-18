@@ -100,7 +100,8 @@ tokens.get("/settings/tokens", async (c) => {
                     )}
                   </div>
                 </div>
-                <Form
+                <form
+                  method="post"
                   action={`/settings/tokens/${token.id}/delete`}
                   method="POST"
                 >
@@ -113,37 +114,41 @@ tokens.get("/settings/tokens", async (c) => {
           )}
         </div>
 
-        <Section title="Generate new token" style="margin-top: 24px">
-          <Form action="/settings/tokens" method="POST">
-            <FormGroup label="Token name" htmlFor="name">
-              <Input
-                name="name"
-                id="name"
-                required
-                placeholder="e.g. CI/CD pipeline"
-              />
-            </FormGroup>
-            <FormGroup label="Scopes">
-              <Flex gap={16} wrap>
-                {["repo", "user", "admin"].map((scope) => (
-                  <label style="display: flex; align-items: center; gap: 4px; font-size: 14px; cursor: pointer">
-                    <input
-                      type="checkbox"
-                      name="scopes"
-                      value={scope}
-                      checked={scope === "repo"}
-                    />{" "}
-                    {scope}
-                  </label>
-                ))}
-              </Flex>
-            </FormGroup>
-            <Button type="submit" variant="primary">
-              Generate token
-            </Button>
-          </Form>
-        </Section>
-      </Container>
+        <h3 style="margin-top: 24px; margin-bottom: 12px">
+          Generate new token
+        </h3>
+        <form method="post" action="/settings/tokens">
+          <div class="form-group">
+            <label for="name">Token name</label>
+            <input
+              type="text"
+              id="name"
+              name="name"
+              required
+              placeholder="e.g. CI/CD pipeline"
+            />
+          </div>
+          <div class="form-group">
+            <label>Scopes</label>
+            <div style="display: flex; gap: 16px; flex-wrap: wrap">
+              {["repo", "user", "admin"].map((scope) => (
+                <label style="display: flex; align-items: center; gap: 4px; font-size: 14px; cursor: pointer">
+                  <input
+                    type="checkbox"
+                    name="scopes"
+                    value={scope}
+                    checked={scope === "repo"}
+                  />{" "}
+                  {scope}
+                </label>
+              ))}
+            </div>
+          </div>
+          <button type="submit" class="btn btn-primary">
+            Generate token
+          </button>
+        </form>
+      </div>
     </Layout>
   );
 });

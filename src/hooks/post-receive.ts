@@ -373,6 +373,33 @@ export async function onPostReceive(
   await Promise.allSettled(promises);
 }
 
+/**
+ * Trigger Crontech auto-deploy via the outbound webhook.
+ *
+ * Wire contract (Gluecron's copy — do not import from Crontech):
+ *
+ *   POST  https://crontech.ai/api/hooks/gluecron/push
+ *   Authorization: Bearer ${GLUECRON_WEBHOOK_SECRET}
+ *   Content-Type: application/json
+ *
+ *   {
+ *     "repository": "owner/name",
+ *     "sha": "<40-hex>",
+ *     "branch": "main",
+ *     "ref": "refs/heads/main",
+ *     "source": "gluecron",
+ *     "timestamp": "<ISO-8601>"
+ *   }
+ *
+ *   → 200 { ok: true, deploymentId, status: "queued" | "skipped" }
+ *   → 401 invalid bearer token
+ *   → 400 malformed payload
+ *   → 404 repository not configured for auto-deploy on Crontech
+ *
+ * If `GLUECRON_WEBHOOK_SECRET` is unset we silently omit the Authorization
+ * header — Crontech will then respond 401, which we treat as a failed deploy
+ * row exactly like any other non-ok HTTP response.
+ */
 async function triggerCrontechDeploy(
   owner: string,
   repo: string,
@@ -398,14 +425,22 @@ async function triggerCrontechDeploy(
   }
 
   try {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (config.gluecronWebhookSecret) {
+      headers["Authorization"] = `Bearer ${config.gluecronWebhookSecret}`;
+    }
     const response = await fetch(config.crontechDeployUrl, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({
         repository: `${owner}/${repo}`,
         sha,
         branch: "main",
+        ref: "refs/heads/main",
         source: "gluecron",
+        timestamp: new Date().toISOString(),
       }),
     });
     console.log(
@@ -476,3 +511,6 @@ async function fanoutWebhooks(
     // best-effort
   }
 }
+
+/** Test-only access to internal helpers. */
+export const __test = { triggerCrontechDeploy };

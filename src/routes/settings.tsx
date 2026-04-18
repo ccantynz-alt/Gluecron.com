@@ -42,10 +42,11 @@ settings.get("/settings", (c) => {
             {decodeURIComponent(success)}
           </Alert>
         )}
-        <Form action="/settings/profile" method="post">
-          <FormGroup label="Username" htmlFor="username">
-            <Input
-              name="username"
+        <form method="post" action="/settings/profile">
+          <div class="form-group">
+            <label for="username">Username</label>
+            <input
+              type="text"
               id="username"
               value={user.username}
               disabled
@@ -79,8 +80,104 @@ settings.get("/settings", (c) => {
           </FormGroup>
           <Button type="submit" variant="primary">
             Update profile
-          </Button>
-        </Form>
+          </button>
+        </form>
+
+        <h3 style="margin-top: 32px; font-size: 16px">Email notifications</h3>
+        <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 12px">
+          Opt out of individual email categories. In-app notifications are
+          unaffected and continue to appear in your inbox.
+        </p>
+        <form method="post" action="/settings/notifications">
+          <label
+            style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px; font-size: 14px"
+          >
+            <input
+              type="checkbox"
+              name="notify_email_on_mention"
+              value="1"
+              checked={user.notifyEmailOnMention}
+            />
+            <span>
+              Someone <code>@mentions</code> me or requests a review
+            </span>
+          </label>
+          <label
+            style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px; font-size: 14px"
+          >
+            <input
+              type="checkbox"
+              name="notify_email_on_assign"
+              value="1"
+              checked={user.notifyEmailOnAssign}
+            />
+            <span>I am assigned to an issue or PR</span>
+          </label>
+          <label
+            style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px; font-size: 14px"
+          >
+            <input
+              type="checkbox"
+              name="notify_email_on_gate_fail"
+              value="1"
+              checked={user.notifyEmailOnGateFail}
+            />
+            <span>A gate fails on one of my repositories</span>
+          </label>
+          <label
+            style="display: flex; gap: 8px; align-items: center; margin-bottom: 12px; font-size: 14px"
+          >
+            <input
+              type="checkbox"
+              name="notify_email_digest_weekly"
+              value="1"
+              checked={user.notifyEmailDigestWeekly}
+            />
+            <span>
+              Weekly digest &mdash;{" "}
+              <a href="/settings/digest/preview">preview</a>
+            </span>
+          </label>
+          <button type="submit" class="btn btn-primary">
+            Save preferences
+          </button>
+        </form>
+      </div>
+    </Layout>
+  );
+});
+
+// Preview the weekly digest in-browser (rendered HTML)
+settings.get("/settings/digest/preview", async (c) => {
+  const user = c.get("user")!;
+  const body = await composeDigest(user.id);
+  if (!body) {
+    return c.html(
+      <Layout title="Digest preview" user={user}>
+        <h2>Digest preview</h2>
+        <p>Could not compose a digest right now.</p>
+        <p>
+          <a href="/settings">Back to settings</a>
+        </p>
+      </Layout>
+    );
+  }
+  return c.html(
+    <Layout title="Digest preview" user={user}>
+      <h2>Digest preview</h2>
+      <p style="color:var(--text-muted);font-size:13px">
+        Subject: <code>{body.subject}</code>
+      </p>
+      <p style="font-size:12px;color:var(--text-muted)">
+        Notifications: {body.counts.notifications} · Failed gates:{" "}
+        {body.counts.failedGates} · Repaired: {body.counts.repairedGates} ·
+        Merged PRs: {body.counts.mergedPrs}
+      </p>
+      <div
+        class="panel"
+        style="padding:20px;background:#fff;color:#111"
+      >
+        {raw(body.html)}
       </div>
       <p style="margin-top:20px">
         <a href="/settings">Back to settings</a>
@@ -173,8 +270,8 @@ settings.get("/settings/keys", async (c) => {
                     )}
                   </div>
                 </div>
-                <Form action={`/settings/keys/${key.id}/delete`} method="post">
-                  <Button type="submit" variant="danger" size="sm">
+                <form method="post" action={`/settings/keys/${key.id}/delete`}>
+                  <button type="submit" class="btn btn-danger btn-sm">
                     Delete
                   </Button>
                 </Form>
@@ -183,31 +280,33 @@ settings.get("/settings/keys", async (c) => {
           )}
         </div>
 
-        <Section title="Add new SSH key" style="margin-top:24px">
-          <Form action="/settings/keys" method="post">
-            <FormGroup label="Title" htmlFor="title">
-              <Input
-                name="title"
-                id="title"
-                required
-                placeholder="e.g. My laptop"
-              />
-            </FormGroup>
-            <FormGroup label="Public key" htmlFor="public_key">
-              <TextArea
-                name="public_key"
-                id="public_key"
-                rows={4}
-                required
-                placeholder="ssh-ed25519 AAAA... or ssh-rsa AAAA..."
-                mono
-              />
-            </FormGroup>
-            <Button type="submit" variant="primary">
-              Add SSH key
-            </Button>
-          </Form>
-        </Section>
+        <h3 style="margin-top: 24px">Add new SSH key</h3>
+        <form method="post" action="/settings/keys">
+          <div class="form-group">
+            <label for="title">Title</label>
+            <input
+              type="text"
+              id="title"
+              name="title"
+              required
+              placeholder="e.g. My laptop"
+            />
+          </div>
+          <div class="form-group">
+            <label for="public_key">Public key</label>
+            <textarea
+              id="public_key"
+              name="public_key"
+              rows={4}
+              required
+              placeholder="ssh-ed25519 AAAA... or ssh-rsa AAAA..."
+              style="font-family: var(--font-mono); font-size: 12px"
+            />
+          </div>
+          <button type="submit" class="btn btn-primary">
+            Add SSH key
+          </button>
+        </form>
       </div>
     </Layout>
   );

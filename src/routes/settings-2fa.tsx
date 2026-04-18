@@ -86,7 +86,7 @@ settings2fa.get("/settings/2fa", async (c) => {
         </p>
 
         {state === "off" && (
-          <form method="POST" action="/settings/2fa/enroll">
+          <form method="post" action="/settings/2fa/enroll">
             <button type="submit" class="btn btn-primary">
               Enable two-factor authentication
             </button>
@@ -121,7 +121,7 @@ settings2fa.get("/settings/2fa", async (c) => {
               used once if you lose access to your authenticator.
             </p>
             <form
-              method="POST"
+              method="post"
               action="/settings/2fa/recovery/regen"
               style="display: inline-block; margin-right: 8px"
               onsubmit="return confirm('Regenerate recovery codes? Your existing codes will stop working.')"
@@ -135,7 +135,7 @@ settings2fa.get("/settings/2fa", async (c) => {
             <p style="color: var(--text-muted); font-size: 13px">
               Confirm your password to turn off 2FA.
             </p>
-            <form method="POST" action="/settings/2fa/disable">
+            <form method="post" action="/settings/2fa/disable">
               <div class="form-group" style="max-width: 320px">
                 <label for="password">Password</label>
                 <input
@@ -233,7 +233,7 @@ async function showEnrolPage(c: any, user: any, error?: string) {
             {url}
           </code>
         </div>
-        <form method="POST" action="/settings/2fa/confirm">
+        <form method="post" action="/settings/2fa/confirm">
           <div class="form-group" style="max-width: 280px">
             <label for="code">6-digit code</label>
             <input

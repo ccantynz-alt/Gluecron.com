@@ -150,7 +150,7 @@ depUpdater.get(
           </p>
 
           <form
-            method="POST"
+            method="post"
             action={`/${ownerName}/${repoName}/settings/dep-updater/run`}
             style="margin-bottom: 24px"
           >

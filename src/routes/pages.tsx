@@ -168,7 +168,7 @@ pagesRoute.get("/:owner/:repo/pages/*", async (c) => {
         candidate
       );
       if (!raw) continue;
-      return new Response(raw, { status: 200, headers });
+      return new Response(raw as BodyInit, { status: 200, headers });
     }
 
     return new Response(blob.content, { status: 200, headers });
@@ -269,7 +269,7 @@ pagesRoute.get(
           </div>
 
           <form
-            method="POST"
+            method="post"
             action={`/${ownerName}/${repoName}/settings/pages`}
           >
             <div class="form-group">
@@ -327,7 +327,7 @@ pagesRoute.get(
             >
               <h3>Recent deployments</h3>
               <form
-                method="POST"
+                method="post"
                 action={`/${ownerName}/${repoName}/settings/pages/redeploy`}
                 style="display: inline"
               >

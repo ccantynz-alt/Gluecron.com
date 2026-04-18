@@ -76,7 +76,8 @@ repoSettings.get("/:owner/:repo/settings", requireAuth, async (c) => {
           <Alert variant="error">{decodeURIComponent(error)}</Alert>
         )}
 
-        <Form
+        <form
+          method="post"
           action={`/${ownerName}/${repoName}/settings`}
           method="POST"
         >
@@ -140,7 +141,7 @@ repoSettings.get("/:owner/:repo/settings", requireAuth, async (c) => {
               : "Mark this repository as a template so others can seed new repositories from its files."}
           </p>
           <form
-            method="POST"
+            method="post"
             action={`/${ownerName}/${repoName}/settings/template`}
           >
             <input
@@ -165,7 +166,7 @@ repoSettings.get("/:owner/:repo/settings", requireAuth, async (c) => {
             accept or decline the transfer by attempting to view it.
           </p>
           <form
-            method="POST"
+            method="post"
             action={`/${ownerName}/${repoName}/settings/transfer`}
             onsubmit="return confirm('Transfer this repository? The new owner will have full control.')"
           >
@@ -194,7 +195,7 @@ repoSettings.get("/:owner/:repo/settings", requireAuth, async (c) => {
               : "Mark this repository as archived. It will become read-only — no pushes, no new issues or PRs. You can unarchive at any time."}
           </p>
           <form
-            method="POST"
+            method="post"
             action={`/${ownerName}/${repoName}/settings/archive`}
           >
             <input

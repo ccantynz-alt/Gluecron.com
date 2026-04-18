@@ -237,7 +237,7 @@ wikiRoutes.get("/:owner/:repo/wiki/new", requireAuth, async (c) => {
       <RepoHeader owner={ownerName} repo={repoName} />
       <h2 style="margin-top: 20px;">New wiki page</h2>
       <form
-        method="POST"
+        method="post"
         action={`/${ownerName}/${repoName}/wiki`}
         style="display: flex; flex-direction: column; gap: 12px; margin-top: 16px;"
       >
@@ -360,7 +360,7 @@ wikiRoutes.get("/:owner/:repo/wiki/:slug", softAuth, async (c) => {
               )}
               {isOwner && (
                 <form
-                  method="POST"
+                  method="post"
                   action={`/${ownerName}/${repoName}/wiki/${slug}/delete`}
                   style="display: inline;"
                   onsubmit="return confirm('Delete this page?')"
@@ -417,7 +417,7 @@ wikiRoutes.get(
         <RepoHeader owner={ownerName} repo={repoName} />
         <h2 style="margin-top: 20px;">Edit "{page.title}"</h2>
         <form
-          method="POST"
+          method="post"
           action={`/${ownerName}/${repoName}/wiki/${slug}/edit`}
           style="display: flex; flex-direction: column; gap: 12px; margin-top: 16px;"
         >
@@ -607,7 +607,7 @@ wikiRoutes.get(
                         {" "}
                         ·{" "}
                         <form
-                          method="POST"
+                          method="post"
                           action={`/${ownerName}/${repoName}/wiki/${slug}/revert/${rv.r.revision}`}
                           style="display: inline;"
                         >

@@ -209,9 +209,9 @@ pulls.get(
           {error && (
             <Alert variant="error">{decodeURIComponent(error)}</Alert>
           )}
-          <Form action={`/${ownerName}/${repoName}/pulls/new`} method="POST">
-            <Flex gap={12} align="center" style="margin-bottom:16px">
-              <Select name="base" value={defaultBase}>
+          <form method="post" action={`/${ownerName}/${repoName}/pulls/new`}>
+            <div style="display: flex; gap: 12px; align-items: center; margin-bottom: 16px">
+              <select name="base" style="padding: 6px 12px; background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); font-size: 13px">
                 {branches.map((b) => (
                   <option value={b} selected={b === defaultBase}>
                     {b}
@@ -542,8 +542,9 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, async (c) => {
             )}
 
             {user && pr.state === "open" && (
-              <div style="margin-top:20px">
-                <Form
+              <div style="margin-top: 20px">
+                <form
+                  method="post"
                   action={`/${ownerName}/${repoName}/pulls/${pr.number}/comment`}
                   method="POST"
                 >

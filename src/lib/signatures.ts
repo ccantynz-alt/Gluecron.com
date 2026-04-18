@@ -356,7 +356,7 @@ export async function fingerprintForPublicKey(
     } catch {
       return null;
     }
-    const digest = await crypto.subtle.digest("SHA-256", bytes);
+    const digest = await crypto.subtle.digest("SHA-256", bytes as BufferSource);
     // Base64 (unpadded) — mimics `ssh-keygen -l -E sha256`.
     const b64 = btoa(String.fromCharCode(...new Uint8Array(digest))).replace(
       /=+$/,
@@ -422,7 +422,7 @@ export function analyzeRawCommit(
 }
 
 async function fingerprintSshBytes(bytes: Uint8Array): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  const digest = await crypto.subtle.digest("SHA-256", bytes as BufferSource);
   const b64 = btoa(String.fromCharCode(...new Uint8Array(digest))).replace(
     /=+$/,
     ""

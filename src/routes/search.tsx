@@ -137,7 +137,7 @@ search.get("/search", async (c) => {
       user={user}
       notificationCount={unread}
     >
-      <form method="GET" action="/search" style="margin-bottom: 16px">
+      <form method="get" action="/search" style="margin-bottom: 16px">
         <input
           type="hidden"
           name="type"

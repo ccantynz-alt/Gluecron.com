@@ -23,8 +23,65 @@ import exploreRoutes from "./routes/explore";
 import tokenRoutes from "./routes/tokens";
 import contributorRoutes from "./routes/contributors";
 import notificationRoutes from "./routes/notifications";
+import dashboardRoutes from "./routes/dashboard";
+import askRoutes from "./routes/ask";
+import releaseRoutes from "./routes/releases";
+import gateRoutes from "./routes/gates";
+import insightsRoutes from "./routes/insights";
+import searchRoutes from "./routes/search";
+import healthRoutes from "./routes/health";
+import hookRoutes from "./routes/hooks";
+import eventsRoutes from "./routes/events";
+import themeRoutes from "./routes/theme";
+import auditRoutes from "./routes/audit";
+import reactionRoutes from "./routes/reactions";
+import savedReplyRoutes from "./routes/saved-replies";
+import deploymentRoutes from "./routes/deployments";
 import orgRoutes from "./routes/orgs";
-import onboardingRoutes from "./routes/onboarding";
+import passkeyRoutes from "./routes/passkeys";
+import oauthRoutes from "./routes/oauth";
+import developerAppsRoutes from "./routes/developer-apps";
+import workflowRoutes from "./routes/workflows";
+import packagesApiRoutes from "./routes/packages-api";
+import packagesUiRoutes from "./routes/packages";
+import pagesRoutes from "./routes/pages";
+import environmentsRoutes from "./routes/environments";
+import aiExplainRoutes from "./routes/ai-explain";
+import aiChangelogRoutes from "./routes/ai-changelog";
+import copilotRoutes from "./routes/copilot";
+import depUpdaterRoutes from "./routes/dep-updater";
+import semanticSearchRoutes from "./routes/semantic-search";
+import aiTestsRoutes from "./routes/ai-tests";
+import discussionRoutes from "./routes/discussions";
+import gistRoutes from "./routes/gists";
+import projectRoutes from "./routes/projects";
+import wikiRoutes from "./routes/wikis";
+import mergeQueueRoutes from "./routes/merge-queue";
+import requiredChecksRoutes from "./routes/required-checks";
+import protectedTagsRoutes from "./routes/protected-tags";
+import trafficRoutes from "./routes/traffic";
+import orgInsightsRoutes from "./routes/org-insights";
+import adminRoutes from "./routes/admin";
+import billingRoutes from "./routes/billing";
+import pwaRoutes from "./routes/pwa";
+import graphqlRoutes from "./routes/graphql";
+import marketplaceRoutes from "./routes/marketplace";
+import templatesRoutes from "./routes/templates";
+import codeScanningRoutes from "./routes/code-scanning";
+import sponsorsRoutes from "./routes/sponsors";
+import symbolsRoutes from "./routes/symbols";
+import mirrorsRoutes from "./routes/mirrors";
+import ssoRoutes from "./routes/sso";
+import depsRoutes from "./routes/deps";
+import advisoriesRoutes from "./routes/advisories";
+import signingKeysRoutes from "./routes/signing-keys";
+import followsRoutes from "./routes/follows";
+import rulesetsRoutes from "./routes/rulesets";
+import commitStatusesRoutes from "./routes/commit-statuses";
+import legalTermsRoutes from "./routes/legal/terms";
+import legalPrivacyRoutes from "./routes/legal/privacy";
+import legalAcceptableUseRoutes from "./routes/legal/acceptable-use";
+import legalDmcaRoutes from "./routes/legal/dmca";
 import webRoutes from "./routes/web";
 import { authRateLimit, gitRateLimit, searchRateLimit } from "./middleware/rate-limit";
 import { csrfToken, csrfProtect } from "./middleware/csrf";
@@ -67,8 +124,9 @@ app.route("/", gitRoutes);
 // REST API v1 (legacy)
 app.route("/", apiRoutes);
 
-// REST API v2 (comprehensive, token-authenticated)
-app.route("/", apiV2Routes);
+// Inbound API hooks (GateTest callback + backup PAT-authed /api/v1/gate-runs)
+app.route("/", hookRoutes);
+app.route("/api/events", eventsRoutes);
 
 // API documentation
 app.route("/", apiDocsRoutes);
@@ -222,6 +280,13 @@ app.route("/", rulesetsRoutes);
 
 // Commit status API — /api/v1/repos/:o/:r/statuses/:sha (Block J8)
 app.route("/", commitStatusesRoutes);
+
+// Legal pages — /legal/terms, /legal/privacy, /legal/acceptable-use, /legal/dmca
+// Static JSX, read-only. DRAFT — requires attorney review before launch.
+app.route("/", legalTermsRoutes);
+app.route("/", legalPrivacyRoutes);
+app.route("/", legalAcceptableUseRoutes);
+app.route("/", legalDmcaRoutes);
 
 // Insights + milestones
 app.route("/", insightsRoutes);

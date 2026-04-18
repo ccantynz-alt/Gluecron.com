@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# ============================================================================
+# GATETEST PRE-PUSH HOOK — PROTECTED INTEGRATION FILE
+# ============================================================================
+# This hook blocks pushes from a protected platform (Crontech / Gluecron) to
+# their remotes if GateTest finds any error-severity issues.
+#
+# MUST NOT be removed, weakened, or bypassed without Craig's authorization.
+# See the GateTest Bible (CLAUDE.md) → "PROTECTED PLATFORMS" section.
+# Install location in target repo: .husky/pre-push (chmod +x)
+# Source of truth: https://github.com/ccantynz-alt/gatetest
+#                  /integrations/husky/pre-push
+# ============================================================================
+set -e
+
+GATETEST_CACHE="${GATETEST_CACHE:-$HOME/.cache/gatetest}"
+
+if [ ! -d "$GATETEST_CACHE/.git" ]; then
+  echo "[GateTest] Fetching latest GateTest into $GATETEST_CACHE ..."
+  mkdir -p "$(dirname "$GATETEST_CACHE")"
+  git clone --depth 1 https://github.com/ccantynz-alt/gatetest.git "$GATETEST_CACHE"
+else
+  echo "[GateTest] Updating local cache ..."
+  (cd "$GATETEST_CACHE" && git pull --ff-only --depth 1 origin HEAD >/dev/null 2>&1 || true)
+fi
+
+echo "[GateTest] Running quick diff-mode gate before push ..."
+node "$GATETEST_CACHE/bin/gatetest.js" --suite quick --diff --project "$(pwd)"

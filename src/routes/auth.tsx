@@ -43,10 +43,11 @@ auth.get("/register", (c) => {
     <Layout title="Register">
       <div class="auth-container">
         <h2>Create account</h2>
-        {error && <Alert variant="error">{decodeURIComponent(error)}</Alert>}
-        <Form action="/register">
-          <FormGroup label="Username" htmlFor="username">
-            <Input
+        {error && <div class="auth-error">{decodeURIComponent(error)}</div>}
+        <form method="post" action="/register">
+          <div class="form-group">
+            <label for="username">Username</label>
+            <input
               type="text"
               name="username"
               required
@@ -174,8 +175,9 @@ auth.get("/login", async (c) => {
     <Layout title="Sign in">
       <div class="auth-container">
         <h2>Sign in</h2>
-        {error && <Alert variant="error">{decodeURIComponent(error)}</Alert>}
-        <Form
+        {error && <div class="auth-error">{decodeURIComponent(error)}</div>}
+        <form
+          method="post"
           action={`/login${redirect ? `?redirect=${encodeURIComponent(redirect)}` : ""}`}
         >
           <FormGroup label="Username or email" htmlFor="username">
@@ -361,7 +363,7 @@ auth.get("/login/2fa", async (c) => {
         </p>
         {error && <div class="auth-error">{decodeURIComponent(error)}</div>}
         <form
-          method="POST"
+          method="post"
           action={`/login/2fa?redirect=${encodeURIComponent(redirect)}`}
         >
           <div class="form-group">

@@ -108,7 +108,7 @@ protectedTagsRoutes.get(
                   </div>
                 </div>
                 <form
-                  method="POST"
+                  method="post"
                   action={`/${owner}/${repo}/settings/protected-tags/${t.id}/delete`}
                   onsubmit="return confirm('Remove protection for this pattern?')"
                 >
@@ -122,7 +122,7 @@ protectedTagsRoutes.get(
         </div>
 
         <form
-          method="POST"
+          method="post"
           action={`/${owner}/${repo}/settings/protected-tags`}
           class="panel"
           style="padding:16px"

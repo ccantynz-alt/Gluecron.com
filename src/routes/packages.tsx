@@ -378,7 +378,7 @@ ui.get("/:owner/:repo/packages/:pkgName{.+}", async (c) => {
                     </a>
                     {isOwner && !v.yanked && (
                       <form
-                        method="POST"
+                        method="post"
                         action={`/api/packages/${owner}/${repo}/${encodeURIComponent(fullName)}/${v.version}/yank`}
                         onsubmit="return confirm('Yank this version? It will still download, but will be flagged as yanked.')"
                         style="margin: 0"

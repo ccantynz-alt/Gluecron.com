@@ -119,7 +119,7 @@ passkeys.get("/settings/passkeys", async (c) => {
                 </div>
                 <div style="display: flex; gap: 6px">
                   <form
-                    method="POST"
+                    method="post"
                     action={`/settings/passkeys/${k.id}/rename`}
                     style="display: flex; gap: 4px"
                   >
@@ -135,7 +135,7 @@ passkeys.get("/settings/passkeys", async (c) => {
                     </button>
                   </form>
                   <form
-                    method="POST"
+                    method="post"
                     action={`/settings/passkeys/${k.id}/delete`}
                     onsubmit="return confirm('Remove this passkey?')"
                   >

@@ -69,22 +69,39 @@ notificationRoutes.get("/notifications", softAuth, requireAuth, async (c) => {
 
   return c.html(
     <Layout title="Notifications" user={user}>
-      <Container maxWidth={800}>
-        <PageHeader title="Notifications" actions={markAllReadAction} />
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px">
+        <h2>Notifications</h2>
+        {unreadCount > 0 && (
+          <form method="post" action="/notifications/read-all">
+            <button type="submit" class="btn btn-sm">
+              Mark all as read
+            </button>
+          </form>
+        )}
+      </div>
 
-        <div style="margin-bottom:16px">
-          <FilterTabs tabs={[
-            {
-              label: `Unread${unreadCount > 0 ? ` (${unreadCount})` : ""}`,
-              href: "/notifications?filter=unread",
-              active: filter === "unread",
-            },
-            {
-              label: "All",
-              href: "/notifications?filter=all",
-              active: filter === "all",
-            },
-          ]} />
+      <div class="issue-tabs" style="margin-bottom: 16px">
+        <a href="/notifications" class={filter === "all" ? "active" : ""}>
+          All
+        </a>
+        <a
+          href="/notifications?filter=unread"
+          class={filter === "unread" ? "active" : ""}
+        >
+          Unread
+        </a>
+        <a
+          href="/notifications?filter=mentions"
+          class={filter === "mentions" ? "active" : ""}
+        >
+          Mentions
+        </a>
+      </div>
+
+      {rows.length === 0 ? (
+        <div class="empty-state">
+          <h2>Inbox zero</h2>
+          <p>You're all caught up.</p>
         </div>
 
         {items.length === 0 ? (
@@ -111,24 +128,45 @@ notificationRoutes.get("/notifications", softAuth, requireAuth, async (c) => {
                       {n.body.length > 120 ? n.body.slice(0, 120) + "..." : n.body}
                     </Text>
                   )}
-                  <Text size={12} muted style="margin-top:4px">
-                    {formatRelative(n.createdAt)}
-                  </Text>
-                </Flex>
-                {!n.isRead && (
-                  <div style="flex-shrink:0">
-                    <Form action={`/notifications/${n.id}/read`} csrfToken={csrfToken}>
-                      <Button size="sm" variant="ghost" type="submit">
-                        {"\u2713"}
-                      </Button>
-                    </Form>
+                  <div class="notification-meta">
+                    {n.repoOwner && n.repoName && (
+                      <>
+                        <a href={`/${n.repoOwner}/${n.repoName}`}>
+                          {n.repoOwner}/{n.repoName}
+                        </a>
+                        <span> · </span>
+                      </>
+                    )}
+                    <span>{formatRelative(n.createdAt)}</span>
                   </div>
-                )}
-              </ListItem>
-            ))}
-          </List>
-        )}
-      </Container>
+                </div>
+                <div class="notification-actions">
+                  {unread && (
+                    <form method="post" action={`/notifications/${n.id}/read`}>
+                      <button
+                        type="submit"
+                        class="btn btn-sm"
+                        title="Mark as read"
+                      >
+                        {"\u2713"}
+                      </button>
+                    </form>
+                  )}
+                  <form method="post" action={`/notifications/${n.id}/delete`}>
+                    <button
+                      type="submit"
+                      class="btn btn-sm"
+                      title="Dismiss"
+                    >
+                      {"\u00D7"}
+                    </button>
+                  </form>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </Layout>
   );
 });

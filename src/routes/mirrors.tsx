@@ -104,7 +104,7 @@ mirrors.get("/:owner/:repo/settings/mirror", requireAuth, async (c) => {
         )}
 
         <form
-          method="POST"
+          method="post"
           action={`/${ownerName}/${repoName}/settings/mirror`}
           class="panel"
           style="padding:16px;margin:16px 0"
@@ -153,7 +153,7 @@ mirrors.get("/:owner/:repo/settings/mirror", requireAuth, async (c) => {
           <>
             <div style="display:flex;gap:8px;margin:12px 0">
               <form
-                method="POST"
+                method="post"
                 action={`/${ownerName}/${repoName}/settings/mirror/sync`}
               >
                 <button type="submit" class="btn">
@@ -161,7 +161,7 @@ mirrors.get("/:owner/:repo/settings/mirror", requireAuth, async (c) => {
                 </button>
               </form>
               <form
-                method="POST"
+                method="post"
                 action={`/${ownerName}/${repoName}/settings/mirror/delete`}
                 onsubmit="return confirm('Remove mirror configuration?')"
               >

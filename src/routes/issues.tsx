@@ -195,9 +195,10 @@ issueRoutes.get(
           {error && (
             <Alert variant="error">{decodeURIComponent(error)}</Alert>
           )}
-          <Form action={`/${ownerName}/${repoName}/issues/new`} method="POST">
-            <FormGroup>
-              <Input
+          <form method="post" action={`/${ownerName}/${repoName}/issues/new`}>
+            <div class="form-group">
+              <input
+                type="text"
                 name="title"
                 required
                 placeholder="Title"
@@ -373,23 +374,38 @@ issueRoutes.get("/:owner/:repo/issues/:number", softAuth, async (c) => {
         ))}
 
         {user && (
-          <CommentForm
-            action={`/${ownerName}/${repoName}/issues/${issue.number}/comment`}
-            submitLabel="Comment"
-            extraActions={
-              canManage && (
-                <Button
-                  type="submit"
-                  variant={issue.state === "open" ? "danger" : "default"}
-                  formaction={`/${ownerName}/${repoName}/issues/${issue.number}/${issue.state === "open" ? "close" : "reopen"}`}
-                >
-                  {issue.state === "open"
-                    ? "Close issue"
-                    : "Reopen issue"}
-                </Button>
-              )
-            }
-          />
+          <div style="margin-top: 20px">
+            <form
+              method="post"
+              action={`/${ownerName}/${repoName}/issues/${issue.number}/comment`}
+            >
+              <div class="form-group">
+                <textarea
+                  name="body"
+                  rows={6}
+                  required
+                  placeholder="Leave a comment... (Markdown supported)"
+                  style="font-family: var(--font-mono); font-size: 13px"
+                />
+              </div>
+              <div style="display: flex; gap: 8px">
+                <button type="submit" class="btn btn-primary">
+                  Comment
+                </button>
+                {canManage && (
+                  <button
+                    type="submit"
+                    formaction={`/${ownerName}/${repoName}/issues/${issue.number}/${issue.state === "open" ? "close" : "reopen"}`}
+                    class={`btn ${issue.state === "open" ? "btn-danger" : ""}`}
+                  >
+                    {issue.state === "open"
+                      ? "Close issue"
+                      : "Reopen issue"}
+                  </button>
+                )}
+              </div>
+            </form>
+          </div>
         )}
       </div>
     </Layout>

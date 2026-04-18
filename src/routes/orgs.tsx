@@ -41,26 +41,58 @@ orgRoutes.get("/orgs/new", softAuth, requireAuth, (c) => {
   const error = c.req.query("error");
 
   return c.html(
-    <Layout title="New Organization" user={user}>
-      <Container maxWidth={500}>
-        <PageHeader title="Create a new organization" />
-        {error && <Alert variant="error">{decodeURIComponent(error)}</Alert>}
-        <Form action="/orgs/new" csrfToken={(c as any).get("csrfToken") || ""}>
-          <FormGroup label="Organization name" htmlFor="name" hint="Letters, numbers, hyphens, dots, underscores only">
-            <Input name="name" required pattern="^[a-zA-Z0-9._-]+$" placeholder="my-org" autocomplete="off" />
-          </FormGroup>
-          <FormGroup label="Display name" htmlFor="displayName">
-            <Input name="displayName" placeholder="My Organization" />
-          </FormGroup>
-          <FormGroup label="Description" htmlFor="description">
-            <TextArea name="description" rows={3} placeholder="What does this organization do?" />
-          </FormGroup>
-          <FormGroup label="Website" htmlFor="website">
-            <Input name="website" type="url" placeholder="https://example.com" />
-          </FormGroup>
-          <Button type="submit" variant="primary">Create organization</Button>
-        </Form>
-      </Container>
+    <Layout title="New organization" user={user}>
+      <div class="settings-container" style="max-width: 560px">
+        <h2>Create organization</h2>
+        <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 16px">
+          Organizations are multi-user namespaces. You'll be the owner and can
+          invite teammates after creation.
+        </p>
+        {error && <div class="auth-error">{decodeURIComponent(error)}</div>}
+        <form method="post" action="/orgs/new">
+          <div class="form-group">
+            <label for="slug">Slug</label>
+            <input
+              type="text"
+              id="slug"
+              name="slug"
+              required
+              maxLength={39}
+              pattern="[a-z0-9][a-z0-9-]{0,38}"
+              placeholder="acme-corp"
+              autocomplete="off"
+            />
+            <div style="color: var(--text-muted); font-size: 12px; margin-top: 4px">
+              2–39 chars, lowercase letters, numbers, hyphens. Cannot start or
+              end with a hyphen.
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="name">Display name</label>
+            <input
+              type="text"
+              id="name"
+              name="name"
+              required
+              maxLength={120}
+              placeholder="Acme Corp"
+            />
+          </div>
+          <div class="form-group">
+            <label for="description">Description (optional)</label>
+            <textarea
+              id="description"
+              name="description"
+              rows={3}
+              maxLength={500}
+              placeholder="What does this org do?"
+            />
+          </div>
+          <button type="submit" class="btn btn-primary">
+            Create organization
+          </button>
+        </form>
+      </div>
     </Layout>
   );
 });
@@ -233,7 +265,127 @@ orgRoutes.get("/orgs/:org", softAuth, async (c) => {
   );
 });
 
-// ─── Organization Settings ──────────────────────────────────────────────────
+// --- PEOPLE -----------------------------------------------------------------
+
+orgs.get("/orgs/:slug/people", async (c) => {
+  const user = c.get("user")!;
+  const slug = c.req.param("slug");
+  const { org, role } = await loadOrgForUser(slug, user.id);
+  if (!org) return c.notFound();
+  if (!role) return c.redirect(`/orgs/${slug}`);
+
+  const members = await listOrgMembers(org.id);
+  const error = c.req.query("error");
+  const success = c.req.query("success");
+  const canAdmin = orgRoleAtLeast(role, "admin");
+  const canOwner = orgRoleAtLeast(role, "owner");
+
+  return c.html(
+    <Layout title={`${org.name} — people`} user={user}>
+      <div style="max-width: 800px">
+        <div class="breadcrumb">
+          <a href={`/orgs/${org.slug}`}>{org.slug}</a>
+          <span>/</span>
+          <span>people</span>
+        </div>
+        <h2>People ({members.length})</h2>
+        {error && <div class="auth-error">{decodeURIComponent(error)}</div>}
+        {success && (
+          <div class="auth-success">{decodeURIComponent(success)}</div>
+        )}
+
+        {canAdmin && (
+          <form
+            method="post"
+            action={`/orgs/${org.slug}/people/add`}
+            style="display: flex; gap: 8px; margin-bottom: 16px"
+          >
+            <input
+              type="text"
+              name="username"
+              placeholder="username to add"
+              required
+              maxLength={64}
+              style="flex: 1"
+            />
+            <select name="role">
+              <option value="member">member</option>
+              <option value="admin">admin</option>
+              {canOwner && <option value="owner">owner</option>}
+            </select>
+            <button type="submit" class="btn btn-primary">
+              Add
+            </button>
+          </form>
+        )}
+
+        <div
+          style="border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden"
+        >
+          {members.map((m) => (
+            <div
+              style="padding: 10px 16px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; background: var(--bg-secondary)"
+            >
+              <div>
+                <a href={`/${m.username}`}>
+                  <strong>{m.username}</strong>
+                </a>
+                {m.displayName && (
+                  <span style="color: var(--text-muted); font-size: 12px; margin-left: 8px">
+                    {m.displayName}
+                  </span>
+                )}
+              </div>
+              <div style="display: flex; gap: 8px; align-items: center">
+                {canOwner && m.userId !== user.id ? (
+                  <form
+                    method="post"
+                    action={`/orgs/${org.slug}/people/${m.userId}/role`}
+                    style="display: flex; gap: 4px"
+                  >
+                    <select name="role">
+                      <option value="member" selected={m.role === "member"}>
+                        member
+                      </option>
+                      <option value="admin" selected={m.role === "admin"}>
+                        admin
+                      </option>
+                      <option value="owner" selected={m.role === "owner"}>
+                        owner
+                      </option>
+                    </select>
+                    <button type="submit" class="btn btn-sm">
+                      save
+                    </button>
+                  </form>
+                ) : (
+                  <span
+                    class="gate-status"
+                    style="font-size: 11px; text-transform: uppercase"
+                  >
+                    {m.role}
+                  </span>
+                )}
+                {canAdmin && m.userId !== user.id && (
+                  <form
+                    method="post"
+                    action={`/orgs/${org.slug}/people/${m.userId}/remove`}
+                    style="display: inline"
+                    onsubmit="return confirm('Remove this member?')"
+                  >
+                    <button type="submit" class="btn btn-sm btn-danger">
+                      remove
+                    </button>
+                  </form>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </Layout>
+  );
+});
 
 orgRoutes.get("/orgs/:org/settings", softAuth, requireAuth, async (c) => {
   const orgName = c.req.param("org");
@@ -261,31 +413,73 @@ orgRoutes.get("/orgs/:org/settings", softAuth, requireAuth, async (c) => {
   const success = c.req.query("success");
 
   return c.html(
-    <Layout title={`Settings — ${org.name}`} user={user}>
-      <Container maxWidth={600}>
-        <PageHeader title="Organization Settings" />
-        {success && <Alert variant="success">Settings updated.</Alert>}
-        <Form action={`/orgs/${orgName}/settings`} csrfToken={(c as any).get("csrfToken") || ""}>
-          <FormGroup label="Display name" htmlFor="displayName">
-            <Input name="displayName" value={org.displayName || ""} />
-          </FormGroup>
-          <FormGroup label="Description" htmlFor="description">
-            <TextArea name="description" rows={3} value={org.description || ""} />
-          </FormGroup>
-          <FormGroup label="Website" htmlFor="website">
-            <Input name="website" type="url" value={org.website || ""} />
-          </FormGroup>
-          <FormGroup label="Location" htmlFor="location">
-            <Input name="location" value={org.location || ""} />
-          </FormGroup>
-          <Button type="submit" variant="primary">Save changes</Button>
-        </Form>
+    <Layout title={`${org.name} — teams`} user={user}>
+      <div style="max-width: 800px">
+        <div class="breadcrumb">
+          <a href={`/orgs/${org.slug}`}>{org.slug}</a>
+          <span>/</span>
+          <span>teams</span>
+        </div>
+        <h2>Teams ({orgTeams.length})</h2>
+        {error && <div class="auth-error">{decodeURIComponent(error)}</div>}
+        {success && (
+          <div class="auth-success">{decodeURIComponent(success)}</div>
+        )}
 
-        <div style="margin-top:40px;padding-top:24px;border-top:1px solid var(--red)">
-          <h3 style="color:var(--red);margin-bottom:12px">Danger Zone</h3>
-          <Form action={`/orgs/${orgName}/delete`} csrfToken={(c as any).get("csrfToken") || ""} class="confirm-action" >
-            <Button type="submit" variant="danger">Delete organization</Button>
-          </Form>
+        {canAdmin && (
+          <form
+            method="post"
+            action={`/orgs/${org.slug}/teams/new`}
+            style="display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; margin-bottom: 16px"
+          >
+            <input
+              type="text"
+              name="slug"
+              placeholder="team-slug"
+              required
+              maxLength={39}
+              pattern="[a-z0-9][a-z0-9-]{0,38}"
+            />
+            <input
+              type="text"
+              name="name"
+              placeholder="Team name"
+              required
+              maxLength={80}
+            />
+            <button type="submit" class="btn btn-primary">
+              Create team
+            </button>
+          </form>
+        )}
+
+        <div
+          style="border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden"
+        >
+          {orgTeams.length === 0 ? (
+            <div
+              style="padding: 16px; color: var(--text-muted); font-size: 13px; background: var(--bg-secondary)"
+            >
+              No teams yet.
+            </div>
+          ) : (
+            orgTeams.map((t) => (
+              <a
+                href={`/orgs/${org.slug}/teams/${t.slug}`}
+                style="display: block; padding: 12px 16px; border-bottom: 1px solid var(--border); text-decoration: none; color: var(--text); background: var(--bg-secondary)"
+              >
+                <strong>{t.name}</strong>{" "}
+                <span style="color: var(--text-muted); font-size: 12px">
+                  @{t.slug}
+                </span>
+                {t.description && (
+                  <div style="color: var(--text-muted); font-size: 12px">
+                    {t.description}
+                  </div>
+                )}
+              </a>
+            ))
+          )}
         </div>
       </Container>
     </Layout>
@@ -346,25 +540,91 @@ orgRoutes.get("/orgs/:org/members/invite", softAuth, requireAuth, async (c) => {
   const success = c.req.query("success");
 
   return c.html(
-    <Layout title={`Invite Member — ${orgName}`} user={user}>
-      <Container maxWidth={500}>
-        <PageHeader title={`Invite a member to ${orgName}`} />
-        {error && <Alert variant="error">{decodeURIComponent(error)}</Alert>}
-        {success && <Alert variant="success">Member invited successfully.</Alert>}
-        <Form action={`/orgs/${orgName}/members/invite`} csrfToken={(c as any).get("csrfToken") || ""}>
-          <FormGroup label="Username" htmlFor="username">
-            <Input name="username" required placeholder="Enter username" autocomplete="off" />
-          </FormGroup>
-          <FormGroup label="Role" htmlFor="role">
-            <Select name="role">
-              <option value="member">Member — can view</option>
-              <option value="admin">Admin — can manage teams</option>
-              <option value="owner">Owner — full control</option>
-            </Select>
-          </FormGroup>
-          <Button type="submit" variant="primary">Send invitation</Button>
-        </Form>
-      </Container>
+    <Layout title={`${team.name} — ${org.name}`} user={user}>
+      <div style="max-width: 800px">
+        <div class="breadcrumb">
+          <a href={`/orgs/${org.slug}`}>{org.slug}</a>
+          <span>/</span>
+          <a href={`/orgs/${org.slug}/teams`}>teams</a>
+          <span>/</span>
+          <span>{team.slug}</span>
+        </div>
+        <h2>{team.name}</h2>
+        {team.description && (
+          <p style="color: var(--text-muted)">{team.description}</p>
+        )}
+        {error && <div class="auth-error">{decodeURIComponent(error)}</div>}
+        {success && (
+          <div class="auth-success">{decodeURIComponent(success)}</div>
+        )}
+
+        <h3 style="font-size: 15px; margin-top: 16px">
+          Members ({members.length})
+        </h3>
+
+        {canAdmin && (
+          <form
+            method="post"
+            action={`/orgs/${org.slug}/teams/${team.slug}/members/add`}
+            style="display: flex; gap: 8px; margin-bottom: 16px"
+          >
+            <input
+              type="text"
+              name="username"
+              placeholder="username"
+              required
+              maxLength={64}
+              style="flex: 1"
+            />
+            <select name="role">
+              <option value="member">member</option>
+              <option value="maintainer">maintainer</option>
+            </select>
+            <button type="submit" class="btn btn-primary">
+              Add
+            </button>
+          </form>
+        )}
+
+        <div
+          style="border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden"
+        >
+          {members.length === 0 ? (
+            <div
+              style="padding: 16px; color: var(--text-muted); font-size: 13px; background: var(--bg-secondary)"
+            >
+              No members yet.
+            </div>
+          ) : (
+            members.map((m) => (
+              <div
+                style="padding: 10px 16px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; background: var(--bg-secondary)"
+              >
+                <a href={`/${m.username}`}>{m.username}</a>
+                <div style="display: flex; gap: 8px; align-items: center">
+                  <span
+                    class="gate-status"
+                    style="font-size: 11px; text-transform: uppercase"
+                  >
+                    {m.role}
+                  </span>
+                  {canAdmin && (
+                    <form
+                      method="post"
+                      action={`/orgs/${org.slug}/teams/${team.slug}/members/${m.userId}/remove`}
+                      style="display: inline"
+                    >
+                      <button type="submit" class="btn btn-sm btn-danger">
+                        remove
+                      </button>
+                    </form>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
     </Layout>
   );
 });
@@ -422,27 +682,48 @@ orgRoutes.get("/orgs/:org/teams/new", softAuth, requireAuth, async (c) => {
   const error = c.req.query("error");
 
   return c.html(
-    <Layout title={`New Team — ${orgName}`} user={user}>
-      <Container maxWidth={500}>
-        <PageHeader title="Create a new team" />
-        {error && <Alert variant="error">{decodeURIComponent(error)}</Alert>}
-        <Form action={`/orgs/${orgName}/teams/new`} csrfToken={(c as any).get("csrfToken") || ""}>
-          <FormGroup label="Team name" htmlFor="name">
-            <Input name="name" required placeholder="engineering" autocomplete="off" />
-          </FormGroup>
-          <FormGroup label="Description" htmlFor="description">
-            <TextArea name="description" rows={2} placeholder="What does this team do?" />
-          </FormGroup>
-          <FormGroup label="Default permission" htmlFor="permission">
-            <Select name="permission">
-              <option value="read">Read — view repos</option>
-              <option value="write">Write — push to repos</option>
-              <option value="admin">Admin — manage repos</option>
-            </Select>
-          </FormGroup>
-          <Button type="submit" variant="primary">Create team</Button>
-        </Form>
-      </Container>
+    <Layout title={`New repo — ${org.name}`} user={user}>
+      <div class="settings-container" style="max-width: 560px">
+        <div class="breadcrumb">
+          <a href={`/orgs/${org.slug}`}>{org.slug}</a>
+          <span>/</span>
+          <span>new repo</span>
+        </div>
+        <h2>Create repository in {org.name}</h2>
+        {error && <div class="auth-error">{decodeURIComponent(error)}</div>}
+        <form method="post" action={`/orgs/${org.slug}/repos/new`}>
+          <div class="form-group">
+            <label for="name">Repository name</label>
+            <input
+              type="text"
+              id="name"
+              name="name"
+              required
+              maxLength={100}
+              pattern="[a-zA-Z0-9._-]+"
+              placeholder="my-repo"
+              autocomplete="off"
+            />
+          </div>
+          <div class="form-group">
+            <label for="description">Description (optional)</label>
+            <textarea
+              id="description"
+              name="description"
+              rows={3}
+              maxLength={500}
+            />
+          </div>
+          <div class="form-group">
+            <label>
+              <input type="checkbox" name="isPrivate" value="1" /> Private
+            </label>
+          </div>
+          <button type="submit" class="btn btn-primary">
+            Create repository
+          </button>
+        </form>
+      </div>
     </Layout>
   );
 });

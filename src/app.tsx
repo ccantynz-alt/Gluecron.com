@@ -18,8 +18,12 @@ import webhookRoutes from "./routes/webhooks";
 import exploreRoutes from "./routes/explore";
 import tokenRoutes from "./routes/tokens";
 import contributorRoutes from "./routes/contributors";
+import notificationRoutes from "./routes/notifications";
+import orgRoutes from "./routes/orgs";
+import onboardingRoutes from "./routes/onboarding";
 import webRoutes from "./routes/web";
-import { authRateLimit } from "./middleware/rate-limit";
+import { authRateLimit, gitRateLimit, searchRateLimit } from "./middleware/rate-limit";
+import { csrfToken, csrfProtect } from "./middleware/csrf";
 
 const app = new Hono();
 
@@ -27,9 +31,20 @@ const app = new Hono();
 app.use("*", logger());
 app.use("/api/*", cors());
 
+// CSRF protection — set token on all requests, validate on mutations
+app.use("*", csrfToken);
+app.use("*", csrfProtect);
+
 // Rate limit auth routes
 app.use("/login", authRateLimit);
 app.use("/register", authRateLimit);
+
+// Rate limit git operations
+app.use("/:owner/:repo.git/*", gitRateLimit);
+
+// Rate limit search
+app.use("/:owner/:repo/search", searchRateLimit);
+app.use("/explore", searchRateLimit);
 
 // Git Smart HTTP protocol routes (must be before web routes)
 app.route("/", gitRoutes);
@@ -51,6 +66,12 @@ app.route("/", settingsRoutes);
 
 // API tokens
 app.route("/", tokenRoutes);
+
+// Notifications
+app.route("/", notificationRoutes);
+
+// Organizations
+app.route("/", orgRoutes);
 
 // Repo settings (description, visibility, delete)
 app.route("/", repoSettings);
@@ -78,6 +99,9 @@ app.route("/", contributorRoutes);
 
 // Explore page
 app.route("/", exploreRoutes);
+
+// Onboarding
+app.route("/", onboardingRoutes);
 
 // Web UI (catch-all, must be last)
 app.route("/", webRoutes);

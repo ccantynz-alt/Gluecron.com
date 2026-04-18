@@ -54,8 +54,13 @@ export const csrfProtect = createMiddleware(async (c, next) => {
     return next();
   }
 
-  // Skip CSRF for git protocol routes
+  // Skip CSRF for API routes (they use token auth, not cookies)
   const path = c.req.path;
+  if (path.startsWith("/api/")) {
+    return next();
+  }
+
+  // Skip CSRF for git protocol routes
   if (path.endsWith(".git/git-upload-pack") || path.endsWith(".git/git-receive-pack")) {
     return next();
   }

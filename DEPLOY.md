@@ -42,7 +42,7 @@ Since Crontech handles deployment, routing, and SSL:
 - **Subdomain:** `gluecron.crontech.ai` → fastest to set up
 - **Custom domain:** `gluecron.com` → add CNAME to Crontech in DNS
 
-## Option B: Direct Deploy (Hetzner/standalone)
+## Option B: Direct Deploy (any Linux server)
 
 ```bash
 # 1. SSH into your server

@@ -46,7 +46,7 @@ We do NOT sell your personal information. We may share information:
 
 - **With your consent:** when you explicitly authorize it
 - **Public repositories:** content in public repos is visible to anyone
-- **Service providers:** hosting (Hetzner/cloud), database (Neon), payment
+- **Service providers:** hosting (Crontech infrastructure), database (Neon), payment
   (Stripe), email (for transactional emails only)
 - **Integration partners:** GateTest (code scanning), Crontech (deployment)
   — only repository metadata, not source code content, unless you enable

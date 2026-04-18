@@ -8,8 +8,8 @@ set -euo pipefail
 
 APP_NAME="gluecron"
 APP_DIR="/opt/gluecron"
-REPO_URL="https://github.com/ccantynz-alt/Gluecron.com.git"
-BRANCH="claude/ship-fixes-and-tests-Jvz1c"
+REPO_URL="${REPO_URL:-https://github.com/ccantynz-alt/Gluecron.com.git}"
+BRANCH="${BRANCH:-main}"
 
 echo "=========================================="
 echo "  Deploying $APP_NAME"

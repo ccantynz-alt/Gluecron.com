@@ -23,6 +23,14 @@ import {
 import { verifyTotpCode, hashRecoveryCode } from "../lib/totp";
 import { getSsoConfig } from "../lib/sso";
 import { Layout } from "../views/layout";
+import {
+  Form,
+  FormGroup,
+  Input,
+  Button,
+  Alert,
+  Text,
+} from "../views/ui";
 import type { AuthEnv } from "../middleware/auth";
 
 const auth = new Hono<AuthEnv>();
@@ -41,7 +49,6 @@ auth.get("/register", (c) => {
             <label for="username">Username</label>
             <input
               type="text"
-              id="username"
               name="username"
               required
               pattern="^[a-zA-Z0-9_-]+$"
@@ -50,36 +57,32 @@ auth.get("/register", (c) => {
               placeholder="your-username"
               autocomplete="username"
             />
-          </div>
-          <div class="form-group">
-            <label for="email">Email</label>
-            <input
+          </FormGroup>
+          <FormGroup label="Email" htmlFor="email">
+            <Input
               type="email"
-              id="email"
               name="email"
               required
               placeholder="you@example.com"
               autocomplete="email"
             />
-          </div>
-          <div class="form-group">
-            <label for="password">Password</label>
-            <input
+          </FormGroup>
+          <FormGroup label="Password" htmlFor="password">
+            <Input
               type="password"
-              id="password"
               name="password"
               required
               minLength={8}
               placeholder="Min 8 characters"
               autocomplete="new-password"
             />
-          </div>
-          <button type="submit" class="btn btn-primary">
+          </FormGroup>
+          <Button type="submit" variant="primary">
             Create account
-          </button>
-        </form>
+          </Button>
+        </Form>
         <p class="auth-switch">
-          Already have an account? <a href="/login">Sign in</a>
+          <Text>Already have an account? <a href="/login">Sign in</a></Text>
         </p>
       </div>
     </Layout>
@@ -177,64 +180,30 @@ auth.get("/login", async (c) => {
           method="post"
           action={`/login${redirect ? `?redirect=${encodeURIComponent(redirect)}` : ""}`}
         >
-          <div class="form-group">
-            <label for="username">Username or email</label>
-            <input
+          <FormGroup label="Username or email" htmlFor="username">
+            <Input
               type="text"
-              id="username"
               name="username"
               required
               placeholder="username or email"
               autocomplete="username"
             />
-          </div>
-          <div class="form-group">
-            <label for="password">Password</label>
-            <input
+          </FormGroup>
+          <FormGroup label="Password" htmlFor="password">
+            <Input
               type="password"
-              id="password"
               name="password"
               required
               placeholder="Password"
               autocomplete="current-password"
             />
-          </div>
-          <button type="submit" class="btn btn-primary">
+          </FormGroup>
+          <Button type="submit" variant="primary">
             Sign in
-          </button>
-        </form>
-        <div
-          style="margin: 16px 0; text-align: center; color: var(--text-muted); font-size: 12px"
-        >
-          — or —
-        </div>
-        <div style="text-align: center">
-          <button
-            type="button"
-            id="pk-signin-btn"
-            class="btn"
-            style="width: 100%"
-          >
-            Sign in with passkey
-          </button>
-          <div
-            id="pk-signin-status"
-            style="margin-top: 8px; color: var(--text-muted); font-size: 12px; min-height: 16px"
-          />
-        </div>
-        {ssoEnabled && (
-          <div style="margin-top: 8px; text-align: center">
-            <a
-              href="/login/sso"
-              class="btn"
-              style="width: 100%; display: block"
-            >
-              Sign in with {ssoLabel}
-            </a>
-          </div>
-        )}
+          </Button>
+        </Form>
         <p class="auth-switch">
-          New to gluecron? <a href="/register">Create an account</a>
+          <Text>New to gluecron? <a href="/register">Create an account</a></Text>
         </p>
         <script
           dangerouslySetInnerHTML={{

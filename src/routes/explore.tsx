@@ -10,6 +10,16 @@ import { Layout } from "../views/layout";
 import { RepoCard } from "../views/components";
 import { softAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
+import {
+  Flex,
+  Grid,
+  Badge,
+  Button,
+  LinkButton,
+  Input,
+  EmptyState,
+  PageHeader,
+} from "../views/ui";
 
 const explore = new Hono<AuthEnv>();
 
@@ -99,72 +109,74 @@ explore.get("/explore", async (c) => {
 
   return c.html(
     <Layout title="Explore" user={user}>
-      <h2 style="margin-bottom: 16px">Explore repositories</h2>
-      <div style="display: flex; gap: 12px; margin-bottom: 24px; flex-wrap: wrap; align-items: center">
+      <PageHeader title="Explore repositories" />
+      <Flex gap={12} wrap align="center" style="margin-bottom:24px">
         <form
           method="get"
           action="/explore"
-          style="display: flex; gap: 8px; flex: 1; min-width: 250px"
+          style="display:flex;gap:8px;flex:1;min-width:250px"
         >
-          <input
-            type="text"
+          <Input
             name="q"
             value={q}
             placeholder="Search repositories..."
-            style="flex: 1; padding: 8px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); font-size: 14px"
+            style="flex:1;padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:14px"
           />
-          <button type="submit" class="btn btn-primary">
+          <Button type="submit" variant="primary">
             Search
-          </button>
+          </Button>
         </form>
-        <div style="display: flex; gap: 8px">
-          <a
+        <Flex gap={8}>
+          <LinkButton
             href="/explore?sort=recent"
-            class={`btn btn-sm ${sort === "recent" && !q ? "btn-primary" : ""}`}
+            size="sm"
+            variant={sort === "recent" && !q ? "primary" : "default"}
           >
             Recent
-          </a>
-          <a
+          </LinkButton>
+          <LinkButton
             href="/explore?sort=stars"
-            class={`btn btn-sm ${sort === "stars" ? "btn-primary" : ""}`}
+            size="sm"
+            variant={sort === "stars" ? "primary" : "default"}
           >
             Most stars
-          </a>
-          <a
+          </LinkButton>
+          <LinkButton
             href="/explore?sort=forks"
-            class={`btn btn-sm ${sort === "forks" ? "btn-primary" : ""}`}
+            size="sm"
+            variant={sort === "forks" ? "primary" : "default"}
           >
             Most forks
-          </a>
-        </div>
-      </div>
+          </LinkButton>
+        </Flex>
+      </Flex>
       {topic && (
-        <div style="margin-bottom: 16px">
-          <span class="badge" style="font-size: 14px; padding: 4px 12px">
+        <div style="margin-bottom:16px">
+          <Badge style="font-size:14px;padding:4px 12px">
             Topic: {topic}
-          </span>
+          </Badge>
           <a
             href="/explore"
-            style="margin-left: 8px; font-size: 13px; color: var(--text-muted)"
+            style="margin-left:8px;font-size:13px;color:var(--text-muted)"
           >
             Clear
           </a>
         </div>
       )}
       {repoList.length === 0 ? (
-        <div class="empty-state">
+        <EmptyState>
           <p>
             {q
               ? `No repositories matching "${q}"`
               : "No public repositories yet."}
           </p>
-        </div>
+        </EmptyState>
       ) : (
-        <div class="card-grid">
+        <Grid>
           {repoList.map(({ repo, ownerName }) => (
             <RepoCard repo={repo} ownerName={ownerName} />
           ))}
-        </div>
+        </Grid>
       )}
     </Layout>
   );

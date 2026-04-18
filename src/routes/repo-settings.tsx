@@ -12,6 +12,17 @@ import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
 import { listBranches } from "../git/repository";
 import { rm } from "fs/promises";
+import {
+  Container,
+  Form,
+  FormGroup,
+  Input,
+  Select,
+  Button,
+  Alert,
+  EmptyState,
+  Text,
+} from "../views/ui";
 
 const repoSettings = new Hono<AuthEnv>();
 
@@ -33,10 +44,9 @@ repoSettings.get("/:owner/:repo/settings", requireAuth, async (c) => {
   if (!owner || owner.id !== user.id) {
     return c.html(
       <Layout title="Unauthorized" user={user}>
-        <div class="empty-state">
-          <h2>Unauthorized</h2>
+        <EmptyState title="Unauthorized">
           <p>Only the repository owner can access settings.</p>
-        </div>
+        </EmptyState>
       </Layout>,
       403
     );
@@ -57,32 +67,30 @@ repoSettings.get("/:owner/:repo/settings", requireAuth, async (c) => {
   return c.html(
     <Layout title={`Settings — ${ownerName}/${repoName}`} user={user}>
       <RepoHeader owner={ownerName} repo={repoName} />
-      <div style="max-width: 600px">
+      <Container maxWidth={600}>
         <h2 style="margin-bottom: 20px">Repository settings</h2>
         {success && (
-          <div class="auth-success">{decodeURIComponent(success)}</div>
+          <Alert variant="success">{decodeURIComponent(success)}</Alert>
         )}
         {error && (
-          <div class="auth-error">{decodeURIComponent(error)}</div>
+          <Alert variant="error">{decodeURIComponent(error)}</Alert>
         )}
 
         <form
           method="post"
           action={`/${ownerName}/${repoName}/settings`}
+          method="POST"
         >
-          <div class="form-group">
-            <label for="description">Description</label>
-            <input
-              type="text"
-              id="description"
+          <FormGroup label="Description" htmlFor="description">
+            <Input
               name="description"
+              id="description"
               value={repo.description || ""}
               placeholder="A short description"
             />
-          </div>
-          <div class="form-group">
-            <label for="default_branch">Default branch</label>
-            <select id="default_branch" name="default_branch">
+          </FormGroup>
+          <FormGroup label="Default branch" htmlFor="default_branch">
+            <Select name="default_branch" id="default_branch" value={repo.defaultBranch}>
               {branches.length === 0 ? (
                 <option value={repo.defaultBranch}>
                   {repo.defaultBranch}
@@ -94,10 +102,9 @@ repoSettings.get("/:owner/:repo/settings", requireAuth, async (c) => {
                   </option>
                 ))
               )}
-            </select>
-          </div>
-          <div class="form-group">
-            <label>Visibility</label>
+            </Select>
+          </FormGroup>
+          <FormGroup label="Visibility">
             <div class="visibility-options">
               <label class="visibility-option">
                 <input
@@ -118,11 +125,11 @@ repoSettings.get("/:owner/:repo/settings", requireAuth, async (c) => {
                 <div class="vis-label">Private</div>
               </label>
             </div>
-          </div>
-          <button type="submit" class="btn btn-primary">
+          </FormGroup>
+          <Button type="submit" variant="primary">
             Save changes
-          </button>
-        </form>
+          </Button>
+        </Form>
 
         <div
           style="margin-top: 32px; padding: 20px; border: 1px solid var(--border); border-radius: var(--radius)"
@@ -206,20 +213,20 @@ repoSettings.get("/:owner/:repo/settings", requireAuth, async (c) => {
           style="margin-top: 20px; padding: 20px; border: 1px solid var(--red); border-radius: var(--radius)"
         >
           <h3 style="color: var(--red); margin-bottom: 12px">Danger zone</h3>
-          <p style="font-size: 14px; color: var(--text-muted); margin-bottom: 12px">
+          <Text size={14} muted style="display:block;margin-bottom:12px">
             Permanently delete this repository and all its data.
-          </p>
+          </Text>
           <form
             method="post"
             action={`/${ownerName}/${repoName}/settings/delete`}
             onsubmit="return confirm('Are you sure? This cannot be undone.')"
           >
-            <button type="submit" class="btn btn-danger">
+            <Button type="submit" variant="danger">
               Delete this repository
-            </button>
+            </Button>
           </form>
         </div>
-      </div>
+      </Container>
     </Layout>
   );
 });

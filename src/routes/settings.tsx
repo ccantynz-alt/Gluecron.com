@@ -9,8 +9,18 @@ import { users, sshKeys } from "../db/schema";
 import type { AuthEnv } from "../middleware/auth";
 import { requireAuth } from "../middleware/auth";
 import { Layout } from "../views/layout";
-import { composeDigest } from "../lib/email-digest";
-import { raw } from "hono/html";
+import {
+  Alert,
+  Button,
+  Flex,
+  Form,
+  FormGroup,
+  Input,
+  PageHeader,
+  Section,
+  Text,
+  TextArea,
+} from "../views/ui";
 
 const settings = new Hono<AuthEnv>();
 
@@ -26,11 +36,11 @@ settings.get("/settings", (c) => {
   return c.html(
     <Layout title="Settings">
       <div class="settings-container">
-        <h2>Profile settings</h2>
+        <PageHeader title="Profile settings" />
         {success && (
-          <div class="auth-success">
+          <Alert variant="success">
             {decodeURIComponent(success)}
-          </div>
+          </Alert>
         )}
         <form method="post" action="/settings/profile">
           <div class="form-group">
@@ -40,41 +50,35 @@ settings.get("/settings", (c) => {
               id="username"
               value={user.username}
               disabled
-              class="input-disabled"
             />
-          </div>
-          <div class="form-group">
-            <label for="display_name">Display name</label>
-            <input
-              type="text"
-              id="display_name"
+          </FormGroup>
+          <FormGroup label="Display name" htmlFor="display_name">
+            <Input
               name="display_name"
+              id="display_name"
               value={user.displayName || ""}
               placeholder="Your display name"
             />
-          </div>
-          <div class="form-group">
-            <label for="bio">Bio</label>
-            <textarea
-              id="bio"
+          </FormGroup>
+          <FormGroup label="Bio" htmlFor="bio">
+            <TextArea
               name="bio"
+              id="bio"
               rows={3}
               placeholder="Tell us about yourself"
-            >
-              {user.bio || ""}
-            </textarea>
-          </div>
-          <div class="form-group">
-            <label for="email">Email</label>
-            <input
-              type="email"
-              id="email"
+              value={user.bio || ""}
+            />
+          </FormGroup>
+          <FormGroup label="Email" htmlFor="email">
+            <Input
               name="email"
+              id="email"
+              type="email"
               value={user.email}
               required
             />
-          </div>
-          <button type="submit" class="btn btn-primary">
+          </FormGroup>
+          <Button type="submit" variant="primary">
             Update profile
           </button>
         </form>
@@ -231,18 +235,18 @@ settings.get("/settings/keys", async (c) => {
   return c.html(
     <Layout title="SSH Keys">
       <div class="settings-container">
-        <h2>SSH Keys</h2>
+        <PageHeader title="SSH Keys" />
         {success && (
-          <div class="auth-success">{decodeURIComponent(success)}</div>
+          <Alert variant="success">{decodeURIComponent(success)}</Alert>
         )}
         {error && (
-          <div class="auth-error">{decodeURIComponent(error)}</div>
+          <Alert variant="error">{decodeURIComponent(error)}</Alert>
         )}
         <div class="ssh-keys-list">
           {keys.length === 0 ? (
-            <p style="color: var(--text-muted)">
+            <Text muted>
               No SSH keys yet. Add one below.
-            </p>
+            </Text>
           ) : (
             keys.map((key) => (
               <div class="ssh-key-item">
@@ -269,8 +273,8 @@ settings.get("/settings/keys", async (c) => {
                 <form method="post" action={`/settings/keys/${key.id}/delete`}>
                   <button type="submit" class="btn btn-danger btn-sm">
                     Delete
-                  </button>
-                </form>
+                  </Button>
+                </Form>
               </div>
             ))
           )}

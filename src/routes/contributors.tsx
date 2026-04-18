@@ -8,6 +8,16 @@ import { RepoHeader, RepoNav } from "../views/components";
 import { getRepoPath, repoExists, getDefaultBranch } from "../git/repository";
 import { softAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
+import {
+  Avatar,
+  Card,
+  Flex,
+  List,
+  ListItem,
+  PageHeader,
+  Text,
+  Tooltip,
+} from "../views/ui";
 
 const contributors = new Hono<AuthEnv>();
 
@@ -89,52 +99,47 @@ contributors.get("/:owner/:repo/contributors", async (c) => {
     <Layout title={`Contributors — ${owner}/${repo}`} user={user}>
       <RepoHeader owner={owner} repo={repo} />
       <RepoNav owner={owner} repo={repo} active="code" />
-      <h2 style="margin-bottom: 16px">Contributors</h2>
+      <PageHeader title="Contributors" />
 
-      <div
-        style="margin-bottom: 24px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px"
-      >
-        <div style="font-size: 13px; color: var(--text-muted); margin-bottom: 8px">
-          Commit activity — last year
-        </div>
-        <div style="display: flex; gap: 2px; align-items: flex-end; height: 60px">
+      <Card style="margin-bottom:24px;padding:16px">
+        <Text size={13} muted>Commit activity — last year</Text>
+        <Flex gap={2} align="flex-end" style="height:60px;margin-top:8px">
           {weekCounts.map((count) => (
-            <div
-              style={`flex: 1; background: var(--green); opacity: ${count === 0 ? "0.1" : Math.max(0.3, count / maxWeek).toFixed(2)}; height: ${count === 0 ? "2px" : Math.max(4, (count / maxWeek) * 60).toFixed(0) + "px"}; border-radius: 1px;`}
-              title={`${count} commits`}
-            />
+            <Tooltip text={`${count} commits`}>
+              <div
+                style={`flex:1;background:var(--green);opacity:${count === 0 ? "0.1" : Math.max(0.3, count / maxWeek).toFixed(2)};height:${count === 0 ? "2px" : Math.max(4, (count / maxWeek) * 60).toFixed(0) + "px"};border-radius:1px;`}
+              />
+            </Tooltip>
           ))}
-        </div>
-      </div>
+        </Flex>
+      </Card>
 
-      <div class="issue-list">
-        {contribs.map((contrib, i) => (
-          <div class="issue-item">
-            <div style="display: flex; align-items: center; gap: 12px; flex: 1">
-              <div class="user-avatar" style="width: 36px; height: 36px; font-size: 16px; flex-shrink: 0">
-                {contrib.name[0].toUpperCase()}
-              </div>
+      <List>
+        {contribs.map((contrib) => (
+          <ListItem>
+            <Flex align="center" gap={12} style="flex:1">
+              <Avatar name={contrib.name} size={36} />
               <div>
-                <div style="font-weight: 600; font-size: 14px">
+                <Text size={14} weight={600}>
                   {contrib.name}
-                </div>
-                <div style="font-size: 12px; color: var(--text-muted)">
+                </Text>
+                <br />
+                <Text size={12} muted>
                   {contrib.email}
-                </div>
+                </Text>
               </div>
-            </div>
-            <div style="text-align: right">
-              <span style="font-weight: 600; font-size: 14px">
+            </Flex>
+            <div style="text-align:right">
+              <Text size={14} weight={600}>
                 {contrib.commits}
-              </span>
-              <span style="color: var(--text-muted); font-size: 13px">
-                {" "}
-                commit{contrib.commits !== 1 ? "s" : ""}
-              </span>
+              </Text>
+              <Text size={13} muted>
+                {" "}commit{contrib.commits !== 1 ? "s" : ""}
+              </Text>
             </div>
-          </div>
+          </ListItem>
         ))}
-      </div>
+      </List>
     </Layout>
   );
 });

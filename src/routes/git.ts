@@ -13,6 +13,15 @@ import { trackByName } from "../lib/traffic";
 
 const git = new Hono();
 
+/** Extract repo name from the ":repo.git" param Hono generates. */
+function gitParams(c: any): { owner: string; repo: string } {
+  const params = c.req.param();
+  const owner: string = params.owner;
+  const raw: string = params["repo.git"] ?? params.repo ?? "";
+  const repo = raw.replace(/\.git$/, "");
+  return { owner, repo };
+}
+
 // Discovery: GET /:owner/:repo.git/info/refs?service=...
 git.get("/:owner/:repo.git/info/refs", async (c) => {
   const { owner, "repo.git": repo } = c.req.param();

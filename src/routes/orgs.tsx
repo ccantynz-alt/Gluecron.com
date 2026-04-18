@@ -1,165 +1,42 @@
 /**
- * Organizations (Block B1).
- *
- * Routes:
- *   GET  /orgs                              list orgs the current user belongs to
- *   GET  /orgs/new                          create-org form
- *   POST /orgs/new                          create org; creator becomes owner
- *   GET  /orgs/:slug                        org profile (people + teams summary)
- *   GET  /orgs/:slug/people                 full people list
- *   POST /orgs/:slug/people/add             add member by username (admin+)
- *   POST /orgs/:slug/people/:uid/role       change role (owner only; last-owner guard)
- *   POST /orgs/:slug/people/:uid/remove     remove member (admin+; cannot self-demote if last owner)
- *   GET  /orgs/:slug/teams                  teams list
- *   POST /orgs/:slug/teams/new              create team (admin+)
- *   GET  /orgs/:slug/teams/:teamSlug        team detail + member mgmt
- *   POST /orgs/:slug/teams/:teamSlug/members/add     add team member (maintainer+ of team OR org admin+)
- *   POST /orgs/:slug/teams/:teamSlug/members/:uid/remove
- *
- * Auth: /orgs and sub-paths require auth.
- * Authorization is role-based and checked inside each handler.
+ * Organization and team routes — create orgs, manage members, teams, permissions.
  */
 
 import { Hono } from "hono";
-import { and, eq } from "drizzle-orm";
+import { eq, and, desc, asc, sql } from "drizzle-orm";
 import { db } from "../db";
-import {
-  organizations,
-  orgMembers,
-  teams,
-  teamMembers,
-  users,
-  repositories,
-} from "../db/schema";
-import type { AuthEnv } from "../middleware/auth";
-import { requireAuth } from "../middleware/auth";
+import { organizations, orgMembers, teams, teamMembers, teamRepos } from "../db/schema-extensions";
+import { users, repositories } from "../db/schema";
 import { Layout } from "../views/layout";
+import { softAuth, requireAuth } from "../middleware/auth";
+import type { AuthEnv } from "../middleware/auth";
 import {
-  isValidSlug,
-  normalizeSlug,
-  orgRoleAtLeast,
-  isValidOrgRole,
-  isValidTeamRole,
-  loadOrgForUser,
-  listOrgsForUser,
-  listOrgMembers,
-  listTeamsForOrg,
-  listTeamMembers,
-} from "../lib/orgs";
-import { audit } from "../lib/notify";
-import { initBareRepo, repoExists } from "../git/repository";
+  Container,
+  PageHeader,
+  Form,
+  FormGroup,
+  Input,
+  TextArea,
+  Select,
+  Button,
+  LinkButton,
+  Alert,
+  EmptyState,
+  Flex,
+  Grid,
+  Text,
+  Badge,
+  Section,
+  Avatar,
+  List,
+  ListItem,
+} from "../views/ui";
 
-const orgs = new Hono<AuthEnv>();
+const orgRoutes = new Hono<AuthEnv>();
 
-orgs.use("/orgs", requireAuth);
-orgs.use("/orgs/*", requireAuth);
+// ─── Organization List / Create ─────────────────────────────────────────────
 
-// --- helpers ----------------------------------------------------------------
-
-function errorRedirect(path: string, msg: string) {
-  return `${path}?error=${encodeURIComponent(msg)}`;
-}
-function successRedirect(path: string, msg: string) {
-  return `${path}?success=${encodeURIComponent(msg)}`;
-}
-
-/**
- * Count owners in an org. Used to block the last-owner from being demoted
- * or removed (that would orphan the org).
- */
-async function ownerCount(orgId: string): Promise<number> {
-  try {
-    const rows = await db
-      .select({ userId: orgMembers.userId })
-      .from(orgMembers)
-      .where(and(eq(orgMembers.orgId, orgId), eq(orgMembers.role, "owner")));
-    return rows.length;
-  } catch (err) {
-    console.error("[orgs] ownerCount:", err);
-    // Fail-safe: pretend there's more than one so we never accidentally
-    // allow the last owner to be removed.
-    return 2;
-  }
-}
-
-async function findUserByUsername(username: string) {
-  try {
-    const [u] = await db
-      .select()
-      .from(users)
-      .where(eq(users.username, username))
-      .limit(1);
-    return u || null;
-  } catch (err) {
-    console.error("[orgs] findUserByUsername:", err);
-    return null;
-  }
-}
-
-// --- LIST -------------------------------------------------------------------
-
-orgs.get("/orgs", async (c) => {
-  const user = c.get("user")!;
-  const rows = await listOrgsForUser(user.id);
-
-  return c.html(
-    <Layout title="Organizations" user={user}>
-      <div class="settings-container" style="max-width: 800px">
-        <div
-          style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px"
-        >
-          <h2 style="margin: 0">Your organizations</h2>
-          <a href="/orgs/new" class="btn btn-primary">
-            New organization
-          </a>
-        </div>
-        {rows.length === 0 ? (
-          <div class="empty-state">
-            <h2>No organizations yet</h2>
-            <p>
-              Organizations let multiple users collaborate on shared repos
-              with team-based permissions.
-            </p>
-            <a href="/orgs/new" class="btn btn-primary" style="margin-top: 8px">
-              Create your first org
-            </a>
-          </div>
-        ) : (
-          <div style="display: flex; flex-direction: column; gap: 8px">
-            {rows.map((r) => (
-              <a
-                href={`/orgs/${r.slug}`}
-                style="display: flex; padding: 12px 16px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius); text-decoration: none; color: var(--text); align-items: center; gap: 12px"
-              >
-                <div style="flex: 1">
-                  <strong>{r.name}</strong>{" "}
-                  <span style="color: var(--text-muted); font-size: 12px">
-                    @{r.slug}
-                  </span>
-                  {r.description && (
-                    <div style="color: var(--text-muted); font-size: 13px; margin-top: 2px">
-                      {r.description}
-                    </div>
-                  )}
-                </div>
-                <span
-                  class="gate-status"
-                  style="font-size: 11px; text-transform: uppercase"
-                >
-                  {r.role}
-                </span>
-              </a>
-            ))}
-          </div>
-        )}
-      </div>
-    </Layout>
-  );
-});
-
-// --- CREATE -----------------------------------------------------------------
-
-orgs.get("/orgs/new", async (c) => {
+orgRoutes.get("/orgs/new", softAuth, requireAuth, (c) => {
   const user = c.get("user")!;
   const error = c.req.query("error");
 
@@ -220,216 +97,170 @@ orgs.get("/orgs/new", async (c) => {
   );
 });
 
-orgs.post("/orgs/new", async (c) => {
+orgRoutes.post("/orgs/new", softAuth, requireAuth, async (c) => {
   const user = c.get("user")!;
   const body = await c.req.parseBody();
-  const slug = normalizeSlug(String(body.slug || ""));
   const name = String(body.name || "").trim();
-  const description = String(body.description || "").trim() || null;
+  const displayName = String(body.displayName || "").trim();
+  const description = String(body.description || "").trim();
+  const website = String(body.website || "").trim();
 
-  if (!isValidSlug(slug)) {
-    return c.redirect(
-      errorRedirect(
-        "/orgs/new",
-        "Invalid slug. 2–39 chars, lowercase a-z, 0-9, hyphens. No reserved words."
-      )
-    );
-  }
-  if (!name) {
-    return c.redirect(errorRedirect("/orgs/new", "Display name is required"));
+  if (!name || !/^[a-zA-Z0-9._-]+$/.test(name)) {
+    return c.redirect("/orgs/new?error=Invalid+organization+name");
   }
 
   try {
-    // Collision check against usernames (separate namespace but shared URLs)
-    const [existingUser] = await db
-      .select({ id: users.id })
-      .from(users)
-      .where(eq(users.username, slug))
-      .limit(1);
+    // Check if name is taken (by user or org)
+    const [existingUser] = await db.select().from(users).where(eq(users.username, name)).limit(1);
     if (existingUser) {
-      return c.redirect(
-        errorRedirect(
-          "/orgs/new",
-          "That slug is already taken by a user account"
-        )
-      );
+      return c.redirect("/orgs/new?error=Name+already+taken");
+    }
+
+    const [existingOrg] = await db.select().from(organizations).where(eq(organizations.name, name)).limit(1);
+    if (existingOrg) {
+      return c.redirect("/orgs/new?error=Organization+already+exists");
     }
 
     const [org] = await db
       .insert(organizations)
       .values({
-        slug,
         name,
-        description,
-        createdById: user.id,
+        displayName: displayName || name,
+        description: description || null,
+        website: website || null,
       })
       .returning();
 
-    if (!org) {
-      return c.redirect(
-        errorRedirect("/orgs/new", "Failed to create organization")
-      );
-    }
-
-    // Creator is the first owner
+    // Add creator as owner
     await db.insert(orgMembers).values({
       orgId: org.id,
       userId: user.id,
       role: "owner",
     });
 
-    await audit({
-      userId: user.id,
-      action: "org.create",
-      targetType: "organization",
-      targetId: org.id,
-      metadata: { slug, name },
-    });
-
-    return c.redirect(`/orgs/${slug}`);
+    return c.redirect(`/orgs/${name}`);
   } catch (err: any) {
-    if (String(err?.message || err).includes("organizations_slug")) {
-      return c.redirect(
-        errorRedirect("/orgs/new", "That slug is already taken")
-      );
-    }
-    console.error("[orgs] create:", err);
-    return c.redirect(
-      errorRedirect("/orgs/new", "Failed to create organization")
-    );
+    return c.redirect(`/orgs/new?error=${encodeURIComponent(err.message || "Failed to create organization")}`);
   }
 });
 
-// --- PROFILE ----------------------------------------------------------------
+// ─── Organization Profile ───────────────────────────────────────────────────
 
-orgs.get("/orgs/:slug", async (c) => {
-  const user = c.get("user")!;
-  const slug = c.req.param("slug");
-  const { org, role } = await loadOrgForUser(slug, user.id);
+orgRoutes.get("/orgs/:org", softAuth, async (c) => {
+  const orgName = c.req.param("org");
+  const user = c.get("user");
+
+  let org: any;
+  try {
+    const [found] = await db.select().from(organizations).where(eq(organizations.name, orgName)).limit(1);
+    org = found;
+  } catch {
+    return c.notFound();
+  }
+
   if (!org) return c.notFound();
-  const error = c.req.query("error");
-  const success = c.req.query("success");
 
-  const [members, orgTeams] = await Promise.all([
-    listOrgMembers(org.id),
-    listTeamsForOrg(org.id),
-  ]);
+  // Get members
+  let members: any[] = [];
+  try {
+    members = await db
+      .select({ member: orgMembers, user: { username: users.username, displayName: users.displayName } })
+      .from(orgMembers)
+      .innerJoin(users, eq(orgMembers.userId, users.id))
+      .where(eq(orgMembers.orgId, org.id))
+      .orderBy(asc(orgMembers.role));
+  } catch {
+    // Table may not exist
+  }
+
+  // Get teams
+  let teamList: any[] = [];
+  try {
+    teamList = await db.select().from(teams).where(eq(teams.orgId, org.id)).orderBy(asc(teams.name));
+  } catch {
+    // Table may not exist
+  }
+
+  const isMember = user && members.some((m: any) => m.member.userId === user.id);
+  const isOwner = user && members.some((m: any) => m.member.userId === user.id && m.member.role === "owner");
 
   return c.html(
-    <Layout title={`${org.name} (@${org.slug})`} user={user}>
-      <div style="max-width: 900px">
-        <div style="display: flex; align-items: center; gap: 16px; margin-bottom: 16px">
-          <div style="flex: 1">
-            <h2 style="margin: 0">{org.name}</h2>
-            <div style="color: var(--text-muted); font-size: 13px">
-              @{org.slug}
-              {role && (
-                <>
-                  {" · "}
-                  <span class="gate-status" style="font-size: 10px">
-                    {role}
-                  </span>
-                </>
-              )}
-            </div>
-          </div>
-          <div style="display: flex; gap: 8px">
-            <a href={`/orgs/${org.slug}/repos`} class="btn">
-              Repositories
-            </a>
-            {role && orgRoleAtLeast(role, "admin") && (
-              <a href={`/orgs/${org.slug}/people`} class="btn">
-                Manage
+    <Layout title={org.displayName || org.name} user={user}>
+      <Container maxWidth={900}>
+        <Flex gap={24} style="margin-bottom:32px">
+          <Avatar name={org.displayName || org.name} size={80} />
+          <div>
+            <h2>{org.displayName || org.name}</h2>
+            <Text size={14} muted>@{org.name}</Text>
+            {org.description && <p style="margin-top:8px"><Text size={14} muted>{org.description}</Text></p>}
+            {org.website && (
+              <a href={org.website} style="font-size:13px" target="_blank" rel="noopener noreferrer">
+                {org.website}
               </a>
             )}
           </div>
-        </div>
-        {org.description && (
-          <p style="color: var(--text-muted); margin-bottom: 16px">
-            {org.description}
-          </p>
-        )}
-        {error && <div class="auth-error">{decodeURIComponent(error)}</div>}
-        {success && (
-          <div class="auth-success">{decodeURIComponent(success)}</div>
-        )}
+          {isOwner && (
+            <div style="margin-left:auto">
+              <LinkButton href={`/orgs/${org.name}/settings`} size="sm">Settings</LinkButton>
+            </div>
+          )}
+        </Flex>
 
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px">
+        <Grid cols="1fr 300px" gap={32}>
           <div>
-            <div
-              style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px"
-            >
-              <h3 style="font-size: 15px; margin: 0">
-                People ({members.length})
-              </h3>
-              <a
-                href={`/orgs/${org.slug}/people`}
-                style="font-size: 12px"
-              >
-                view all
-              </a>
-            </div>
-            <div
-              style="border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-secondary); padding: 8px 12px"
-            >
-              {members.slice(0, 8).map((m) => (
-                <div
-                  style="padding: 4px 0; display: flex; justify-content: space-between; font-size: 13px"
-                >
-                  <span>
-                    <a href={`/${m.username}`}>{m.username}</a>
-                  </span>
-                  <span
-                    style="color: var(--text-muted); font-size: 11px; text-transform: uppercase"
-                  >
-                    {m.role}
-                  </span>
-                </div>
-              ))}
-              {members.length === 0 && (
-                <div style="color: var(--text-muted); font-size: 12px">
-                  No members yet
+            <Section title="Teams">
+              {teamList.length === 0 ? (
+                <EmptyState>
+                  <p>No teams yet.</p>
+                  {isOwner && <LinkButton href={`/orgs/${org.name}/teams/new`} variant="primary" size="sm">Create a team</LinkButton>}
+                </EmptyState>
+              ) : (
+                <List>
+                  {teamList.map((team: any) => (
+                    <ListItem>
+                      <div>
+                        <div style="font-weight:500;font-size:15px">
+                          <a href={`/orgs/${org.name}/teams/${team.name}`} style="color:var(--text)">{team.name}</a>
+                        </div>
+                        {team.description && <Text size={13} muted>{team.description}</Text>}
+                      </div>
+                      <Badge>{team.permission}</Badge>
+                    </ListItem>
+                  ))}
+                </List>
+              )}
+              {isOwner && teamList.length > 0 && (
+                <div style="margin-top:12px">
+                  <LinkButton href={`/orgs/${org.name}/teams/new`} variant="primary" size="sm">Create team</LinkButton>
                 </div>
               )}
-            </div>
+            </Section>
           </div>
+
           <div>
-            <div
-              style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px"
-            >
-              <h3 style="font-size: 15px; margin: 0">
-                Teams ({orgTeams.length})
-              </h3>
-              <a href={`/orgs/${org.slug}/teams`} style="font-size: 12px">
-                view all
-              </a>
-            </div>
-            <div
-              style="border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-secondary); padding: 8px 12px"
-            >
-              {orgTeams.slice(0, 8).map((t) => (
-                <div
-                  style="padding: 4px 0; display: flex; justify-content: space-between; font-size: 13px"
-                >
-                  <a href={`/orgs/${org.slug}/teams/${t.slug}`}>
-                    {t.name}
-                  </a>
-                  <span
-                    style="color: var(--text-muted); font-size: 11px"
-                  >
-                    @{t.slug}
-                  </span>
-                </div>
-              ))}
-              {orgTeams.length === 0 && (
-                <div style="color: var(--text-muted); font-size: 12px">
-                  No teams yet
+            <Section title={`Members (${members.length})`}>
+              <List>
+                {members.map((m: any) => (
+                  <ListItem>
+                    <Flex align="center" gap={8} style="width:100%">
+                      <Avatar name={m.user.displayName || m.user.username} size={32} />
+                      <div style="flex:1">
+                        <a href={`/${m.user.username}`} style="font-size:14px;font-weight:500">{m.user.username}</a>
+                      </div>
+                      <Badge style="font-size:11px">{m.member.role}</Badge>
+                    </Flex>
+                  </ListItem>
+                ))}
+              </List>
+              {isOwner && (
+                <div style="margin-top:12px">
+                  <LinkButton href={`/orgs/${org.name}/members/invite`} size="sm">Invite member</LinkButton>
                 </div>
               )}
-            </div>
+            </Section>
           </div>
-        </div>
-      </div>
+        </Grid>
+      </Container>
     </Layout>
   );
 });
@@ -556,209 +387,30 @@ orgs.get("/orgs/:slug/people", async (c) => {
   );
 });
 
-orgs.post("/orgs/:slug/people/add", async (c) => {
+orgRoutes.get("/orgs/:org/settings", softAuth, requireAuth, async (c) => {
+  const orgName = c.req.param("org");
   const user = c.get("user")!;
-  const slug = c.req.param("slug");
-  const { org, role } = await loadOrgForUser(slug, user.id);
-  if (!org) return c.notFound();
-  if (!role || !orgRoleAtLeast(role, "admin")) {
-    return c.redirect(
-      errorRedirect(`/orgs/${slug}/people`, "You need admin rights")
-    );
-  }
 
-  const body = await c.req.parseBody();
-  const username = String(body.username || "").trim().toLowerCase();
-  const newRole = String(body.role || "member");
-
-  if (!username || !isValidOrgRole(newRole)) {
-    return c.redirect(
-      errorRedirect(`/orgs/${slug}/people`, "Invalid input")
-    );
-  }
-  // Only owners can grant owner
-  if (newRole === "owner" && !orgRoleAtLeast(role, "owner")) {
-    return c.redirect(
-      errorRedirect(`/orgs/${slug}/people`, "Only owners can grant owner role")
-    );
-  }
-
-  const target = await findUserByUsername(username);
-  if (!target) {
-    return c.redirect(
-      errorRedirect(`/orgs/${slug}/people`, `User ${username} not found`)
-    );
-  }
-
+  let org: any;
   try {
-    await db.insert(orgMembers).values({
-      orgId: org.id,
-      userId: target.id,
-      role: newRole,
-    });
-    await audit({
-      userId: user.id,
-      action: "org.member.add",
-      targetType: "org_member",
-      targetId: target.id,
-      metadata: { orgSlug: slug, role: newRole },
-    });
-  } catch (err: any) {
-    if (String(err?.message || err).includes("org_members_unique")) {
-      return c.redirect(
-        errorRedirect(`/orgs/${slug}/people`, "Already a member")
-      );
-    }
-    console.error("[orgs] add member:", err);
-    return c.redirect(
-      errorRedirect(`/orgs/${slug}/people`, "Failed to add member")
-    );
+    const [found] = await db.select().from(organizations).where(eq(organizations.name, orgName)).limit(1);
+    org = found;
+  } catch {
+    return c.notFound();
   }
-  return c.redirect(successRedirect(`/orgs/${slug}/people`, "Member added"));
-});
-
-orgs.post("/orgs/:slug/people/:uid/role", async (c) => {
-  const user = c.get("user")!;
-  const slug = c.req.param("slug");
-  const targetId = c.req.param("uid");
-  const { org, role } = await loadOrgForUser(slug, user.id);
   if (!org) return c.notFound();
-  if (!role || !orgRoleAtLeast(role, "owner")) {
-    return c.redirect(
-      errorRedirect(`/orgs/${slug}/people`, "Owner-only action")
-    );
-  }
 
-  const body = await c.req.parseBody();
-  const newRole = String(body.role || "member");
-  if (!isValidOrgRole(newRole)) {
-    return c.redirect(errorRedirect(`/orgs/${slug}/people`, "Invalid role"));
-  }
-
+  // Check owner
+  let isOwner = false;
   try {
-    // Last-owner guard: demoting the final owner would orphan the org.
-    if (newRole !== "owner") {
-      const [existing] = await db
-        .select({ role: orgMembers.role })
-        .from(orgMembers)
-        .where(
-          and(eq(orgMembers.orgId, org.id), eq(orgMembers.userId, targetId))
-        )
-        .limit(1);
-      if (
-        existing?.role === "owner" &&
-        (await ownerCount(org.id)) <= 1
-      ) {
-        return c.redirect(
-          errorRedirect(
-            `/orgs/${slug}/people`,
-            "Cannot demote the last owner"
-          )
-        );
-      }
-    }
-
-    await db
-      .update(orgMembers)
-      .set({ role: newRole })
-      .where(
-        and(eq(orgMembers.orgId, org.id), eq(orgMembers.userId, targetId))
-      );
-    await audit({
-      userId: user.id,
-      action: "org.member.role",
-      targetType: "org_member",
-      targetId,
-      metadata: { orgSlug: slug, role: newRole },
-    });
-  } catch (err) {
-    console.error("[orgs] role change:", err);
-    return c.redirect(
-      errorRedirect(`/orgs/${slug}/people`, "Failed to change role")
-    );
-  }
-  return c.redirect(successRedirect(`/orgs/${slug}/people`, "Role updated"));
-});
-
-orgs.post("/orgs/:slug/people/:uid/remove", async (c) => {
-  const user = c.get("user")!;
-  const slug = c.req.param("slug");
-  const targetId = c.req.param("uid");
-  const { org, role } = await loadOrgForUser(slug, user.id);
-  if (!org) return c.notFound();
-  if (!role || !orgRoleAtLeast(role, "admin")) {
-    return c.redirect(
-      errorRedirect(`/orgs/${slug}/people`, "Admin-only action")
-    );
-  }
-  if (targetId === user.id) {
-    return c.redirect(
-      errorRedirect(
-        `/orgs/${slug}/people`,
-        "Leave the org from your settings instead"
-      )
-    );
-  }
-
-  try {
-    const [existing] = await db
-      .select({ role: orgMembers.role })
-      .from(orgMembers)
-      .where(and(eq(orgMembers.orgId, org.id), eq(orgMembers.userId, targetId)))
+    const [member] = await db.select().from(orgMembers)
+      .where(and(eq(orgMembers.orgId, org.id), eq(orgMembers.userId, user.id), eq(orgMembers.role, "owner")))
       .limit(1);
-    if (!existing) {
-      return c.redirect(
-        errorRedirect(`/orgs/${slug}/people`, "Member not found")
-      );
-    }
-    if (existing.role === "owner" && (await ownerCount(org.id)) <= 1) {
-      return c.redirect(
-        errorRedirect(`/orgs/${slug}/people`, "Cannot remove the last owner")
-      );
-    }
-    // Admin cannot remove an owner.
-    if (existing.role === "owner" && !orgRoleAtLeast(role, "owner")) {
-      return c.redirect(
-        errorRedirect(
-          `/orgs/${slug}/people`,
-          "Only an owner can remove another owner"
-        )
-      );
-    }
+    isOwner = !!member;
+  } catch { /* */ }
+  if (!isOwner) return c.redirect(`/orgs/${orgName}`);
 
-    await db
-      .delete(orgMembers)
-      .where(
-        and(eq(orgMembers.orgId, org.id), eq(orgMembers.userId, targetId))
-      );
-    await audit({
-      userId: user.id,
-      action: "org.member.remove",
-      targetType: "org_member",
-      targetId,
-      metadata: { orgSlug: slug },
-    });
-  } catch (err) {
-    console.error("[orgs] remove member:", err);
-    return c.redirect(
-      errorRedirect(`/orgs/${slug}/people`, "Failed to remove member")
-    );
-  }
-  return c.redirect(successRedirect(`/orgs/${slug}/people`, "Member removed"));
-});
-
-// --- TEAMS ------------------------------------------------------------------
-
-orgs.get("/orgs/:slug/teams", async (c) => {
-  const user = c.get("user")!;
-  const slug = c.req.param("slug");
-  const { org, role } = await loadOrgForUser(slug, user.id);
-  if (!org) return c.notFound();
-
-  const orgTeams = await listTeamsForOrg(org.id);
-  const error = c.req.query("error");
   const success = c.req.query("success");
-  const canAdmin = role && orgRoleAtLeast(role, "admin");
 
   return c.html(
     <Layout title={`${org.name} — teams`} user={user}>
@@ -829,87 +481,61 @@ orgs.get("/orgs/:slug/teams", async (c) => {
             ))
           )}
         </div>
-      </div>
+      </Container>
     </Layout>
   );
 });
 
-orgs.post("/orgs/:slug/teams/new", async (c) => {
+orgRoutes.post("/orgs/:org/settings", softAuth, requireAuth, async (c) => {
+  const orgName = c.req.param("org");
   const user = c.get("user")!;
-  const slug = c.req.param("slug");
-  const { org, role } = await loadOrgForUser(slug, user.id);
-  if (!org) return c.notFound();
-  if (!role || !orgRoleAtLeast(role, "admin")) {
-    return c.redirect(
-      errorRedirect(`/orgs/${slug}/teams`, "Admin-only action")
-    );
-  }
-
   const body = await c.req.parseBody();
-  const teamSlug = normalizeSlug(String(body.slug || ""));
-  const name = String(body.name || "").trim();
-  const description = String(body.description || "").trim() || null;
-
-  if (!isValidSlug(teamSlug) || !name) {
-    return c.redirect(
-      errorRedirect(`/orgs/${slug}/teams`, "Invalid slug or name")
-    );
-  }
 
   try {
-    await db.insert(teams).values({
-      orgId: org.id,
-      slug: teamSlug,
-      name,
-      description,
-    });
-    await audit({
-      userId: user.id,
-      action: "org.team.create",
-      targetType: "team",
-      metadata: { orgSlug: slug, teamSlug },
-    });
-  } catch (err: any) {
-    if (String(err?.message || err).includes("teams_org_slug")) {
-      return c.redirect(
-        errorRedirect(
-          `/orgs/${slug}/teams`,
-          "A team with that slug already exists"
-        )
-      );
-    }
-    console.error("[orgs] team create:", err);
-    return c.redirect(
-      errorRedirect(`/orgs/${slug}/teams`, "Failed to create team")
-    );
-  }
-  return c.redirect(
-    successRedirect(`/orgs/${slug}/teams`, "Team created")
-  );
+    const [org] = await db.select().from(organizations).where(eq(organizations.name, orgName)).limit(1);
+    if (!org) return c.redirect("/");
+
+    const [member] = await db.select().from(orgMembers)
+      .where(and(eq(orgMembers.orgId, org.id), eq(orgMembers.userId, user.id), eq(orgMembers.role, "owner")))
+      .limit(1);
+    if (!member) return c.redirect(`/orgs/${orgName}`);
+
+    await db.update(organizations).set({
+      displayName: String(body.displayName || "").trim() || org.name,
+      description: String(body.description || "").trim() || null,
+      website: String(body.website || "").trim() || null,
+      location: String(body.location || "").trim() || null,
+      updatedAt: new Date(),
+    }).where(eq(organizations.id, org.id));
+  } catch { /* */ }
+
+  return c.redirect(`/orgs/${orgName}/settings?success=1`);
 });
 
-orgs.get("/orgs/:slug/teams/:teamSlug", async (c) => {
+orgRoutes.post("/orgs/:org/delete", softAuth, requireAuth, async (c) => {
+  const orgName = c.req.param("org");
   const user = c.get("user")!;
-  const slug = c.req.param("slug");
-  const teamSlug = c.req.param("teamSlug");
-  const { org, role } = await loadOrgForUser(slug, user.id);
-  if (!org) return c.notFound();
 
-  let team: typeof teams.$inferSelect | null = null;
   try {
-    const [t] = await db
-      .select()
-      .from(teams)
-      .where(and(eq(teams.orgId, org.id), eq(teams.slug, teamSlug)))
-      .limit(1);
-    team = t || null;
-  } catch (err) {
-    console.error("[orgs] team detail:", err);
-  }
-  if (!team) return c.notFound();
+    const [org] = await db.select().from(organizations).where(eq(organizations.name, orgName)).limit(1);
+    if (!org) return c.redirect("/");
 
-  const members = await listTeamMembers(team.id);
-  const canAdmin = role && orgRoleAtLeast(role, "admin");
+    const [member] = await db.select().from(orgMembers)
+      .where(and(eq(orgMembers.orgId, org.id), eq(orgMembers.userId, user.id), eq(orgMembers.role, "owner")))
+      .limit(1);
+    if (!member) return c.redirect(`/orgs/${orgName}`);
+
+    await db.delete(organizations).where(eq(organizations.id, org.id));
+  } catch { /* */ }
+
+  return c.redirect("/");
+});
+
+// ─── Member Invite ──────────────────────────────────────────────────────────
+
+orgRoutes.get("/orgs/:org/members/invite", softAuth, requireAuth, async (c) => {
+  const orgName = c.req.param("org");
+  const user = c.get("user")!;
   const error = c.req.query("error");
   const success = c.req.query("success");
 
@@ -1003,148 +629,56 @@ orgs.get("/orgs/:slug/teams/:teamSlug", async (c) => {
   );
 });
 
-orgs.post("/orgs/:slug/teams/:teamSlug/members/add", async (c) => {
+orgRoutes.post("/orgs/:org/members/invite", softAuth, requireAuth, async (c) => {
+  const orgName = c.req.param("org");
   const user = c.get("user")!;
-  const slug = c.req.param("slug");
-  const teamSlug = c.req.param("teamSlug");
-  const { org, role } = await loadOrgForUser(slug, user.id);
-  if (!org) return c.notFound();
-  if (!role || !orgRoleAtLeast(role, "admin")) {
-    return c.redirect(
-      errorRedirect(`/orgs/${slug}/teams/${teamSlug}`, "Admin-only action")
-    );
-  }
-
   const body = await c.req.parseBody();
-  const username = String(body.username || "").trim().toLowerCase();
-  const teamRole = String(body.role || "member");
-  if (!username || !isValidTeamRole(teamRole)) {
-    return c.redirect(
-      errorRedirect(`/orgs/${slug}/teams/${teamSlug}`, "Invalid input")
-    );
-  }
+  const username = String(body.username || "").trim();
+  const role = String(body.role || "member");
 
   try {
-    const [team] = await db
-      .select({ id: teams.id })
-      .from(teams)
-      .where(and(eq(teams.orgId, org.id), eq(teams.slug, teamSlug)))
-      .limit(1);
-    if (!team) return c.notFound();
+    const [org] = await db.select().from(organizations).where(eq(organizations.name, orgName)).limit(1);
+    if (!org) return c.redirect("/");
 
-    const target = await findUserByUsername(username);
-    if (!target) {
-      return c.redirect(
-        errorRedirect(
-          `/orgs/${slug}/teams/${teamSlug}`,
-          `User ${username} not found`
-        )
-      );
+    // Check inviter is owner or admin
+    const [inviter] = await db.select().from(orgMembers)
+      .where(and(eq(orgMembers.orgId, org.id), eq(orgMembers.userId, user.id)))
+      .limit(1);
+    if (!inviter || (inviter.role !== "owner" && inviter.role !== "admin")) {
+      return c.redirect(`/orgs/${orgName}/members/invite?error=Permission+denied`);
     }
 
-    // Team membership requires org membership.
-    const [orgMem] = await db
-      .select({ role: orgMembers.role })
-      .from(orgMembers)
-      .where(and(eq(orgMembers.orgId, org.id), eq(orgMembers.userId, target.id)))
-      .limit(1);
-    if (!orgMem) {
-      return c.redirect(
-        errorRedirect(
-          `/orgs/${slug}/teams/${teamSlug}`,
-          `${username} is not a member of this org`
-        )
-      );
+    // Find user
+    const [targetUser] = await db.select().from(users).where(eq(users.username, username)).limit(1);
+    if (!targetUser) {
+      return c.redirect(`/orgs/${orgName}/members/invite?error=User+not+found`);
     }
 
-    await db
-      .insert(teamMembers)
-      .values({ teamId: team.id, userId: target.id, role: teamRole });
-    await audit({
-      userId: user.id,
-      action: "org.team.member.add",
-      targetType: "team_member",
-      targetId: target.id,
-      metadata: { orgSlug: slug, teamSlug, role: teamRole },
+    // Check if already member
+    const [existing] = await db.select().from(orgMembers)
+      .where(and(eq(orgMembers.orgId, org.id), eq(orgMembers.userId, targetUser.id)))
+      .limit(1);
+    if (existing) {
+      return c.redirect(`/orgs/${orgName}/members/invite?error=User+is+already+a+member`);
+    }
+
+    await db.insert(orgMembers).values({
+      orgId: org.id,
+      userId: targetUser.id,
+      role: ["owner", "admin", "member"].includes(role) ? role : "member",
     });
+
+    return c.redirect(`/orgs/${orgName}/members/invite?success=1`);
   } catch (err: any) {
-    if (String(err?.message || err).includes("team_members_unique")) {
-      return c.redirect(
-        errorRedirect(
-          `/orgs/${slug}/teams/${teamSlug}`,
-          "Already on this team"
-        )
-      );
-    }
-    console.error("[orgs] team member add:", err);
-    return c.redirect(
-      errorRedirect(`/orgs/${slug}/teams/${teamSlug}`, "Failed to add member")
-    );
+    return c.redirect(`/orgs/${orgName}/members/invite?error=${encodeURIComponent(err.message || "Failed")}`);
   }
-  return c.redirect(
-    successRedirect(`/orgs/${slug}/teams/${teamSlug}`, "Member added")
-  );
 });
 
-orgs.post("/orgs/:slug/teams/:teamSlug/members/:uid/remove", async (c) => {
+// ─── Team Create ────────────────────────────────────────────────────────────
+
+orgRoutes.get("/orgs/:org/teams/new", softAuth, requireAuth, async (c) => {
+  const orgName = c.req.param("org");
   const user = c.get("user")!;
-  const slug = c.req.param("slug");
-  const teamSlug = c.req.param("teamSlug");
-  const targetId = c.req.param("uid");
-  const { org, role } = await loadOrgForUser(slug, user.id);
-  if (!org) return c.notFound();
-  if (!role || !orgRoleAtLeast(role, "admin")) {
-    return c.redirect(
-      errorRedirect(`/orgs/${slug}/teams/${teamSlug}`, "Admin-only action")
-    );
-  }
-
-  try {
-    const [team] = await db
-      .select({ id: teams.id })
-      .from(teams)
-      .where(and(eq(teams.orgId, org.id), eq(teams.slug, teamSlug)))
-      .limit(1);
-    if (!team) return c.notFound();
-
-    await db
-      .delete(teamMembers)
-      .where(
-        and(eq(teamMembers.teamId, team.id), eq(teamMembers.userId, targetId))
-      );
-    await audit({
-      userId: user.id,
-      action: "org.team.member.remove",
-      targetType: "team_member",
-      targetId,
-      metadata: { orgSlug: slug, teamSlug },
-    });
-  } catch (err) {
-    console.error("[orgs] team member remove:", err);
-    return c.redirect(
-      errorRedirect(
-        `/orgs/${slug}/teams/${teamSlug}`,
-        "Failed to remove member"
-      )
-    );
-  }
-  return c.redirect(
-    successRedirect(`/orgs/${slug}/teams/${teamSlug}`, "Member removed")
-  );
-});
-
-// --- ORG-OWNED REPOS (B2) ---------------------------------------------------
-
-orgs.get("/orgs/:slug/repos/new", async (c) => {
-  const user = c.get("user")!;
-  const slug = c.req.param("slug");
-  const { org, role } = await loadOrgForUser(slug, user.id);
-  if (!org) return c.notFound();
-  if (!role || !orgRoleAtLeast(role, "admin")) {
-    return c.redirect(
-      errorRedirect(`/orgs/${slug}`, "Admin rights required to create repos")
-    );
-  }
   const error = c.req.query("error");
 
   return c.html(
@@ -1194,179 +728,127 @@ orgs.get("/orgs/:slug/repos/new", async (c) => {
   );
 });
 
-orgs.post("/orgs/:slug/repos/new", async (c) => {
+orgRoutes.post("/orgs/:org/teams/new", softAuth, requireAuth, async (c) => {
+  const orgName = c.req.param("org");
   const user = c.get("user")!;
-  const slug = c.req.param("slug");
-  const { org, role } = await loadOrgForUser(slug, user.id);
-  if (!org) return c.notFound();
-  if (!role || !orgRoleAtLeast(role, "admin")) {
-    return c.redirect(
-      errorRedirect(`/orgs/${slug}`, "Admin rights required")
-    );
-  }
-
   const body = await c.req.parseBody();
   const name = String(body.name || "").trim();
-  const description = String(body.description || "").trim() || null;
-  const isPrivate = body.isPrivate === "1";
-
-  if (!name || !/^[a-zA-Z0-9._-]+$/.test(name)) {
-    return c.redirect(
-      errorRedirect(
-        `/orgs/${slug}/repos/new`,
-        "Invalid repo name (a-z, 0-9, . _ - only)"
-      )
-    );
-  }
+  const description = String(body.description || "").trim();
+  const permission = String(body.permission || "read");
 
   try {
-    // Name collision within the org's namespace
-    const [existing] = await db
-      .select({ id: repositories.id })
-      .from(repositories)
-      .where(
-        and(eq(repositories.orgId, org.id), eq(repositories.name, name))
-      )
+    const [org] = await db.select().from(organizations).where(eq(organizations.name, orgName)).limit(1);
+    if (!org) return c.redirect("/");
+
+    const [member] = await db.select().from(orgMembers)
+      .where(and(eq(orgMembers.orgId, org.id), eq(orgMembers.userId, user.id)))
       .limit(1);
-    if (existing) {
-      return c.redirect(
-        errorRedirect(
-          `/orgs/${slug}/repos/new`,
-          "A repo with that name already exists in this org"
-        )
-      );
-    }
-    // Disk-side collision (namespace slug is the org's slug on disk)
-    if (await repoExists(org.slug, name)) {
-      return c.redirect(
-        errorRedirect(
-          `/orgs/${slug}/repos/new`,
-          "On-disk path already exists"
-        )
-      );
+    if (!member || member.role === "member") {
+      return c.redirect(`/orgs/${orgName}/teams/new?error=Permission+denied`);
     }
 
-    const diskPath = await initBareRepo(org.slug, name);
-    const [repo] = await db
-      .insert(repositories)
-      .values({
-        name,
-        ownerId: user.id,
-        orgId: org.id,
-        description,
-        isPrivate,
-        diskPath,
-      })
-      .returning();
-
-    if (repo) {
-      const { bootstrapRepository } = await import("../lib/repo-bootstrap");
-      await bootstrapRepository({
-        repositoryId: repo.id,
-        ownerUserId: user.id,
-      });
-      await audit({
-        userId: user.id,
-        repositoryId: repo.id,
-        action: "org.repo.create",
-        targetType: "repository",
-        targetId: repo.id,
-        metadata: { orgSlug: slug, name, isPrivate },
-      });
+    if (!name) {
+      return c.redirect(`/orgs/${orgName}/teams/new?error=Team+name+is+required`);
     }
 
-    return c.redirect(`/${org.slug}/${name}`);
-  } catch (err) {
-    console.error("[orgs] repo create:", err);
-    return c.redirect(
-      errorRedirect(`/orgs/${slug}/repos/new`, "Failed to create repository")
-    );
+    await db.insert(teams).values({
+      orgId: org.id,
+      name,
+      description: description || null,
+      permission: ["read", "write", "admin"].includes(permission) ? permission : "read",
+    });
+
+    return c.redirect(`/orgs/${orgName}`);
+  } catch (err: any) {
+    return c.redirect(`/orgs/${orgName}/teams/new?error=${encodeURIComponent(err.message || "Failed")}`);
   }
 });
 
-orgs.get("/orgs/:slug/repos", async (c) => {
-  const user = c.get("user")!;
-  const slug = c.req.param("slug");
-  const { org, role } = await loadOrgForUser(slug, user.id);
-  if (!org) return c.notFound();
-  const canCreate = role && orgRoleAtLeast(role, "admin");
+// ─── Team Detail ────────────────────────────────────────────────────────────
 
-  let repos: (typeof repositories.$inferSelect)[] = [];
+orgRoutes.get("/orgs/:org/teams/:team", softAuth, async (c) => {
+  const orgName = c.req.param("org");
+  const teamName = c.req.param("team");
+  const user = c.get("user");
+
+  let org: any, team: any;
   try {
-    repos = await db
-      .select()
-      .from(repositories)
-      .where(eq(repositories.orgId, org.id));
-  } catch (err) {
-    console.error("[orgs] list repos:", err);
+    [org] = await db.select().from(organizations).where(eq(organizations.name, orgName)).limit(1);
+    if (!org) return c.notFound();
+    [team] = await db.select().from(teams).where(and(eq(teams.orgId, org.id), eq(teams.name, teamName))).limit(1);
+    if (!team) return c.notFound();
+  } catch {
+    return c.notFound();
   }
 
+  let members: any[] = [];
+  try {
+    members = await db
+      .select({ member: teamMembers, user: { username: users.username } })
+      .from(teamMembers)
+      .innerJoin(users, eq(teamMembers.userId, users.id))
+      .where(eq(teamMembers.teamId, team.id));
+  } catch { /* */ }
+
+  let repos: any[] = [];
+  try {
+    repos = await db
+      .select({ teamRepo: teamRepos, repo: { name: repositories.name } })
+      .from(teamRepos)
+      .innerJoin(repositories, eq(teamRepos.repositoryId, repositories.id))
+      .where(eq(teamRepos.teamId, team.id));
+  } catch { /* */ }
+
   return c.html(
-    <Layout title={`${org.name} — repositories`} user={user}>
-      <div style="max-width: 900px">
-        <div class="breadcrumb">
-          <a href={`/orgs/${org.slug}`}>{org.slug}</a>
-          <span>/</span>
-          <span>repos</span>
-        </div>
-        <div
-          style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px"
-        >
-          <h2 style="margin: 0">Repositories ({repos.length})</h2>
-          {canCreate && (
-            <a
-              href={`/orgs/${org.slug}/repos/new`}
-              class="btn btn-primary"
-            >
-              New repo
-            </a>
-          )}
-        </div>
-        {repos.length === 0 ? (
-          <div class="empty-state">
-            <h2>No repositories yet</h2>
-            {canCreate ? (
-              <a
-                href={`/orgs/${org.slug}/repos/new`}
-                class="btn btn-primary"
-                style="margin-top: 8px"
-              >
-                Create your first repo
-              </a>
-            ) : (
-              <p>Ask an admin to create one.</p>
-            )}
+    <Layout title={`${teamName} — ${orgName}`} user={user}>
+      <Container maxWidth={800}>
+        <Section style="margin-bottom:24px">
+          <Text size={14} muted>
+            <a href={`/orgs/${orgName}`}>{orgName}</a> / teams
+          </Text>
+          <h2>{team.name}</h2>
+          {team.description && <p style="margin-top:4px"><Text muted>{team.description}</Text></p>}
+          <div style="margin-top:8px">
+            <Badge>{team.permission} access</Badge>
           </div>
-        ) : (
-          <div
-            style="display: flex; flex-direction: column; gap: 8px"
-          >
-            {repos.map((r) => (
-              <a
-                href={`/${org.slug}/${r.name}`}
-                style="display: block; padding: 12px 16px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius); text-decoration: none; color: var(--text)"
-              >
-                <strong>{r.name}</strong>
-                {r.isPrivate && (
-                  <span
-                    class="gate-status"
-                    style="font-size: 10px; margin-left: 8px"
-                  >
-                    private
-                  </span>
-                )}
-                {r.description && (
-                  <div style="color: var(--text-muted); font-size: 13px; margin-top: 2px">
-                    {r.description}
-                  </div>
-                )}
-              </a>
-            ))}
+        </Section>
+
+        <Grid cols="1fr 1fr" gap={24}>
+          <div>
+            <Section title={`Members (${members.length})`}>
+              {members.length === 0 ? (
+                <EmptyState><Text size={14} muted>No members yet.</Text></EmptyState>
+              ) : (
+                <List>
+                  {members.map((m: any) => (
+                    <ListItem>
+                      <a href={`/${m.user.username}`}>{m.user.username}</a>
+                    </ListItem>
+                  ))}
+                </List>
+              )}
+            </Section>
           </div>
-        )}
-      </div>
+          <div>
+            <Section title={`Repositories (${repos.length})`}>
+              {repos.length === 0 ? (
+                <EmptyState><Text size={14} muted>No repositories assigned.</Text></EmptyState>
+              ) : (
+                <List>
+                  {repos.map((r: any) => (
+                    <ListItem>
+                      <span>{r.repo.name}</span>
+                      <Badge style="margin-left:8px;font-size:11px">{r.teamRepo.permission}</Badge>
+                    </ListItem>
+                  ))}
+                </List>
+              )}
+            </Section>
+          </div>
+        </Grid>
+      </Container>
     </Layout>
   );
 });
 
-export default orgs;
+export default orgRoutes;

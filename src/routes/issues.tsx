@@ -21,7 +21,27 @@ import { loadIssueTemplate } from "../lib/templates";
 import { renderMarkdown } from "../lib/markdown";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
-import { html } from "hono/html";
+import {
+  Flex,
+  Container,
+  PageHeader,
+  Form,
+  FormGroup,
+  Input,
+  TextArea,
+  Button,
+  LinkButton,
+  Badge,
+  EmptyState,
+  TabNav,
+  FilterTabs,
+  List,
+  ListItem,
+  Alert,
+  CommentBox,
+  CommentForm,
+  formatRelative,
+} from "../views/ui";
 
 const issueRoutes = new Hono<AuthEnv>();
 
@@ -56,9 +76,7 @@ issueRoutes.get("/:owner/:repo/issues", softAuth, async (c) => {
   if (!resolved) {
     return c.html(
       <Layout title="Not Found" user={user}>
-        <div class="empty-state">
-          <h2>Repository not found</h2>
-        </div>
+        <EmptyState title="Repository not found" />
       </Layout>,
       404
     );
@@ -91,32 +109,32 @@ issueRoutes.get("/:owner/:repo/issues", softAuth, async (c) => {
     <Layout title={`Issues — ${ownerName}/${repoName}`} user={user}>
       <RepoHeader owner={ownerName} repo={repoName} />
       <IssueNav owner={ownerName} repo={repoName} active="issues" />
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px">
-        <div class="issue-tabs">
-          <a
-            href={`/${ownerName}/${repoName}/issues?state=open`}
-            class={state === "open" ? "active" : ""}
-          >
-            {counts?.open ?? 0} Open
-          </a>
-          <a
-            href={`/${ownerName}/${repoName}/issues?state=closed`}
-            class={state === "closed" ? "active" : ""}
-          >
-            {counts?.closed ?? 0} Closed
-          </a>
-        </div>
+      <Flex justify="space-between" align="center" style="margin-bottom:16px">
+        <FilterTabs
+          tabs={[
+            {
+              label: `${counts?.open ?? 0} Open`,
+              href: `/${ownerName}/${repoName}/issues?state=open`,
+              active: state === "open",
+            },
+            {
+              label: `${counts?.closed ?? 0} Closed`,
+              href: `/${ownerName}/${repoName}/issues?state=closed`,
+              active: state === "closed",
+            },
+          ]}
+        />
         {user && (
-          <a
+          <LinkButton
             href={`/${ownerName}/${repoName}/issues/new`}
-            class="btn btn-primary"
+            variant="primary"
           >
             New issue
-          </a>
+          </LinkButton>
         )}
-      </div>
+      </Flex>
       {issueList.length === 0 ? (
-        <div class="empty-state">
+        <EmptyState>
           <p>
             No {state} issues.
             {state === "closed" && (
@@ -128,11 +146,11 @@ issueRoutes.get("/:owner/:repo/issues", softAuth, async (c) => {
               </span>
             )}
           </p>
-        </div>
+        </EmptyState>
       ) : (
-        <div class="issue-list">
+        <List>
           {issueList.map(({ issue, author }) => (
-            <div class="issue-item">
+            <ListItem>
               <div
                 class={`issue-state-icon ${issue.state === "open" ? "state-open" : "state-closed"}`}
               >
@@ -149,9 +167,9 @@ issueRoutes.get("/:owner/:repo/issues", softAuth, async (c) => {
                   {formatRelative(issue.createdAt)}
                 </div>
               </div>
-            </div>
+            </ListItem>
           ))}
-        </div>
+        </List>
       )}
     </Layout>
   );
@@ -172,15 +190,10 @@ issueRoutes.get(
       <Layout title={`New issue — ${ownerName}/${repoName}`} user={user}>
         <RepoHeader owner={ownerName} repo={repoName} />
         <IssueNav owner={ownerName} repo={repoName} active="issues" />
-        <div style="max-width: 800px">
-          <h2 style="margin-bottom: 16px">New issue</h2>
-          {template && (
-            <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px">
-              Using <code>ISSUE_TEMPLATE.md</code> from the default branch.
-            </div>
-          )}
+        <Container maxWidth={800}>
+          <h2 style="margin-bottom:16px">New issue</h2>
           {error && (
-            <div class="auth-error">{decodeURIComponent(error)}</div>
+            <Alert variant="error">{decodeURIComponent(error)}</Alert>
           )}
           <form method="post" action={`/${ownerName}/${repoName}/issues/new`}>
             <div class="form-group">
@@ -189,24 +202,22 @@ issueRoutes.get(
                 name="title"
                 required
                 placeholder="Title"
-                style="font-size: 16px; padding: 10px 14px"
+                style="font-size:16px;padding:10px 14px"
               />
-            </div>
-            <div class="form-group">
-              <textarea
+            </FormGroup>
+            <FormGroup>
+              <TextArea
                 name="body"
                 rows={12}
                 placeholder="Leave a comment... (Markdown supported)"
-                style="font-family: var(--font-mono); font-size: 13px"
-              >
-                {template || ""}
-              </textarea>
-            </div>
-            <button type="submit" class="btn btn-primary">
+                mono
+              />
+            </FormGroup>
+            <Button type="submit" variant="primary">
               Submit new issue
-            </button>
-          </form>
-        </div>
+            </Button>
+          </Form>
+        </Container>
       </Layout>
     );
   }
@@ -265,9 +276,7 @@ issueRoutes.get("/:owner/:repo/issues/:number", softAuth, async (c) => {
   if (!resolved) {
     return c.html(
       <Layout title="Not Found" user={user}>
-        <div class="empty-state">
-          <h2>Not found</h2>
-        </div>
+        <EmptyState title="Not found" />
       </Layout>,
       404
     );
@@ -287,9 +296,7 @@ issueRoutes.get("/:owner/:repo/issues/:number", softAuth, async (c) => {
   if (!issue) {
     return c.html(
       <Layout title="Not Found" user={user}>
-        <div class="empty-state">
-          <h2>Issue not found</h2>
-        </div>
+        <EmptyState title="Issue not found" />
       </Layout>,
       404
     );
@@ -334,62 +341,36 @@ issueRoutes.get("/:owner/:repo/issues/:number", softAuth, async (c) => {
       <div class="issue-detail">
         <h2>
           {issue.title}{" "}
-          <span style="color: var(--text-muted); font-weight: 400">
+          <span style="color:var(--text-muted);font-weight:400">
             #{issue.number}
           </span>
         </h2>
-        <div style="margin: 8px 0 20px; display: flex; align-items: center; gap: 8px">
-          <span
-            class={`issue-badge ${issue.state === "open" ? "badge-open" : "badge-closed"}`}
-          >
+        <Flex align="center" gap={8} style="margin:8px 0 20px">
+          <Badge variant={issue.state === "open" ? "open" : "closed"}>
             {issue.state === "open" ? "\u25CB Open" : "\u2713 Closed"}
-          </span>
-          <span style="color: var(--text-muted); font-size: 14px">
-            <strong style="color: var(--text)">
+          </Badge>
+          <span style="color:var(--text-muted);font-size:14px">
+            <strong style="color:var(--text)">
               {author?.username || "unknown"}
             </strong>{" "}
             opened this issue {formatRelative(issue.createdAt)}
           </span>
-        </div>
+        </Flex>
 
         {issue.body && (
-          <div class="issue-comment-box">
-            <div class="comment-header">
-              <strong>{author?.username}</strong> commented{" "}
-              {formatRelative(issue.createdAt)}
-            </div>
-            <div class="markdown-body">
-              {html([renderMarkdown(issue.body)] as unknown as TemplateStringsArray)}
-            </div>
-            <div style="padding: 0 16px 12px">
-              <ReactionsBar
-                targetType="issue"
-                targetId={issue.id}
-                summaries={issueReactions}
-                canReact={!!user}
-              />
-            </div>
-          </div>
+          <CommentBox
+            author={author?.username || "unknown"}
+            date={issue.createdAt}
+            body={renderMarkdown(issue.body)}
+          />
         )}
 
-        {comments.map(({ comment, author: commentAuthor }, i) => (
-          <div class="issue-comment-box">
-            <div class="comment-header">
-              <strong>{commentAuthor.username}</strong> commented{" "}
-              {formatRelative(comment.createdAt)}
-            </div>
-            <div class="markdown-body">
-              {html([renderMarkdown(comment.body)] as unknown as TemplateStringsArray)}
-            </div>
-            <div style="padding: 0 16px 12px">
-              <ReactionsBar
-                targetType="issue_comment"
-                targetId={comment.id}
-                summaries={commentReactions[i] || []}
-                canReact={!!user}
-              />
-            </div>
-          </div>
+        {comments.map(({ comment, author: commentAuthor }) => (
+          <CommentBox
+            author={commentAuthor.username}
+            date={comment.createdAt}
+            body={renderMarkdown(comment.body)}
+          />
         ))}
 
         {user && (
@@ -543,42 +524,14 @@ const IssueNav = ({
   repo: string;
   active: "code" | "commits" | "issues";
 }) => (
-  <div class="repo-nav">
-    <a href={`/${owner}/${repo}`} class={active === "code" ? "active" : ""}>
-      Code
-    </a>
-    <a
-      href={`/${owner}/${repo}/issues`}
-      class={active === "issues" ? "active" : ""}
-    >
-      Issues
-    </a>
-    <a
-      href={`/${owner}/${repo}/commits`}
-      class={active === "commits" ? "active" : ""}
-    >
-      Commits
-    </a>
-  </div>
+  <TabNav
+    tabs={[
+      { label: "Code", href: `/${owner}/${repo}`, active: active === "code" },
+      { label: "Issues", href: `/${owner}/${repo}/issues`, active: active === "issues" },
+      { label: "Commits", href: `/${owner}/${repo}/commits`, active: active === "commits" },
+    ]}
+  />
 );
-
-function formatRelative(date: Date | string): string {
-  const d = typeof date === "string" ? new Date(date) : date;
-  const now = new Date();
-  const diffMs = now.getTime() - d.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  if (diffMins < 1) return "just now";
-  if (diffMins < 60) return `${diffMins}m ago`;
-  const diffHours = Math.floor(diffMins / 60);
-  if (diffHours < 24) return `${diffHours}h ago`;
-  const diffDays = Math.floor(diffHours / 24);
-  if (diffDays < 30) return `${diffDays}d ago`;
-  return d.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
 
 export default issueRoutes;
 export { IssueNav };

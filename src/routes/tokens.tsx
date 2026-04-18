@@ -9,6 +9,21 @@ import { apiTokens } from "../db/schema";
 import { Layout } from "../views/layout";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
+import {
+  Container,
+  PageHeader,
+  Section,
+  Alert,
+  EmptyState,
+  ListItem,
+  Flex,
+  Form,
+  FormGroup,
+  Input,
+  Button,
+  InlineCode,
+  Text,
+} from "../views/ui";
 
 const tokens = new Hono<AuthEnv>();
 
@@ -46,32 +61,33 @@ tokens.get("/settings/tokens", async (c) => {
 
   return c.html(
     <Layout title="API Tokens" user={user}>
-      <div class="settings-container">
-        <h2>Personal access tokens</h2>
+      <Container class="settings-container">
+        <PageHeader title="Personal access tokens" />
         {success && (
-          <div class="auth-success" style="margin-top: 12px">
+          <Alert variant="success">
             {decodeURIComponent(success)}
-          </div>
+          </Alert>
         )}
         {newToken && (
-          <div
-            class="auth-success"
-            style="margin-top: 12px; font-family: var(--font-mono); word-break: break-all"
-          >
-            New token (copy now — it won't be shown again):{" "}
-            <strong>{decodeURIComponent(newToken)}</strong>
-          </div>
+          <Alert variant="success">
+            <span style="font-family: var(--font-mono); word-break: break-all">
+              New token (copy now — it won't be shown again):{" "}
+              <strong>{decodeURIComponent(newToken)}</strong>
+            </span>
+          </Alert>
         )}
         <div style="margin-top: 16px">
           {userTokens.length === 0 ? (
-            <p style="color: var(--text-muted)">No tokens yet.</p>
+            <EmptyState>
+              <Text muted>No tokens yet.</Text>
+            </EmptyState>
           ) : (
             userTokens.map((token) => (
-              <div class="ssh-key-item">
+              <ListItem>
                 <div>
                   <strong>{token.name}</strong>
                   <div class="ssh-key-meta">
-                    <code>{token.tokenPrefix}...</code>
+                    <InlineCode>{token.tokenPrefix}...</InlineCode>
                     <span style="margin-left: 8px">
                       Scopes: {token.scopes}
                     </span>
@@ -87,12 +103,13 @@ tokens.get("/settings/tokens", async (c) => {
                 <form
                   method="post"
                   action={`/settings/tokens/${token.id}/delete`}
+                  method="POST"
                 >
-                  <button type="submit" class="btn btn-danger btn-sm">
+                  <Button type="submit" variant="danger" size="sm">
                     Revoke
-                  </button>
-                </form>
-              </div>
+                  </Button>
+                </Form>
+              </ListItem>
             ))
           )}
         </div>

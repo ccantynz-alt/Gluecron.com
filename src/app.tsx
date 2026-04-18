@@ -7,6 +7,8 @@ import { requestContext } from "./middleware/request-context";
 import { rateLimit } from "./middleware/rate-limit";
 import gitRoutes from "./routes/git";
 import apiRoutes from "./routes/api";
+import apiV2Routes from "./routes/api-v2";
+import apiDocsRoutes from "./routes/api-docs";
 import authRoutes from "./routes/auth";
 import settingsRoutes from "./routes/settings";
 import settings2faRoutes from "./routes/settings-2fa";
@@ -81,6 +83,8 @@ import legalPrivacyRoutes from "./routes/legal/privacy";
 import legalAcceptableUseRoutes from "./routes/legal/acceptable-use";
 import legalDmcaRoutes from "./routes/legal/dmca";
 import webRoutes from "./routes/web";
+import { authRateLimit, gitRateLimit, searchRateLimit } from "./middleware/rate-limit";
+import { csrfToken, csrfProtect } from "./middleware/csrf";
 
 const app = new Hono();
 
@@ -99,18 +103,33 @@ app.use("/api/*", rateLimit({ windowMs: 60_000, max: 120 }));
 app.use("/login", rateLimit({ windowMs: 60_000, max: 20 }));
 app.use("/register", rateLimit({ windowMs: 60_000, max: 10 }));
 
+// CSRF protection — set token on all requests, validate on mutations
+app.use("*", csrfToken);
+app.use("*", csrfProtect);
+
+// Rate limit auth routes
+app.use("/login", authRateLimit);
+app.use("/register", authRateLimit);
+
+// Rate limit git operations
+app.use("/:owner/:repo.git/*", gitRateLimit);
+
+// Rate limit search
+app.use("/:owner/:repo/search", searchRateLimit);
+app.use("/explore", searchRateLimit);
+
 // Git Smart HTTP protocol routes (must be before web routes)
 app.route("/", gitRoutes);
 
-// Health + metrics
-app.route("/", healthRoutes);
+// REST API v1 (legacy)
+app.route("/", apiRoutes);
 
 // Inbound API hooks (GateTest callback + backup PAT-authed /api/v1/gate-runs)
 app.route("/", hookRoutes);
 app.route("/api/events", eventsRoutes);
 
-// REST API
-app.route("/", apiRoutes);
+// API documentation
+app.route("/", apiDocsRoutes);
 
 // Auth routes (register, login, logout)
 app.route("/", authRoutes);
@@ -149,17 +168,11 @@ app.route("/", orgRoutes);
 // API tokens
 app.route("/", tokenRoutes);
 
-// Notifications inbox
+// Notifications
 app.route("/", notificationRoutes);
 
-// Dashboard (/dashboard)
-app.route("/", dashboardRoutes);
-
-// AI assistant — /ask + /:owner/:repo/ask
-app.route("/", askRoutes);
-
-// Global search
-app.route("/", searchRoutes);
+// Organizations
+app.route("/", orgRoutes);
 
 // Repo settings (description, visibility, delete)
 app.route("/", repoSettings);
@@ -280,6 +293,9 @@ app.route("/", insightsRoutes);
 
 // Explore page
 app.route("/", exploreRoutes);
+
+// Onboarding
+app.route("/", onboardingRoutes);
 
 // Web UI (catch-all, must be last)
 app.route("/", webRoutes);

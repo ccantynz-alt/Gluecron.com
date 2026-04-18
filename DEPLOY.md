@@ -1,12 +1,48 @@
 # Deploying Gluecron to Production
 
-## Prerequisites
+## The Green Ecosystem
 
-1. A server (Hetzner, DigitalOcean, etc.) with Ubuntu 22.04+
-2. A Neon PostgreSQL database (free tier: https://neon.tech)
-3. Domain pointed to the server (gluecron.com → server IP)
+Gluecron is part of the self-hosting ecosystem:
+- **Crontech** deploys gluecron (and everything else)
+- **Gluecron** hosts the code for Crontech, GateTest, and itself
+- **GateTest** scans every push to gluecron
 
-## Quick Deploy (one command)
+Once live, all three services feed each other. Dog food all the way.
+
+## Option A: Deploy via Crontech (recommended)
+
+Since Crontech handles deployment, routing, and SSL:
+
+```bash
+# 1. Create Neon database at neon.tech (2 minutes)
+#    Copy the connection string
+
+# 2. In Crontech, deploy gluecron as a service with:
+#    - Repo: ccantynz-alt/Gluecron.com
+#    - Branch: claude/ship-fixes-and-tests-Jvz1c
+#    - Build: bun install --production
+#    - Start: bun run src/index.ts
+#    - Port: 3000
+#
+#    Environment variables:
+#      DATABASE_URL = postgresql://your-neon-url
+#      GIT_REPOS_PATH = /data/repos
+#      PORT = 3000
+#      NODE_ENV = production
+#
+#    Persistent volume: mount /data/repos (for git repos on disk)
+
+# 3. Run the migration (one time):
+#    Paste drizzle/0000_init.sql into Neon's SQL Editor and run it
+
+# 4. Route gluecron.com (or gluecron.crontech.ai) to the service
+```
+
+### Crontech routing options:
+- **Subdomain:** `gluecron.crontech.ai` → fastest to set up
+- **Custom domain:** `gluecron.com` → add CNAME to Crontech in DNS
+
+## Option B: Direct Deploy (Hetzner/standalone)
 
 ```bash
 # 1. SSH into your server

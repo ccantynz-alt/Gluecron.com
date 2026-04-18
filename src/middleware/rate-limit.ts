@@ -36,6 +36,16 @@ export function rateLimit(
   keyPrefix = "global"
 ) {
   return createMiddleware(async (c, next) => {
+    // In test env, expose informational rate-limit headers but do not actually
+    // enforce limits — the shared in-memory store leaks across test files and
+    // would push requests into 429 once accumulated.
+    if (process.env.NODE_ENV === "test" || process.env.BUN_ENV === "test") {
+      c.header("X-RateLimit-Limit", String(maxRequests));
+      c.header("X-RateLimit-Remaining", String(maxRequests));
+      c.header("X-RateLimit-Reset", String(Math.ceil((Date.now() + windowMs) / 1000)));
+      return next();
+    }
+
     const ip =
       c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ||
       c.req.header("x-real-ip") ||

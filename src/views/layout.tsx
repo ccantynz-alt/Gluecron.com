@@ -100,7 +100,27 @@ export const Layout: FC<
             <a href="/acceptable-use" style="color: var(--text-muted)">Acceptable Use</a>
           </div>
         </footer>
+        {/* Block I4 — Command palette shell (hidden by default) */}
+        <div
+          id="cmdk-backdrop"
+          style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9998"
+        />
+        <div
+          id="cmdk-panel"
+          style="display:none;position:fixed;top:10%;left:50%;transform:translateX(-50%);width:min(560px,92vw);background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 12px 32px rgba(0,0,0,0.4);z-index:9999;overflow:hidden"
+        >
+          <input
+            id="cmdk-input"
+            type="text"
+            placeholder="Type a command..."
+            aria-label="Command palette"
+            style="width:100%;padding:12px 16px;background:transparent;color:var(--text);border:0;border-bottom:1px solid var(--border);outline:none;font-size:14px"
+          />
+          <div id="cmdk-list" style="max-height:60vh;overflow-y:auto" />
+        </div>
         <script>{clientJs}</script>
+        <script>{pwaRegisterScript}</script>
+        <script>{navScript}</script>
       </body>
     </html>
   );

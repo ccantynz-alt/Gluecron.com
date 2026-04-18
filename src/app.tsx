@@ -22,7 +22,8 @@ import webhookRoutes from "./routes/webhooks";
 import exploreRoutes from "./routes/explore";
 import tokenRoutes from "./routes/tokens";
 import contributorRoutes from "./routes/contributors";
-import healthRoutes from "./routes/health";
+import healthRoutes from "./routes/health-probe";
+import healthDashboardRoutes from "./routes/health";
 import insightRoutes from "./routes/insights";
 import dashboardRoutes from "./routes/dashboard";
 import legalRoutes from "./routes/legal";
@@ -199,8 +200,11 @@ app.route("/", editorRoutes);
 // Contributors
 app.route("/", contributorRoutes);
 
-// Health dashboard
+// Health liveness + metrics endpoints
 app.route("/", healthRoutes);
+
+// Health dashboard (per-repo health page)
+app.route("/", healthDashboardRoutes);
 
 // Insights (time-travel, dependencies, rollback)
 app.route("/", insightRoutes);

@@ -65,6 +65,15 @@ export const csrfProtect = createMiddleware(async (c, next) => {
     return next();
   }
 
+  // Skip CSRF for requests with no session cookie — they are unauthenticated
+  // and will be redirected to /login (or 404) by downstream auth middleware.
+  // CSRF only matters for authenticated, cookie-bearing sessions because the
+  // attack vector is a malicious site tricking a logged-in user's browser.
+  const sessionCookie = getCookie(c, "session");
+  if (!sessionCookie) {
+    return next();
+  }
+
   const cookieToken = getCookie(c, CSRF_COOKIE);
   if (!cookieToken) {
     return c.text("CSRF token missing", 403);

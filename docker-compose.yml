@@ -1,0 +1,23 @@
+services:
+  gluecron:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - GIT_REPOS_PATH=/data/repos
+      - PORT=3000
+      - NODE_ENV=production
+      - GATETEST_URL=https://gatetest.ai/api/scan/run
+      - CRONTECH_DEPLOY_URL=https://crontech.ai/api/trpc/tenant.deploy
+    volumes:
+      - git-repos:/data/repos
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  git-repos:

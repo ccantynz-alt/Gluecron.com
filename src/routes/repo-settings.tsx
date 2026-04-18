@@ -76,10 +76,9 @@ repoSettings.get("/:owner/:repo/settings", requireAuth, async (c) => {
           <Alert variant="error">{decodeURIComponent(error)}</Alert>
         )}
 
-        <form
+        <Form
           method="post"
           action={`/${ownerName}/${repoName}/settings`}
-          method="POST"
         >
           <FormGroup label="Description" htmlFor="description">
             <Input

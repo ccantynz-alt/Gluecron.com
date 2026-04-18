@@ -103,7 +103,7 @@ async function loadRepo(owner: string, repo: string) {
       id: repositories.id,
       name: repositories.name,
       ownerId: repositories.ownerId,
-      visibility: repositories.visibility,
+      isPrivate: repositories.isPrivate,
     })
     .from(repositories)
     .innerJoin(users, eq(repositories.ownerId, users.id))
@@ -405,7 +405,7 @@ api.put("/npm/*", requireAuth, async (c) => {
           readme,
           homepage,
           license,
-          visibility: repoRow.visibility === "private" ? "private" : "public",
+          visibility: repoRow.isPrivate ? "private" : "public",
         })
         .returning();
       pkg = inserted;

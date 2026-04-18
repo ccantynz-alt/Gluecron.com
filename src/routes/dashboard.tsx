@@ -345,7 +345,7 @@ dashboard.get(
             <div class="auth-success">{decodeURIComponent(success)}</div>
           )}
           <form
-            method="POST"
+            method="post"
             action={`/${ownerName}/${repoName}/settings/intelligence`}
           >
             <ToggleSetting

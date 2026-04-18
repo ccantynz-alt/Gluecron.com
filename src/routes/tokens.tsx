@@ -103,12 +103,11 @@ tokens.get("/settings/tokens", async (c) => {
                 <form
                   method="post"
                   action={`/settings/tokens/${token.id}/delete`}
-                  method="POST"
                 >
                   <Button type="submit" variant="danger" size="sm">
                     Revoke
                   </Button>
-                </Form>
+                </form>
               </ListItem>
             ))
           )}
@@ -148,7 +147,7 @@ tokens.get("/settings/tokens", async (c) => {
             Generate token
           </button>
         </form>
-      </div>
+      </Container>
     </Layout>
   );
 });

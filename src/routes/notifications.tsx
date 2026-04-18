@@ -98,74 +98,67 @@ notificationRoutes.get("/notifications", softAuth, requireAuth, async (c) => {
         </a>
       </div>
 
-      {rows.length === 0 ? (
-        <div class="empty-state">
-          <h2>Inbox zero</h2>
-          <p>You're all caught up.</p>
-        </div>
-
-        {items.length === 0 ? (
-          <EmptyState title="All caught up">
-            <p>No {filter === "unread" ? "unread " : ""}notifications.</p>
-          </EmptyState>
-        ) : (
-          <List>
-            {items.map((n: any) => (
-              <ListItem style={n.isRead ? "opacity:0.6" : ""}>
-                <div style="font-size:18px;padding-top:2px">
-                  {n.type === "issue_comment" ? "\u{1F4AC}" :
-                   n.type === "pr_review" ? "\u{1F50D}" :
-                   n.type === "mention" ? "\u{1F4E3}" :
-                   n.type === "star" ? "\u2B50" :
-                   n.type === "ci_status" ? "\u2699\uFE0F" : "\u{1F514}"}
-                </div>
-                <Flex direction="column" style="flex:1">
-                  <Text size={14} weight={500}>
-                    {n.url ? <a href={n.url} style="color:var(--text)">{n.title}</a> : n.title}
+      {items.length === 0 ? (
+        <EmptyState title="All caught up">
+          <p>No {filter === "unread" ? "unread " : ""}notifications.</p>
+        </EmptyState>
+      ) : (
+        <List>
+          {items.map((n: any) => (
+            <ListItem style={n.isRead ? "opacity:0.6" : ""}>
+              <div style="font-size:18px;padding-top:2px">
+                {n.type === "issue_comment" ? "\u{1F4AC}" :
+                 n.type === "pr_review" ? "\u{1F50D}" :
+                 n.type === "mention" ? "\u{1F4E3}" :
+                 n.type === "star" ? "\u2B50" :
+                 n.type === "ci_status" ? "\u2699\uFE0F" : "\u{1F514}"}
+              </div>
+              <Flex direction="column" style="flex:1">
+                <Text size={14} weight={500}>
+                  {n.url ? <a href={n.url} style="color:var(--text)">{n.title}</a> : n.title}
+                </Text>
+                {n.body && (
+                  <Text size={13} muted style="margin-top:2px">
+                    {n.body.length > 120 ? n.body.slice(0, 120) + "..." : n.body}
                   </Text>
-                  {n.body && (
-                    <Text size={13} muted style="margin-top:2px">
-                      {n.body.length > 120 ? n.body.slice(0, 120) + "..." : n.body}
-                    </Text>
+                )}
+                <div class="notification-meta">
+                  {n.repoOwner && n.repoName && (
+                    <>
+                      <a href={`/${n.repoOwner}/${n.repoName}`}>
+                        {n.repoOwner}/{n.repoName}
+                      </a>
+                      <span> · </span>
+                    </>
                   )}
-                  <div class="notification-meta">
-                    {n.repoOwner && n.repoName && (
-                      <>
-                        <a href={`/${n.repoOwner}/${n.repoName}`}>
-                          {n.repoOwner}/{n.repoName}
-                        </a>
-                        <span> · </span>
-                      </>
-                    )}
-                    <span>{formatRelative(n.createdAt)}</span>
-                  </div>
+                  <span>{formatRelative(n.createdAt)}</span>
                 </div>
-                <div class="notification-actions">
-                  {unread && (
-                    <form method="post" action={`/notifications/${n.id}/read`}>
-                      <button
-                        type="submit"
-                        class="btn btn-sm"
-                        title="Mark as read"
-                      >
-                        {"\u2713"}
-                      </button>
-                    </form>
-                  )}
-                  <form method="post" action={`/notifications/${n.id}/delete`}>
+              </Flex>
+              <div class="notification-actions">
+                {!n.isRead && (
+                  <form method="post" action={`/notifications/${n.id}/read`}>
                     <button
                       type="submit"
                       class="btn btn-sm"
-                      title="Dismiss"
+                      title="Mark as read"
                     >
-                      {"\u00D7"}
+                      {"\u2713"}
                     </button>
                   </form>
-                </div>
+                )}
+                <form method="post" action={`/notifications/${n.id}/delete`}>
+                  <button
+                    type="submit"
+                    class="btn btn-sm"
+                    title="Dismiss"
+                  >
+                    {"\u00D7"}
+                  </button>
+                </form>
               </div>
-            );
-          })}
-        </div>
+            </ListItem>
+          ))}
+        </List>
       )}
     </Layout>
   );

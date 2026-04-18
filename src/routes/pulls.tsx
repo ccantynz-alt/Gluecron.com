@@ -21,6 +21,18 @@ import { loadPrTemplate } from "../lib/templates";
 import { renderMarkdown } from "../lib/markdown";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
+import { isAiReviewEnabled, triggerAiReview } from "../lib/ai-review";
+import { triggerPrTriage } from "../lib/pr-triage";
+import { runAllGateChecks } from "../lib/gate";
+import type { GateCheckResult } from "../lib/gate";
+import {
+  matchProtection,
+  countHumanApprovals,
+  listRequiredChecks,
+  passingCheckNames,
+  evaluateProtection,
+} from "../lib/branch-protection";
+import { mergeWithAutoResolve } from "../lib/merge-resolver";
 import {
   listBranches,
   getRepoPath,
@@ -209,9 +221,9 @@ pulls.get(
           {error && (
             <Alert variant="error">{decodeURIComponent(error)}</Alert>
           )}
-          <form method="post" action={`/${ownerName}/${repoName}/pulls/new`}>
-            <div style="display: flex; gap: 12px; align-items: center; margin-bottom: 16px">
-              <select name="base" style="padding: 6px 12px; background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); font-size: 13px">
+          <Form method="post" action={`/${ownerName}/${repoName}/pulls/new`}>
+            <Flex gap={12} align="center" style="margin-bottom: 16px">
+              <Select name="base">
                 {branches.map((b) => (
                   <option value={b} selected={b === defaultBase}>
                     {b}
@@ -543,10 +555,9 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, async (c) => {
 
             {user && pr.state === "open" && (
               <div style="margin-top: 20px">
-                <form
+                <Form
                   method="post"
                   action={`/${ownerName}/${repoName}/pulls/${pr.number}/comment`}
-                  method="POST"
                 >
                   <FormGroup>
                     <TextArea
@@ -890,7 +901,7 @@ pulls.post(
           repoName,
           pr.id,
           pr.title,
-          pr.body,
+          pr.body || "",
           pr.baseBranch,
           pr.headBranch
         ).catch((err) => console.error("[ai-review] ready trigger failed:", err));

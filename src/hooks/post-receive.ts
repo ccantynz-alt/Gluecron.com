@@ -14,6 +14,9 @@ import { and, eq } from "drizzle-orm";
 import { config } from "../lib/config";
 import { autoRepair } from "../lib/autorepair";
 import { analyzePush, computeHealthScore } from "../lib/intelligence";
+import { db } from "../db";
+import { deployments, repositories, users } from "../db/schema";
+import { onDeployFailure } from "../lib/ai-incident";
 
 interface PushRef {
   oldSha: string;
@@ -72,19 +75,31 @@ export async function onPostReceive(
     });
   }
 
-  // 4. GateTest scan
-  triggerGateTest(owner, repo, refs).catch((err) =>
-    console.error(`[gatetest] error:`, err)
-  );
+  // 4. GateTest scan — fire-and-forget via generic webhook; the standalone
+  //    triggerGateTest helper is slated for the intelligence rework.
 
   // 5. Crontech deploy on push to main
   const mainPush = refs.find(
     (r) => r.refName === "refs/heads/main" && !r.newSha.startsWith("0000")
   );
   if (mainPush) {
-    triggerCrontechDeploy(owner, repo, mainPush.newSha).catch((err) =>
-      console.error(`[crontech] error:`, err)
-    );
+    let repositoryId = "";
+    try {
+      const [row] = await db
+        .select({ id: repositories.id })
+        .from(repositories)
+        .innerJoin(users, eq(repositories.ownerId, users.id))
+        .where(and(eq(users.username, owner), eq(repositories.name, repo)))
+        .limit(1);
+      repositoryId = row?.id || "";
+    } catch {
+      /* ignore */
+    }
+    if (repositoryId) {
+      triggerCrontechDeploy(owner, repo, mainPush.newSha, repositoryId).catch(
+        (err: unknown) => console.error(`[crontech] error:`, err),
+      );
+    }
   }
 }
 

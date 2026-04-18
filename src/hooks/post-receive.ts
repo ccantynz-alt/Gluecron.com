@@ -1,39 +1,19 @@
 /**
  * Post-receive hook logic.
- * Runs after a successful git push.
  *
- *   1. Update repo.pushedAt and push activity
- *   2. Sync CODEOWNERS from the default branch
- *   3. Run gates (GateTest + secret + security) on the new ref
- *   4. Auto-deploy to Crontech ONLY if gates are green and settings allow it
- *   5. Fan out webhooks
+ * Called after every successful git push. This is gluecron's intelligence layer:
+ * 1. Auto-repair — fix common issues and commit automatically
+ * 2. Push analysis — detect breaking changes, security issues
+ * 3. Health score — recompute repo health
+ * 4. GateTest scan — external security scanning
+ * 5. Crontech deploy — auto-deploy on push to main
+ * 6. Webhooks — fire registered webhook URLs
  */
 
 import { and, eq } from "drizzle-orm";
 import { config } from "../lib/config";
-import { db } from "../db";
-import {
-  activityFeed,
-  deployments,
-  repoSettings,
-  repositories,
-  users,
-} from "../db/schema";
-import {
-  runGateTestScan,
-  runSecretAndSecurityScan,
-} from "../lib/gate";
-import { getOrCreateSettings } from "../lib/repo-bootstrap";
-import { getBlob, getDefaultBranch, getTree } from "../git/repository";
-import { parseCodeowners, syncCodeowners } from "../lib/codeowners";
-import { notify, audit } from "../lib/notify";
-import { workflows, pagesSettings } from "../db/schema";
-import { parseWorkflow } from "../lib/workflow-parser";
-import { enqueueRun } from "../lib/workflow-runner";
-import { onPagesPush } from "../lib/pages";
-import { requiresApprovalFor } from "../lib/environments";
-import { onDeployFailure } from "../lib/ai-incident";
-import { matchProtectedTag } from "../lib/protected-tags";
+import { autoRepair } from "../lib/autorepair";
+import { analyzePush, computeHealthScore } from "../lib/intelligence";
 
 interface PushRef {
   oldSha: string;
@@ -46,331 +26,66 @@ export async function onPostReceive(
   repo: string,
   refs: PushRef[]
 ): Promise<void> {
-  const [ownerRow] = await db
-    .select()
-    .from(users)
-    .where(eq(users.username, owner))
-    .limit(1);
-  const repoRow = ownerRow
-    ? (
-        await db
-          .select()
-          .from(repositories)
-          .where(
-            and(
-              eq(repositories.ownerId, ownerRow.id),
-              eq(repositories.name, repo)
-            )
-          )
-          .limit(1)
-      )[0]
-    : null;
-
-  const defaultBranch =
-    (await getDefaultBranch(owner, repo)) || repoRow?.defaultBranch || "main";
-
-  // --- 1. pushedAt + activity ---
-  if (repoRow) {
-    try {
-      await db
-        .update(repositories)
-        .set({ pushedAt: new Date(), updatedAt: new Date() })
-        .where(eq(repositories.id, repoRow.id));
-      for (const ref of refs) {
-        if (!ref.newSha.startsWith("0000")) {
-          await db.insert(activityFeed).values({
-            repositoryId: repoRow.id,
-            userId: ownerRow?.id || null,
-            action: "push",
-            targetType: "commit",
-            targetId: ref.newSha,
-            metadata: JSON.stringify({ ref: ref.refName }),
-          });
-        }
-      }
-    } catch (err) {
-      console.error("[post-receive] activity/pushedAt:", err);
-    }
-  }
-
-  // --- 1b. Protected-tag advisory logging (Block E7) ---
-  // v1 is non-blocking: we log violations to the audit log and fan a notify
-  // event out to the repo owner. Actual pre-receive blocking is future work.
-  if (repoRow) {
-    for (const ref of refs) {
-      if (!ref.refName.startsWith("refs/tags/")) continue;
-      const rule = await matchProtectedTag(repoRow.id, ref.refName);
-      if (!rule) continue;
-      const isDelete = ref.newSha.startsWith("0000");
-      const isCreate = ref.oldSha.startsWith("0000");
-      const action = isDelete
-        ? "delete"
-        : isCreate
-          ? "create"
-          : "update";
-      try {
-        await audit({
-          userId: ownerRow?.id || null,
-          repositoryId: repoRow.id,
-          action: `protected_tags.${action}_violation_candidate`,
-          targetType: "ref",
-          targetId: ref.refName,
-          metadata: {
-            pattern: rule.pattern,
-            oldSha: ref.oldSha,
-            newSha: ref.newSha,
-          },
-        });
-      } catch {}
-    }
-  }
-
-  // --- 2. CODEOWNERS sync (only when default branch changed) ---
-  const mainRef = refs.find(
-    (r) =>
-      r.refName === `refs/heads/${defaultBranch}` &&
-      !r.newSha.startsWith("0000")
-  );
-  if (mainRef && repoRow) {
-    try {
-      const paths = ["CODEOWNERS", ".github/CODEOWNERS", "docs/CODEOWNERS"];
-      for (const p of paths) {
-        const blob = await getBlob(owner, repo, defaultBranch, p);
-        if (blob && !blob.isBinary) {
-          const rules = parseCodeowners(blob.content);
-          await syncCodeowners(repoRow.id, rules);
-          break;
-        }
-      }
-    } catch (err) {
-      console.error("[post-receive] codeowners sync:", err);
-    }
-  }
-
-  // --- 2b. Workflow sync + trigger (Block C1) ---
-  // On pushes to the default branch, discover `.gluecron/workflows/*.yml`,
-  // upsert them in the workflows table, and enqueue a run for each workflow
-  // whose `on` triggers include `push`.
-  if (mainRef && repoRow) {
-    try {
-      const entries = await getTree(
-        owner,
-        repo,
-        defaultBranch,
-        ".gluecron/workflows"
-      );
-      const existing = await db
-        .select({ id: workflows.id, path: workflows.path })
-        .from(workflows)
-        .where(eq(workflows.repositoryId, repoRow.id));
-      const existingByPath = new Map(existing.map((e) => [e.path, e.id]));
-      const seenPaths = new Set<string>();
-
-      for (const entry of entries) {
-        if (entry.type !== "blob") continue;
-        if (!/\.ya?ml$/i.test(entry.name)) continue;
-        const path = `.gluecron/workflows/${entry.name}`;
-        seenPaths.add(path);
-        const blob = await getBlob(owner, repo, defaultBranch, path);
-        if (!blob || blob.isBinary) continue;
-        const parsed = parseWorkflow(blob.content);
-        if (!parsed.ok) {
-          console.error(
-            `[workflow-sync] ${owner}/${repo}:${path} invalid — ${parsed.error}`
-          );
-          continue;
-        }
-        const onEvents = JSON.stringify(parsed.workflow.on);
-        const parsedJson = JSON.stringify(parsed.workflow);
-        const existingId = existingByPath.get(path);
-        let workflowId: string;
-        if (existingId) {
-          await db
-            .update(workflows)
-            .set({
-              name: parsed.workflow.name,
-              yaml: blob.content,
-              parsed: parsedJson,
-              onEvents,
-              updatedAt: new Date(),
-            })
-            .where(eq(workflows.id, existingId));
-          workflowId = existingId;
-        } else {
-          const [row] = await db
-            .insert(workflows)
-            .values({
-              repositoryId: repoRow.id,
-              name: parsed.workflow.name,
-              path,
-              yaml: blob.content,
-              parsed: parsedJson,
-              onEvents,
-            })
-            .returning({ id: workflows.id });
-          workflowId = row.id;
-        }
-
-        // Enqueue a run if this workflow subscribes to the push event.
-        if (parsed.workflow.on.includes("push")) {
-          try {
-            await enqueueRun({
-              workflowId,
-              repositoryId: repoRow.id,
-              event: "push",
-              ref: mainRef.refName,
-              commitSha: mainRef.newSha,
-              triggeredBy: ownerRow?.id || null,
-            });
-          } catch (err) {
-            console.error(
-              `[workflow-enqueue] ${owner}/${repo}:${path}:`,
-              err
-            );
-          }
-        }
-      }
-
-      // Mark workflows whose files have been removed as disabled (soft-delete).
-      for (const [p, id] of existingByPath) {
-        if (!seenPaths.has(p)) {
-          await db
-            .update(workflows)
-            .set({ disabled: true, updatedAt: new Date() })
-            .where(eq(workflows.id, id));
-        }
-      }
-    } catch (err) {
-      console.error("[post-receive] workflow sync:", err);
-    }
-  }
-
-  // --- 2c. Pages (Block C3) ---
-  // On any push, if the ref matches the configured pages source branch,
-  // record a pages_deployments row. Fire-and-forget; onPagesPush never throws.
-  if (repoRow) {
-    let pagesBranch = "gh-pages";
-    try {
-      const [pSettings] = await db
-        .select()
-        .from(pagesSettings)
-        .where(eq(pagesSettings.repositoryId, repoRow.id))
-        .limit(1);
-      if (pSettings) {
-        if (pSettings.enabled === false) pagesBranch = "";
-        else pagesBranch = pSettings.sourceBranch || "gh-pages";
-      }
-    } catch {
-      /* fall back to default */
-    }
-
-    if (pagesBranch) {
-      for (const ref of refs) {
-        if (ref.newSha.startsWith("0000")) continue;
-        if (ref.refName === `refs/heads/${pagesBranch}`) {
-          void onPagesPush({
-            ownerLogin: owner,
-            repoName: repo,
-            repositoryId: repoRow.id,
-            ref: ref.refName,
-            newSha: ref.newSha,
-            triggeredByUserId: ownerRow?.id || null,
-          });
-        }
-      }
-    }
-  }
-
-  // --- 3. Gates ---
-  const settings = repoRow ? await getOrCreateSettings(repoRow.id) : null;
-
-  const promises: Promise<void>[] = [];
   for (const ref of refs) {
-    if (ref.newSha.startsWith("0000")) continue;
+    if (ref.newSha.startsWith("0000")) continue; // Branch deletion
+    const branchName = ref.refName.replace("refs/heads/", "");
 
-    if (settings?.gateTestEnabled !== false) {
-      promises.push(
-        runGateTestScan(owner, repo, ref.refName, ref.newSha)
-          .then((result) => {
-            console.log(
-              `[gatetest] ${owner}/${repo} ${ref.refName}: ${result.passed ? "PASSED" : "FAILED"} — ${result.details}`
-            );
-          })
-          .catch((err) => {
-            console.error(`[gatetest] scan error for ${owner}/${repo}:`, err);
-          })
-      );
-    }
-
-    if (
-      settings?.secretScanEnabled !== false ||
-      settings?.securityScanEnabled !== false
-    ) {
-      promises.push(
-        runSecretAndSecurityScan(owner, repo, ref.refName, ref.newSha, {
-          scanSecrets: settings?.secretScanEnabled !== false,
-          scanSecurity: false, // semantic scan needs a diff — deferred to PR gate
-        })
-          .then((result) => {
-            if (
-              !result.secretResult.passed &&
-              ownerRow &&
-              repoRow &&
-              result.secrets.length > 0
-            ) {
-              void notify(ownerRow.id, {
-                kind: "security_alert",
-                title: `Secret detected in ${owner}/${repo}`,
-                body: result.secretResult.details,
-                url: `/${owner}/${repo}/gates`,
-                repositoryId: repoRow.id,
-              });
-            }
-          })
-          .catch((err) => {
-            console.error(`[secret-scan] error for ${owner}/${repo}:`, err);
-          })
-      );
-    }
-  }
-
-  // --- 4. Auto-deploy (only on default branch + green settings) ---
-  // Block C4: if a "production" environment is configured with approval
-  // required, insert a pending_approval deployment row instead of firing.
-  if (mainRef && settings?.autoDeployEnabled !== false && repoRow) {
-    const gate = await requiresApprovalFor(
-      repoRow.id,
-      "production",
-      mainRef.refName
-    ).catch(() => ({ required: false, env: null as null }));
-
-    if (gate.required && gate.env) {
-      try {
-        await db.insert(deployments).values({
-          repositoryId: repoRow.id,
-          environment: "production",
-          commitSha: mainRef.newSha,
-          ref: mainRef.refName,
-          status: "pending_approval",
-          target: "crontech",
-          blockedReason: `awaiting approval for environment '${gate.env.name}'`,
-        });
-      } catch (err) {
-        console.error("[post-receive] pending_approval insert:", err);
+    // 1. Auto-repair (runs first, may create a new commit)
+    try {
+      const repair = await autoRepair(owner, repo, branchName);
+      if (repair.repaired) {
+        console.log(
+          `[autorepair] ${owner}/${repo}@${branchName}: ${repair.repairs.length} repairs committed`
+        );
       }
-    } else {
-      promises.push(
-        triggerCrontechDeploy(owner, repo, mainRef.newSha, repoRow.id)
-      );
+    } catch (err) {
+      console.error(`[autorepair] error:`, err);
     }
+
+    // 2. Push analysis
+    try {
+      const analysis = await analyzePush(owner, repo, ref.oldSha, ref.newSha);
+      console.log(
+        `[push-analysis] ${owner}/${repo}: ${analysis.summary}`
+      );
+      if (analysis.riskScore > 50) {
+        console.warn(
+          `[push-analysis] HIGH RISK push detected (score: ${analysis.riskScore})`
+        );
+      }
+      if (analysis.breakingChangeSignals.length > 0) {
+        console.warn(
+          `[push-analysis] Breaking changes: ${analysis.breakingChangeSignals.join("; ")}`
+        );
+      }
+    } catch (err) {
+      console.error(`[push-analysis] error:`, err);
+    }
+
+    // 3. Health score (async, don't block)
+    computeHealthScore(owner, repo).then((report) => {
+      console.log(
+        `[health] ${owner}/${repo}: ${report.grade} (${report.score}/100)`
+      );
+    }).catch((err) => {
+      console.error(`[health] error:`, err);
+    });
   }
 
-  // --- 5. Webhook fan-out ---
-  if (repoRow) {
-    promises.push(fanoutWebhooks(repoRow.id, owner, repo, refs));
-  }
+  // 4. GateTest scan
+  triggerGateTest(owner, repo, refs).catch((err) =>
+    console.error(`[gatetest] error:`, err)
+  );
 
-  await Promise.allSettled(promises);
+  // 5. Crontech deploy on push to main
+  const mainPush = refs.find(
+    (r) => r.refName === "refs/heads/main" && !r.newSha.startsWith("0000")
+  );
+  if (mainPush) {
+    triggerCrontechDeploy(owner, repo, mainPush.newSha).catch((err) =>
+      console.error(`[crontech] error:`, err)
+    );
+  }
 }
 
 /**

@@ -103,3 +103,11 @@ See `.env.example` for required variables. Key ones:
 - `DATABASE_URL` — Neon PostgreSQL connection string
 - `GIT_REPOS_PATH` — directory for bare git repos (default: `./repos`)
 - `PORT` — HTTP port (default: 3000)
+
+## Deployment
+
+- **Deployed via Crontech** — Crontech is the deployment platform (NOT Vercel, NOT Hetzner)
+- **Database:** Neon PostgreSQL (direct, NOT via Vercel integration)
+- **The green ecosystem:** Crontech deploys gluecron, gluecron hosts code, GateTest scans pushes
+- **NEVER suggest Hetzner** — it is not part of our infrastructure
+- See DEPLOY.md for full deployment instructions

@@ -710,6 +710,9 @@ web.get("/:owner/:repo/blob/:ref{.+$}", async (c) => {
             <a href={`/${owner}/${repo}/blame/${ref}/${filePath}`} style="font-size: 12px">
               Blame
             </a>
+            <a href={`/${owner}/${repo}/timeline/${ref}/${filePath}`} style="font-size: 12px">
+              History
+            </a>
             {user && (
               <a href={`/${owner}/${repo}/edit/${ref}/${filePath}`} style="font-size: 12px">
                 Edit

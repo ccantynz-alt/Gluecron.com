@@ -1,44 +1,25 @@
-# ---- build stage ----
-FROM oven/bun:1 AS builder
-
+FROM oven/bun:1.3 AS base
 WORKDIR /app
 
-# Copy lockfile and manifest first for layer caching
-COPY package.json bun.lock ./
+# Install git (required for git operations)
+RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
 
-# Install production dependencies only
+# Install dependencies
+COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile --production
 
-# ---- production stage ----
-# oven/bun:1-debian is based on Debian so apt is available
-FROM oven/bun:1-debian AS runner
-
-WORKDIR /app
-
-# Install git (required for git CLI subprocess calls)
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends git \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy production node_modules from builder
-COPY --from=builder /app/node_modules ./node_modules
-
-# Copy application source and migration files
+# Copy source
 COPY src/ ./src/
-COPY drizzle/ ./drizzle/
-COPY package.json ./
+COPY tsconfig.json drizzle.config.ts ./
+COPY legal/ ./legal/
+COPY CLAUDE.md LICENSE ./
 
-# Create the repos directory and give ownership to the bun user
-RUN mkdir -p /app/repos \
-    && chown -R bun:bun /app
+# Create repos directory
+RUN mkdir -p /data/repos
 
-# Run as non-root user (provided by the base image)
-USER bun
-
-# Default environment variables
-ENV GIT_REPOS_PATH=/app/repos \
-    PORT=3000 \
-    NODE_ENV=production
+ENV GIT_REPOS_PATH=/data/repos
+ENV NODE_ENV=production
+ENV PORT=3000
 
 EXPOSE 3000
 

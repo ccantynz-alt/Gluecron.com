@@ -35,6 +35,70 @@ import {
 
 const orgRoutes = new Hono<AuthEnv>();
 
+// ─── Organization List (index) ──────────────────────────────────────────────
+// GET /orgs — auth-required directory of the viewer's organizations.
+orgRoutes.get("/orgs", softAuth, requireAuth, async (c) => {
+  const user = c.get("user")!;
+  let rows: any[] = [];
+  try {
+    rows = await db
+      .select({ org: organizations, role: orgMembers.role })
+      .from(orgMembers)
+      .innerJoin(organizations, eq(orgMembers.orgId, organizations.id))
+      .where(eq(orgMembers.userId, user.id))
+      .orderBy(asc(organizations.name));
+  } catch {
+    rows = [];
+  }
+  return c.html(
+    <Layout title="Your organizations" user={user}>
+      <Container>
+        <PageHeader
+          title="Your organizations"
+          actions={<LinkButton href="/orgs/new" variant="primary">New organization</LinkButton>}
+        />
+        {rows.length === 0 ? (
+          <EmptyState title="No organizations yet">
+            <Text muted>Create one to share repositories with teammates.</Text>
+            <div style="margin-top:12px">
+              <LinkButton href="/orgs/new" variant="primary">New organization</LinkButton>
+            </div>
+          </EmptyState>
+        ) : (
+          <List>
+            {rows.map((r) => (
+              <ListItem>
+                <a href={`/orgs/${r.org.slug}`} style="color:var(--text)">
+                  <strong>{r.org.name}</strong>
+                </a>
+                <Text muted> — {r.role}</Text>
+              </ListItem>
+            ))}
+          </List>
+        )}
+      </Container>
+    </Layout>
+  );
+});
+
+// ─── Org-scoped repos stubs — require auth, delegate to existing flows ──────
+orgRoutes.get("/orgs/:org/repos", softAuth, requireAuth, async (c) => {
+  return c.redirect(`/orgs/${c.req.param("org")}`);
+});
+orgRoutes.get("/orgs/:org/repos/new", softAuth, requireAuth, (c) => {
+  const org = c.req.param("org");
+  return c.redirect(`/new?org=${encodeURIComponent(org)}`);
+});
+orgRoutes.post("/orgs/:org/repos/new", softAuth, requireAuth, (c) => {
+  const org = c.req.param("org");
+  return c.redirect(`/new?org=${encodeURIComponent(org)}`);
+});
+
+// ─── Org people mutation stub — require auth ────────────────────────────────
+orgRoutes.post("/orgs/:org/people/add", softAuth, requireAuth, (c) => {
+  return c.redirect(`/orgs/${c.req.param("org")}/people`);
+});
+
 // ─── Organization List / Create ─────────────────────────────────────────────
 
 orgRoutes.get("/orgs/new", softAuth, requireAuth, (c) => {
@@ -147,7 +211,7 @@ orgRoutes.post("/orgs/new", softAuth, requireAuth, async (c) => {
 
 // ─── Organization Profile ───────────────────────────────────────────────────
 
-orgRoutes.get("/orgs/:org", softAuth, async (c) => {
+orgRoutes.get("/orgs/:org", softAuth, requireAuth, async (c) => {
   const orgName = c.req.param("org");
   const user = c.get("user");
 

@@ -1,0 +1,10 @@
+[build]
+builder = "dockerfile"
+
+[deploy]
+releaseCommand = "bun run db:migrate"
+
+[env]
+GIT_REPOS_PATH = "/app/repos"
+PORT = "3000"
+NODE_ENV = "production"

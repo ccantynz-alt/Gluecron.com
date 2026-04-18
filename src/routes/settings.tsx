@@ -9,6 +9,18 @@ import { users, sshKeys } from "../db/schema";
 import type { AuthEnv } from "../middleware/auth";
 import { requireAuth } from "../middleware/auth";
 import { Layout } from "../views/layout";
+import {
+  Alert,
+  Button,
+  Flex,
+  Form,
+  FormGroup,
+  Input,
+  PageHeader,
+  Section,
+  Text,
+  TextArea,
+} from "../views/ui";
 
 const settings = new Hono<AuthEnv>();
 
@@ -24,13 +36,13 @@ settings.get("/settings", (c) => {
   return c.html(
     <Layout title="Settings">
       <div class="settings-container">
-        <h2>Profile settings</h2>
+        <PageHeader title="Profile settings" />
         {success && (
-          <div class="auth-success">
+          <Alert variant="success">
             {decodeURIComponent(success)}
-          </div>
+          </Alert>
         )}
-        <form method="POST" action="/settings/profile">
+        <form method="post" action="/settings/profile">
           <div class="form-group">
             <label for="username">Username</label>
             <input
@@ -38,47 +50,158 @@ settings.get("/settings", (c) => {
               id="username"
               value={user.username}
               disabled
-              class="input-disabled"
             />
-          </div>
-          <div class="form-group">
-            <label for="display_name">Display name</label>
-            <input
-              type="text"
-              id="display_name"
+          </FormGroup>
+          <FormGroup label="Display name" htmlFor="display_name">
+            <Input
               name="display_name"
+              id="display_name"
               value={user.displayName || ""}
               placeholder="Your display name"
             />
-          </div>
-          <div class="form-group">
-            <label for="bio">Bio</label>
-            <textarea
-              id="bio"
+          </FormGroup>
+          <FormGroup label="Bio" htmlFor="bio">
+            <TextArea
               name="bio"
+              id="bio"
               rows={3}
               placeholder="Tell us about yourself"
-            >
-              {user.bio || ""}
-            </textarea>
-          </div>
-          <div class="form-group">
-            <label for="email">Email</label>
-            <input
-              type="email"
-              id="email"
+              value={user.bio || ""}
+            />
+          </FormGroup>
+          <FormGroup label="Email" htmlFor="email">
+            <Input
               name="email"
+              id="email"
+              type="email"
               value={user.email}
               required
             />
-          </div>
-          <button type="submit" class="btn btn-primary">
+          </FormGroup>
+          <Button type="submit" variant="primary">
             Update profile
+          </button>
+        </form>
+
+        <h3 style="margin-top: 32px; font-size: 16px">Email notifications</h3>
+        <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 12px">
+          Opt out of individual email categories. In-app notifications are
+          unaffected and continue to appear in your inbox.
+        </p>
+        <form method="post" action="/settings/notifications">
+          <label
+            style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px; font-size: 14px"
+          >
+            <input
+              type="checkbox"
+              name="notify_email_on_mention"
+              value="1"
+              checked={user.notifyEmailOnMention}
+            />
+            <span>
+              Someone <code>@mentions</code> me or requests a review
+            </span>
+          </label>
+          <label
+            style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px; font-size: 14px"
+          >
+            <input
+              type="checkbox"
+              name="notify_email_on_assign"
+              value="1"
+              checked={user.notifyEmailOnAssign}
+            />
+            <span>I am assigned to an issue or PR</span>
+          </label>
+          <label
+            style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px; font-size: 14px"
+          >
+            <input
+              type="checkbox"
+              name="notify_email_on_gate_fail"
+              value="1"
+              checked={user.notifyEmailOnGateFail}
+            />
+            <span>A gate fails on one of my repositories</span>
+          </label>
+          <label
+            style="display: flex; gap: 8px; align-items: center; margin-bottom: 12px; font-size: 14px"
+          >
+            <input
+              type="checkbox"
+              name="notify_email_digest_weekly"
+              value="1"
+              checked={user.notifyEmailDigestWeekly}
+            />
+            <span>
+              Weekly digest &mdash;{" "}
+              <a href="/settings/digest/preview">preview</a>
+            </span>
+          </label>
+          <button type="submit" class="btn btn-primary">
+            Save preferences
           </button>
         </form>
       </div>
     </Layout>
   );
+});
+
+// Preview the weekly digest in-browser (rendered HTML)
+settings.get("/settings/digest/preview", async (c) => {
+  const user = c.get("user")!;
+  const body = await composeDigest(user.id);
+  if (!body) {
+    return c.html(
+      <Layout title="Digest preview" user={user}>
+        <h2>Digest preview</h2>
+        <p>Could not compose a digest right now.</p>
+        <p>
+          <a href="/settings">Back to settings</a>
+        </p>
+      </Layout>
+    );
+  }
+  return c.html(
+    <Layout title="Digest preview" user={user}>
+      <h2>Digest preview</h2>
+      <p style="color:var(--text-muted);font-size:13px">
+        Subject: <code>{body.subject}</code>
+      </p>
+      <p style="font-size:12px;color:var(--text-muted)">
+        Notifications: {body.counts.notifications} · Failed gates:{" "}
+        {body.counts.failedGates} · Repaired: {body.counts.repairedGates} ·
+        Merged PRs: {body.counts.mergedPrs}
+      </p>
+      <div
+        class="panel"
+        style="padding:20px;background:#fff;color:#111"
+      >
+        {raw(body.html)}
+      </div>
+      <p style="margin-top:20px">
+        <a href="/settings">Back to settings</a>
+      </p>
+    </Layout>
+  );
+});
+
+settings.post("/settings/notifications", async (c) => {
+  const user = c.get("user")!;
+  const body = await c.req.parseBody();
+  await db
+    .update(users)
+    .set({
+      notifyEmailOnMention: String(body.notify_email_on_mention || "") === "1",
+      notifyEmailOnAssign: String(body.notify_email_on_assign || "") === "1",
+      notifyEmailOnGateFail:
+        String(body.notify_email_on_gate_fail || "") === "1",
+      notifyEmailDigestWeekly:
+        String(body.notify_email_digest_weekly || "") === "1",
+      updatedAt: new Date(),
+    })
+    .where(eq(users.id, user.id));
+  return c.redirect("/settings?success=Email+preferences+updated");
 });
 
 settings.post("/settings/profile", async (c) => {
@@ -112,18 +235,18 @@ settings.get("/settings/keys", async (c) => {
   return c.html(
     <Layout title="SSH Keys">
       <div class="settings-container">
-        <h2>SSH Keys</h2>
+        <PageHeader title="SSH Keys" />
         {success && (
-          <div class="auth-success">{decodeURIComponent(success)}</div>
+          <Alert variant="success">{decodeURIComponent(success)}</Alert>
         )}
         {error && (
-          <div class="auth-error">{decodeURIComponent(error)}</div>
+          <Alert variant="error">{decodeURIComponent(error)}</Alert>
         )}
         <div class="ssh-keys-list">
           {keys.length === 0 ? (
-            <p style="color: var(--text-muted)">
+            <Text muted>
               No SSH keys yet. Add one below.
-            </p>
+            </Text>
           ) : (
             keys.map((key) => (
               <div class="ssh-key-item">
@@ -147,18 +270,18 @@ settings.get("/settings/keys", async (c) => {
                     )}
                   </div>
                 </div>
-                <form method="POST" action={`/settings/keys/${key.id}/delete`}>
+                <form method="post" action={`/settings/keys/${key.id}/delete`}>
                   <button type="submit" class="btn btn-danger btn-sm">
                     Delete
-                  </button>
-                </form>
+                  </Button>
+                </Form>
               </div>
             ))
           )}
         </div>
 
         <h3 style="margin-top: 24px">Add new SSH key</h3>
-        <form method="POST" action="/settings/keys">
+        <form method="post" action="/settings/keys">
           <div class="form-group">
             <label for="title">Title</label>
             <input

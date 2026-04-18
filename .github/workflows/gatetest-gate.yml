@@ -1,0 +1,82 @@
+# ============================================================================
+# GATETEST QUALITY GATE — PROTECTED INTEGRATION FILE
+# ============================================================================
+# This workflow is a permanent integration between GateTest and a protected
+# platform (Crontech / Gluecron). It MUST NOT be removed, weakened, or
+# disabled without explicit authorization from Craig.
+#
+# See the GateTest Bible (CLAUDE.md) → "PROTECTED PLATFORMS" section.
+# Install location in target repo: .github/workflows/gatetest-gate.yml
+# Source of truth: https://github.com/ccantynz-alt/gatetest
+#                  /integrations/github-actions/gatetest-gate.yml
+# ============================================================================
+
+name: GateTest Quality Gate
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+permissions:
+  contents: read
+  pull-requests: write
+  security-events: write
+  checks: write
+
+concurrency:
+  group: gatetest-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gatetest:
+    name: GateTest — Quality Gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout target repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Clone GateTest (single source of truth)
+        run: |
+          git clone --depth 1 https://github.com/ccantynz-alt/gatetest.git "$RUNNER_TEMP/gatetest"
+          echo "GATETEST_HOME=$RUNNER_TEMP/gatetest" >> $GITHUB_ENV
+          echo "$RUNNER_TEMP/gatetest/bin" >> $GITHUB_PATH
+          chmod +x "$RUNNER_TEMP/gatetest/bin/gatetest.js"
+
+      - name: Verify GateTest installed
+        run: node "$GATETEST_HOME/bin/gatetest.js" --version
+
+      - name: GateTest — Quick (diff-mode) on PRs
+        if: github.event_name == 'pull_request'
+        run: node "$GATETEST_HOME/bin/gatetest.js" --suite quick --diff --sarif --junit --project "$GITHUB_WORKSPACE"
+
+      - name: GateTest — Full on main push
+        if: github.event_name == 'push'
+        run: node "$GATETEST_HOME/bin/gatetest.js" --suite full --sarif --junit --project "$GITHUB_WORKSPACE"
+
+      - name: Upload SARIF to GitHub Security
+        if: always()
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: .gatetest/reports/gatetest-results.sarif
+          category: gatetest
+
+      - name: Upload GateTest reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gatetest-reports-${{ github.run_id }}
+          path: |
+            .gatetest/reports/
+          retention-days: 30
+          if-no-files-found: ignore

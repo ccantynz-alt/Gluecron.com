@@ -8,12 +8,23 @@ import { Hono } from "hono";
 import { getInfoRefs, serviceRpc } from "../git/protocol";
 import { repoExists } from "../git/repository";
 import { onPostReceive } from "../hooks/post-receive";
+import { invalidateRepoCache } from "../lib/cache";
+import { trackByName } from "../lib/traffic";
 
 const git = new Hono();
 
+/** Extract repo name from the ":repo.git" param Hono generates. */
+function gitParams(c: any): { owner: string; repo: string } {
+  const params = c.req.param();
+  const owner: string = params.owner;
+  const raw: string = params["repo.git"] ?? params.repo ?? "";
+  const repo = raw.replace(/\.git$/, "");
+  return { owner, repo };
+}
+
 // Discovery: GET /:owner/:repo.git/info/refs?service=...
 git.get("/:owner/:repo.git/info/refs", async (c) => {
-  const { owner, repo } = c.req.param();
+  const { owner, "repo.git": repo } = c.req.param();
   const service = c.req.query("service");
 
   if (!service || !["git-upload-pack", "git-receive-pack"].includes(service)) {
@@ -29,7 +40,7 @@ git.get("/:owner/:repo.git/info/refs", async (c) => {
 
 // GET /:owner/:repo.git/HEAD
 git.get("/:owner/:repo.git/HEAD", async (c) => {
-  const { owner, repo } = c.req.param();
+  const { owner, "repo.git": repo } = c.req.param();
   if (!(await repoExists(owner, repo))) {
     return c.text("Repository not found", 404);
   }
@@ -41,16 +52,21 @@ git.get("/:owner/:repo.git/HEAD", async (c) => {
 
 // Upload pack (clone/fetch)
 git.post("/:owner/:repo.git/git-upload-pack", async (c) => {
-  const { owner, repo } = c.req.param();
+  const { owner, "repo.git": repo } = c.req.param();
   if (!(await repoExists(owner, repo))) {
     return c.text("Repository not found", 404);
   }
+  // F1 — fire-and-forget clone tracking.
+  trackByName(owner, repo, "clone", {
+    ip: c.req.header("x-forwarded-for") || c.req.header("x-real-ip") || null,
+    userAgent: c.req.header("user-agent") || null,
+  }).catch(() => {});
   return serviceRpc(owner, repo, "git-upload-pack", c.req.raw.body);
 });
 
 // Receive pack (push)
 git.post("/:owner/:repo.git/git-receive-pack", async (c) => {
-  const { owner, repo } = c.req.param();
+  const { owner, "repo.git": repo } = c.req.param();
   if (!(await repoExists(owner, repo))) {
     return c.text("Repository not found", 404);
   }
@@ -63,6 +79,9 @@ git.post("/:owner/:repo.git/git-receive-pack", async (c) => {
     "git-receive-pack",
     bodyBuffer
   );
+
+  // Invalidate cached git data for this repo immediately
+  invalidateRepoCache(owner, repo);
 
   // Fire post-receive hooks asynchronously (don't block response)
   // We parse updated refs from the pkt-line protocol in the request

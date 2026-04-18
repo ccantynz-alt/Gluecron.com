@@ -1,9 +1,14 @@
 import { mkdir } from "fs/promises";
 import app from "./app";
 import { config } from "./lib/config";
+import { startWorker } from "./lib/workflow-runner";
 
 // Ensure repos directory exists
 await mkdir(config.gitReposPath, { recursive: true });
+
+// Start the Actions-equivalent workflow worker (Block C1). Polls
+// workflow_runs for queued rows and executes them sequentially.
+startWorker();
 
 console.log(`
   gluecron v0.1.0

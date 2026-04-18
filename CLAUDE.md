@@ -2,6 +2,19 @@
 
 AI-native code intelligence platform — git hosting, automated CI, and green ecosystem enforcement.
 
+## READ FIRST — every session
+
+**`BUILD_BIBLE.md` is mandatory reading for every Claude agent before any code changes.**
+
+It contains:
+- Agent policy (do-not-undo rule, continuous-build rule)
+- GitHub parity scorecard (what's shipped vs missing)
+- Numbered build plan (Blocks A–H)
+- Locked components that cannot be altered without owner permission
+- Session workflow
+
+Do not skip it. Do not refactor locked files. Do not stop mid-block.
+
 ## Stack
 
 - **Runtime:** Bun

@@ -1,76 +1,85 @@
 /**
- * Rate limiter — in-memory fixed-window counter keyed by IP (or token).
+ * In-memory rate limiter middleware.
  *
- * Simple on purpose. For multi-node deployments swap the Map for the
- * `rate_limit_buckets` Postgres table (schema is already there).
+ * Provides per-IP rate limiting with sliding window counters.
+ * For production, replace with Redis-based implementation.
  */
 
 import { createMiddleware } from "hono/factory";
 
-interface Bucket {
+interface RateLimitEntry {
   count: number;
-  windowStart: number;
+  resetAt: number;
 }
 
-const store = new Map<string, Bucket>();
+const store = new Map<string, RateLimitEntry>();
 
-function clientKey(c: any, prefix: string): string {
-  const auth = c.req.header("authorization") || "";
-  if (auth.startsWith("Bearer ")) {
-    return `${prefix}:token:${auth.slice(7, 20)}`;
+// Cleanup stale entries every 60 seconds
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of store) {
+    if (entry.resetAt < now) {
+      store.delete(key);
+    }
   }
-  const ip =
-    c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ||
-    c.req.header("x-real-ip") ||
-    c.env?.ip ||
-    "unknown";
-  return `${prefix}:ip:${ip}`;
-}
+}, 60_000);
 
-export function rateLimit(opts: { windowMs: number; max: number; prefix?: string }) {
-  const prefix = opts.prefix || "rl";
-  // In test mode we don't enforce limits — the in-memory bucket leaks across
-  // tests in the same process and different routes share the default prefix,
-  // which causes false 429s on endpoints that have only been hit once. Headers
-  // are still written so tests asserting their presence keep passing.
-  const enforce = process.env.NODE_ENV !== "test";
+/**
+ * Create a rate limiter middleware.
+ * @param maxRequests Maximum requests per window
+ * @param windowMs Window duration in milliseconds
+ * @param keyPrefix Prefix for the rate limit key (allows different limits per route group)
+ */
+export function rateLimit(
+  maxRequests: number,
+  windowMs: number,
+  keyPrefix = "global"
+) {
   return createMiddleware(async (c, next) => {
-    const key = clientKey(c, prefix);
+    const ip =
+      c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ||
+      c.req.header("x-real-ip") ||
+      "unknown";
+
+    const key = `${keyPrefix}:${ip}`;
     const now = Date.now();
-    const bucket = store.get(key);
-    let count = 1;
-    if (!bucket || now - bucket.windowStart > opts.windowMs) {
-      store.set(key, { count: 1, windowStart: now });
-    } else {
-      bucket.count++;
-      count = bucket.count;
-      if (enforce && bucket.count > opts.max) {
-        const retryMs = opts.windowMs - (now - bucket.windowStart);
-        return c.json(
-          { error: "Too many requests", retryAfterMs: retryMs },
-          429,
-          {
-            "Retry-After": String(Math.ceil(retryMs / 1000)),
-            "X-RateLimit-Limit": String(opts.max),
-            "X-RateLimit-Remaining": "0",
-          }
-        );
-      }
+    let entry = store.get(key);
+
+    if (!entry || entry.resetAt < now) {
+      entry = { count: 0, resetAt: now + windowMs };
+      store.set(key, entry);
     }
-    // Periodic sweep (every 5 min worth of requests)
-    if (store.size > 10_000) {
-      for (const [k, b] of store) {
-        if (now - b.windowStart > opts.windowMs * 2) store.delete(k);
-      }
-    }
-    await next();
-    // Set rate-limit headers on the final response (persists even if handler errored)
-    if (c.res) {
-      c.res.headers.set("X-RateLimit-Limit", String(opts.max));
-      c.res.headers.set(
-        "X-RateLimit-Remaining",
-        String(Math.max(0, opts.max - count))
+
+    entry.count++;
+
+    // Set rate limit headers
+    c.header("X-RateLimit-Limit", String(maxRequests));
+    c.header("X-RateLimit-Remaining", String(Math.max(0, maxRequests - entry.count)));
+    c.header("X-RateLimit-Reset", String(Math.ceil(entry.resetAt / 1000)));
+
+    if (entry.count > maxRequests) {
+      c.header("Retry-After", String(Math.ceil((entry.resetAt - now) / 1000)));
+      return c.json(
+        {
+          error: "Rate limit exceeded",
+          retryAfter: Math.ceil((entry.resetAt - now) / 1000),
+        },
+        429
       );
     }
+
+    return next();
   });
 }
+
+/**
+ * Pre-configured rate limiters for different route groups.
+ */
+export function clearRateLimitStore() {
+  store.clear();
+}
+
+export const apiRateLimit = rateLimit(100, 60_000, "api"); // 100 req/min
+export const authRateLimit = rateLimit(10, 60_000, "auth"); // 10 req/min (login/register)
+export const gitRateLimit = rateLimit(60, 60_000, "git"); // 60 req/min
+export const searchRateLimit = rateLimit(30, 60_000, "search"); // 30 req/min

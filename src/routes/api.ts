@@ -135,6 +135,23 @@ api.post("/repos", async (c) => {
     console.error("[api] POST /repos:", err);
     return c.json({ error: "Service unavailable" }, 503);
   }
+
+  // Init bare repo on disk
+  const diskPath = await initBareRepo(body.owner, body.name);
+
+  // Insert into DB
+  const result = await db
+    .insert(repositories)
+    .values({
+      name: body.name,
+      ownerId: owner.id,
+      description: body.description || null,
+      isPrivate: body.isPrivate || false,
+      diskPath,
+    })
+    .returning();
+
+  return c.json(result[0], 201);
 });
 
 // List user's repositories

@@ -97,7 +97,7 @@ web.get("/new", requireAuth, (c) => {
       <div class="new-repo-form">
         <h2>Create a new repository</h2>
         {error && <div class="auth-error">{decodeURIComponent(error)}</div>}
-        <form method="POST" action="/new">
+        <form method="post" action="/new">
           <div class="form-group">
             <label>Owner</label>
             <input type="text" value={user.username} disabled class="input-disabled" />
@@ -1052,7 +1052,7 @@ web.get("/:owner/:repo/raw/:ref{.+$}", async (c) => {
   if (!data) return c.text("Not found", 404);
 
   const fileName = filePath.split("/").pop() || "file";
-  return new Response(data, {
+  return new Response(data.buffer as ArrayBuffer, {
     headers: {
       "Content-Type": "application/octet-stream",
       "Content-Disposition": `attachment; filename="${fileName}"`,
@@ -1168,7 +1168,7 @@ web.get("/:owner/:repo/search", async (c) => {
       <RepoHeader owner={owner} repo={repo} />
       <RepoNav owner={owner} repo={repo} active="code" />
       <form
-        method="GET"
+        method="get"
         action={`/${owner}/${repo}/search`}
         style="margin-bottom: 20px"
       >

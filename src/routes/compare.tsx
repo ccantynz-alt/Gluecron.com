@@ -17,6 +17,11 @@ import {
 import { softAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
 import type { GitDiffFile } from "../git/repository";
+import {
+  EmptyState,
+  Flex,
+  Text,
+} from "../views/ui";
 
 const compare = new Hono<AuthEnv>();
 
@@ -30,9 +35,7 @@ compare.get("/:owner/:repo/compare/:spec?", async (c) => {
   if (!(await repoExists(owner, repo))) {
     return c.html(
       <Layout title="Not Found" user={user}>
-        <div class="empty-state">
-          <h2>Repository not found</h2>
-        </div>
+        <EmptyState title="Repository not found" />
       </Layout>,
       404
     );
@@ -49,32 +52,33 @@ compare.get("/:owner/:repo/compare/:spec?", async (c) => {
         <IssueNav owner={owner} repo={repo} active="code" />
         <h2 style="margin-bottom: 16px">Compare changes</h2>
         <form
-          method="GET"
+          method="get"
           action={`/${owner}/${repo}/compare`}
-          style="display: flex; gap: 12px; align-items: center; margin-bottom: 20px"
         >
-          <select name="base" class="branch-selector" style="cursor: pointer">
-            {branches.map((b) => (
-              <option value={b} selected={b === defaultBase}>
-                {b}
-              </option>
-            ))}
-          </select>
-          <span style="color: var(--text-muted)">...</span>
-          <select name="head" class="branch-selector" style="cursor: pointer">
-            {branches.map((b) => (
-              <option value={b} selected={b !== defaultBase}>
-                {b}
-              </option>
-            ))}
-          </select>
-          <button
-            type="submit"
-            class="btn btn-primary"
-            onclick={`this.form.action='/${owner}/${repo}/compare/'+this.form.base.value+'...'+this.form.head.value; return true;`}
-          >
-            Compare
-          </button>
+          <Flex gap={12} align="center" style="margin-bottom: 20px">
+            <select name="base" class="branch-selector" style="cursor: pointer">
+              {branches.map((b) => (
+                <option value={b} selected={b === defaultBase}>
+                  {b}
+                </option>
+              ))}
+            </select>
+            <Text muted>...</Text>
+            <select name="head" class="branch-selector" style="cursor: pointer">
+              {branches.map((b) => (
+                <option value={b} selected={b !== defaultBase}>
+                  {b}
+                </option>
+              ))}
+            </select>
+            <button
+              type="submit"
+              class="btn btn-primary"
+              onclick={`this.form.action='/${owner}/${repo}/compare/'+this.form.base.value+'...'+this.form.head.value; return true;`}
+            >
+              Compare
+            </button>
+          </Flex>
         </form>
       </Layout>
     );
@@ -143,9 +147,9 @@ compare.get("/:owner/:repo/compare/:spec?", async (c) => {
       <h2 style="margin-bottom: 8px">
         Comparing {base}...{head}
       </h2>
-      <div style="margin-bottom: 20px; font-size: 14px; color: var(--text-muted)">
+      <Text size={14} muted style="display:block;margin-bottom:20px">
         {commitsBetween.length} commit{commitsBetween.length !== 1 ? "s" : ""}
-      </div>
+      </Text>
 
       {commitsBetween.length > 0 && (
         <div class="commit-list" style="margin-bottom: 24px">

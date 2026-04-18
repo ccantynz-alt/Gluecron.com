@@ -7,6 +7,8 @@ import { requestContext } from "./middleware/request-context";
 import { rateLimit } from "./middleware/rate-limit";
 import gitRoutes from "./routes/git";
 import apiRoutes from "./routes/api";
+import apiV2Routes from "./routes/api-v2";
+import apiDocsRoutes from "./routes/api-docs";
 import authRoutes from "./routes/auth";
 import settingsRoutes from "./routes/settings";
 import settings2faRoutes from "./routes/settings-2fa";
@@ -21,61 +23,11 @@ import exploreRoutes from "./routes/explore";
 import tokenRoutes from "./routes/tokens";
 import contributorRoutes from "./routes/contributors";
 import notificationRoutes from "./routes/notifications";
-import dashboardRoutes from "./routes/dashboard";
-import askRoutes from "./routes/ask";
-import releaseRoutes from "./routes/releases";
-import gateRoutes from "./routes/gates";
-import insightsRoutes from "./routes/insights";
-import searchRoutes from "./routes/search";
-import healthRoutes from "./routes/health";
-import hookRoutes from "./routes/hooks";
-import themeRoutes from "./routes/theme";
-import auditRoutes from "./routes/audit";
-import reactionRoutes from "./routes/reactions";
-import savedReplyRoutes from "./routes/saved-replies";
-import deploymentRoutes from "./routes/deployments";
 import orgRoutes from "./routes/orgs";
-import passkeyRoutes from "./routes/passkeys";
-import oauthRoutes from "./routes/oauth";
-import developerAppsRoutes from "./routes/developer-apps";
-import workflowRoutes from "./routes/workflows";
-import packagesApiRoutes from "./routes/packages-api";
-import packagesUiRoutes from "./routes/packages";
-import pagesRoutes from "./routes/pages";
-import environmentsRoutes from "./routes/environments";
-import aiExplainRoutes from "./routes/ai-explain";
-import aiChangelogRoutes from "./routes/ai-changelog";
-import copilotRoutes from "./routes/copilot";
-import depUpdaterRoutes from "./routes/dep-updater";
-import semanticSearchRoutes from "./routes/semantic-search";
-import aiTestsRoutes from "./routes/ai-tests";
-import discussionRoutes from "./routes/discussions";
-import gistRoutes from "./routes/gists";
-import projectRoutes from "./routes/projects";
-import wikiRoutes from "./routes/wikis";
-import mergeQueueRoutes from "./routes/merge-queue";
-import requiredChecksRoutes from "./routes/required-checks";
-import protectedTagsRoutes from "./routes/protected-tags";
-import trafficRoutes from "./routes/traffic";
-import orgInsightsRoutes from "./routes/org-insights";
-import adminRoutes from "./routes/admin";
-import billingRoutes from "./routes/billing";
-import pwaRoutes from "./routes/pwa";
-import graphqlRoutes from "./routes/graphql";
-import marketplaceRoutes from "./routes/marketplace";
-import templatesRoutes from "./routes/templates";
-import codeScanningRoutes from "./routes/code-scanning";
-import sponsorsRoutes from "./routes/sponsors";
-import symbolsRoutes from "./routes/symbols";
-import mirrorsRoutes from "./routes/mirrors";
-import ssoRoutes from "./routes/sso";
-import depsRoutes from "./routes/deps";
-import advisoriesRoutes from "./routes/advisories";
-import signingKeysRoutes from "./routes/signing-keys";
-import followsRoutes from "./routes/follows";
-import rulesetsRoutes from "./routes/rulesets";
-import commitStatusesRoutes from "./routes/commit-statuses";
+import onboardingRoutes from "./routes/onboarding";
 import webRoutes from "./routes/web";
+import { authRateLimit, gitRateLimit, searchRateLimit } from "./middleware/rate-limit";
+import { csrfToken, csrfProtect } from "./middleware/csrf";
 
 const app = new Hono();
 
@@ -94,17 +46,32 @@ app.use("/api/*", rateLimit({ windowMs: 60_000, max: 120 }));
 app.use("/login", rateLimit({ windowMs: 60_000, max: 20 }));
 app.use("/register", rateLimit({ windowMs: 60_000, max: 10 }));
 
+// CSRF protection — set token on all requests, validate on mutations
+app.use("*", csrfToken);
+app.use("*", csrfProtect);
+
+// Rate limit auth routes
+app.use("/login", authRateLimit);
+app.use("/register", authRateLimit);
+
+// Rate limit git operations
+app.use("/:owner/:repo.git/*", gitRateLimit);
+
+// Rate limit search
+app.use("/:owner/:repo/search", searchRateLimit);
+app.use("/explore", searchRateLimit);
+
 // Git Smart HTTP protocol routes (must be before web routes)
 app.route("/", gitRoutes);
 
-// Health + metrics
-app.route("/", healthRoutes);
-
-// Inbound API hooks (GateTest callback + backup PAT-authed /api/v1/gate-runs)
-app.route("/", hookRoutes);
-
-// REST API
+// REST API v1 (legacy)
 app.route("/", apiRoutes);
+
+// REST API v2 (comprehensive, token-authenticated)
+app.route("/", apiV2Routes);
+
+// API documentation
+app.route("/", apiDocsRoutes);
 
 // Auth routes (register, login, logout)
 app.route("/", authRoutes);
@@ -143,17 +110,11 @@ app.route("/", orgRoutes);
 // API tokens
 app.route("/", tokenRoutes);
 
-// Notifications inbox
+// Notifications
 app.route("/", notificationRoutes);
 
-// Dashboard (/dashboard)
-app.route("/", dashboardRoutes);
-
-// AI assistant — /ask + /:owner/:repo/ask
-app.route("/", askRoutes);
-
-// Global search
-app.route("/", searchRoutes);
+// Organizations
+app.route("/", orgRoutes);
 
 // Repo settings (description, visibility, delete)
 app.route("/", repoSettings);
@@ -267,6 +228,9 @@ app.route("/", insightsRoutes);
 
 // Explore page
 app.route("/", exploreRoutes);
+
+// Onboarding
+app.route("/", onboardingRoutes);
 
 // Web UI (catch-all, must be last)
 app.route("/", webRoutes);

@@ -28,18 +28,28 @@ import {
 } from "../git/repository";
 import type { GitDiffFile } from "../git/repository";
 import { html } from "hono/html";
-import { reviewDiff, isAiReviewEnabled } from "../lib/ai-review";
-import { triagePullRequest } from "../lib/ai-generators";
-import { mergeWithAutoResolve } from "../lib/merge-resolver";
-import { runAllGateChecks, type GateCheckResult } from "../lib/gate";
-import { labels as labelsTable } from "../db/schema";
 import {
-  matchProtection,
-  evaluateProtection,
-  countHumanApprovals,
-  listRequiredChecks,
-  passingCheckNames,
-} from "../lib/branch-protection";
+  Flex,
+  Container,
+  Badge,
+  Button,
+  LinkButton,
+  Form,
+  FormGroup,
+  Input,
+  TextArea,
+  Select,
+  EmptyState,
+  FilterTabs,
+  TabNav,
+  List,
+  ListItem,
+  Text,
+  Alert,
+  MarkdownContent,
+  CommentBox,
+  formatRelative,
+} from "../views/ui";
 
 const pulls = new Hono<AuthEnv>();
 
@@ -71,29 +81,14 @@ const PrNav = ({
   repo: string;
   active: "code" | "issues" | "pulls" | "commits";
 }) => (
-  <div class="repo-nav">
-    <a href={`/${owner}/${repo}`} class={active === "code" ? "active" : ""}>
-      Code
-    </a>
-    <a
-      href={`/${owner}/${repo}/issues`}
-      class={active === "issues" ? "active" : ""}
-    >
-      Issues
-    </a>
-    <a
-      href={`/${owner}/${repo}/pulls`}
-      class={active === "pulls" ? "active" : ""}
-    >
-      Pull Requests
-    </a>
-    <a
-      href={`/${owner}/${repo}/commits`}
-      class={active === "commits" ? "active" : ""}
-    >
-      Commits
-    </a>
-  </div>
+  <TabNav
+    tabs={[
+      { label: "Code", href: `/${owner}/${repo}`, active: active === "code" },
+      { label: "Issues", href: `/${owner}/${repo}/issues`, active: active === "issues" },
+      { label: "Pull Requests", href: `/${owner}/${repo}/pulls`, active: active === "pulls" },
+      { label: "Commits", href: `/${owner}/${repo}/commits`, active: active === "commits" },
+    ]}
+  />
 );
 
 // List PRs
@@ -140,89 +135,53 @@ pulls.get("/:owner/:repo/pulls", softAuth, async (c) => {
     <Layout title={`Pull Requests — ${ownerName}/${repoName}`} user={user}>
       <RepoHeader owner={ownerName} repo={repoName} />
       <PrNav owner={ownerName} repo={repoName} active="pulls" />
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px">
-        <div class="issue-tabs">
-          <a
-            href={`/${ownerName}/${repoName}/pulls?state=open`}
-            class={state === "open" ? "active" : ""}
-          >
-            {counts?.open ?? 0} Open
-          </a>
-          <a
-            href={`/${ownerName}/${repoName}/pulls?state=draft`}
-            class={state === "draft" ? "active" : ""}
-          >
-            {counts?.draft ?? 0} Draft
-          </a>
-          <a
-            href={`/${ownerName}/${repoName}/pulls?state=merged`}
-            class={state === "merged" ? "active" : ""}
-          >
-            {counts?.merged ?? 0} Merged
-          </a>
-          <a
-            href={`/${ownerName}/${repoName}/pulls?state=closed`}
-            class={state === "closed" ? "active" : ""}
-          >
-            {counts?.closed ?? 0} Closed
-          </a>
-        </div>
+      <Flex justify="space-between" align="center" style="margin-bottom:16px">
+        <FilterTabs
+          tabs={[
+            { label: `${counts?.open ?? 0} Open`, href: `/${ownerName}/${repoName}/pulls?state=open`, active: state === "open" },
+            { label: `${counts?.merged ?? 0} Merged`, href: `/${ownerName}/${repoName}/pulls?state=merged`, active: state === "merged" },
+            { label: `${counts?.closed ?? 0} Closed`, href: `/${ownerName}/${repoName}/pulls?state=closed`, active: state === "closed" },
+          ]}
+        />
         {user && (
-          <a
-            href={`/${ownerName}/${repoName}/pulls/new`}
-            class="btn btn-primary"
-          >
+          <LinkButton href={`/${ownerName}/${repoName}/pulls/new`} variant="primary">
             New pull request
-          </a>
+          </LinkButton>
         )}
-      </div>
+      </Flex>
       {prList.length === 0 ? (
-        <div class="empty-state">
+        <EmptyState>
           <p>No {state} pull requests.</p>
-        </div>
+        </EmptyState>
       ) : (
-        <div class="issue-list">
-          {prList.map(({ pr, author }) => {
-            const isDraft = pr.state === "open" && pr.isDraft;
-            const stateClass = isDraft
-              ? "state-draft"
-              : pr.state === "open"
-                ? "state-open"
-                : pr.state === "merged"
-                  ? "state-merged"
-                  : "state-closed";
-            const stateIcon = isDraft
-              ? "\u270E"
-              : pr.state === "open"
-                ? "\u25CB"
-                : pr.state === "merged"
-                  ? "\u2B8C"
-                  : "\u2713";
-            return (
-              <div class="issue-item">
-                <div class={`issue-state-icon ${stateClass}`}>{stateIcon}</div>
-                <div>
-                  <div class="issue-title">
-                    <a href={`/${ownerName}/${repoName}/pulls/${pr.number}`}>
-                      {pr.title}
-                    </a>
-                    {isDraft && (
-                      <span class="issue-badge draft-badge" style="margin-left: 8px; font-size: 11px; padding: 2px 8px">
-                        Draft
-                      </span>
-                    )}
-                  </div>
-                  <div class="issue-meta">
-                    #{pr.number}{" "}
-                    {pr.headBranch} → {pr.baseBranch}{" "}
-                    by {author.username}{" "}
-                    {formatRelative(pr.createdAt)}
-                  </div>
+        <List>
+          {prList.map(({ pr, author }) => (
+            <ListItem>
+              <div
+                class={`issue-state-icon ${pr.state === "open" ? "state-open" : pr.state === "merged" ? "state-merged" : "state-closed"}`}
+              >
+                {pr.state === "open"
+                  ? "\u25CB"
+                  : pr.state === "merged"
+                    ? "\u2B8C"
+                    : "\u2713"}
+              </div>
+              <div>
+                <div class="issue-title">
+                  <a href={`/${ownerName}/${repoName}/pulls/${pr.number}`}>
+                    {pr.title}
+                  </a>
+                </div>
+                <div class="issue-meta">
+                  #{pr.number}{" "}
+                  {pr.headBranch} → {pr.baseBranch}{" "}
+                  by {author.username}{" "}
+                  {formatRelative(pr.createdAt)}
                 </div>
               </div>
-            );
-          })}
-        </div>
+            </ListItem>
+          ))}
+        </List>
       )}
     </Layout>
   );
@@ -245,70 +204,51 @@ pulls.get(
       <Layout title={`New PR — ${ownerName}/${repoName}`} user={user}>
         <RepoHeader owner={ownerName} repo={repoName} />
         <PrNav owner={ownerName} repo={repoName} active="pulls" />
-        <div style="max-width: 800px">
-          <h2 style="margin-bottom: 16px">Open a pull request</h2>
-          {template && (
-            <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px">
-              Using <code>PULL_REQUEST_TEMPLATE.md</code> from the default branch.
-            </div>
-          )}
+        <Container maxWidth={800}>
+          <h2 style="margin-bottom:16px">Open a pull request</h2>
           {error && (
-            <div class="auth-error">{decodeURIComponent(error)}</div>
+            <Alert variant="error">{decodeURIComponent(error)}</Alert>
           )}
-          <form method="POST" action={`/${ownerName}/${repoName}/pulls/new`}>
-            <div style="display: flex; gap: 12px; align-items: center; margin-bottom: 16px">
-              <select name="base" style="padding: 6px 12px; background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); font-size: 13px">
+          <Form action={`/${ownerName}/${repoName}/pulls/new`} method="POST">
+            <Flex gap={12} align="center" style="margin-bottom:16px">
+              <Select name="base" value={defaultBase}>
                 {branches.map((b) => (
                   <option value={b} selected={b === defaultBase}>
                     {b}
                   </option>
                 ))}
-              </select>
-              <span style="color: var(--text-muted)">&larr;</span>
-              <select name="head" style="padding: 6px 12px; background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); font-size: 13px">
+              </Select>
+              <Text muted>&larr;</Text>
+              <Select name="head">
                 {branches
                   .filter((b) => b !== defaultBase)
                   .concat(defaultBase === branches[0] ? [] : [branches[0]])
                   .map((b) => (
                     <option value={b}>{b}</option>
                   ))}
-              </select>
-            </div>
-            <div class="form-group">
-              <input
-                type="text"
+              </Select>
+            </Flex>
+            <FormGroup>
+              <Input
                 name="title"
                 required
                 placeholder="Title"
-                style="font-size: 16px; padding: 10px 14px"
+                style="font-size:16px;padding:10px 14px"
               />
-            </div>
-            <div class="form-group">
-              <textarea
+            </FormGroup>
+            <FormGroup>
+              <TextArea
                 name="body"
                 rows={8}
                 placeholder="Description (Markdown supported)"
-                style="font-family: var(--font-mono); font-size: 13px"
-              >
-                {template || ""}
-              </textarea>
-            </div>
-            <div style="display: flex; gap: 8px">
-              <button type="submit" class="btn btn-primary">
-                Create pull request
-              </button>
-              <button
-                type="submit"
-                name="draft"
-                value="1"
-                class="btn"
-                title="Create a draft PR — skips AI review and cannot be merged until marked ready"
-              >
-                Create draft
-              </button>
-            </div>
-          </form>
-        </div>
+                mono
+              />
+            </FormGroup>
+            <Button type="submit" variant="primary">
+              Create pull request
+            </Button>
+          </Form>
+        </Container>
       </Layout>
     );
   }
@@ -496,72 +436,54 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, async (c) => {
       <div class="issue-detail">
         <h2>
           {pr.title}{" "}
-          <span style="color: var(--text-muted); font-weight: 400">
+          <Text color="var(--text-muted)" weight={400}>
             #{pr.number}
-          </span>
+          </Text>
         </h2>
-        <div style="margin: 8px 0 20px; display: flex; align-items: center; gap: 8px">
-          {pr.state === "open" && pr.isDraft ? (
-            <span class="issue-badge draft-badge">
-              {"\u270E Draft"}
-            </span>
-          ) : (
-            <span
-              class={`issue-badge ${pr.state === "open" ? "badge-open" : pr.state === "merged" ? "badge-merged" : "badge-closed"}`}
-            >
-              {pr.state === "open"
-                ? "\u25CB Open"
-                : pr.state === "merged"
-                  ? "\u2B8C Merged"
-                  : "\u2713 Closed"}
-            </span>
-          )}
-          <span style="color: var(--text-muted); font-size: 14px">
-            <strong style="color: var(--text)">
+        <Flex align="center" gap={8} style="margin:8px 0 20px">
+          <Badge
+            variant={pr.state === "open" ? "open" : pr.state === "merged" ? "merged" : "closed"}
+          >
+            {pr.state === "open"
+              ? "\u25CB Open"
+              : pr.state === "merged"
+                ? "\u2B8C Merged"
+                : "\u2713 Closed"}
+          </Badge>
+          <Text size={14} muted>
+            <strong style="color:var(--text)">
               {author?.username}
             </strong>{" "}
             wants to merge <code>{pr.headBranch}</code> into{" "}
             <code>{pr.baseBranch}</code>
-          </span>
-        </div>
+          </Text>
+        </Flex>
 
-        <div class="issue-tabs" style="margin-bottom: 20px">
-          <a
-            href={`/${ownerName}/${repoName}/pulls/${pr.number}`}
-            class={tab === "conversation" ? "active" : ""}
-          >
-            Conversation
-          </a>
-          <a
-            href={`/${ownerName}/${repoName}/pulls/${pr.number}?tab=files`}
-            class={tab === "files" ? "active" : ""}
-          >
-            Files changed
-          </a>
-        </div>
+        <FilterTabs
+          tabs={[
+            {
+              label: "Conversation",
+              href: `/${ownerName}/${repoName}/pulls/${pr.number}`,
+              active: tab === "conversation",
+            },
+            {
+              label: "Files changed",
+              href: `/${ownerName}/${repoName}/pulls/${pr.number}?tab=files`,
+              active: tab === "files",
+            },
+          ]}
+        />
 
         {tab === "files" ? (
           <DiffView raw={diffRaw} files={diffFiles} />
         ) : (
           <>
             {pr.body && (
-              <div class="issue-comment-box">
-                <div class="comment-header">
-                  <strong>{author?.username}</strong> commented{" "}
-                  {formatRelative(pr.createdAt)}
-                </div>
-                <div class="markdown-body">
-                  {html([renderMarkdown(pr.body)] as unknown as TemplateStringsArray)}
-                </div>
-                <div style="padding: 0 16px 12px">
-                  <ReactionsBar
-                    targetType="pr"
-                    targetId={pr.id}
-                    summaries={prReactions}
-                    canReact={!!user}
-                  />
-                </div>
-              </div>
+              <CommentBox
+                author={author?.username ?? "unknown"}
+                date={pr.createdAt}
+                body={renderMarkdown(pr.body)}
+              />
             )}
 
             {comments.map(({ comment, author: commentAuthor }, i) => (
@@ -569,32 +491,25 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, async (c) => {
                 class={`issue-comment-box ${comment.isAiReview ? "ai-review" : ""}`}
               >
                 <div class="comment-header">
-                  <strong>{commentAuthor.username}</strong>
-                  {comment.isAiReview && (
-                    <span class="badge" style="margin-left: 8px; background: rgba(31, 111, 235, 0.15); color: var(--text-link); border-color: var(--accent)">
-                      AI Review
-                    </span>
-                  )}
-                  {" "}
-                  commented {formatRelative(comment.createdAt)}
-                  {comment.filePath && (
-                    <span style="margin-left: 8px; font-family: var(--font-mono); font-size: 11px">
-                      {comment.filePath}
-                      {comment.lineNumber ? `:${comment.lineNumber}` : ""}
-                    </span>
-                  )}
+                  <Flex gap={8} align="center">
+                    <strong>{commentAuthor.username}</strong>
+                    {comment.isAiReview && (
+                      <Badge variant="default" style="margin-left:8px;background:rgba(31,111,235,0.15);color:var(--text-link);border-color:var(--accent)">
+                        AI Review
+                      </Badge>
+                    )}
+                    <Text size={13} muted>
+                      commented {formatRelative(comment.createdAt)}
+                    </Text>
+                    {comment.filePath && (
+                      <Text size={11} mono style="margin-left:8px">
+                        {comment.filePath}
+                        {comment.lineNumber ? `:${comment.lineNumber}` : ""}
+                      </Text>
+                    )}
+                  </Flex>
                 </div>
-                <div class="markdown-body">
-                  {html([renderMarkdown(comment.body)] as unknown as TemplateStringsArray)}
-                </div>
-                <div style="padding: 0 16px 12px">
-                  <ReactionsBar
-                    targetType="pr_comment"
-                    targetId={comment.id}
-                    summaries={prCommentReactions[i] || []}
-                    canReact={!!user}
-                  />
-                </div>
+                <MarkdownContent html={renderMarkdown(comment.body)} />
               </div>
             ))}
 
@@ -627,79 +542,45 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, async (c) => {
             )}
 
             {user && pr.state === "open" && (
-              <div style="margin-top: 20px">
-                <form
-                  method="POST"
+              <div style="margin-top:20px">
+                <Form
                   action={`/${ownerName}/${repoName}/pulls/${pr.number}/comment`}
+                  method="POST"
                 >
-                  <div class="form-group">
-                    <textarea
+                  <FormGroup>
+                    <TextArea
                       name="body"
                       rows={6}
                       required
                       placeholder="Leave a comment... (Markdown supported)"
-                      style="font-family: var(--font-mono); font-size: 13px"
+                      mono
                     />
-                  </div>
-                  <div style="display: flex; gap: 8px">
-                    <button type="submit" class="btn btn-primary">
+                  </FormGroup>
+                  <Flex gap={8}>
+                    <Button type="submit" variant="primary">
                       Comment
-                    </button>
+                    </Button>
                     {canManage && (
                       <>
-                        {pr.isDraft ? (
-                          <button
-                            type="submit"
-                            formaction={`/${ownerName}/${repoName}/pulls/${pr.number}/ready`}
-                            class="btn"
-                            style="background: rgba(63, 185, 80, 0.15); border-color: var(--green); color: var(--green)"
-                            title="Mark this draft PR as ready for review — triggers AI review"
-                          >
-                            Ready for review
-                          </button>
-                        ) : (
-                          <>
-                            <button
-                              type="submit"
-                              formaction={`/${ownerName}/${repoName}/pulls/${pr.number}/merge`}
-                              class="btn"
-                              style={`background: ${gateChecks.every((c) => c.passed) ? "rgba(63, 185, 80, 0.15)" : "rgba(248, 81, 73, 0.1)"}; border-color: ${gateChecks.every((c) => c.passed) ? "var(--green)" : "var(--red)"}; color: ${gateChecks.every((c) => c.passed) ? "var(--green)" : "var(--red)"}`}
-                            >
-                              {gateChecks.every((c) => c.passed)
-                                ? "Merge pull request"
-                                : gateChecks.some((c) => !c.passed && c.name === "Merge check")
-                                  ? "Merge with auto-resolve"
-                                  : "Merge pull request"}
-                            </button>
-                            <button
-                              type="submit"
-                              formaction={`/${ownerName}/${repoName}/pulls/${pr.number}/enqueue`}
-                              class="btn"
-                              title="Queue this PR — gates will re-run against latest base before merge"
-                            >
-                              Add to merge queue
-                            </button>
-                            <button
-                              type="submit"
-                              formaction={`/${ownerName}/${repoName}/pulls/${pr.number}/draft`}
-                              class="btn"
-                              title="Convert back to draft"
-                            >
-                              Convert to draft
-                            </button>
-                          </>
-                        )}
                         <button
                           type="submit"
+                          formaction={`/${ownerName}/${repoName}/pulls/${pr.number}/merge`}
+                          class="btn"
+                          style="background:rgba(63,185,80,0.15);border-color:var(--green);color:var(--green)"
+                        >
+                          Merge pull request
+                        </button>
+                        <Button
+                          type="submit"
+                          variant="danger"
                           formaction={`/${ownerName}/${repoName}/pulls/${pr.number}/close`}
-                          class="btn btn-danger"
                         >
                           Close
-                        </button>
+                        </Button>
                       </>
                     )}
-                  </div>
-                </form>
+                  </Flex>
+                </Form>
               </div>
             )}
           </>
@@ -1088,246 +969,5 @@ pulls.post(
     return c.redirect(`/${ownerName}/${repoName}/pulls/${prNum}`);
   }
 );
-
-/**
- * Trigger AI code review asynchronously after PR creation.
- * Runs the diff through Claude and posts review comments.
- */
-async function triggerAiReview(
-  ownerName: string,
-  repoName: string,
-  prId: string,
-  title: string,
-  body: string | null,
-  baseBranch: string,
-  headBranch: string
-): Promise<void> {
-  const repoDir = getRepoPath(ownerName, repoName);
-
-  // Get the diff between branches
-  const proc = Bun.spawn(
-    ["git", "diff", `${baseBranch}...${headBranch}`],
-    { cwd: repoDir, stdout: "pipe", stderr: "pipe" }
-  );
-  const diffText = await new Response(proc.stdout).text();
-  await proc.exited;
-
-  if (!diffText.trim()) return;
-
-  const result = await reviewDiff(
-    `${ownerName}/${repoName}`,
-    title,
-    body,
-    baseBranch,
-    headBranch,
-    diffText
-  );
-
-  // We need a system user for AI reviews — use the PR author for now
-  // Get the PR to find the author
-  const [pr] = await db
-    .select()
-    .from(pullRequests)
-    .where(eq(pullRequests.id, prId))
-    .limit(1);
-
-  if (!pr) return;
-
-  // Post summary comment
-  const statusEmoji = result.approved ? "**Approved**" : "**Changes Requested**";
-  let commentBody = `## AI Code Review ${statusEmoji}\n\n${result.summary}`;
-
-  if (result.comments.length > 0) {
-    commentBody += "\n\n### Issues Found\n";
-    for (const comment of result.comments) {
-      const location = comment.filePath
-        ? `\`${comment.filePath}${comment.lineNumber ? `:${comment.lineNumber}` : ""}\``
-        : "";
-      commentBody += `\n---\n${location}\n\n${comment.body}\n`;
-    }
-  }
-
-  await db.insert(prComments).values({
-    pullRequestId: prId,
-    authorId: pr.authorId,
-    body: commentBody,
-    isAiReview: true,
-  });
-
-  // Post individual file-level comments
-  for (const comment of result.comments) {
-    if (comment.filePath) {
-      await db.insert(prComments).values({
-        pullRequestId: prId,
-        authorId: pr.authorId,
-        body: comment.body,
-        isAiReview: true,
-        filePath: comment.filePath,
-        lineNumber: comment.lineNumber,
-      });
-    }
-  }
-
-  console.log(
-    `[ai-review] Review posted for PR ${prId}: ${result.approved ? "approved" : "changes requested"}, ${result.comments.length} comments`
-  );
-}
-
-/**
- * D3 — AI PR triage. Runs Claude Haiku on the PR title/body + diff summary and
- * posts an AI-authored comment suggesting labels, reviewers, and priority.
- * Nothing is auto-applied — the PR author remains in control.
- */
-async function triggerPrTriage(args: {
-  ownerName: string;
-  repoName: string;
-  repositoryId: string;
-  prId: string;
-  prAuthorId: string;
-  title: string;
-  body: string;
-  baseBranch: string;
-  headBranch: string;
-}): Promise<void> {
-  try {
-    // Gather candidate reviewers (top contributors from recent commits).
-    const repoDir = getRepoPath(args.ownerName, args.repoName);
-    const shortlogProc = Bun.spawn(
-      ["git", "shortlog", "-sn", "--no-merges", "-50", args.baseBranch],
-      { cwd: repoDir, stdout: "pipe", stderr: "pipe" }
-    );
-    const shortlogOut = await new Response(shortlogProc.stdout).text();
-    await shortlogProc.exited;
-    const authorNames = shortlogOut
-      .trim()
-      .split("\n")
-      .map((l) => l.trim().split(/\s+/).slice(1).join(" "))
-      .filter(Boolean)
-      .slice(0, 10);
-
-    // Look up usernames matching these author names (best-effort match).
-    const candidateUsernames: string[] = [];
-    if (authorNames.length > 0) {
-      try {
-        const matches = await db
-          .select({ username: users.username, displayName: users.displayName })
-          .from(users)
-          .limit(100);
-        for (const u of matches) {
-          if (
-            authorNames.some(
-              (n) =>
-                u.username === n ||
-                (u.displayName && u.displayName === n)
-            )
-          ) {
-            candidateUsernames.push(u.username);
-          }
-        }
-      } catch {
-        /* ignore */
-      }
-    }
-    // Always include the repo owner as a candidate reviewer.
-    try {
-      const [ownerRow] = await db
-        .select({ username: users.username })
-        .from(users)
-        .where(eq(users.username, args.ownerName))
-        .limit(1);
-      if (ownerRow && !candidateUsernames.includes(ownerRow.username)) {
-        candidateUsernames.push(ownerRow.username);
-      }
-    } catch {
-      /* ignore */
-    }
-
-    // Load repo labels.
-    const availableLabels = await db
-      .select({ name: labelsTable.name })
-      .from(labelsTable)
-      .where(eq(labelsTable.repositoryId, args.repositoryId))
-      .then((rows) => rows.map((r) => r.name))
-      .catch(() => [] as string[]);
-
-    // Short diff summary (numstat only to keep prompt small).
-    const statProc = Bun.spawn(
-      ["git", "diff", "--numstat", `${args.baseBranch}...${args.headBranch}`],
-      { cwd: repoDir, stdout: "pipe", stderr: "pipe" }
-    );
-    const diffSummary = await new Response(statProc.stdout).text();
-    await statProc.exited;
-
-    const result = await triagePullRequest(
-      args.title,
-      args.body,
-      diffSummary,
-      availableLabels,
-      candidateUsernames
-    );
-
-    // Skip posting if we have absolutely nothing useful to say.
-    if (
-      !result.summary &&
-      result.suggestedLabels.length === 0 &&
-      result.suggestedReviewerUsernames.length === 0
-    ) {
-      return;
-    }
-
-    const priorityEmoji =
-      result.priority === "critical"
-        ? "**Critical**"
-        : result.priority === "high"
-          ? "**High**"
-          : result.priority === "low"
-            ? "**Low**"
-            : "**Medium**";
-    const parts: string[] = [`## AI Triage\n`];
-    if (result.summary) parts.push(`${result.summary}\n`);
-    parts.push(`- **Priority:** ${priorityEmoji}`);
-    parts.push(`- **Risk area:** ${result.riskArea}`);
-    if (result.suggestedLabels.length > 0) {
-      parts.push(
-        `- **Suggested labels:** ${result.suggestedLabels.map((l) => `\`${l}\``).join(", ")}`
-      );
-    }
-    if (result.suggestedReviewerUsernames.length > 0) {
-      parts.push(
-        `- **Suggested reviewers:** ${result.suggestedReviewerUsernames.map((u) => `@${u}`).join(", ")}`
-      );
-    }
-    parts.push(
-      `\n_Suggestions only — nothing was auto-applied. The PR author remains in control._`
-    );
-
-    await db.insert(prComments).values({
-      pullRequestId: args.prId,
-      authorId: args.prAuthorId,
-      body: parts.join("\n"),
-      isAiReview: true,
-    });
-  } catch (err) {
-    console.error("[pr-triage]", err);
-  }
-}
-
-function formatRelative(date: Date | string): string {
-  const d = typeof date === "string" ? new Date(date) : date;
-  const now = new Date();
-  const diffMs = now.getTime() - d.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  if (diffMins < 1) return "just now";
-  if (diffMins < 60) return `${diffMins}m ago`;
-  const diffHours = Math.floor(diffMins / 60);
-  if (diffHours < 24) return `${diffHours}h ago`;
-  const diffDays = Math.floor(diffHours / 24);
-  if (diffDays < 30) return `${diffDays}d ago`;
-  return d.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
 
 export default pulls;

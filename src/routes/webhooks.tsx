@@ -10,6 +10,15 @@ import { Layout } from "../views/layout";
 import { RepoHeader } from "../views/components";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
+import {
+  Container,
+  Flex,
+  Form,
+  FormGroup,
+  Input,
+  Button,
+  Alert,
+} from "../views/ui";
 
 const webhookRoutes = new Hono<AuthEnv>();
 
@@ -54,13 +63,13 @@ webhookRoutes.get(
     return c.html(
       <Layout title={`Webhooks — ${ownerName}/${repoName}`} user={user}>
         <RepoHeader owner={ownerName} repo={repoName} />
-        <div style="max-width: 700px">
+        <Container maxWidth={700}>
           <h2 style="margin-bottom: 16px">Webhooks</h2>
           {success && (
-            <div class="auth-success">{decodeURIComponent(success)}</div>
+            <Alert variant="success">{decodeURIComponent(success)}</Alert>
           )}
           {error && (
-            <div class="auth-error">{decodeURIComponent(error)}</div>
+            <Alert variant="error">{decodeURIComponent(error)}</Alert>
           )}
           {hooks.length > 0 && (
             <div style="margin-bottom: 24px">
@@ -83,44 +92,41 @@ webhookRoutes.get(
                       )}
                     </div>
                   </div>
-                  <form
+                  <Form
                     method="POST"
                     action={`/${ownerName}/${repoName}/settings/webhooks/${hook.id}/delete`}
                   >
-                    <button type="submit" class="btn btn-danger btn-sm">
+                    <Button type="submit" variant="danger" size="sm">
                       Delete
-                    </button>
-                  </form>
+                    </Button>
+                  </Form>
                 </div>
               ))}
             </div>
           )}
 
           <h3 style="margin-bottom: 12px">Add webhook</h3>
-          <form
+          <Form
             method="POST"
             action={`/${ownerName}/${repoName}/settings/webhooks`}
           >
-            <div class="form-group">
-              <label>Payload URL</label>
-              <input
+            <FormGroup label="Payload URL">
+              <Input
                 type="url"
                 name="url"
                 required
                 placeholder="https://example.com/hooks/gluecron"
               />
-            </div>
-            <div class="form-group">
-              <label>Secret (optional)</label>
-              <input
+            </FormGroup>
+            <FormGroup label="Secret (optional)">
+              <Input
                 type="text"
                 name="secret"
                 placeholder="Shared secret for HMAC verification"
               />
-            </div>
-            <div class="form-group">
-              <label>Events</label>
-              <div style="display: flex; gap: 16px; flex-wrap: wrap">
+            </FormGroup>
+            <FormGroup label="Events">
+              <Flex gap={16} wrap>
                 {["push", "issue", "pr", "star"].map((evt) => (
                   <label style="display: flex; align-items: center; gap: 4px; font-size: 14px; cursor: pointer">
                     <input
@@ -132,13 +138,13 @@ webhookRoutes.get(
                     {evt}
                   </label>
                 ))}
-              </div>
-            </div>
-            <button type="submit" class="btn btn-primary">
+              </Flex>
+            </FormGroup>
+            <Button type="submit" variant="primary">
               Add webhook
-            </button>
-          </form>
-        </div>
+            </Button>
+          </Form>
+        </Container>
       </Layout>
     );
   }

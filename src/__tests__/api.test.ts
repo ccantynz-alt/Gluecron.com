@@ -23,21 +23,26 @@ describe("API routes", () => {
     expect(text).toContain("gluecron");
   });
 
-  it("GET /api/repos/:owner/:name returns 404 for missing repo", async () => {
-    // This will fail without DB, but verifies route exists
+  it("GET /api/repos/:owner/:name returns 404 or 503, never 500", async () => {
     const res = await app.request("/api/repos/nobody/nothing");
-    // Without DB connection, this returns 500 or 404
-    expect([404, 500]).toContain(res.status);
+    // Without DB: 503 (db unreachable). With DB + missing repo: 404.
+    // API must degrade gracefully — 500 is NOT acceptable.
+    expect([404, 503]).toContain(res.status);
   });
 
-  it("POST /api/repos returns 400 without required fields", async () => {
+  it("POST /api/repos returns 400 without required fields, never 500", async () => {
     const res = await app.request("/api/repos", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({}),
     });
-    // Without DB, might be 400 or 500
-    expect([400, 500]).toContain(res.status);
+    // Validation happens before DB access — always 400.
+    expect(res.status).toBe(400);
+  });
+
+  it("GET /api/users/:u/repos returns 404 or 503, never 500", async () => {
+    const res = await app.request("/api/users/nobody/repos");
+    expect([404, 503]).toContain(res.status);
   });
 });
 

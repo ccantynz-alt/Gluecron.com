@@ -4,14 +4,24 @@ import { hljsThemeCss } from "../lib/highlight";
 import { clientJs } from "./client-js";
 
 export const Layout: FC<
-  PropsWithChildren<{ title?: string; user?: User | null }>
-> = ({ children, title, user }) => {
+  PropsWithChildren<{
+    title?: string;
+    user?: User | null;
+    notificationCount?: number;
+    theme?: "dark" | "light";
+  }>
+> = ({ children, title, user, notificationCount, theme }) => {
+  const initialTheme = theme === "light" ? "light" : "dark";
   return (
-    <html lang="en">
+    <html lang="en" data-theme={initialTheme}>
       <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <meta name="theme-color" content="#0d1117" />
+        <link rel="manifest" href="/manifest.webmanifest" />
+        <link rel="icon" type="image/svg+xml" href="/icon.svg" />
         <title>{title ? `${title} — gluecron` : "gluecron"}</title>
+        <script>{themeInitScript}</script>
         <style>{css}</style>
         <style>{hljsThemeCss}</style>
       </head>
@@ -22,12 +32,46 @@ export const Layout: FC<
             <a href="/" class="logo">
               gluecron
             </a>
+            <div class="nav-search">
+              <form method="GET" action="/search">
+                <input
+                  type="search"
+                  name="q"
+                  placeholder="Search (press /)"
+                  aria-label="Search"
+                />
+              </form>
+            </div>
             <div class="nav-right">
+              <a
+                href="/theme/toggle"
+                class="nav-link nav-theme"
+                title="Toggle theme"
+                aria-label="Toggle theme"
+              >
+                <span class="theme-icon-dark">{"\u263E"}</span>
+                <span class="theme-icon-light">{"\u2600"}</span>
+              </a>
               <a href="/explore" class="nav-link">
                 Explore
               </a>
               {user ? (
                 <>
+                  <a href="/ask" class="nav-link" title="Ask AI (Cmd+K)">
+                    {"\u2728"} Ask
+                  </a>
+                  <a
+                    href="/notifications"
+                    class="nav-link nav-notifications"
+                    title="Notifications"
+                  >
+                    {"\u2709"}
+                    {notificationCount !== undefined && notificationCount > 0 && (
+                      <span class="nav-badge">
+                        {notificationCount > 99 ? "99+" : notificationCount}
+                      </span>
+                    )}
+                  </a>
                   <a href="/new" class="btn btn-sm btn-primary">
                     + New
                   </a>
@@ -67,8 +111,192 @@ export const Layout: FC<
   );
 };
 
+// Runs before paint — reads the theme cookie and flips data-theme so there's
+// no dark-to-light flash on load. SSR default is dark.
+const themeInitScript = `
+  (function(){
+    try {
+      var m = document.cookie.match(/(?:^|; )theme=([^;]+)/);
+      var t = m ? decodeURIComponent(m[1]) : 'dark';
+      if (t !== 'light' && t !== 'dark') t = 'dark';
+      document.documentElement.setAttribute('data-theme', t);
+    } catch(_){}
+  })();
+`;
+
+// Block G1 — register service worker for offline / install support.
+// Kept inline (and tiny) so we don't block first paint.
+const pwaRegisterScript = `
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function(){
+      navigator.serviceWorker.register('/sw.js').catch(function(){});
+    });
+  }
+`;
+
+const navScript = `
+  (function(){
+    var chord = null;
+    var chordTimer = null;
+    function isTyping(t){
+      t = t || {};
+      var tag = (t.tagName || '').toLowerCase();
+      return tag === 'input' || tag === 'textarea' || t.isContentEditable;
+    }
+
+    // ---------- Block I4 — Command palette ----------
+    var COMMANDS = [
+      { label: 'Go to Dashboard', href: '/dashboard', kw: 'home' },
+      { label: 'Go to Explore', href: '/explore', kw: 'browse discover' },
+      { label: 'Go to Notifications', href: '/notifications', kw: 'inbox' },
+      { label: 'Go to Ask AI', href: '/ask', kw: 'chat assistant' },
+      { label: 'Create new repository', href: '/new', kw: 'add create' },
+      { label: 'Marketplace', href: '/marketplace', kw: 'apps store' },
+      { label: 'Installed apps', href: '/settings/apps', kw: 'my apps' },
+      { label: 'Register new app', href: '/developer/apps-new', kw: 'developer create' },
+      { label: 'Keyboard shortcuts', href: '/shortcuts', kw: 'help keys' },
+      { label: 'Settings (profile)', href: '/settings', kw: 'account' },
+      { label: '2FA settings', href: '/settings/2fa', kw: 'two factor security' },
+      { label: 'Passkeys settings', href: '/settings/passkeys', kw: 'webauthn' },
+      { label: 'Personal access tokens', href: '/settings/tokens', kw: 'pat api' },
+      { label: 'Billing + quotas', href: '/settings/billing', kw: 'plans money' },
+      { label: 'Audit log (personal)', href: '/settings/audit', kw: 'history' },
+      { label: 'Gists', href: '/gists', kw: 'snippets' },
+      { label: 'GraphQL explorer', href: '/api/graphql', kw: 'api query' },
+      { label: 'Admin dashboard', href: '/admin', kw: 'superuser' },
+      { label: 'Toggle theme', href: '/theme/toggle', kw: 'dark light mode' }
+    ];
+
+    function fuzzyMatch(item, q){
+      if (!q) return true;
+      var hay = (item.label + ' ' + (item.kw||'') + ' ' + item.href).toLowerCase();
+      q = q.toLowerCase();
+      var qi = 0;
+      for (var i = 0; i < hay.length && qi < q.length; i++) {
+        if (hay[i] === q[qi]) qi++;
+      }
+      return qi === q.length;
+    }
+
+    var backdrop, panel, input, list, selected = 0, filtered = COMMANDS.slice();
+
+    function render(){
+      if (!list) return;
+      var html = '';
+      for (var i = 0; i < filtered.length; i++) {
+        var item = filtered[i];
+        var cls = i === selected ? 'cmdk-item cmdk-active' : 'cmdk-item';
+        var bg = i === selected ? 'background:var(--bg);' : '';
+        html += '<div class="' + cls + '" data-idx="' + i + '" data-href="' + item.href + '"' +
+                ' style="padding:10px 16px;cursor:pointer;border-bottom:1px solid var(--border);' + bg + '">' +
+                '<div>' + item.label + '</div>' +
+                '<div style="font-size:11px;color:var(--text-muted)">' + item.href + '</div>' +
+                '</div>';
+      }
+      if (filtered.length === 0) {
+        html = '<div style="padding:16px;color:var(--text-muted);text-align:center">No matches.</div>';
+      }
+      list.innerHTML = html;
+    }
+
+    function openPalette(){
+      backdrop = document.getElementById('cmdk-backdrop');
+      panel = document.getElementById('cmdk-panel');
+      input = document.getElementById('cmdk-input');
+      list = document.getElementById('cmdk-list');
+      if (!backdrop || !panel) return;
+      backdrop.style.display = 'block';
+      panel.style.display = 'block';
+      input.value = '';
+      selected = 0;
+      filtered = COMMANDS.slice();
+      render();
+      input.focus();
+    }
+    function closePalette(){
+      if (backdrop) backdrop.style.display = 'none';
+      if (panel) panel.style.display = 'none';
+    }
+    function go(href){ closePalette(); window.location.href = href; }
+
+    document.addEventListener('click', function(e){
+      var t = e.target;
+      if (t && t.id === 'cmdk-backdrop') { closePalette(); return; }
+      var item = t && t.closest && t.closest('.cmdk-item');
+      if (item) { go(item.getAttribute('data-href')); }
+    });
+
+    document.addEventListener('input', function(e){
+      if (e.target && e.target.id === 'cmdk-input') {
+        var q = e.target.value;
+        filtered = COMMANDS.filter(function(c){ return fuzzyMatch(c, q); });
+        selected = 0;
+        render();
+      }
+    });
+
+    document.addEventListener('keydown', function(e){
+      // Palette-scoped keys take priority when open
+      if (panel && panel.style.display === 'block') {
+        if (e.key === 'Escape') { e.preventDefault(); closePalette(); return; }
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          selected = Math.min(filtered.length - 1, selected + 1);
+          render();
+          return;
+        }
+        if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          selected = Math.max(0, selected - 1);
+          render();
+          return;
+        }
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          var item = filtered[selected];
+          if (item) go(item.href);
+          return;
+        }
+        return;
+      }
+
+      if (isTyping(e.target)) return;
+      // Single key shortcuts
+      if (e.key === '/') {
+        var el = document.querySelector('.nav-search input');
+        if (el) { e.preventDefault(); el.focus(); return; }
+      }
+      if ((e.metaKey||e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        openPalette();
+        return;
+      }
+      if (e.key === '?' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault(); window.location.href = '/shortcuts'; return;
+      }
+      if (e.key === 'n' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault(); window.location.href = '/new'; return;
+      }
+      // "g" chord
+      if (e.key === 'g' && !e.ctrlKey && !e.metaKey) {
+        chord = 'g';
+        clearTimeout(chordTimer);
+        chordTimer = setTimeout(function(){ chord = null; }, 1200);
+        return;
+      }
+      if (chord === 'g') {
+        if (e.key === 'd') { e.preventDefault(); window.location.href = '/dashboard'; }
+        else if (e.key === 'n') { e.preventDefault(); window.location.href = '/notifications'; }
+        else if (e.key === 'e') { e.preventDefault(); window.location.href = '/explore'; }
+        else if (e.key === 'a') { e.preventDefault(); window.location.href = '/ask'; }
+        chord = null;
+      }
+    });
+  })();
+`;
+
 const css = `
-  :root {
+  :root, :root[data-theme='dark'] {
     --bg: #0d1117;
     --bg-secondary: #161b22;
     --bg-tertiary: #21262d;
@@ -85,6 +313,26 @@ const css = `
     --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
     --radius: 6px;
   }
+
+  :root[data-theme='light'] {
+    --bg: #ffffff;
+    --bg-secondary: #f6f8fa;
+    --bg-tertiary: #eaeef2;
+    --border: #d0d7de;
+    --text: #1f2328;
+    --text-muted: #656d76;
+    --text-link: #0969da;
+    --accent: #0969da;
+    --accent-hover: #0550ae;
+    --green: #1a7f37;
+    --red: #cf222e;
+    --yellow: #9a6700;
+  }
+
+  /* Theme toggle — show the icon for the *opposite* theme so users see what they'll switch to. */
+  .nav-theme { display: inline-flex; align-items: center; font-size: 16px; line-height: 1; }
+  :root[data-theme='dark'] .theme-icon-dark { display: none; }
+  :root[data-theme='light'] .theme-icon-light { display: none; }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
 

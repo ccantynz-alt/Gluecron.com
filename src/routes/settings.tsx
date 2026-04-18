@@ -82,8 +82,29 @@ settings.get("/settings", (c) => {
           </Button>
         </Form>
       </div>
+      <p style="margin-top:20px">
+        <a href="/settings">Back to settings</a>
+      </p>
     </Layout>
   );
+});
+
+settings.post("/settings/notifications", async (c) => {
+  const user = c.get("user")!;
+  const body = await c.req.parseBody();
+  await db
+    .update(users)
+    .set({
+      notifyEmailOnMention: String(body.notify_email_on_mention || "") === "1",
+      notifyEmailOnAssign: String(body.notify_email_on_assign || "") === "1",
+      notifyEmailOnGateFail:
+        String(body.notify_email_on_gate_fail || "") === "1",
+      notifyEmailDigestWeekly:
+        String(body.notify_email_digest_weekly || "") === "1",
+      updatedAt: new Date(),
+    })
+    .where(eq(users.id, user.id));
+  return c.redirect("/settings?success=Email+preferences+updated");
 });
 
 settings.post("/settings/profile", async (c) => {

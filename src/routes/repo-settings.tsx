@@ -5,7 +5,7 @@
 import { Hono } from "hono";
 import { eq, and } from "drizzle-orm";
 import { db } from "../db";
-import { repositories, users } from "../db/schema";
+import { repositories, users, repoTransfers } from "../db/schema";
 import { Layout } from "../views/layout";
 import { RepoHeader } from "../views/components";
 import { softAuth, requireAuth } from "../middleware/auth";
@@ -131,7 +131,85 @@ repoSettings.get("/:owner/:repo/settings", requireAuth, async (c) => {
         </Form>
 
         <div
-          style="margin-top: 40px; padding: 20px; border: 1px solid var(--red); border-radius: var(--radius)"
+          style="margin-top: 32px; padding: 20px; border: 1px solid var(--border); border-radius: var(--radius)"
+        >
+          <h3 style="margin-bottom: 8px">Template repository</h3>
+          <p style="font-size: 14px; color: var(--text-muted); margin-bottom: 12px">
+            {repo.isTemplate
+              ? "This repository is a template. Users can click \u201cUse this template\u201d to create a new repository with the same files."
+              : "Mark this repository as a template so others can seed new repositories from its files."}
+          </p>
+          <form
+            method="POST"
+            action={`/${ownerName}/${repoName}/settings/template`}
+          >
+            <input
+              type="hidden"
+              name="template"
+              value={repo.isTemplate ? "0" : "1"}
+            />
+            <button type="submit" class="btn">
+              {repo.isTemplate
+                ? "Unmark as template"
+                : "Mark as template"}
+            </button>
+          </form>
+        </div>
+
+        <div
+          style="margin-top: 20px; padding: 20px; border: 1px solid var(--border); border-radius: var(--radius)"
+        >
+          <h3 style="margin-bottom: 8px">Transfer ownership</h3>
+          <p style="font-size: 14px; color: var(--text-muted); margin-bottom: 12px">
+            Transfer this repository to another user. The new owner can
+            accept or decline the transfer by attempting to view it.
+          </p>
+          <form
+            method="POST"
+            action={`/${ownerName}/${repoName}/settings/transfer`}
+            onsubmit="return confirm('Transfer this repository? The new owner will have full control.')"
+          >
+            <input
+              type="text"
+              name="new_owner"
+              placeholder="new-owner-username"
+              required
+              style="width:60%"
+            />{" "}
+            <button type="submit" class="btn">
+              Transfer
+            </button>
+          </form>
+        </div>
+
+        <div
+          style="margin-top: 20px; padding: 20px; border: 1px solid var(--border); border-radius: var(--radius)"
+        >
+          <h3 style="margin-bottom: 8px">
+            {repo.isArchived ? "Unarchive repository" : "Archive repository"}
+          </h3>
+          <p style="font-size: 14px; color: var(--text-muted); margin-bottom: 12px">
+            {repo.isArchived
+              ? "This repository is archived and read-only. Unarchive to allow pushes and issue/PR activity again."
+              : "Mark this repository as archived. It will become read-only — no pushes, no new issues or PRs. You can unarchive at any time."}
+          </p>
+          <form
+            method="POST"
+            action={`/${ownerName}/${repoName}/settings/archive`}
+          >
+            <input
+              type="hidden"
+              name="archive"
+              value={repo.isArchived ? "0" : "1"}
+            />
+            <button type="submit" class="btn">
+              {repo.isArchived ? "Unarchive" : "Archive"} this repository
+            </button>
+          </form>
+        </div>
+
+        <div
+          style="margin-top: 20px; padding: 20px; border: 1px solid var(--red); border-radius: var(--radius)"
         >
           <h3 style="color: var(--red); margin-bottom: 12px">Danger zone</h3>
           <Text size={14} muted style="display:block;margin-bottom:12px">
@@ -184,6 +262,154 @@ repoSettings.post("/:owner/:repo/settings", requireAuth, async (c) => {
     `/${ownerName}/${repoName}/settings?success=Settings+saved`
   );
 });
+
+// Toggle template flag
+repoSettings.post(
+  "/:owner/:repo/settings/template",
+  requireAuth,
+  async (c) => {
+    const { owner: ownerName, repo: repoName } = c.req.param();
+    const user = c.get("user")!;
+    const body = await c.req.parseBody();
+    const [owner] = await db
+      .select()
+      .from(users)
+      .where(eq(users.username, ownerName))
+      .limit(1);
+    if (!owner || owner.id !== user.id) {
+      return c.redirect(`/${ownerName}/${repoName}`);
+    }
+    const target = String(body.template || "1") === "1";
+    await db
+      .update(repositories)
+      .set({ isTemplate: target, updatedAt: new Date() })
+      .where(
+        and(
+          eq(repositories.ownerId, owner.id),
+          eq(repositories.name, repoName)
+        )
+      );
+    return c.redirect(
+      `/${ownerName}/${repoName}/settings?success=${
+        target ? "Marked+as+template" : "Unmarked+as+template"
+      }`
+    );
+  }
+);
+
+// Transfer repository to a new owner (by username)
+repoSettings.post(
+  "/:owner/:repo/settings/transfer",
+  requireAuth,
+  async (c) => {
+    const { owner: ownerName, repo: repoName } = c.req.param();
+    const user = c.get("user")!;
+    const body = await c.req.parseBody();
+    const newOwnerName = String(body.new_owner || "").trim();
+    if (!newOwnerName) {
+      return c.redirect(
+        `/${ownerName}/${repoName}/settings?error=New+owner+required`
+      );
+    }
+    const [owner] = await db
+      .select()
+      .from(users)
+      .where(eq(users.username, ownerName))
+      .limit(1);
+    if (!owner || owner.id !== user.id) {
+      return c.redirect(`/${ownerName}/${repoName}`);
+    }
+    const [newOwner] = await db
+      .select()
+      .from(users)
+      .where(eq(users.username, newOwnerName))
+      .limit(1);
+    if (!newOwner) {
+      return c.redirect(
+        `/${ownerName}/${repoName}/settings?error=User+not+found`
+      );
+    }
+    if (newOwner.id === owner.id) {
+      return c.redirect(
+        `/${ownerName}/${repoName}/settings?error=Same+owner`
+      );
+    }
+    // Reject if new owner already has a repo by this name
+    const [conflict] = await db
+      .select()
+      .from(repositories)
+      .where(
+        and(
+          eq(repositories.ownerId, newOwner.id),
+          eq(repositories.name, repoName)
+        )
+      )
+      .limit(1);
+    if (conflict) {
+      return c.redirect(
+        `/${ownerName}/${repoName}/settings?error=Target+owner+already+has+a+repo+by+that+name`
+      );
+    }
+    const [repo] = await db
+      .select()
+      .from(repositories)
+      .where(
+        and(
+          eq(repositories.ownerId, owner.id),
+          eq(repositories.name, repoName)
+        )
+      )
+      .limit(1);
+    if (!repo) return c.notFound();
+    await db
+      .update(repositories)
+      .set({ ownerId: newOwner.id, orgId: null, updatedAt: new Date() })
+      .where(eq(repositories.id, repo.id));
+    await db.insert(repoTransfers).values({
+      repositoryId: repo.id,
+      fromOwnerId: owner.id,
+      fromOrgId: repo.orgId,
+      toOwnerId: newOwner.id,
+      toOrgId: null,
+      initiatedBy: user.id,
+    });
+    return c.redirect(`/${newOwnerName}/${repoName}`);
+  }
+);
+
+// Archive / unarchive repository
+repoSettings.post(
+  "/:owner/:repo/settings/archive",
+  requireAuth,
+  async (c) => {
+    const { owner: ownerName, repo: repoName } = c.req.param();
+    const user = c.get("user")!;
+    const body = await c.req.parseBody();
+    const [owner] = await db
+      .select()
+      .from(users)
+      .where(eq(users.username, ownerName))
+      .limit(1);
+    if (!owner || owner.id !== user.id) {
+      return c.redirect(`/${ownerName}/${repoName}`);
+    }
+    const target = String(body.archive || "1") === "1";
+    await db
+      .update(repositories)
+      .set({ isArchived: target, updatedAt: new Date() })
+      .where(
+        and(
+          eq(repositories.ownerId, owner.id),
+          eq(repositories.name, repoName)
+        )
+      );
+    return c.redirect(
+      `/${ownerName}/${repoName}/settings?success=${
+        target ? "Repository+archived" : "Repository+unarchived"
+      }`
+    );
+  }
+);
 
 // Delete repository
 repoSettings.post(

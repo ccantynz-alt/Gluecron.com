@@ -15,6 +15,9 @@ import {
 } from "../db/schema";
 import { Layout } from "../views/layout";
 import { RepoHeader, RepoNav } from "../views/components";
+import { ReactionsBar } from "../views/reactions";
+import { summariseReactions } from "../lib/reactions";
+import { loadIssueTemplate } from "../lib/templates";
 import { renderMarkdown } from "../lib/markdown";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
@@ -181,6 +184,7 @@ issueRoutes.get(
     const { owner: ownerName, repo: repoName } = c.req.param();
     const user = c.get("user")!;
     const error = c.req.query("error");
+    const template = await loadIssueTemplate(ownerName, repoName);
 
     return c.html(
       <Layout title={`New issue — ${ownerName}/${repoName}`} user={user}>
@@ -313,6 +317,14 @@ issueRoutes.get("/:owner/:repo/issues/:number", softAuth, async (c) => {
     .innerJoin(users, eq(issueComments.authorId, users.id))
     .where(eq(issueComments.issueId, issue.id))
     .orderBy(asc(issueComments.createdAt));
+
+  // Load reactions for the issue + each comment in parallel.
+  const [issueReactions, ...commentReactions] = await Promise.all([
+    summariseReactions("issue", issue.id, user?.id),
+    ...comments.map((row) =>
+      summariseReactions("issue_comment", row.comment.id, user?.id)
+    ),
+  ]);
 
   const canManage =
     user &&

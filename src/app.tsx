@@ -1,13 +1,17 @@
 import { Hono } from "hono";
 import { logger } from "hono/logger";
 import { cors } from "hono/cors";
+import { compress } from "hono/compress";
 import { Layout } from "./views/layout";
+import { requestContext } from "./middleware/request-context";
+import { rateLimit } from "./middleware/rate-limit";
 import gitRoutes from "./routes/git";
 import apiRoutes from "./routes/api";
 import apiV2Routes from "./routes/api-v2";
 import apiDocsRoutes from "./routes/api-docs";
 import authRoutes from "./routes/auth";
 import settingsRoutes from "./routes/settings";
+import settings2faRoutes from "./routes/settings-2fa";
 import issueRoutes from "./routes/issues";
 import repoSettings from "./routes/repo-settings";
 import compareRoutes from "./routes/compare";
@@ -27,9 +31,20 @@ import { csrfToken, csrfProtect } from "./middleware/csrf";
 
 const app = new Hono();
 
-// Middleware
-app.use("*", logger());
+// Request context (request ID, start time) runs before everything else
+app.use("*", requestContext);
+// Middleware — compression first (wraps all responses)
+app.use("*", compress());
+// Logger only on non-git routes to avoid overhead on clone/push
+app.use("*", async (c, next) => {
+  if (c.req.path.includes(".git/")) return next();
+  return logger()(c, next);
+});
 app.use("/api/*", cors());
+// Rate-limit API + auth endpoints (generous default)
+app.use("/api/*", rateLimit({ windowMs: 60_000, max: 120 }));
+app.use("/login", rateLimit({ windowMs: 60_000, max: 20 }));
+app.use("/register", rateLimit({ windowMs: 60_000, max: 10 }));
 
 // CSRF protection — set token on all requests, validate on mutations
 app.use("*", csrfToken);
@@ -64,6 +79,34 @@ app.route("/", authRoutes);
 // Settings routes (profile, SSH keys)
 app.route("/", settingsRoutes);
 
+// 2FA / TOTP settings (Block B4)
+app.route("/", settings2faRoutes);
+
+// WebAuthn / passkey routes (Block B5)
+app.route("/", passkeyRoutes);
+
+// OAuth 2.0 provider (Block B6)
+app.route("/", oauthRoutes);
+app.route("/", developerAppsRoutes);
+
+// Theme toggle (dark/light cookie)
+app.route("/", themeRoutes);
+
+// Audit log UI
+app.route("/", auditRoutes);
+
+// Reactions API (issues, PRs, comments)
+app.route("/", reactionRoutes);
+
+// Saved replies (per-user canned comment templates)
+app.route("/", savedReplyRoutes);
+
+// Environments + deployment history UI
+app.route("/", deploymentRoutes);
+
+// Organizations + teams (Block B1)
+app.route("/", orgRoutes);
+
 // API tokens
 app.route("/", tokenRoutes);
 
@@ -96,6 +139,92 @@ app.route("/", editorRoutes);
 
 // Contributors
 app.route("/", contributorRoutes);
+
+// Releases
+app.route("/", releaseRoutes);
+
+// Gates (history + settings + branch protection)
+app.route("/", gateRoutes);
+
+// Actions-equivalent workflow runner (Block C1)
+app.route("/", workflowRoutes);
+
+// Package registry — npm protocol + UI (Block C2)
+app.route("/", packagesApiRoutes);
+app.route("/", packagesUiRoutes);
+
+// Pages / static hosting (Block C3)
+app.route("/", pagesRoutes);
+
+// Environments with protected approvals (Block C4)
+app.route("/", environmentsRoutes);
+
+// AI-native features (Block D)
+app.route("/", aiExplainRoutes);      // D6 — /:owner/:repo/explain
+app.route("/", aiChangelogRoutes);    // D7 — /:owner/:repo/ai/changelog
+app.route("/", copilotRoutes);        // D9 — /api/copilot/completions
+app.route("/", depUpdaterRoutes);     // D2 — /:owner/:repo/settings/dep-updater
+app.route("/", semanticSearchRoutes); // D1 — /:owner/:repo/search/semantic
+app.route("/", aiTestsRoutes);        // D8 — /:owner/:repo/ai/tests
+app.route("/", discussionRoutes);     // E2 — /:owner/:repo/discussions
+app.route("/", gistRoutes);           // E4 — /gists, /gists/:slug, /:user/gists
+app.route("/", projectRoutes);        // E1 — /:owner/:repo/projects
+app.route("/", wikiRoutes);           // E3 — /:owner/:repo/wiki
+app.route("/", mergeQueueRoutes);     // E5 — /:owner/:repo/queue
+app.route("/", requiredChecksRoutes); // E6 — /:owner/:repo/gates/protection/:id/checks
+app.route("/", protectedTagsRoutes);  // E7 — /:owner/:repo/settings/protected-tags
+app.route("/", trafficRoutes);        // F1 — /:owner/:repo/traffic
+app.route("/", orgInsightsRoutes);    // F2 — /orgs/:slug/insights
+app.route("/", adminRoutes);          // F3 — /admin
+app.route("/", billingRoutes);        // F4 — /settings/billing + /admin/billing
+
+// PWA — manifest + service worker + icon (Block G1)
+app.route("/", pwaRoutes);
+
+// GraphQL mirror of REST (Block G2)
+app.route("/", graphqlRoutes);
+
+// Marketplace + app installations + bot identities (Block H1 + H2)
+app.route("/", marketplaceRoutes);
+
+// Template repositories — POST /:owner/:repo/use-template (Block I2)
+app.route("/", templatesRoutes);
+
+// Code scanning UI — /:owner/:repo/security (Block I5)
+app.route("/", codeScanningRoutes);
+
+// Sponsors — /sponsors/:user + /settings/sponsors (Block I6)
+app.route("/", sponsorsRoutes);
+
+// Symbol / xref navigation — /:owner/:repo/symbols (Block I8)
+app.route("/", symbolsRoutes);
+
+// Repository mirroring — /:owner/:repo/settings/mirror (Block I9)
+app.route("/", mirrorsRoutes);
+
+// Enterprise SSO via OIDC — /admin/sso + /login/sso (Block I10)
+app.route("/", ssoRoutes);
+
+// Dependency graph — /:owner/:repo/dependencies (Block J1)
+app.route("/", depsRoutes);
+
+// Security advisories / dependabot alerts — /:owner/:repo/security/advisories (Block J2)
+app.route("/", advisoriesRoutes);
+
+// Commit signature verification / signing keys — /settings/signing-keys (Block J3)
+app.route("/", signingKeysRoutes);
+
+// User following + personalised feed (Block J4)
+app.route("/", followsRoutes);
+
+// Repository rulesets — /:owner/:repo/settings/rulesets (Block J6)
+app.route("/", rulesetsRoutes);
+
+// Commit status API — /api/v1/repos/:o/:r/statuses/:sha (Block J8)
+app.route("/", commitStatusesRoutes);
+
+// Insights + milestones
+app.route("/", insightsRoutes);
 
 // Explore page
 app.route("/", exploreRoutes);

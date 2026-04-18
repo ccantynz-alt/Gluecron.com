@@ -8,6 +8,8 @@ import { Hono } from "hono";
 import { getInfoRefs, serviceRpc } from "../git/protocol";
 import { repoExists } from "../git/repository";
 import { onPostReceive } from "../hooks/post-receive";
+import { invalidateRepoCache } from "../lib/cache";
+import { trackByName } from "../lib/traffic";
 
 const git = new Hono();
 
@@ -54,6 +56,11 @@ git.post("/:owner/:repo.git/git-upload-pack", async (c) => {
   if (!(await repoExists(owner, repo))) {
     return c.text("Repository not found", 404);
   }
+  // F1 — fire-and-forget clone tracking.
+  trackByName(owner, repo, "clone", {
+    ip: c.req.header("x-forwarded-for") || c.req.header("x-real-ip") || null,
+    userAgent: c.req.header("user-agent") || null,
+  }).catch(() => {});
   return serviceRpc(owner, repo, "git-upload-pack", c.req.raw.body);
 });
 
@@ -72,6 +79,9 @@ git.post("/:owner/:repo.git/git-receive-pack", async (c) => {
     "git-receive-pack",
     bodyBuffer
   );
+
+  // Invalidate cached git data for this repo immediately
+  invalidateRepoCache(owner, repo);
 
   // Fire post-receive hooks asynchronously (don't block response)
   // We parse updated refs from the pkt-line protocol in the request

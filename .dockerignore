@@ -1,0 +1,49 @@
+# Version control
+.git
+.gitignore
+.gitattributes
+
+# Dependencies (reinstalled in Docker)
+node_modules
+
+# Bare git repositories (runtime data, not source)
+repos
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Build / generated output
+dist
+build
+*.js.map
+
+# Documentation
+*.md
+LICENSE
+
+# Tests
+src/__tests__
+**/*.test.ts
+**/*.spec.ts
+
+# Local tooling config
+drizzle.config.ts
+tsconfig.json
+.editorconfig
+.eslintrc*
+.prettierrc*
+biome.json
+
+# Docker files themselves
+Dockerfile
+.dockerignore
+
+# OS / editor artifacts
+.DS_Store
+Thumbs.db
+.idea
+.vscode
+*.swp
+*.swo

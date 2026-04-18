@@ -12,6 +12,7 @@ import { db } from "../db";
 import { repositories, users } from "../db/schema";
 import { Layout } from "../views/layout";
 import { softAuth, requireAuth } from "../middleware/auth";
+import { requireAdmin } from "../middleware/admin";
 import type { AuthEnv } from "../middleware/auth";
 import { config } from "../lib/config";
 import { mkdir } from "fs/promises";
@@ -35,7 +36,7 @@ interface GitHubRepo {
 
 // ─── IMPORT PAGE ─────────────────────────────────────────────
 
-importRoutes.get("/import", requireAuth, async (c) => {
+importRoutes.get("/import", requireAuth, requireAdmin, async (c) => {
   const user = c.get("user")!;
   const success = c.req.query("success");
   const error = c.req.query("error");
@@ -141,7 +142,7 @@ importRoutes.get("/import", requireAuth, async (c) => {
 
 // ─── IMPORT ALL REPOS FROM GITHUB USER ───────────────────────
 
-importRoutes.post("/import/github/user", requireAuth, async (c) => {
+importRoutes.post("/import/github/user", requireAuth, requireAdmin, async (c) => {
   const user = c.get("user")!;
   const body = await c.req.parseBody();
   const githubUsername = String(body.github_username || "").trim();
@@ -226,7 +227,7 @@ importRoutes.post("/import/github/user", requireAuth, async (c) => {
 
 // ─── IMPORT SINGLE REPO BY URL ───────────────────────────────
 
-importRoutes.post("/import/github/repo", requireAuth, async (c) => {
+importRoutes.post("/import/github/repo", requireAuth, requireAdmin, async (c) => {
   const user = c.get("user")!;
   const body = await c.req.parseBody();
   const repoUrl = String(body.repo_url || "").trim();

@@ -20,8 +20,6 @@ import type { GitDiffFile } from "../git/repository";
 import {
   EmptyState,
   Flex,
-  Select,
-  Button,
   Text,
 } from "../views/ui";
 
@@ -58,27 +56,28 @@ compare.get("/:owner/:repo/compare/:spec?", async (c) => {
           action={`/${owner}/${repo}/compare`}
         >
           <Flex gap={12} align="center" style="margin-bottom: 20px">
-            <Select name="base">
+            <select name="base" class="branch-selector" style="cursor: pointer">
               {branches.map((b) => (
                 <option value={b} selected={b === defaultBase}>
                   {b}
                 </option>
               ))}
-            </Select>
+            </select>
             <Text muted>...</Text>
-            <Select name="head">
+            <select name="head" class="branch-selector" style="cursor: pointer">
               {branches.map((b) => (
                 <option value={b} selected={b !== defaultBase}>
                   {b}
                 </option>
               ))}
-            </Select>
-            <Button
+            </select>
+            <button
               type="submit"
-              variant="primary"
+              class="btn btn-primary"
+              onclick={`this.form.action='/${owner}/${repo}/compare/'+this.form.base.value+'...'+this.form.head.value; return true;`}
             >
               Compare
-            </Button>
+            </button>
           </Flex>
         </form>
       </Layout>

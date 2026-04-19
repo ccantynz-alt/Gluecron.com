@@ -56,54 +56,63 @@ async function resolveRepo(ownerName: string, repoName: string) {
 // ---------------------------------------------------------------------------
 // POST status
 // ---------------------------------------------------------------------------
+/**
+ * Handler body for POST <prefix>/repos/:owner/:repo/statuses/:sha — shared
+ * between the v1 mount here (session/OAuth/PAT via softAuth+requireAuth) and
+ * the v2 alias in `src/routes/api-v2.ts` (PAT via apiAuth+requireApiAuth +
+ * `repo` scope). The behaviour is identical; the only difference is which
+ * middleware stack authenticates the user.
+ */
+export async function postCommitStatusHandler(c: any) {
+  const { owner: ownerName, repo: repoName, sha } = c.req.param();
+  const user = c.get("user")!;
+  if (!isValidSha(sha)) {
+    return c.json({ error: "Invalid sha" }, 400);
+  }
+  const resolved = await resolveRepo(ownerName, repoName);
+  if (!resolved) return c.json({ error: "Repository not found" }, 404);
+  if (resolved.owner.id !== user.id) {
+    return c.json({ error: "Forbidden" }, 403);
+  }
+
+  let body: any = {};
+  try {
+    body = await c.req.json();
+  } catch {
+    body = {};
+  }
+
+  const state = body.state;
+  if (!isValidState(state)) {
+    return c.json(
+      {
+        error:
+          "Invalid state; must be one of pending, success, failure, error",
+      },
+      400
+    );
+  }
+
+  const row = await setStatus({
+    repositoryId: resolved.repo.id,
+    commitSha: sha,
+    state,
+    context: body.context ?? body.Context ?? "default",
+    description: body.description ?? null,
+    targetUrl: body.target_url ?? body.targetUrl ?? null,
+    creatorId: user.id,
+  });
+
+  if (!row) return c.json({ error: "Could not save status" }, 500);
+
+  return c.json({ ok: true, status: row });
+}
+
 statuses.post(
   "/api/v1/repos/:owner/:repo/statuses/:sha",
   softAuth,
   requireAuth,
-  async (c) => {
-    const { owner: ownerName, repo: repoName, sha } = c.req.param();
-    const user = c.get("user")!;
-    if (!isValidSha(sha)) {
-      return c.json({ error: "Invalid sha" }, 400);
-    }
-    const resolved = await resolveRepo(ownerName, repoName);
-    if (!resolved) return c.json({ error: "Repository not found" }, 404);
-    if (resolved.owner.id !== user.id) {
-      return c.json({ error: "Forbidden" }, 403);
-    }
-
-    let body: any = {};
-    try {
-      body = await c.req.json();
-    } catch {
-      body = {};
-    }
-
-    const state = body.state;
-    if (!isValidState(state)) {
-      return c.json(
-        {
-          error:
-            "Invalid state; must be one of pending, success, failure, error",
-        },
-        400
-      );
-    }
-
-    const row = await setStatus({
-      repositoryId: resolved.repo.id,
-      commitSha: sha,
-      state,
-      context: body.context ?? body.Context ?? "default",
-      description: body.description ?? null,
-      targetUrl: body.target_url ?? body.targetUrl ?? null,
-      creatorId: user.id,
-    });
-
-    if (!row) return c.json({ error: "Could not save status" }, 500);
-
-    return c.json({ ok: true, status: row });
-  }
+  postCommitStatusHandler
 );
 
 // ---------------------------------------------------------------------------

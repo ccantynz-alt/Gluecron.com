@@ -121,7 +121,7 @@ from `src/lib/config.ts` and direct `process.env.*` references in
 
 | Variable | Required? | Example | Notes |
 |---|---|---|---|
-| `GATETEST_URL` | **Yes** (for integration) | `https://gatetest.io/api/scan/run` | Default `https://gatetest.ai/api/scan/run` — override to production host. |
+| `GATETEST_URL` | **Yes** (for integration) | `https://gatetest.ai/api/events/push` | Default `https://gatetest.ai/api/events/push`. |
 | `GATETEST_API_KEY` | **Yes** | `gtk_...` | Outbound bearer token sent to GateTest. |
 | `GATETEST_CALLBACK_SECRET` | **Yes** | *(random 32-byte hex)* | Bearer token GateTest uses when posting scan results back to Gluecron (`/hooks/gatetest`). |
 | `GATETEST_HMAC_SECRET` | **Yes** | *(random 32-byte hex)* | HMAC signing secret for GateTest → Gluecron callbacks. |

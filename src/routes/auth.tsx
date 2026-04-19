@@ -4,7 +4,7 @@
 
 import { Hono } from "hono";
 import { setCookie, deleteCookie, getCookie } from "hono/cookie";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { db } from "../db";
 import {
   users,
@@ -140,9 +140,15 @@ auth.post("/register", async (c) => {
 
   const passwordHash = await hashPassword(password);
 
+  // First user ever registered becomes admin automatically
+  const [userCount] = await db
+    .select({ count: sql`count(*)::int` })
+    .from(users);
+  const isFirstUser = (userCount?.count as number) === 0;
+
   const [user] = await db
     .insert(users)
-    .values({ username, email, passwordHash })
+    .values({ username, email, passwordHash, isAdmin: isFirstUser })
     .returning();
 
   // Create session

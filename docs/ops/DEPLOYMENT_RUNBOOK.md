@@ -60,7 +60,7 @@ fly auth login
 fly launch --no-deploy                 # accept existing fly.toml
 fly volumes create gluecron_repos --size 10 --region lhr
 fly secrets set \
-  DATABASE_URL="postgresql://..." \
+  DATABASE_URL="<DATABASE_URL_FROM_NEON>" \
   APP_BASE_URL="https://gluecron.com" \
   WEBAUTHN_RP_ID="gluecron.com" \
   WEBAUTHN_ORIGIN="https://gluecron.com" \
@@ -103,7 +103,7 @@ from `src/lib/config.ts` and direct `process.env.*` references in
 
 | Variable | Required? | Example | Notes |
 |---|---|---|---|
-| `DATABASE_URL` | **Yes** | `postgresql://user:pass@host/db?sslmode=require` | Neon pooled connection string. |
+| `DATABASE_URL` | **Yes** | `<DATABASE_URL_FROM_NEON>` | Neon pooled connection string. |
 | `PORT` | No | `3000` | Preset in `fly.toml` / `railway.toml`. |
 | `GIT_REPOS_PATH` | **Yes** in prod | `/app/repos` | Must be a persistent volume — this is where bare repos live. |
 | `NODE_ENV` | **Yes** in prod | `production` | Enables secure cookies and rate limiting. Preset in both configs. |

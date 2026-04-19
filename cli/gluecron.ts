@@ -91,6 +91,12 @@ export async function http(
   return json;
 }
 
+// ---------- GraphQL Utilities ----------
+
+function sanitizeGraphQLString(input: string): string {
+  return input.replace(/["\\]/g, '\\$&');
+}
+
 // ---------- Commands ----------
 
 export const HELP = `gluecron CLI v${VERSION}
@@ -141,7 +147,7 @@ export async function cmdRepoLs(
 ): Promise<Array<{ owner: string; name: string; visibility: string }>> {
   const username = user || cfg.username;
   if (!username) throw new Error("no user context — log in or pass --user");
-  const q = `{ user(username:"${username}") { repos { name visibility } } }`;
+  const q = `{ user(username:"${sanitizeGraphQLString(username)}") { repos { name visibility } } }`;
   const r = await http(cfg, "POST", "/api/graphql", { query: q });
   const repos = r?.data?.user?.repos || [];
   return repos.map((x: any) => ({
@@ -157,7 +163,7 @@ export async function cmdRepoShow(
 ): Promise<Record<string, any>> {
   const [owner, name] = slug.split("/");
   if (!owner || !name) throw new Error("expected owner/name");
-  const q = `{ repository(owner:"${owner}", name:"${name}") {
+  const q = `{ repository(owner:"${sanitizeGraphQLString(owner)}", name:"${sanitizeGraphQLString(name)}") {
     name description visibility starCount forkCount
     owner { username }
     issues(state:"open", limit:5) { number title }
@@ -184,13 +190,108 @@ export async function cmdIssuesLs(
   slug: string
 ): Promise<Array<{ number: number; title: string }>> {
   const [owner, name] = slug.split("/");
-  const q = `{ repository(owner:"${owner}", name:"${name}") { issues(state:"open", limit:50) { number title } } }`;
+  const q = `{ repository(owner:"${sanitizeGraphQLString(owner)}", name:"${sanitizeGraphQLString(name)}") { issues(state:"open", limit:50) { number title } } }`;
   const r = await http(cfg, "POST", "/api/graphql", { query: q });
   return r?.data?.repository?.issues || [];
 }
 
 export async function cmdGql(cfg: Config, query: string): Promise<any> {
   return http(cfg, "POST", "/api/graphql", { query });
+}
+
+// ---------- Command Handlers ----------
+
+async function handleHostCmd(cfg: Config, rest: string[], out: (msg: string) => void): Promise<number> {
+  if (rest[0]) {
+    cfg.host = rest[0];
+    saveConfig(cfg);
+  }
+  out(cfg.host);
+  return 0;
+}
+
+async function handleLoginCmd(cfg: Config, out: (msg: string) => void): Promise<number> {
+  const { default: readline } = await import("node:readline/promises");
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+  try {
+    const next = await cmdLogin(cfg, (q) => rl.question(q));
+    out(`Logged in as ${next.username || "(unknown)"}`);
+    return 0;
+  } finally {
+    rl.close();
+  }
+}
+
+async function handleRepoCmd(cfg: Config, rest: string[], out: (msg: string) => void): Promise<number> {
+  const sub = rest[0];
+  if (sub === "ls") {
+    return handleRepoLsCmd(cfg, rest, out);
+  }
+  if (sub === "show") {
+    return handleRepoShowCmd(cfg, rest, out);
+  }
+  if (sub === "create") {
+    return handleRepoCreateCmd(cfg, rest, out);
+  }
+  out("usage: gluecron repo (ls|show|create)");
+  return 1;
+}
+
+async function handleRepoLsCmd(cfg: Config, rest: string[], out: (msg: string) => void): Promise<number> {
+  const userFlagIdx = rest.indexOf("--user");
+  const user = userFlagIdx >= 0 && userFlagIdx + 1 < rest.length ? rest[userFlagIdx + 1] : undefined;
+  const repos = await cmdRepoLs(cfg, user);
+  for (const r of repos) {
+    out(`  ${r.owner}/${r.name} · ${r.visibility}`);
+  }
+  return 0;
+}
+
+async function handleRepoShowCmd(cfg: Config, rest: string[], out: (msg: string) => void): Promise<number> {
+  const repo = await cmdRepoShow(cfg, rest[1]);
+  if (!repo) {
+    out("(not found)");
+    return 1;
+  }
+  out(JSON.stringify(repo, null, 2));
+  return 0;
+}
+
+async function handleRepoCreateCmd(cfg: Config, rest: string[], out: (msg: string) => void): Promise<number> {
+  const isPrivate = rest.includes("--private");
+  const name = rest.find((x, i) => i > 0 && !x.startsWith("--"));
+  if (!name) {
+    out("usage: gluecron repo create <name> [--private]");
+    return 1;
+  }
+  const r = await cmdRepoCreate(cfg, name, isPrivate);
+  out(JSON.stringify(r, null, 2));
+  return 0;
+}
+
+async function handleIssuesCmd(cfg: Config, rest: string[], out: (msg: string) => void): Promise<number> {
+  if (rest[0] !== "ls" || !rest[1]) {
+    out("usage: gluecron issues ls <owner/name>");
+    return 1;
+  }
+  const issues = await cmdIssuesLs(cfg, rest[1]);
+  for (const i of issues) {
+    out(`  #${i.number} ${i.title}`);
+  }
+  return 0;
+}
+
+async function handleGqlCmd(cfg: Config, rest: string[], out: (msg: string) => void): Promise<number> {
+  if (!rest[0]) {
+    out("usage: gluecron gql '<query>'");
+    return 1;
+  }
+  const r = await cmdGql(cfg, rest.join(" "));
+  out(JSON.stringify(r, null, 2));
+  return 0;
 }
 
 // ---------- Dispatcher ----------
@@ -210,82 +311,19 @@ export async function dispatch(argv: string[], out = console.log): Promise<numbe
 
   try {
     switch (cmd) {
-      case "host": {
-        if (rest[0]) {
-          cfg.host = rest[0];
-          saveConfig(cfg);
-        }
-        out(cfg.host);
-        return 0;
-      }
-      case "login": {
-        const { default: readline } = await import("node:readline/promises");
-        const rl = readline.createInterface({
-          input: process.stdin,
-          output: process.stdout,
-        });
-        const next = await cmdLogin(cfg, (q) => rl.question(q));
-        rl.close();
-        out(`Logged in as ${next.username || "(unknown)"}`);
-        return 0;
-      }
+      case "host":
+        return await handleHostCmd(cfg, rest, out);
+      case "login":
+        return await handleLoginCmd(cfg, out);
       case "whoami":
         out(await cmdWhoami(cfg));
         return 0;
-      case "repo": {
-        const sub = rest[0];
-        if (sub === "ls") {
-          const userFlagIdx = rest.indexOf("--user");
-          const user = userFlagIdx >= 0 ? rest[userFlagIdx + 1] : undefined;
-          const repos = await cmdRepoLs(cfg, user);
-          for (const r of repos) {
-            out(`  ${r.owner}/${r.name} · ${r.visibility}`);
-          }
-          return 0;
-        }
-        if (sub === "show") {
-          const repo = await cmdRepoShow(cfg, rest[1]);
-          if (!repo) {
-            out("(not found)");
-            return 1;
-          }
-          out(JSON.stringify(repo, null, 2));
-          return 0;
-        }
-        if (sub === "create") {
-          const isPrivate = rest.includes("--private");
-          const name = rest.find((x, i) => i > 0 && !x.startsWith("--"));
-          if (!name) {
-            out("usage: gluecron repo create <name> [--private]");
-            return 1;
-          }
-          const r = await cmdRepoCreate(cfg, name, isPrivate);
-          out(JSON.stringify(r, null, 2));
-          return 0;
-        }
-        out("usage: gluecron repo (ls|show|create)");
-        return 1;
-      }
-      case "issues": {
-        if (rest[0] !== "ls" || !rest[1]) {
-          out("usage: gluecron issues ls <owner/name>");
-          return 1;
-        }
-        const issues = await cmdIssuesLs(cfg, rest[1]);
-        for (const i of issues) {
-          out(`  #${i.number} ${i.title}`);
-        }
-        return 0;
-      }
-      case "gql": {
-        if (!rest[0]) {
-          out("usage: gluecron gql '<query>'");
-          return 1;
-        }
-        const r = await cmdGql(cfg, rest.join(" "));
-        out(JSON.stringify(r, null, 2));
-        return 0;
-      }
+      case "repo":
+        return await handleRepoCmd(cfg, rest, out);
+      case "issues":
+        return await handleIssuesCmd(cfg, rest, out);
+      case "gql":
+        return await handleGqlCmd(cfg, rest, out);
       default:
         out(`unknown command: ${cmd}\n`);
         out(HELP);

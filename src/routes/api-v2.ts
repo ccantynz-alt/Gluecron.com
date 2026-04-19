@@ -26,7 +26,9 @@ import {
 import {
   listBranches,
   getDefaultBranch,
+  getDefaultBranchFresh,
   getTree,
+  getTreeRecursive,
   getBlob,
   getCommit,
   listCommits,
@@ -35,10 +37,16 @@ import {
   repoExists,
   initBareRepo,
   resolveRef,
+  catBlobBytes,
+  refExists,
+  objectExists,
+  updateRef,
+  createOrUpdateFileOnBranch,
 } from "../git/repository";
 import { apiAuth, requireApiAuth, requireScope } from "../middleware/api-auth";
 import type { ApiAuthEnv } from "../middleware/api-auth";
 import { apiRateLimit, searchRateLimit } from "../middleware/rate-limit";
+import { postCommitStatusHandler } from "./commit-statuses";
 
 const apiv2 = new Hono<ApiAuthEnv>().basePath("/api/v2");
 
@@ -184,7 +192,17 @@ apiv2.get("/repos/:owner/:repo", async (c) => {
     return c.json({ error: "Not found" }, 404);
   }
 
-  return c.json(resolved.repo);
+  // Cache-free fresh read of HEAD's ref — needed by GateTest.
+  const defaultBranch = await getDefaultBranchFresh(owner, repo);
+
+  return c.json({
+    ...(resolved.repo as any),
+    defaultBranch,
+    owner: {
+      id: (resolved.owner as any).id,
+      login: (resolved.owner as any).username,
+    },
+  });
 });
 
 apiv2.patch("/repos/:owner/:repo", requireApiAuth, requireScope("repo"), async (c) => {
@@ -280,33 +298,68 @@ apiv2.get("/repos/:owner/:repo/tree/:ref", async (c) => {
   const { owner, repo } = c.req.param();
   const ref = c.req.param("ref");
   const path = c.req.query("path") || "";
+  const recursive = c.req.query("recursive");
 
   if (!(await repoExists(owner, repo))) {
     return c.json({ error: "Not found" }, 404);
+  }
+
+  if (recursive === "1" || recursive === "true") {
+    const result = await getTreeRecursive(owner, repo, ref, 50_000);
+    if (!result) return c.json({ error: "Ref not found" }, 404);
+    return c.json(result);
   }
 
   const tree = await getTree(owner, repo, ref, path);
   return c.json(tree);
 });
 
+const CONTENTS_MAX_BYTES = 10 * 1024 * 1024;
+
 apiv2.get("/repos/:owner/:repo/contents/:path{.+$}", async (c) => {
   const { owner, repo } = c.req.param();
   const filePath = c.req.param("path");
   const ref = c.req.query("ref") || "HEAD";
+  const encoding = c.req.query("encoding") || "utf8";
 
   if (!(await repoExists(owner, repo))) {
     return c.json({ error: "Not found" }, 404);
   }
 
+  if (encoding === "base64") {
+    const got = await catBlobBytes(owner, repo, ref, filePath);
+    if (!got) return c.json({ error: "File not found" }, 404);
+    if (got.size > CONTENTS_MAX_BYTES) {
+      return c.json(
+        { error: `File too large (${got.size} bytes, max ${CONTENTS_MAX_BYTES})` },
+        413
+      );
+    }
+    const content = Buffer.from(got.bytes).toString("base64");
+    return c.json({
+      path: filePath,
+      size: got.size,
+      sha: got.sha,
+      encoding: "base64",
+      content,
+    });
+  }
+
   const blob = await getBlob(owner, repo, ref, filePath);
   if (!blob) return c.json({ error: "File not found" }, 404);
+  if (blob.size > CONTENTS_MAX_BYTES) {
+    return c.json(
+      { error: `File too large (${blob.size} bytes, max ${CONTENTS_MAX_BYTES})` },
+      413
+    );
+  }
 
   return c.json({
     path: filePath,
     size: blob.size,
     isBinary: blob.isBinary,
     content: blob.isBinary ? null : blob.content,
-    encoding: blob.isBinary ? null : "utf-8",
+    encoding: blob.isBinary ? null : "utf8",
   });
 });
 
@@ -534,6 +587,196 @@ apiv2.get("/repos/:owner/:repo/pulls/:number", async (c) => {
     comments: comments.map(({ comment, author }) => ({ ...comment, author })),
   });
 });
+
+// ─── PR Comments (GateTest integration) ────────────────────────────────────
+
+apiv2.post(
+  "/repos/:owner/:repo/pulls/:number/comments",
+  requireApiAuth,
+  requireScope("repo"),
+  async (c) => {
+    const { owner, repo } = c.req.param();
+    const num = parseInt(c.req.param("number"), 10);
+    const user = c.get("user")!;
+
+    let body: { body?: string } = {};
+    try {
+      body = await c.req.json();
+    } catch {
+      body = {};
+    }
+    if (!body.body?.trim()) {
+      return c.json({ error: "Comment body is required" }, 400);
+    }
+
+    const resolved = await resolveRepo(owner, repo);
+    if (!resolved) return c.json({ error: "Not found" }, 404);
+    if (user.id !== (resolved.owner as any).id) {
+      return c.json({ error: "Forbidden" }, 403);
+    }
+
+    const [pr] = await db
+      .select()
+      .from(pullRequests)
+      .where(
+        and(
+          eq(pullRequests.repositoryId, (resolved.repo as any).id),
+          eq(pullRequests.number, num)
+        )
+      )
+      .limit(1);
+    if (!pr) return c.json({ error: "PR not found" }, 404);
+
+    const [comment] = await db
+      .insert(prComments)
+      .values({
+        pullRequestId: pr.id,
+        authorId: user.id,
+        body: body.body.trim(),
+      })
+      .returning();
+
+    return c.json({ ok: true, comment }, 201);
+  }
+);
+
+// ─── Git refs — create branch / tag from sha ────────────────────────────────
+
+apiv2.post(
+  "/repos/:owner/:repo/git/refs",
+  requireApiAuth,
+  requireScope("repo"),
+  async (c) => {
+    const { owner, repo } = c.req.param();
+    const user = c.get("user")!;
+
+    let body: { ref?: string; sha?: string } = {};
+    try {
+      body = await c.req.json();
+    } catch {
+      body = {};
+    }
+    const ref = body.ref?.trim();
+    const sha = body.sha?.trim();
+
+    if (!ref || !/^refs\/(heads|tags)\/.+/.test(ref)) {
+      return c.json({ error: "ref must be of the form refs/heads/... or refs/tags/..." }, 400);
+    }
+    if (!sha || !/^[0-9a-f]{40}$/.test(sha)) {
+      return c.json({ error: "sha must be a 40-char lowercase hex string" }, 400);
+    }
+
+    const resolved = await resolveRepo(owner, repo);
+    if (!resolved) return c.json({ error: "Not found" }, 404);
+    if (user.id !== (resolved.owner as any).id) {
+      return c.json({ error: "Forbidden" }, 403);
+    }
+
+    // Verify sha reachable.
+    if (!(await objectExists(owner, repo, sha))) {
+      return c.json({ error: "sha not found in repository" }, 400);
+    }
+
+    // Conflict check: if ref already exists, the existing sha must match.
+    if (await refExists(owner, repo, ref)) {
+      const existing = await resolveRef(owner, repo, ref);
+      if (existing !== sha) {
+        return c.json({ error: "ref already exists", existing }, 409);
+      }
+    }
+
+    const ok = await updateRef(owner, repo, ref, sha);
+    if (!ok) return c.json({ error: "Failed to create ref" }, 500);
+
+    return c.json({ ok: true, ref, sha }, 201);
+  }
+);
+
+// ─── Contents PUT — create/update a file via git plumbing ────────────────────
+
+apiv2.put(
+  "/repos/:owner/:repo/contents/:path{.+$}",
+  requireApiAuth,
+  requireScope("repo"),
+  async (c) => {
+    const { owner, repo } = c.req.param();
+    const filePath = c.req.param("path");
+    const user = c.get("user")!;
+
+    let body: {
+      message?: string;
+      content?: string;
+      branch?: string;
+      sha?: string | null;
+    } = {};
+    try {
+      body = await c.req.json();
+    } catch {
+      body = {};
+    }
+
+    const message = body.message?.trim();
+    const branch = body.branch?.trim();
+    const base64 = body.content;
+
+    if (!message) return c.json({ error: "message is required" }, 400);
+    if (!branch) return c.json({ error: "branch is required" }, 400);
+    if (typeof base64 !== "string") return c.json({ error: "content (base64) is required" }, 400);
+
+    let bytes: Uint8Array;
+    try {
+      bytes = new Uint8Array(Buffer.from(base64, "base64"));
+    } catch {
+      return c.json({ error: "content is not valid base64" }, 400);
+    }
+    if (bytes.length > CONTENTS_MAX_BYTES) {
+      return c.json({ error: "File too large" }, 413);
+    }
+
+    const resolved = await resolveRepo(owner, repo);
+    if (!resolved) return c.json({ error: "Not found" }, 404);
+    if (user.id !== (resolved.owner as any).id) {
+      return c.json({ error: "Forbidden" }, 403);
+    }
+
+    const result = await createOrUpdateFileOnBranch({
+      owner,
+      name: repo,
+      branch,
+      filePath,
+      bytes,
+      message,
+      authorName: (user as any).displayName || user.username,
+      authorEmail: user.email,
+      expectBlobSha: body.sha ?? null,
+    });
+
+    if ("error" in result) {
+      if (result.error === "sha-mismatch") {
+        return c.json({ error: "sha does not match current blob at path" }, 409);
+      }
+      return c.json({ error: "Failed to write file" }, 500);
+    }
+
+    return c.json(
+      {
+        ok: true,
+        commit: { sha: result.commitSha, message },
+        content: { path: filePath, sha: result.blobSha },
+      },
+      201
+    );
+  }
+);
+
+// ─── v2 alias for commit-status POST ─────────────────────────────────────────
+// Reuses the handler from src/routes/commit-statuses.ts (v1 mount).
+apiv2.post(
+  "/repos/:owner/:repo/statuses/:sha",
+  requireApiAuth,
+  requireScope("repo"),
+  postCommitStatusHandler
+);
 
 // ─── Stars ──────────────────────────────────────────────────────────────────
 
@@ -809,8 +1052,15 @@ apiv2.get("/", (c) => {
         "GET /api/v2/repos/:owner/:repo/commits/:sha": "Get commit with diff",
       },
       files: {
-        "GET /api/v2/repos/:owner/:repo/tree/:ref": "Get file tree",
-        "GET /api/v2/repos/:owner/:repo/contents/:path": "Get file contents",
+        "GET /api/v2/repos/:owner/:repo/tree/:ref": "Get file tree (supports ?recursive=1)",
+        "GET /api/v2/repos/:owner/:repo/contents/:path": "Get file contents (supports ?encoding=base64)",
+        "PUT /api/v2/repos/:owner/:repo/contents/:path": "Create or update a file on a branch",
+      },
+      git: {
+        "POST /api/v2/repos/:owner/:repo/git/refs": "Create a branch or tag pointing at a sha",
+      },
+      statuses: {
+        "POST /api/v2/repos/:owner/:repo/statuses/:sha": "Post commit status (v2 alias)",
       },
       issues: {
         "GET /api/v2/repos/:owner/:repo/issues": "List issues",
@@ -823,6 +1073,7 @@ apiv2.get("/", (c) => {
         "GET /api/v2/repos/:owner/:repo/pulls": "List pull requests",
         "POST /api/v2/repos/:owner/:repo/pulls": "Create pull request",
         "GET /api/v2/repos/:owner/:repo/pulls/:number": "Get PR with comments",
+        "POST /api/v2/repos/:owner/:repo/pulls/:number/comments": "Add PR comment",
       },
       stars: {
         "PUT /api/v2/repos/:owner/:repo/star": "Star repository",

@@ -560,3 +560,372 @@ export async function getReadme(
     return blob?.content || null;
   });
 }
+
+/* -------------------------------------------------------------------------- */
+/* Extra plumbing used by API v2 write-endpoints for the GateTest integration */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Read default branch directly from HEAD on the given repo dir. Used by API
+ * v2 where we want a cache-free fresh read. Returns `"main"` when HEAD is
+ * missing, detached or unreadable. Safe on bare repos.
+ */
+export async function getDefaultBranchFresh(
+  owner: string,
+  name: string
+): Promise<string> {
+  const path = repoPath(owner, name);
+  const { stdout, exitCode } = await exec(
+    ["git", "symbolic-ref", "HEAD"],
+    { cwd: path }
+  );
+  if (exitCode !== 0) return "main";
+  const ref = stdout.trim();
+  if (!ref) return "main";
+  return ref.replace(/^refs\/heads\//, "") || "main";
+}
+
+export interface RecursiveTreeEntry {
+  path: string;
+  type: "blob" | "tree";
+  sha: string;
+  mode: string;
+  size?: number;
+}
+
+export interface RecursiveTreeResult {
+  tree: RecursiveTreeEntry[];
+  truncated: boolean;
+  totalCount: number;
+}
+
+/**
+ * Recursive ls-tree (blobs + trees). Caps at `maxEntries` (default 50_000)
+ * to avoid monorepo memory blowups — sets `truncated=true` when exceeded.
+ */
+export async function getTreeRecursive(
+  owner: string,
+  name: string,
+  ref: string,
+  maxEntries = 50_000
+): Promise<RecursiveTreeResult | null> {
+  const path = repoPath(owner, name);
+  // `-t` includes tree entries; `-l` adds size column for blobs.
+  const { stdout, exitCode } = await exec(
+    ["git", "ls-tree", "-r", "-t", "-l", "--full-tree", ref],
+    { cwd: path }
+  );
+  if (exitCode !== 0) return null;
+
+  const lines = stdout.split("\n").filter(Boolean);
+  const totalCount = lines.length;
+  const truncated = totalCount > maxEntries;
+  const sliced = truncated ? lines.slice(0, maxEntries) : lines;
+
+  const tree: RecursiveTreeEntry[] = [];
+  for (const line of sliced) {
+    // Format: <mode> SP <type> SP <sha> SP (<size>|-) TAB <path>
+    const m = line.match(
+      /^(\d+)\s+(blob|tree|commit)\s+([0-9a-f]+)\s+(-|\d+)\t(.+)$/
+    );
+    if (!m) continue;
+    const type = m[2];
+    if (type === "commit") continue; // submodule — skip
+    tree.push({
+      mode: m[1],
+      type: type as "blob" | "tree",
+      sha: m[3],
+      size: m[4] === "-" ? undefined : parseInt(m[4], 10),
+      path: m[5],
+    });
+  }
+
+  return { tree, truncated, totalCount };
+}
+
+/** Raw bytes of a blob by sha (for base64 API responses). */
+export async function catBlobBytes(
+  owner: string,
+  name: string,
+  ref: string,
+  filePath: string
+): Promise<{ bytes: Uint8Array; size: number; sha: string } | null> {
+  const path = repoPath(owner, name);
+  // Resolve blob sha first.
+  const { stdout: shaOut, exitCode: shaCode } = await exec(
+    ["git", "rev-parse", `${ref}:${filePath}`],
+    { cwd: path }
+  );
+  if (shaCode !== 0) return null;
+  const sha = shaOut.trim();
+  if (!sha) return null;
+
+  const { stdout: sizeOut } = await exec(
+    ["git", "cat-file", "-s", sha],
+    { cwd: path }
+  );
+  const size = parseInt(sizeOut.trim(), 10) || 0;
+
+  const proc = Bun.spawn(["git", "cat-file", "blob", sha], {
+    cwd: path,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const bytes = new Uint8Array(await new Response(proc.stdout).arrayBuffer());
+  const exitCode = await proc.exited;
+  if (exitCode !== 0) return null;
+  return { bytes, size, sha };
+}
+
+/** Returns true iff `git show-ref --verify --quiet <ref>` succeeds. */
+export async function refExists(
+  owner: string,
+  name: string,
+  ref: string
+): Promise<boolean> {
+  const path = repoPath(owner, name);
+  const { exitCode } = await exec(
+    ["git", "show-ref", "--verify", "--quiet", ref],
+    { cwd: path }
+  );
+  return exitCode === 0;
+}
+
+/** Returns true iff the given object is reachable in the repo. */
+export async function objectExists(
+  owner: string,
+  name: string,
+  sha: string
+): Promise<boolean> {
+  const path = repoPath(owner, name);
+  const { exitCode } = await exec(
+    ["git", "cat-file", "-e", sha],
+    { cwd: path }
+  );
+  return exitCode === 0;
+}
+
+/** Point `<ref>` (fully-qualified, e.g. `refs/heads/x`) at `<sha>`. */
+export async function updateRef(
+  owner: string,
+  name: string,
+  ref: string,
+  sha: string,
+  oldSha?: string
+): Promise<boolean> {
+  const path = repoPath(owner, name);
+  const args = oldSha
+    ? ["git", "update-ref", ref, sha, oldSha]
+    : ["git", "update-ref", ref, sha];
+  const { exitCode } = await exec(args, { cwd: path });
+  return exitCode === 0;
+}
+
+/** Hash + write a blob from bytes; returns the 40-hex blob sha. */
+export async function writeBlob(
+  owner: string,
+  name: string,
+  bytes: Uint8Array
+): Promise<string | null> {
+  const path = repoPath(owner, name);
+  const proc = Bun.spawn(["git", "hash-object", "-w", "--stdin"], {
+    cwd: path,
+    stdin: "pipe",
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  if (proc.stdin) {
+    proc.stdin.write(bytes);
+    proc.stdin.end();
+  }
+  const out = (await new Response(proc.stdout).text()).trim();
+  const exitCode = await proc.exited;
+  if (exitCode !== 0 || !/^[0-9a-f]{40}$/.test(out)) return null;
+  return out;
+}
+
+/**
+ * Read the blob sha at a given path on a ref, or null if missing.
+ * Used for optimistic-concurrency checks on PUT /contents.
+ */
+export async function getBlobShaAtPath(
+  owner: string,
+  name: string,
+  ref: string,
+  filePath: string
+): Promise<string | null> {
+  const path = repoPath(owner, name);
+  const { stdout, exitCode } = await exec(
+    ["git", "rev-parse", `${ref}:${filePath}`],
+    { cwd: path }
+  );
+  if (exitCode !== 0) return null;
+  const sha = stdout.trim();
+  return /^[0-9a-f]{40}$/.test(sha) ? sha : null;
+}
+
+/**
+ * Create or update a file at `filePath` on the branch `branch` with the
+ * given bytes. Uses a transient index file (`GIT_INDEX_FILE`) to let git
+ * handle sub-tree rewriting correctly; `mktree` alone cannot flatten paths
+ * containing `/` into nested tree objects.
+ *
+ *   read-tree HEAD (empty if branch is new)
+ *   update-index --add --cacheinfo 100644,<blob>,<path>
+ *   write-tree
+ *   commit-tree + update-ref
+ *
+ * Mirrors the plumbing flow used by the web editor (src/routes/editor.tsx)
+ * but is safe for arbitrary subpaths. Returns the new commit sha on success.
+ */
+export async function createOrUpdateFileOnBranch(input: {
+  owner: string;
+  name: string;
+  branch: string;
+  filePath: string;
+  bytes: Uint8Array;
+  message: string;
+  authorName: string;
+  authorEmail: string;
+  expectBlobSha?: string | null;
+}): Promise<
+  | { commitSha: string; blobSha: string; parentSha: string | null }
+  | { error: "sha-mismatch" | "write-failed" }
+> {
+  const {
+    owner,
+    name,
+    branch,
+    filePath,
+    bytes,
+    message,
+    authorName,
+    authorEmail,
+    expectBlobSha,
+  } = input;
+  const path = repoPath(owner, name);
+  const fullRef = `refs/heads/${branch}`;
+
+  // Resolve current parent + existing blob sha at that path.
+  let parentSha: string | null = null;
+  let existingBlobSha: string | null = null;
+  const { stdout: parentOut, exitCode: parentCode } = await exec(
+    ["git", "rev-parse", "--verify", fullRef],
+    { cwd: path }
+  );
+  if (parentCode === 0) {
+    parentSha = parentOut.trim();
+    const { stdout: blobOut, exitCode: blobCode } = await exec(
+      ["git", "rev-parse", `${branch}:${filePath}`],
+      { cwd: path }
+    );
+    if (blobCode === 0) existingBlobSha = blobOut.trim();
+  }
+
+  // Optimistic concurrency: if caller supplied a sha, it must match current.
+  if (typeof expectBlobSha === "string" && expectBlobSha.length > 0) {
+    if (existingBlobSha !== expectBlobSha) return { error: "sha-mismatch" };
+  }
+
+  // Write the new blob.
+  const blobSha = await writeBlob(owner, name, bytes);
+  if (!blobSha) return { error: "write-failed" };
+
+  // Use a temporary index file so we don't disturb whatever index the repo
+  // already has (and so parallel writes don't stomp on each other).
+  const tmpIndex = join(path, `index.tmp.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2)}`);
+  const envWithIndex = {
+    ...process.env,
+    GIT_INDEX_FILE: tmpIndex,
+    GIT_AUTHOR_NAME: authorName,
+    GIT_AUTHOR_EMAIL: authorEmail,
+    GIT_COMMITTER_NAME: authorName,
+    GIT_COMMITTER_EMAIL: authorEmail,
+  };
+
+  const cleanup = async () => {
+    try {
+      const { unlink } = await import("fs/promises");
+      await unlink(tmpIndex);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  try {
+    // Seed the temporary index from the parent tree (if any).
+    if (parentSha) {
+      const { exitCode: readCode } = await exec(
+        ["git", "read-tree", parentSha],
+        { cwd: path, env: envWithIndex }
+      );
+      if (readCode !== 0) {
+        await cleanup();
+        return { error: "write-failed" };
+      }
+    }
+
+    // Add / replace our path.
+    const { exitCode: updCode } = await exec(
+      [
+        "git",
+        "update-index",
+        "--add",
+        "--cacheinfo",
+        `100644,${blobSha},${filePath}`,
+      ],
+      { cwd: path, env: envWithIndex }
+    );
+    if (updCode !== 0) {
+      await cleanup();
+      return { error: "write-failed" };
+    }
+
+    // Write the tree object.
+    const { stdout: treeOut, exitCode: wtCode } = await exec(
+      ["git", "write-tree"],
+      { cwd: path, env: envWithIndex }
+    );
+    const newTreeSha = treeOut.trim();
+    if (wtCode !== 0 || !/^[0-9a-f]{40}$/.test(newTreeSha)) {
+      await cleanup();
+      return { error: "write-failed" };
+    }
+
+    // Create the commit object.
+    const commitArgs = parentSha
+      ? ["git", "commit-tree", newTreeSha, "-p", parentSha, "-m", message]
+      : ["git", "commit-tree", newTreeSha, "-m", message];
+    const commitProc = Bun.spawn(commitArgs, {
+      cwd: path,
+      stdout: "pipe",
+      stderr: "pipe",
+      env: envWithIndex,
+    });
+    const commitSha = (await new Response(commitProc.stdout).text()).trim();
+    const commitExit = await commitProc.exited;
+    if (commitExit !== 0 || !/^[0-9a-f]{40}$/.test(commitSha)) {
+      await cleanup();
+      return { error: "write-failed" };
+    }
+
+    // Move the branch.
+    const ok = await updateRef(
+      owner,
+      name,
+      fullRef,
+      commitSha,
+      parentSha || undefined
+    );
+    if (!ok) {
+      await cleanup();
+      return { error: "write-failed" };
+    }
+
+    await cleanup();
+    return { commitSha, blobSha, parentSha };
+  } catch {
+    await cleanup();
+    return { error: "write-failed" };
+  }
+}

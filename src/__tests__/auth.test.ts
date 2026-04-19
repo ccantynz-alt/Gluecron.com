@@ -8,7 +8,7 @@ import {
 
 describe("auth utilities", () => {
   it("should hash and verify passwords", async () => {
-    const password = Math.random().toString(36).slice(-10);
+    const password = `test${Math.random().toString(36).slice(2)}`;
     const hash = await hashPassword(password);
 
     expect(hash).toBeTruthy();

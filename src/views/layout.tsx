@@ -63,6 +63,9 @@ export const Layout: FC<
                   <a href="/dashboard" class="nav-link" style="font-weight: 600">
                     Dashboard
                   </a>
+                  <a href="/import" class="nav-link">
+                    Import
+                  </a>
                   <a href="/new" class="btn btn-sm btn-primary">
                     + New
                   </a>

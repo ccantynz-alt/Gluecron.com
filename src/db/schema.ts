@@ -25,6 +25,7 @@ export const users = pgTable("users", {
   // Block I7 — weekly digest opt-in.
   notifyEmailDigestWeekly: boolean("notify_email_digest_weekly").default(false).notNull(),
   lastDigestSentAt: timestamp("last_digest_sent_at"),
+  isAdmin: boolean("is_admin").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

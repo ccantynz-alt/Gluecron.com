@@ -93,7 +93,7 @@ src/
 
 ## Integrations
 
-- **GateTest:** POST `https://gatetest.ai/api/scan/run` on every `git push`
+- **GateTest:** POST `https://gatetest.ai/api/events/push` on every `git push`
 - **Crontech:** POST `https://crontech.ai/api/trpc/tenant.deploy` on push to main
 - **Webhooks:** POST to registered URLs on push/issue/PR/star events with HMAC signatures
 

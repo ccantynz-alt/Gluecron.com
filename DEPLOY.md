@@ -86,7 +86,7 @@ DATABASE_URL=postgresql://user:pass@host/gluecron?sslmode=require
 GIT_REPOS_PATH=/data/repos
 PORT=3000
 NODE_ENV=production
-GATETEST_URL=https://gatetest.ai/api/scan/run
+GATETEST_URL=https://gatetest.ai/api/events/push
 CRONTECH_DEPLOY_URL=https://crontech.ai/api/trpc/tenant.deploy
 EOF
 

@@ -11,7 +11,7 @@ export const config = {
     return process.env.GIT_REPOS_PATH || join(process.cwd(), "repos");
   },
   get gatetestUrl() {
-    return process.env.GATETEST_URL || "https://gatetest.ai/api/scan/run";
+    return process.env.GATETEST_URL || "https://gatetest.ai/api/events/push";
   },
   get gatetestApiKey() {
     return process.env.GATETEST_API_KEY || "";

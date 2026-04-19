@@ -49,7 +49,7 @@ Since Crontech handles deployment, routing, and SSL:
 ssh root@your-server-ip
 
 # 2. Set your database URL
-export DATABASE_URL="postgresql://user:pass@host/gluecron?sslmode=require"
+export DATABASE_URL="postgresql://host/gluecron?sslmode=require"
 
 # 3. Run the deploy script
 curl -fsSL https://raw.githubusercontent.com/ccantynz-alt/Gluecron.com/claude/ship-fixes-and-tests-Jvz1c/scripts/deploy.sh | bash
@@ -82,7 +82,7 @@ cd /opt/gluecron
 
 # Create .env
 cat > .env << EOF
-DATABASE_URL=postgresql://user:pass@host/gluecron?sslmode=require
+DATABASE_URL=postgresql://host/gluecron?sslmode=require
 GIT_REPOS_PATH=/data/repos
 PORT=3000
 NODE_ENV=production

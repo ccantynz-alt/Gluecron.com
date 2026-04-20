@@ -1,6 +1,6 @@
 # gluecron
 
-A GitHub replacement. AI-native code intelligence, green-ecosystem-by-default git hosting, automated CI, and a self-hostable platform built to keep every push production-ready. Every repo ships with gates, branch protection, CODEOWNERS sync, and an AI reviewer on by default — opt out per feature, never by default. Deployed via Crontech, backed by Neon Postgres, runs anywhere Bun and a disk will run.
+A GitHub replacement. AI-native code intelligence, git hosting, automated CI, and a self-hostable platform built to keep every push production-ready. Every repo ships with gates, branch protection, CODEOWNERS sync, and an AI reviewer on by default — opt out per feature, never by default. Deploy anywhere Bun runs — fly.toml is in-repo, Dockerfile for any container host. Backed by Neon Postgres.
 
 ## Features
 
@@ -109,7 +109,7 @@ src/
   app.tsx           Hono composition + error handlers
   db/               Drizzle schema + lazy connection + migrations
   git/              repository.ts (tree/blob/commits/diff/blame/...) + protocol.ts
-  hooks/            post-receive (GateTest, Crontech, webhooks, CODEOWNERS)
+  hooks/            post-receive (GateTest, outbound deploy webhook, webhooks, CODEOWNERS)
   lib/              auth, config, markdown, highlight, AI helpers, autopilot, ...
   middleware/       softAuth / requireAuth / rate-limit / request-context
   routes/           git, api, web, issues, pulls, editor, settings, webhooks, ...
@@ -118,15 +118,15 @@ src/
 
 Full file inventory lives in [`CLAUDE.md`](./CLAUDE.md).
 
-## Integrations (the green ecosystem)
+## Integrations
 
-- **GateTest** — every `git push` POSTs to `https://gatetest.ai/api/events/push`; inbound results accepted at `POST /api/hooks/gatetest` (bearer or HMAC).
-- **Crontech** — deploys trigger on push to the default branch (`https://crontech.ai/api/hooks/gluecron/push`). Opt out per repo via `autoDeployEnabled`.
+- **GateTest** — optional third-party security scanner. When `GATETEST_URL` is set, every `git push` POSTs to it; inbound results accepted at `POST /api/hooks/gatetest` (bearer or HMAC).
 - **Webhooks** — user-registered URLs receive HMAC-signed payloads on push / issue / PR / star events.
+- **Outbound deploy webhook** — optional. Set `CRONTECH_DEPLOY_URL` (or any URL) to receive a POST on pushes to the default branch. Opt out per repo via `autoDeployEnabled`.
 
 ## Deployment
 
-Gluecron is deployed via **Crontech**, with Neon Postgres as the database. See [`DEPLOY.md`](./DEPLOY.md) for step-by-step instructions, environment variables, and the post-deploy verification checklist.
+Gluecron runs anywhere Bun runs. The repo ships a `fly.toml` for Fly.io and a `Dockerfile` for any container host, with Neon Postgres as the database. See [`DEPLOY.md`](./DEPLOY.md) for step-by-step instructions, environment variables, and the post-deploy verification checklist.
 
 ## License
 

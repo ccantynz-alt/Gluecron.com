@@ -385,9 +385,9 @@ dashboard.get(
               defaultChecked={true}
             />
             <ToggleSetting
-              name="crontech_deploy"
-              label="Crontech Auto-Deploy"
-              description="Trigger deployment on Crontech when pushing to main branch"
+              name="deploy_webhook"
+              label="Auto-Deploy Webhook"
+              description="POST to your configured deploy webhook when pushing to the default branch"
               defaultChecked={true}
             />
 

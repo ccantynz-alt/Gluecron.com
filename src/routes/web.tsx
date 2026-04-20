@@ -47,6 +47,7 @@ import { highlightCode } from "../lib/highlight";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
 import { trackByName } from "../lib/traffic";
+import { LandingPage } from "../views/landing";
 
 const web = new Hono<AuthEnv>();
 
@@ -63,25 +64,7 @@ web.get("/", async (c) => {
 
   return c.html(
     <Layout user={null}>
-      <div class="empty-state">
-        <h2>gluecron</h2>
-        <p>AI-native code intelligence platform</p>
-        <div style="margin-top: 24px; display: flex; gap: 12px; justify-content: center">
-          <a href="/register" class="btn btn-primary">
-            Get started
-          </a>
-          <a href="/login" class="btn">
-            Sign in
-          </a>
-        </div>
-        <pre style="margin-top: 32px">{`# Quick start
-curl -X POST http://localhost:3000/api/setup \\
-  -H 'Content-Type: application/json' \\
-  -d '{"username":"you","email":"you@dev.com","repoName":"hello"}'
-
-git remote add gluecron http://localhost:3000/you/hello.git
-git push gluecron main`}</pre>
-      </div>
+      <LandingPage />
     </Layout>
   );
 });

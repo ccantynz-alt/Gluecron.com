@@ -554,5 +554,10 @@ If a block is too large for a single session, split it into a sub-plan at the to
 
 ## 7. IN-FLIGHT
 
-- **Autopilot + landing (shipped this session)** — `src/lib/autopilot.ts` (5-min ticker: mirror sync, merge-queue peek, weekly digests, advisory rescans; `AUTOPILOT_DISABLED=1` opt-out) wired into `src/index.ts` alongside `startWorker()`. New marketing landing at `src/views/landing.tsx` (`LandingPage`), replaces the logged-out `/` placeholder in `src/routes/web.tsx`.
-- **Demo-seed — deferred.** Next session: create `src/lib/demo-seed.ts` (idempotent `ensureDemoContent()` creating a `demo` user + 3 public sample repos with git plumbing commits + seeded issues/PRs/topics). Agent timed out before writing any files. Design sketch is in the session transcript. Wire via boot env flag `DEMO_SEED_ON_BOOT=1` + admin `POST /admin/demo/reseed`.
+(Intentionally empty. Add here if a block is partially complete at session end.)
+
+**Polish batch shipped this session:**
+- `src/lib/autopilot.ts` + tests — 5-min ticker (mirror sync, merge-queue peek, weekly digests, advisory rescans). `AUTOPILOT_DISABLED=1` opt-out. Observability via `getLastTick()` / `getTickCount()`. Admin page at `/admin/autopilot` with "Run tick now" button.
+- `src/views/landing.tsx` — marketing landing for logged-out `/`. Accepts optional `stats` prop; `src/routes/web.tsx` queries public repo + user counts.
+- `src/lib/demo-seed.ts` + tests — idempotent `ensureDemoContent()` seeds `demo` user + 3 public sample repos + seeded issues/PR. Boot flag `DEMO_SEED_ON_BOOT=1`. Site-admin reseed button on `/admin` (`POST /admin/demo/reseed`). Public `/demo` convenience redirect to `/demo/hello-python`.
+- Doc sync: `README.md`, `DEPLOY.md`, `LAUNCH_TODAY.md` aligned with current reality.

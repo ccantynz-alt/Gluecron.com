@@ -37,6 +37,7 @@ import {
   getTickCount,
   runAutopilotTick,
 } from "../lib/autopilot";
+import { ensureDemoContent, DEMO_USERNAME } from "../lib/demo-seed";
 
 const admin = new Hono<AuthEnv>();
 admin.use("*", softAuth);
@@ -80,9 +81,21 @@ admin.get("/admin", async (c) => {
 
   const admins = await listSiteAdmins();
 
+  const msg = c.req.query("result") || c.req.query("error");
+  const isErr = !!c.req.query("error");
+
   return c.html(
     <Layout title="Admin — Gluecron" user={user}>
       <h2>Site admin</h2>
+
+      {msg && (
+        <div
+          class={isErr ? "auth-error" : "banner"}
+          style="margin-bottom:16px"
+        >
+          {decodeURIComponent(msg)}
+        </div>
+      )}
 
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px">
         <div class="panel" style="padding:12px;text-align:center">
@@ -105,7 +118,7 @@ admin.get("/admin", async (c) => {
         </div>
       </div>
 
-      <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:20px">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:20px">
         <a href="/admin/users" class="btn">
           Manage users
         </a>
@@ -121,6 +134,18 @@ admin.get("/admin", async (c) => {
         <a href="/admin/sso" class="btn">
           Enterprise SSO
         </a>
+        <a href="/admin/autopilot" class="btn">
+          Autopilot
+        </a>
+        <form
+          method="post"
+          action="/admin/demo/reseed"
+          style="display:contents"
+        >
+          <button class="btn" type="submit" title="Idempotently (re)create demo user + 3 sample repos">
+            Reseed demo
+          </button>
+        </form>
       </div>
 
       <h3>Recent signups</h3>
@@ -696,6 +721,41 @@ admin.get("/admin/autopilot", async (c) => {
       </div>
     </Layout>
   );
+});
+
+admin.post("/admin/demo/reseed", async (c) => {
+  const g = await gate(c);
+  if (g instanceof Response) return g;
+  const { user } = g;
+  try {
+    const result = await ensureDemoContent({ force: true });
+    const summary = `Demo reseed: user=${result.created.user ? "created" : "existed"}, repos=${result.created.repos.length}, issues=${result.created.issues}, prs=${result.created.prs}${result.errors.length ? `, errors=${result.errors.length}` : ""}`;
+    await audit({
+      userId: user.id,
+      action: "admin.demo.reseed",
+      targetType: "user",
+      targetId: result.demoUser?.id ?? "demo",
+      metadata: {
+        createdUser: result.created.user,
+        createdRepos: result.created.repos,
+        createdIssues: result.created.issues,
+        createdPrs: result.created.prs,
+        errors: result.errors.slice(0, 5),
+      },
+    });
+    return c.redirect(`/admin?result=${encodeURIComponent(summary)}`);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return c.redirect(
+      `/admin?error=${encodeURIComponent("Demo reseed failed: " + message)}`
+    );
+  }
+});
+
+// Public jump-to-demo — redirects to the first demo repo if present,
+// otherwise to /explore. Useful as a landing-page-linkable "try it" URL.
+admin.get("/demo", (c) => {
+  return c.redirect(`/${DEMO_USERNAME}/hello-python`);
 });
 
 admin.post("/admin/autopilot/run", async (c) => {

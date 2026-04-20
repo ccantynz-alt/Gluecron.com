@@ -24,6 +24,7 @@ import tokenRoutes from "./routes/tokens";
 import contributorRoutes from "./routes/contributors";
 import healthRoutes from "./routes/health-probe";
 import healthDashboardRoutes from "./routes/health";
+import { platformStatus } from "./routes/platform-status";
 import insightRoutes from "./routes/insights";
 import dashboardRoutes from "./routes/dashboard";
 import legalRoutes from "./routes/legal";
@@ -203,6 +204,9 @@ app.route("/", contributorRoutes);
 
 // Health liveness + metrics endpoints
 app.route("/", healthRoutes);
+
+// Cross-product platform status (public, CORS-open — see docs/PLATFORM_STATUS.md)
+app.route("/api/platform-status", platformStatus);
 
 // Health dashboard (per-repo health page)
 app.route("/", healthDashboardRoutes);

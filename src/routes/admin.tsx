@@ -19,7 +19,7 @@ import { and, desc, eq, ilike, or, sql } from "drizzle-orm";
 import { db } from "../db";
 import { repositories, users } from "../db/schema";
 import { Layout } from "../views/layout";
-import { softAuth, requireAuth } from "../middleware/auth";
+import { softAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
 import {
   grantSiteAdmin,
@@ -32,6 +32,12 @@ import {
 } from "../lib/admin";
 import { audit } from "../lib/notify";
 import { sendDigestsToAll, sendDigestForUser } from "../lib/email-digest";
+import {
+  getLastTick,
+  getTickCount,
+  runAutopilotTick,
+} from "../lib/autopilot";
+import { ensureDemoContent, DEMO_USERNAME } from "../lib/demo-seed";
 
 const admin = new Hono<AuthEnv>();
 admin.use("*", softAuth);
@@ -75,9 +81,21 @@ admin.get("/admin", async (c) => {
 
   const admins = await listSiteAdmins();
 
+  const msg = c.req.query("result") || c.req.query("error");
+  const isErr = !!c.req.query("error");
+
   return c.html(
     <Layout title="Admin — Gluecron" user={user}>
       <h2>Site admin</h2>
+
+      {msg && (
+        <div
+          class={isErr ? "auth-error" : "banner"}
+          style="margin-bottom:16px"
+        >
+          {decodeURIComponent(msg)}
+        </div>
+      )}
 
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px">
         <div class="panel" style="padding:12px;text-align:center">
@@ -100,7 +118,7 @@ admin.get("/admin", async (c) => {
         </div>
       </div>
 
-      <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:20px">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:20px">
         <a href="/admin/users" class="btn">
           Manage users
         </a>
@@ -116,6 +134,18 @@ admin.get("/admin", async (c) => {
         <a href="/admin/sso" class="btn">
           Enterprise SSO
         </a>
+        <a href="/admin/autopilot" class="btn">
+          Autopilot
+        </a>
+        <form
+          method="post"
+          action="/admin/demo/reseed"
+          style="display:contents"
+        >
+          <button class="btn" type="submit" title="Idempotently (re)create demo user + 3 sample repos">
+            Reseed demo
+          </button>
+        </form>
       </div>
 
       <h3>Recent signups</h3>
@@ -578,7 +608,181 @@ admin.post("/admin/digests/preview", async (c) => {
   );
 });
 
-// Keep requireAuth import used even if some routes don't reference it here.
-void requireAuth;
+admin.get("/admin/autopilot", async (c) => {
+  const g = await gate(c);
+  if (g instanceof Response) return g;
+  const { user } = g;
+  const tick = getLastTick();
+  const total = getTickCount();
+  const disabled = process.env.AUTOPILOT_DISABLED === "1";
+  const intervalRaw = process.env.AUTOPILOT_INTERVAL_MS;
+  const intervalMs =
+    intervalRaw && Number.isFinite(Number(intervalRaw)) && Number(intervalRaw) > 0
+      ? Number(intervalRaw)
+      : 5 * 60 * 1000;
+  const msg = c.req.query("result") || c.req.query("error");
+  const isErr = !!c.req.query("error");
+  return c.html(
+    <Layout title="Autopilot — admin" user={user}>
+      <div style="max-width: 960px; margin: 0 auto; padding: 24px 16px">
+        <h1 style="margin-bottom: 8px">Autopilot</h1>
+        <p style="color: var(--text-muted); margin-bottom: 24px">
+          Periodic platform-maintenance loop — mirror sync, merge-queue
+          progress, weekly digests, advisory rescans.
+        </p>
+        {msg && (
+          <div
+            class={isErr ? "auth-error" : "banner"}
+            style="margin-bottom: 16px"
+          >
+            {decodeURIComponent(msg)}
+          </div>
+        )}
+        <div
+          style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 24px"
+        >
+          <div class="stat-card">
+            <div class="stat-label">Status</div>
+            <div class="stat-value">
+              {disabled ? "disabled" : "running"}
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Interval</div>
+            <div class="stat-value">{Math.round(intervalMs / 1000)}s</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Ticks this process</div>
+            <div class="stat-value">{total}</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Last tick</div>
+            <div class="stat-value" style="font-size: 14px">
+              {tick ? tick.finishedAt : "never"}
+            </div>
+          </div>
+        </div>
+        <form
+          method="post"
+          action="/admin/autopilot/run"
+          style="margin-bottom: 24px"
+        >
+          <button class="btn btn-primary" type="submit">
+            Run tick now
+          </button>
+          <span style="color: var(--text-muted); margin-left: 12px; font-size: 13px">
+            Executes all sub-tasks synchronously and records the result.
+          </span>
+        </form>
+        <h2 style="margin-bottom: 12px">Last tick tasks</h2>
+        {tick ? (
+          <table class="table" style="width: 100%">
+            <thead>
+              <tr>
+                <th style="text-align: left">Task</th>
+                <th style="text-align: left">Status</th>
+                <th style="text-align: right">Duration</th>
+                <th style="text-align: left">Error</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tick.tasks.map((t) => (
+                <tr>
+                  <td>
+                    <code>{t.name}</code>
+                  </td>
+                  <td
+                    style={
+                      t.ok
+                        ? "color: var(--green)"
+                        : "color: var(--red)"
+                    }
+                  >
+                    {t.ok ? "ok" : "failed"}
+                  </td>
+                  <td style="text-align: right">{t.durationMs}ms</td>
+                  <td style="color: var(--text-muted); font-size: 13px">
+                    {t.error || ""}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <p style="color: var(--text-muted)">
+            No ticks have run yet. The first tick fires after the interval
+            elapses. Click "Run tick now" to fire one immediately.
+          </p>
+        )}
+        <p style="margin-top: 32px; color: var(--text-muted); font-size: 13px">
+          Opt out with env <code>AUTOPILOT_DISABLED=1</code>. Adjust cadence
+          with <code>AUTOPILOT_INTERVAL_MS</code> (milliseconds).
+        </p>
+      </div>
+    </Layout>
+  );
+});
+
+admin.post("/admin/demo/reseed", async (c) => {
+  const g = await gate(c);
+  if (g instanceof Response) return g;
+  const { user } = g;
+  try {
+    const result = await ensureDemoContent({ force: true });
+    const summary = `Demo reseed: user=${result.created.user ? "created" : "existed"}, repos=${result.created.repos.length}, issues=${result.created.issues}, prs=${result.created.prs}${result.errors.length ? `, errors=${result.errors.length}` : ""}`;
+    await audit({
+      userId: user.id,
+      action: "admin.demo.reseed",
+      targetType: "user",
+      targetId: result.demoUser?.id ?? "demo",
+      metadata: {
+        createdUser: result.created.user,
+        createdRepos: result.created.repos,
+        createdIssues: result.created.issues,
+        createdPrs: result.created.prs,
+        errors: result.errors.slice(0, 5),
+      },
+    });
+    return c.redirect(`/admin?result=${encodeURIComponent(summary)}`);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return c.redirect(
+      `/admin?error=${encodeURIComponent("Demo reseed failed: " + message)}`
+    );
+  }
+});
+
+// Public jump-to-demo — redirects to the first demo repo if present,
+// otherwise to /explore. Useful as a landing-page-linkable "try it" URL.
+admin.get("/demo", (c) => {
+  return c.redirect(`/${DEMO_USERNAME}/hello-python`);
+});
+
+admin.post("/admin/autopilot/run", async (c) => {
+  const g = await gate(c);
+  if (g instanceof Response) return g;
+  const { user } = g;
+  let summary = "";
+  try {
+    const result = await runAutopilotTick();
+    const ok = result.tasks.filter((t) => t.ok).length;
+    summary = `Tick complete: ${ok}/${result.tasks.length} tasks ok.`;
+    await audit({
+      userId: user.id,
+      action: "admin.autopilot.run",
+      targetType: "system",
+      targetId: "autopilot",
+      metadata: { ok, total: result.tasks.length },
+    });
+    return c.redirect(
+      `/admin/autopilot?result=${encodeURIComponent(summary)}`
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return c.redirect(
+      `/admin/autopilot?error=${encodeURIComponent("Tick failed: " + message)}`
+    );
+  }
+});
 
 export default admin;

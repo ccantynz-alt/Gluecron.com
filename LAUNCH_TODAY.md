@@ -1,140 +1,68 @@
-# LAUNCH TODAY — exact steps to get GlueCron live
+# Pre-launch checklist
 
-The app is deploy-ready. Tests pass (76/76). Boot verified. Migrations included. Dockerfile + Railway + Fly configs shipped.
+The platform is effectively feature-complete — BUILD_BIBLE §2 is almost entirely ✅, and blocks A–J have all shipped bar the one row called out below. This doc tracks the remaining go-live work.
 
-You need **two secrets** and **one deploy command**. That's it.
-
----
-
-## A. What you need (3 minutes)
-
-1. **Neon Postgres database** — free tier at https://neon.tech
-   - Create a project → copy the "pooled" connection string.
-   - This becomes `DATABASE_URL`.
-2. **Anthropic API key** — https://console.anthropic.com
-   - Create a key → `ANTHROPIC_API_KEY` (optional: all AI features gracefully degrade without it, but you'll want this for the differentiator features).
-3. **A deploy target** — pick one:
-   - Railway (easiest, `railway.toml` already configured)
-   - Fly.io (has `fly.toml` with persistent volume for git repos)
-   - Any Docker host (Render, Koyeb, DO App Platform, a VPS — `Dockerfile` works anywhere)
+Legend: ✅ done · 🟡 in-flight · ❌ not started
 
 ---
 
-## B. Railway (fastest path — ~5 minutes)
+## Infrastructure
 
-```bash
-# 1. Install Railway CLI (one-time)
-npm i -g @railway/cli
+- ✅ Deployment target is Crontech (see `DEPLOY.md`). Neon is the database. No Vercel, no Hetzner.
+- ✅ Migrations run via `bun run db:migrate`; release-phase wiring documented.
+- ✅ `/healthz`, `/readyz`, `/metrics` endpoints shipped (BUILD_BIBLE §2.6).
+- ✅ Request-ID tracing on every response (`src/middleware/request-context.ts`).
+- ✅ Rate limiting on `/api/*`, `/login`, `/register` (`src/middleware/rate-limit.ts`).
+- ✅ Persistent-volume story for `/data/repos` captured in `DEPLOY.md`.
+- ✅ Bare-repo backups — filesystem snapshot responsibility documented; Neon PITR for the DB.
+- 🟡 `/metrics` shipping to Grafana / Datadog / Prometheus — endpoint exists, pipe not wired.
+- ❌ Error-tracking (Sentry) wiring. Block F follow-up.
 
-# 2. From the repo root
-railway login
-railway link              # create or pick a project
-railway variables set DATABASE_URL="postgresql://..."
-railway variables set ANTHROPIC_API_KEY="sk-ant-..."
-railway up                # builds Dockerfile, runs db:migrate via releaseCommand, starts server
-```
+## Content
 
-Railway gives you a live URL like `https://gluecron-production.up.railway.app`.
+- ✅ Landing page — `src/views/landing.tsx` (`LandingPage`), mounted for logged-out `/` via `src/routes/web.tsx` (BUILD_BIBLE §7, shipped this session).
+- ✅ Legal pages — `legal/TERMS.md`, `legal/PRIVACY.md`, `legal/AUP.md`, `legal/SETUP-GUIDE.md`.
+- 🟡 Demo org / sample repos — `src/lib/demo-seed.ts` and the `DEMO_SEED_ON_BOOT=1` boot flag are the deferred item from BUILD_BIBLE §7. Design sketch exists; no code yet.
+- ✅ README reflects shipped feature surface (`README.md`).
+- ✅ Deployment doc reflects Crontech-first reality (`DEPLOY.md`).
+- ✅ GATETEST_HOOK.md documents inbound callback contract.
 
-Add your custom domain (`gluecron.com`) in the Railway dashboard → Settings → Networking.
+## Operational
 
----
+- ✅ Autopilot ticker (`src/lib/autopilot.ts`) shipped this session. Runs mirror sync, merge-queue peek, weekly digests, advisory rescans every 5 minutes. Opt out via `AUTOPILOT_DISABLED=1`. Test coverage in `src/__tests__/autopilot.test.ts`.
+- ✅ Site admin panel (`/admin`) + bootstrap rule — oldest user becomes admin when `site_admins` is empty (BUILD_BIBLE Block F3).
+- ✅ Billing plans seeded (free/pro/team/enterprise) + quota enforcement (Block F4).
+- ✅ Audit log surfaced per-user (`/settings/audit`) and per-repo (`/:owner/:repo/settings/audit`) (Block A2).
+- ✅ Email notifications + opt-in weekly digest (Blocks A8, I7).
+- ✅ Post-receive pipeline — GateTest, secret scanner, AI security review, CODEOWNERS sync, webhook fan-out (Blocks A1, D, green-ecosystem defaults).
+- ✅ Auto-repair engine runs when `ANTHROPIC_API_KEY` is set.
+- 🟡 Monitoring / on-call rotation — `/metrics` + `/healthz` are live; alerting rules are not.
+- 🟡 Backup restore drill — never rehearsed end-to-end.
 
-## C. Fly.io (persistent volume for git repos — ~8 minutes)
+## Communications
 
-```bash
-# 1. Install flyctl (one-time)
-curl -L https://fly.io/install.sh | sh
+- ❌ Launch announcement draft (blog post, social).
+- ❌ Status page / platform-status endpoints surfaced publicly. `CRONTECH_STATUS_URL` / `GLUECRON_STATUS_URL` / `GATETEST_STATUS_URL` env vars + `/admin/platform` widget are shipped; external status page is not.
+- ❌ Changelog or release-notes cadence committed.
 
-# 2. From the repo root
-fly auth login
-fly launch --no-deploy    # accepts existing fly.toml
-fly volumes create gluecron_repos --size 10 --region lhr
-fly secrets set DATABASE_URL="postgresql://..."
-fly secrets set ANTHROPIC_API_KEY="sk-ant-..."
-fly deploy
-```
+## Legal
 
-Fly gives you `https://gluecron.fly.dev`. Point your domain with:
-```bash
-fly certs add gluecron.com
-```
-
----
-
-## D. Any Docker host
-
-```bash
-docker build -t gluecron .
-docker run -d \
-  -p 3000:3000 \
-  -e DATABASE_URL="postgresql://..." \
-  -e ANTHROPIC_API_KEY="sk-ant-..." \
-  -v gluecron_repos:/app/repos \
-  gluecron
-
-# Run migrations once:
-docker run --rm \
-  -e DATABASE_URL="postgresql://..." \
-  gluecron bun run db:migrate
-```
+- ✅ Terms of Service — `legal/TERMS.md`.
+- ✅ Privacy policy — `legal/PRIVACY.md`.
+- ✅ Acceptable-use policy — `legal/AUP.md`.
+- ✅ License file — `LICENSE` in root.
+- 🟡 Legal audit — `docs/legal-audit.md` tracks outstanding items; review before launch.
+- ❌ DPA template for enterprise SSO customers (Block I10 shipped, customer paperwork did not).
 
 ---
 
-## E. First-boot checklist (after deploy)
+## Go/no-go gates (the short list)
 
-1. Visit `https://your-url/healthz` → `{"ok":true,...}`
-2. Visit `https://your-url/readyz` → `{"ok":true}` (confirms DB connectivity)
-3. Visit `https://your-url/register` → create the first admin account
-4. Visit `https://your-url/new` → create a repo (auto-configures with green defaults)
-5. Clone it: `git clone https://your-url/<owner>/<repo>.git` — confirms Smart HTTP works
-6. Push a commit → post-receive hook fires GateTest + secret scan + webhook fan-out
+1. Smoke `/healthz` + `/readyz` in production → both green.
+2. Crontech release pipeline runs `db:migrate` successfully on deploy.
+3. Register → create repo → clone over HTTPS → push → GateTest posts back → webhook fires. End-to-end in prod.
+4. `AUTOPILOT_DISABLED` decision made explicitly (default: enabled).
+5. Demo content story resolved — either ship `DEMO_SEED_ON_BOOT=1` wiring or accept an empty home.
+6. Launch comms drafted and scheduled.
 
----
-
-## F. Custom domain (gluecron.com)
-
-DNS:
-- `A` or `CNAME` → your deploy host (Railway / Fly / Docker box)
-- If using Railway, they issue the cert automatically
-- If using Fly, run `fly certs add gluecron.com` after DNS is pointed
-- If using a VPS, terminate TLS with Caddy / nginx / Cloudflare in front
-
----
-
-## G. Post-launch hardening (day 1–3)
-
-These are already shipped and will just start working:
-- ✅ Rate limiting (`/api/*` 120/min, `/login` 20/min, `/register` 10/min)
-- ✅ Health + readiness + metrics endpoints
-- ✅ Request-ID tracing on every response
-- ✅ Secret scanner on every push
-- ✅ AI security review on every push (if `ANTHROPIC_API_KEY` set)
-- ✅ Auto-repair engine (if `ANTHROPIC_API_KEY` set)
-- ✅ CODEOWNERS auto-sync
-- ✅ Notifications + dashboard + audit log
-
-Observability you might want to add later (Block F in BUILD_BIBLE.md):
-- Ship `/metrics` to Grafana / Datadog / Prometheus
-- Wire error tracking (Sentry) — one-file addition
-- Email digests (currently in-app only)
-
----
-
-## H. What fails gracefully if you skip secrets
-
-| Missing | Effect |
-|---|---|
-| `DATABASE_URL` | App boots, `/healthz` returns 200, any DB route returns 500. Don't deploy without it. |
-| `ANTHROPIC_API_KEY` | All AI features return safe fallback strings. Site fully usable as a git host. |
-| `GATETEST_API_KEY` | GateTest integration silently skipped. Local gates still run. |
-
----
-
-## I. If anything goes wrong
-
-- Check `/readyz` — tells you if DB is reachable.
-- Check `/metrics` — process health snapshot.
-- Container logs show every request with latency + status.
-- Every request has `X-Request-Id` header — grep logs by that ID.
-- `bun test` in the container proves the build is sound.
+Anything below these bars is non-blocking polish.

@@ -38,7 +38,7 @@ ecosystem, **not** as a paid product.
    `gluecron`.
 2. From the project dashboard, copy the pooled connection string.
    It looks like:
-   `postgresql://user:pass@ep-xxx.eu-west-2.aws.neon.tech/neondb?sslmode=require`
+   `postgresql://user:REDACTED@ep-xxx.eu-west-2.aws.neon.tech/neondb?sslmode=require`
 3. Save this value — it becomes `DATABASE_URL` in Phase 3.
 4. **Do NOT run migrations yet.** The container runs them as its
    release step (see `fly.toml` → `[deploy] release_command`).

@@ -219,6 +219,10 @@ export const LandingPage: FC<LandingPageProps> = ({ stats } = {}) => {
         <span class="landing-foot-sep">&middot;</span>
         <a href="/shortcuts">Keyboard shortcuts</a>
         <span class="landing-foot-sep">&middot;</span>
+        <a href="/status">Status</a>
+        <span class="landing-foot-sep">&middot;</span>
+        <a href="/demo">Try the demo</a>
+        <span class="landing-foot-sep">&middot;</span>
         <a href="/terms">Terms</a>
       </section>
     </>

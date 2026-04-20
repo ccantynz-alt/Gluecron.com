@@ -280,4 +280,45 @@ status.get("/status", async (c) => {
   );
 });
 
+/**
+ * Shields-style status badge. Reads the latest autopilot tick + DB
+ * reachability and returns an SVG. Embed in READMEs with:
+ *   ![status](https://your-host/status.svg)
+ */
+status.get("/status.svg", async (c) => {
+  let dbOk = false;
+  try {
+    await db.execute(sql`SELECT 1`);
+    dbOk = true;
+  } catch {
+    dbOk = false;
+  }
+  const tick = getLastTick();
+  const lastOk = tick ? tick.tasks.every((t) => t.ok) : true;
+  const overall = dbOk && lastOk;
+  const label = "gluecron";
+  const value = overall ? "operational" : "degraded";
+  const fill = overall ? "#2da44e" : "#cf222e";
+
+  const labelW = 70;
+  const valueW = overall ? 78 : 68;
+  const totalW = labelW + valueW;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${totalW}" height="20" role="img" aria-label="${label}: ${value}">
+  <linearGradient id="s" x2="0" y2="100%">
+    <stop offset="0" stop-color="#bbb" stop-opacity=".1"/>
+    <stop offset="1" stop-opacity=".1"/>
+  </linearGradient>
+  <rect width="${totalW}" height="20" rx="3" fill="#555"/>
+  <rect x="${labelW}" width="${valueW}" height="20" rx="3" fill="${fill}"/>
+  <rect width="${totalW}" height="20" rx="3" fill="url(#s)"/>
+  <g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,sans-serif" font-size="11">
+    <text x="${labelW / 2}" y="15">${label}</text>
+    <text x="${labelW + valueW / 2}" y="15">${value}</text>
+  </g>
+</svg>`;
+  c.header("Content-Type", "image/svg+xml; charset=utf-8");
+  c.header("Cache-Control", "no-cache, max-age=0");
+  return c.body(svg);
+});
+
 export default status;

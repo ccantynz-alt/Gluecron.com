@@ -1,0 +1,97 @@
+{
+  "$comment": "GateTest scanner config for Gluecron.com. Sibling to the protected .gatetest.json marker file — do not merge them. Scanner reads both.",
+  "project": {
+    "name": "gluecron",
+    "root": "."
+  },
+  "triggers": {
+    "pullRequest": {
+      "enabled": true,
+      "branchPatterns": [
+        "main",
+        "master",
+        "claude/*",
+        "claude/**",
+        "gatetest/*",
+        "gatetest/**"
+      ],
+      "reason": "Every PR opened from agent branch prefixes (claude/*, gatetest/*) must be auto-scanned. Targets the lowercase main on Gluecron."
+    },
+    "push": {
+      "enabled": true,
+      "branchPatterns": ["main", "master"]
+    },
+    "schedule": [
+      {
+        "name": "empire-smoke",
+        "cron": "*/5 * * * *",
+        "command": "bun run integrations/smoke/empire-smoke.ts",
+        "reason": "Runs the cross-repo smoke harness every 5 minutes. Surfaces cert / DNS / response-code regressions before a human notices. Owned by agent 6 — ensure integrations/smoke/empire-smoke.ts exists before flipping schedule to required.",
+        "severity": "error",
+        "timeoutSeconds": 180,
+        "allowMissing": true
+      }
+    ]
+  },
+  "rules": {
+    "schemaRegressionGate": {
+      "enabled": true,
+      "severity": "error",
+      "when": {
+        "pathsChanged": [
+          "src/**/*.ts",
+          "src/**/*.tsx",
+          "**/schema.ts",
+          "**/schema.prisma",
+          "**/*.types.ts",
+          "**/types/**/*.ts"
+        ]
+      },
+      "command": "npm run typecheck --if-present",
+      "scope": "dependents",
+      "reason": "When exported types or DB schemas move, re-typecheck every dependent module so the ripple doesn't land silently."
+    },
+    "secretLeak": {
+      "enabled": true,
+      "severity": "error",
+      "scanEveryPR": true,
+      "patterns": [
+        "\\.env(\\..+)?$",
+        "\\.env\\.local$",
+        "\\.env\\.production$",
+        ".*\\.pem$",
+        ".*\\.key$",
+        "(^|/)id_rsa$",
+        "(^|/)id_ed25519$",
+        "(^|/)\\.pgpass$",
+        "(^|/)credentials\\.json$",
+        "(^|/)service-account.*\\.json$"
+      ],
+      "contentPatterns": [
+        "AKIA[0-9A-Z]{16}",
+        "ghp_[A-Za-z0-9]{36,}",
+        "gho_[A-Za-z0-9]{36,}",
+        "github_pat_[A-Za-z0-9_]{80,}",
+        "sk-ant-[A-Za-z0-9_-]{40,}",
+        "sk-[A-Za-z0-9]{40,}",
+        "xox[baprs]-[A-Za-z0-9-]{10,}",
+        "-----BEGIN (RSA |OPENSSH |EC |DSA |PGP )?PRIVATE KEY-----"
+      ],
+      "reason": "Verify .env / *.pem / id_rsa / hardcoded tokens don't slip through."
+    }
+  },
+  "ignore": {
+    "paths": [
+      "**/node_modules/**",
+      "**/.turbo/**",
+      "**/.vercel/**",
+      "**/.output/**",
+      "**/dist/**",
+      "**/build/**",
+      "**/*.min.js",
+      "**/*.min.css",
+      "**/*.map",
+      "coverage/**"
+    ]
+  }
+}

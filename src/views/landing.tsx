@@ -17,7 +17,11 @@ export interface LandingPageProps {
   };
 }
 
-export const LandingPage: FC<LandingPageProps> = () => {
+export const LandingPage: FC<LandingPageProps> = ({ stats } = {}) => {
+  const hasStats =
+    stats &&
+    ((stats.publicRepos !== undefined && stats.publicRepos > 0) ||
+      (stats.users !== undefined && stats.users > 0));
   return (
     <>
       <style>{landingCss}</style>
@@ -43,6 +47,26 @@ export const LandingPage: FC<LandingPageProps> = () => {
         <p class="landing-trust">
           Self-hostable &middot; AI built in &middot; Open source mindset
         </p>
+        {hasStats && (
+          <p class="landing-stats">
+            {stats!.publicRepos !== undefined && stats!.publicRepos > 0 && (
+              <span>
+                <strong>{stats!.publicRepos.toLocaleString()}</strong> public
+                {stats!.publicRepos === 1 ? " repo" : " repos"}
+              </span>
+            )}
+            {stats!.publicRepos !== undefined &&
+              stats!.publicRepos > 0 &&
+              stats!.users !== undefined &&
+              stats!.users > 0 && <span class="landing-stats-sep"> &middot; </span>}
+            {stats!.users !== undefined && stats!.users > 0 && (
+              <span>
+                <strong>{stats!.users.toLocaleString()}</strong>
+                {stats!.users === 1 ? " developer" : " developers"}
+              </span>
+            )}
+          </p>
+        )}
       </section>
 
       {/* ---------- Features grid ---------- */}
@@ -257,6 +281,18 @@ const landingCss = `
     color: var(--text-muted);
     margin-top: 12px;
     letter-spacing: 0.02em;
+  }
+  .landing-stats {
+    margin-top: 20px;
+    font-size: 14px;
+    color: var(--text-muted);
+  }
+  .landing-stats strong {
+    color: var(--fg);
+    font-weight: 600;
+  }
+  .landing-stats-sep {
+    opacity: 0.6;
   }
 
   /* ---------- Section scaffolding ---------- */

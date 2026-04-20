@@ -187,6 +187,20 @@ export function startAutopilot(opts?: StartAutopilotOpts): { stop: () => void } 
   };
 }
 
+/** Last tick snapshot for observability. Module-level, swap-on-complete. */
+let lastTick: AutopilotTickResult | null = null;
+let tickCount = 0;
+
+/** Return the most recent completed tick, or null if autopilot hasn't run yet. */
+export function getLastTick(): AutopilotTickResult | null {
+  return lastTick;
+}
+
+/** Return the total number of completed ticks in this process. */
+export function getTickCount(): number {
+  return tickCount;
+}
+
 /**
  * Run one tick: invokes every sub-task with its own try/catch, records a
  * per-task result, and emits a single summary line. Never throws.
@@ -221,7 +235,10 @@ export async function runAutopilotTick(
   console.log(
     `[autopilot] tick ok tasks=${okCount}/${results.length} ms=${totalMs}`
   );
-  return { startedAt, finishedAt, tasks: results };
+  const result: AutopilotTickResult = { startedAt, finishedAt, tasks: results };
+  lastTick = result;
+  tickCount += 1;
+  return result;
 }
 
 /** Exposed for unit tests. */

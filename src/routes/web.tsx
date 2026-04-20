@@ -5,7 +5,7 @@
 
 import { Hono } from "hono";
 import { html } from "hono/html";
-import { eq, and, desc, inArray } from "drizzle-orm";
+import { eq, and, desc, inArray, sql } from "drizzle-orm";
 import { db } from "../db";
 import {
   users,
@@ -62,9 +62,26 @@ web.get("/", async (c) => {
     return c.redirect("/dashboard");
   }
 
+  let stats: { publicRepos?: number; users?: number } | undefined;
+  try {
+    const [repoRow] = await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(repositories)
+      .where(eq(repositories.isPrivate, false));
+    const [userRow] = await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(users);
+    stats = {
+      publicRepos: Number(repoRow?.n ?? 0),
+      users: Number(userRow?.n ?? 0),
+    };
+  } catch {
+    stats = undefined;
+  }
+
   return c.html(
     <Layout user={null}>
-      <LandingPage />
+      <LandingPage stats={stats} />
     </Layout>
   );
 });

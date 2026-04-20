@@ -8,7 +8,7 @@ Legend: ✅ done · 🟡 in-flight · ❌ not started
 
 ## Infrastructure
 
-- ✅ Deployment target is Crontech (see `DEPLOY.md`). Neon is the database. No Vercel, no Hetzner.
+- ✅ Primary deployment target is Fly.io — `fly.toml` is in-repo (see `DEPLOY.md`). A `Dockerfile` is shipped for any other container host. Neon is the database.
 - ✅ Migrations run via `bun run db:migrate`; release-phase wiring documented.
 - ✅ `/healthz`, `/readyz`, `/metrics` endpoints shipped (BUILD_BIBLE §2.6).
 - ✅ Request-ID tracing on every response (`src/middleware/request-context.ts`).
@@ -24,7 +24,7 @@ Legend: ✅ done · 🟡 in-flight · ❌ not started
 - ✅ Legal pages — `legal/TERMS.md`, `legal/PRIVACY.md`, `legal/AUP.md`, `legal/SETUP-GUIDE.md`.
 - 🟡 Demo org / sample repos — `src/lib/demo-seed.ts` and the `DEMO_SEED_ON_BOOT=1` boot flag are the deferred item from BUILD_BIBLE §7. Design sketch exists; no code yet.
 - ✅ README reflects shipped feature surface (`README.md`).
-- ✅ Deployment doc reflects Crontech-first reality (`DEPLOY.md`).
+- ✅ Deployment doc reflects Fly.io-first reality (`DEPLOY.md`).
 - ✅ GATETEST_HOOK.md documents inbound callback contract.
 
 ## Operational
@@ -34,7 +34,7 @@ Legend: ✅ done · 🟡 in-flight · ❌ not started
 - ✅ Billing plans seeded (free/pro/team/enterprise) + quota enforcement (Block F4).
 - ✅ Audit log surfaced per-user (`/settings/audit`) and per-repo (`/:owner/:repo/settings/audit`) (Block A2).
 - ✅ Email notifications + opt-in weekly digest (Blocks A8, I7).
-- ✅ Post-receive pipeline — GateTest, secret scanner, AI security review, CODEOWNERS sync, webhook fan-out (Blocks A1, D, green-ecosystem defaults).
+- ✅ Post-receive pipeline — GateTest, secret scanner, AI security review, CODEOWNERS sync, webhook fan-out (Blocks A1, D, repo defaults).
 - ✅ Auto-repair engine runs when `ANTHROPIC_API_KEY` is set.
 - 🟡 Monitoring / on-call rotation — `/metrics` + `/healthz` are live; alerting rules are not.
 - 🟡 Backup restore drill — never rehearsed end-to-end.
@@ -59,7 +59,7 @@ Legend: ✅ done · 🟡 in-flight · ❌ not started
 ## Go/no-go gates (the short list)
 
 1. Smoke `/healthz` + `/readyz` in production → both green.
-2. Crontech release pipeline runs `db:migrate` successfully on deploy.
+2. Deploy release command runs `bun run db:migrate` successfully on deploy.
 3. Register → create repo → clone over HTTPS → push → GateTest posts back → webhook fires. End-to-end in prod.
 4. `AUTOPILOT_DISABLED` decision made explicitly (default: enabled).
 5. Demo content story resolved — either ship `DEMO_SEED_ON_BOOT=1` wiring or accept an empty home.

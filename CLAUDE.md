@@ -1,6 +1,6 @@
 # gluecron
 
-AI-native code intelligence platform — git hosting, automated CI, and green ecosystem enforcement.
+AI-native code intelligence platform — git hosting, automated CI, and push-time gate enforcement.
 
 ## READ FIRST — every session
 
@@ -50,7 +50,7 @@ src/
     repository.ts         Git operations (tree, blob, commits, diff, branches, blame, search, raw)
     protocol.ts           Smart HTTP protocol (pkt-line, service RPC)
   hooks/
-    post-receive.ts       GateTest + Crontech webhooks on push
+    post-receive.ts       GateTest + optional deploy webhook on push
   middleware/
     auth.ts               softAuth + requireAuth middleware
   routes/
@@ -93,9 +93,9 @@ src/
 
 ## Integrations
 
-- **GateTest:** POST `https://gatetest.ai/api/events/push` on every `git push`
-- **Crontech:** POST `https://crontech.ai/api/trpc/tenant.deploy` on push to main
-- **Webhooks:** POST to registered URLs on push/issue/PR/star events with HMAC signatures
+- **GateTest (optional):** third-party security scanner. When `GATETEST_URL` is set, `git push` POSTs to it; inbound results accepted at `POST /api/hooks/gatetest`.
+- **Outbound deploy webhook (optional):** when `CRONTECH_DEPLOY_URL` is set, pushes to the default branch POST there.
+- **Webhooks:** POST to user-registered URLs on push/issue/PR/star events with HMAC signatures.
 
 ## Environment Variables
 
@@ -106,8 +106,7 @@ See `.env.example` for required variables. Key ones:
 
 ## Deployment
 
-- **Deployed via Crontech** — Crontech is the deployment platform (NOT Vercel, NOT Hetzner)
-- **Database:** Neon PostgreSQL (direct, NOT via Vercel integration)
-- **The green ecosystem:** Crontech deploys gluecron, gluecron hosts code, GateTest scans pushes
-- **NEVER suggest Hetzner** — it is not part of our infrastructure
-- See DEPLOY.md for full deployment instructions
+- **Primary target:** Fly.io — the repo ships a ready `fly.toml` (release command runs `bun run db:migrate`, `gluecron_repos` volume mounted at `/app/repos`).
+- **Other hosts:** a `Dockerfile` is in the repo, so any standard Docker host works.
+- **Database:** Neon PostgreSQL (direct connection via `DATABASE_URL`).
+- See DEPLOY.md for full deployment instructions.

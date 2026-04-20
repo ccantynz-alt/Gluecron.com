@@ -185,8 +185,9 @@ export const LandingPage: FC<LandingPageProps> = ({ stats } = {}) => {
             <div class="landing-step-num">3</div>
             <h3>Green pushes auto-deploy</h3>
             <p>
-              Default-branch commits that pass all gates deploy through
-              Crontech. Failed deploys open an AI-authored incident issue.
+              Default-branch commits that pass all gates trigger your
+              configured deploy webhook. Failed deploys open an AI-authored
+              incident issue.
             </p>
           </div>
         </div>

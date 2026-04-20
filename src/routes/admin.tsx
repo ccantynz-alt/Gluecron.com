@@ -19,7 +19,7 @@ import { and, desc, eq, ilike, or, sql } from "drizzle-orm";
 import { db } from "../db";
 import { repositories, users } from "../db/schema";
 import { Layout } from "../views/layout";
-import { softAuth, requireAuth } from "../middleware/auth";
+import { softAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
 import {
   grantSiteAdmin,
@@ -784,8 +784,5 @@ admin.post("/admin/autopilot/run", async (c) => {
     );
   }
 });
-
-// Keep requireAuth import used even if some routes don't reference it here.
-void requireAuth;
 
 export default admin;

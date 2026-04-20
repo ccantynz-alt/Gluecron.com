@@ -25,6 +25,7 @@ import contributorRoutes from "./routes/contributors";
 import healthRoutes from "./routes/health-probe";
 import healthDashboardRoutes from "./routes/health";
 import statusRoutes from "./routes/status";
+import seoRoutes from "./routes/seo";
 import { platformStatus } from "./routes/platform-status";
 import insightRoutes from "./routes/insights";
 import dashboardRoutes from "./routes/dashboard";
@@ -176,9 +177,6 @@ app.route("/", tokenRoutes);
 // Notifications
 app.route("/", notificationRoutes);
 
-// Organizations
-app.route("/", orgRoutes);
-
 // Repo settings (description, visibility, delete)
 app.route("/", repoSettings);
 
@@ -211,6 +209,9 @@ app.route("/api/platform-status", platformStatus);
 
 // Public /status — human-readable platform health page
 app.route("/", statusRoutes);
+
+// SEO: robots.txt + sitemap.xml
+app.route("/", seoRoutes);
 
 // Health dashboard (per-repo health page)
 app.route("/", healthDashboardRoutes);

@@ -6,3 +6,4 @@ dist/
 repos/
 drizzle/meta/
 .DS_Store
+.test-repos-*/

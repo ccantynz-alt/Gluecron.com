@@ -7,9 +7,9 @@
  */
 
 import { Hono } from "hono";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "../db";
-import { repositories, users } from "../db/schema";
+import { repositories } from "../db/schema";
 import { Layout } from "../views/layout";
 import { softAuth, requireAuth } from "../middleware/auth";
 import { requireAdmin } from "../middleware/admin";
@@ -17,6 +17,11 @@ import type { AuthEnv } from "../middleware/auth";
 import { config } from "../lib/config";
 import { mkdir } from "fs/promises";
 import { join } from "path";
+import {
+  parseGithubUrl,
+  sanitizeRepoName,
+  buildCloneUrl,
+} from "../lib/import-helper";
 
 const importRoutes = new Hono<AuthEnv>();
 
@@ -42,6 +47,34 @@ importRoutes.get("/import", requireAuth, requireAdmin, async (c) => {
   const error = c.req.query("error");
   const imported = c.req.query("imported");
 
+  // Inline progress banner: the clone subprocess can take 30+s for big
+  // repos, so give the user visible feedback while the POST is in flight.
+  // Pure client-side — no extra routes, no websockets, no polling.
+  const progressScript = `
+    (function () {
+      var forms = document.querySelectorAll('form[data-import-form]');
+      var banner = document.getElementById('import-progress');
+      if (!banner) return;
+      forms.forEach(function (form) {
+        form.addEventListener('submit', function () {
+          // Validate non-empty required fields before showing progress.
+          var req = form.querySelectorAll('[required]');
+          for (var i = 0; i < req.length; i++) {
+            if (!req[i].value || !req[i].value.trim()) return;
+          }
+          banner.style.display = 'block';
+          var btns = form.querySelectorAll('button[type="submit"]');
+          btns.forEach(function (b) {
+            b.disabled = true;
+            b.textContent = 'Importing…';
+          });
+          // Scroll banner into view so user sees progress above the fold.
+          try { banner.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) {}
+        });
+      });
+    })();
+  `;
+
   return c.html(
     <Layout title="Import from GitHub" user={user}>
       <div style="max-width: 700px">
@@ -50,6 +83,15 @@ importRoutes.get("/import", requireAuth, requireAdmin, async (c) => {
           Migrate your repositories from GitHub to gluecron automatically.
           All branches, all history, all code — one click.
         </p>
+        <a
+          href="/import/bulk"
+          style="display: block; background: var(--bg-secondary); border: 1px solid var(--border); border-left: 3px solid #3fb950; border-radius: var(--radius); padding: 14px 16px; margin-bottom: 20px; font-size: 14px; text-decoration: none; color: inherit"
+        >
+          <strong>Migrating a whole org? Try the bulk importer →</strong>
+          <div style="color: var(--text-muted); margin-top: 4px">
+            Paste a GitHub org name + token and clone every repo in one shot.
+          </div>
+        </a>
         {success && (
           <div class="auth-success">
             {decodeURIComponent(success)}
@@ -58,18 +100,36 @@ importRoutes.get("/import", requireAuth, requireAdmin, async (c) => {
                 Successfully imported {decodeURIComponent(imported)} repositories.
               </div>
             )}
+            <div style="margin-top: 10px">
+              <a href={`/${user.username}`} class="btn btn-primary" style="margin-right: 8px">
+                View my repositories
+              </a>
+              <a href="/explore" class="btn">Explore</a>
+            </div>
           </div>
         )}
         {error && (
           <div class="auth-error">{decodeURIComponent(error)}</div>
         )}
 
+        <div
+          id="import-progress"
+          role="status"
+          aria-live="polite"
+          style="display: none; background: var(--bg-secondary); border: 1px solid var(--border); border-left: 3px solid #f0b429; border-radius: var(--radius); padding: 14px 16px; margin-bottom: 20px; font-size: 14px"
+        >
+          <strong>Import in progress…</strong>
+          <div style="color: var(--text-muted); margin-top: 4px">
+            Cloning from GitHub. Large repositories can take 30+ seconds — don't close this tab.
+          </div>
+        </div>
+
         <div style="background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; margin-bottom: 24px">
           <h3 style="margin-bottom: 12px">Option 1: Import by username</h3>
           <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px">
             Import all public repositories from a GitHub user or organization.
           </p>
-          <form method="POST" action="/import/github/user">
+          <form method="POST" action="/import/github/user" data-import-form>
             <div style="display: flex; gap: 8px">
               <input
                 type="text"
@@ -88,9 +148,9 @@ importRoutes.get("/import", requireAuth, requireAdmin, async (c) => {
         <div style="background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; margin-bottom: 24px">
           <h3 style="margin-bottom: 12px">Option 2: Import single repo</h3>
           <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px">
-            Import a specific repository by URL.
+            Import a specific repository by URL (https, ssh, or owner/repo).
           </p>
-          <form method="POST" action="/import/github/repo">
+          <form method="POST" action="/import/github/repo" data-import-form>
             <div style="display: flex; gap: 8px">
               <input
                 type="text"
@@ -112,7 +172,7 @@ importRoutes.get("/import", requireAuth, requireAdmin, async (c) => {
             Use a GitHub personal access token to import private repositories too.
             Generate one at github.com → Settings → Developer settings → Personal access tokens.
           </p>
-          <form method="POST" action="/import/github/user">
+          <form method="POST" action="/import/github/user" data-import-form>
             <div class="form-group">
               <input
                 type="text"
@@ -126,6 +186,7 @@ importRoutes.get("/import", requireAuth, requireAdmin, async (c) => {
               <input
                 type="password"
                 name="github_token"
+                required
                 placeholder="ghp_xxxxxxxxxxxx (GitHub personal access token)"
                 style="padding: 8px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); font-size: 14px; font-family: var(--font-mono); width: 100%"
               />
@@ -136,6 +197,7 @@ importRoutes.get("/import", requireAuth, requireAdmin, async (c) => {
           </form>
         </div>
       </div>
+      <script dangerouslySetInnerHTML={{ __html: progressScript }} />
     </Layout>
   );
 });
@@ -190,18 +252,26 @@ importRoutes.post("/import/github/user", requireAuth, requireAdmin, async (c) =>
     // Import each repo
     let imported = 0;
     let skipped = 0;
+    let failed = 0;
 
     for (const ghRepo of repos) {
-      // Check if already exists
+      const targetName = sanitizeRepoName(ghRepo.name);
+
+      // Check uniqueness in THIS user's namespace (owner+name is the
+      // real unique key — the previous check ignored ownerId and
+      // could skip repos other users happened to share a name with).
       const [existing] = await db
         .select()
         .from(repositories)
         .where(
-          eq(repositories.name, ghRepo.name)
+          and(
+            eq(repositories.ownerId, user.id),
+            eq(repositories.name, targetName)
+          )
         )
         .limit(1);
 
-      if (existing && existing.ownerId === user.id) {
+      if (existing) {
         skipped++;
         continue;
       }
@@ -210,13 +280,15 @@ importRoutes.post("/import/github/user", requireAuth, requireAdmin, async (c) =>
         await importSingleRepo(user, ghRepo, githubToken);
         imported++;
       } catch (err) {
+        failed++;
         console.error(`[import] failed to import ${ghRepo.full_name}:`, err);
       }
     }
 
-    return c.redirect(
-      `/import?success=Import+complete&imported=${imported}+imported%2C+${skipped}+skipped+(already+exist)`
-    );
+    const summary =
+      `${imported}+imported%2C+${skipped}+skipped` +
+      (failed > 0 ? `%2C+${failed}+failed` : "");
+    return c.redirect(`/import?success=Import+complete&imported=${summary}`);
   } catch (err) {
     console.error("[import] error:", err);
     return c.redirect(
@@ -236,15 +308,37 @@ importRoutes.post("/import/github/repo", requireAuth, requireAdmin, async (c) =>
     return c.redirect("/import?error=Repository+URL+is+required");
   }
 
-  // Parse GitHub URL
-  const match = repoUrl.match(
-    /github\.com\/([^/]+)\/([^/.]+)/
-  );
-  if (!match) {
-    return c.redirect("/import?error=Invalid+GitHub+URL");
+  const parsed = parseGithubUrl(repoUrl);
+  if (!parsed) {
+    return c.redirect(
+      "/import?error=" +
+        encodeURIComponent(
+          "Invalid GitHub URL. Use https://github.com/owner/repo or owner/repo."
+        )
+    );
   }
 
-  const [, ghOwner, ghRepo] = match;
+  const { owner: ghOwner, repo: ghRepo } = parsed;
+
+  // Guard against double-import before we spin up a clone subprocess.
+  const targetName = sanitizeRepoName(ghRepo);
+  const [existing] = await db
+    .select()
+    .from(repositories)
+    .where(
+      and(
+        eq(repositories.ownerId, user.id),
+        eq(repositories.name, targetName)
+      )
+    )
+    .limit(1);
+  if (existing) {
+    return c.redirect(
+      `/import?error=${encodeURIComponent(
+        `You already have a repository named "${targetName}". Delete it first, or rename on GitHub.`
+      )}`
+    );
+  }
 
   try {
     // Fetch repo info
@@ -259,16 +353,18 @@ importRoutes.post("/import/github/repo", requireAuth, requireAdmin, async (c) =>
     );
 
     if (!res.ok) {
-      return c.redirect("/import?error=Repository+not+found+on+GitHub");
+      return c.redirect(
+        `/import?error=${encodeURIComponent(
+          `Repository not found on GitHub (${res.status}). Check the URL and that it's public.`
+        )}`
+      );
     }
 
     const ghRepoData: GitHubRepo = await res.json();
 
     await importSingleRepo(user, ghRepoData, null);
 
-    return c.redirect(
-      `/${user.username}/${ghRepoData.name}`
-    );
+    return c.redirect(`/${user.username}/${sanitizeRepoName(ghRepoData.name)}`);
   } catch (err) {
     console.error("[import] error:", err);
     return c.redirect(
@@ -284,24 +380,18 @@ async function importSingleRepo(
   ghRepo: GitHubRepo,
   token: string | null
 ): Promise<void> {
+  const safeName = sanitizeRepoName(ghRepo.name);
   const destPath = join(
     config.gitReposPath,
     user.username,
-    `${ghRepo.name}.git`
+    `${safeName}.git`
   );
 
   // Ensure parent directory exists
   await mkdir(join(config.gitReposPath, user.username), { recursive: true });
 
   // Clone bare from GitHub (with token if provided for private repos)
-  let cloneUrl = ghRepo.clone_url;
-  if (token) {
-    // Inject token into URL for private repo access
-    cloneUrl = cloneUrl.replace(
-      "https://github.com/",
-      `https://${token}@github.com/`
-    );
-  }
+  const cloneUrl = buildCloneUrl(ghRepo.clone_url, token);
 
   console.log(`[import] cloning ${ghRepo.full_name} -> ${destPath}`);
 
@@ -317,12 +407,16 @@ async function importSingleRepo(
   const exitCode = await proc.exited;
 
   if (exitCode !== 0) {
-    throw new Error(`git clone failed: ${stderr}`);
+    // Never echo the token back in an error message.
+    const sanitized = token
+      ? stderr.replaceAll(token, "***")
+      : stderr;
+    throw new Error(`git clone failed: ${sanitized.slice(0, 400)}`);
   }
 
   // Insert into database
   await db.insert(repositories).values({
-    name: ghRepo.name,
+    name: safeName,
     ownerId: user.id,
     description: ghRepo.description,
     isPrivate: ghRepo.private,

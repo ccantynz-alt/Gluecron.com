@@ -25,6 +25,7 @@ import {
 } from "../git/repository";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
+import { requireRepoAccess } from "../middleware/repo-access";
 import { join } from "path";
 
 const editor = new Hono<AuthEnv>();
@@ -32,7 +33,7 @@ const editor = new Hono<AuthEnv>();
 editor.use("*", softAuth);
 
 // New file form
-editor.get("/:owner/:repo/new/:ref{.+$}", requireAuth, async (c) => {
+editor.get("/:owner/:repo/new/:ref{.+$}", requireAuth, requireRepoAccess("write"), async (c) => {
   const { owner, repo } = c.req.param();
   const user = c.get("user")!;
   const refAndPath = c.req.param("ref");
@@ -92,7 +93,7 @@ editor.get("/:owner/:repo/new/:ref{.+$}", requireAuth, async (c) => {
 });
 
 // Create file via commit
-editor.post("/:owner/:repo/new/:ref", requireAuth, async (c) => {
+editor.post("/:owner/:repo/new/:ref", requireAuth, requireRepoAccess("write"), async (c) => {
   const { owner, repo } = c.req.param();
   const user = c.get("user")!;
   const ref = c.req.param("ref");
@@ -189,7 +190,7 @@ editor.post("/:owner/:repo/new/:ref", requireAuth, async (c) => {
 });
 
 // Edit file form
-editor.get("/:owner/:repo/edit/:ref{.+$}", requireAuth, async (c) => {
+editor.get("/:owner/:repo/edit/:ref{.+$}", requireAuth, requireRepoAccess("write"), async (c) => {
   const { owner, repo } = c.req.param();
   const user = c.get("user")!;
   const refAndPath = c.req.param("ref");
@@ -248,7 +249,7 @@ editor.get("/:owner/:repo/edit/:ref{.+$}", requireAuth, async (c) => {
 });
 
 // Save edited file
-editor.post("/:owner/:repo/edit/:ref{.+$}", requireAuth, async (c) => {
+editor.post("/:owner/:repo/edit/:ref{.+$}", requireAuth, requireRepoAccess("write"), async (c) => {
   const { owner, repo } = c.req.param();
   const user = c.get("user")!;
   const refAndPath = c.req.param("ref");

@@ -174,6 +174,13 @@ export const RepoNav: FC<{
     <a href={`/${owner}/${repo}/ask`} style="color: #bc8cff">
       {"\u2728"} Ask AI
     </a>
+    <a
+      href={`/${owner}/${repo}/spec`}
+      style="color: #bc8cff"
+      title="Spec to PR — paste a feature spec, AI opens a draft PR"
+    >
+      {"\u2728"} Spec
+    </a>
   </div>
 );
 

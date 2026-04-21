@@ -38,6 +38,7 @@ const STATIC_PATHS = [
   "/explore",
   "/marketplace",
   "/status",
+  "/help",
   "/shortcuts",
   "/api/graphql",
   "/terms",

@@ -3,6 +3,7 @@ import { logger } from "hono/logger";
 import { cors } from "hono/cors";
 import { compress } from "hono/compress";
 import { Layout } from "./views/layout";
+import { reportError } from "./lib/observability";
 import { requestContext } from "./middleware/request-context";
 import { rateLimit } from "./middleware/rate-limit";
 import gitRoutes from "./routes/git";
@@ -14,6 +15,10 @@ import settingsRoutes from "./routes/settings";
 import settings2faRoutes from "./routes/settings-2fa";
 import issueRoutes from "./routes/issues";
 import repoSettings from "./routes/repo-settings";
+import collaboratorRoutes from "./routes/collaborators";
+import teamCollaboratorRoutes from "./routes/team-collaborators";
+import invitesRoutes from "./routes/invites";
+import liveEventsRoutes from "./routes/live-events";
 import compareRoutes from "./routes/compare";
 import pullRoutes from "./routes/pulls";
 import editorRoutes from "./routes/editor";
@@ -25,12 +30,16 @@ import contributorRoutes from "./routes/contributors";
 import healthRoutes from "./routes/health-probe";
 import healthDashboardRoutes from "./routes/health";
 import statusRoutes from "./routes/status";
+import helpRoutes from "./routes/help";
 import seoRoutes from "./routes/seo";
 import { platformStatus } from "./routes/platform-status";
 import insightRoutes from "./routes/insights";
 import dashboardRoutes from "./routes/dashboard";
 import legalRoutes from "./routes/legal";
 import importRoutes from "./routes/import";
+import importBulkRoutes from "./routes/import-bulk";
+import migrationRoutes from "./routes/migrations";
+import specsRoutes from "./routes/specs";
 import webRoutes from "./routes/web";
 import hookRoutes from "./routes/hooks";
 import eventsRoutes from "./routes/events";
@@ -180,6 +189,18 @@ app.route("/", notificationRoutes);
 // Repo settings (description, visibility, delete)
 app.route("/", repoSettings);
 
+// Repo collaborators (add/list/remove)
+app.route("/", collaboratorRoutes);
+
+// Team-based repo collaborators (invite a whole team)
+app.route("/", teamCollaboratorRoutes);
+
+// Collaborator invite accept flow (token-based)
+app.route("/", invitesRoutes);
+
+// Real-time SSE endpoint (topic-based live updates)
+app.route("/", liveEventsRoutes);
+
 // Webhooks management
 app.route("/", webhookRoutes);
 
@@ -210,6 +231,9 @@ app.route("/api/platform-status", platformStatus);
 // Public /status — human-readable platform health page
 app.route("/", statusRoutes);
 
+// /help — quickstart + API cheatsheet
+app.route("/", helpRoutes);
+
 // SEO: robots.txt + sitemap.xml
 app.route("/", seoRoutes);
 
@@ -227,6 +251,11 @@ app.route("/", legalRoutes);
 
 // GitHub import / migration
 app.route("/", importRoutes);
+app.route("/", importBulkRoutes);
+app.route("/", migrationRoutes);
+
+// Spec-to-PR (experimental AI-generated draft PRs)
+app.route("/", specsRoutes);
 
 // Explore page
 app.route("/", exploreRoutes);
@@ -298,7 +327,11 @@ app.notFound((c) => {
 
 // Global error handler
 app.onError((err, c) => {
-  console.error("[error]", err);
+  reportError(err, {
+    requestId: c.get("requestId"),
+    path: c.req.path,
+    method: c.req.method,
+  });
   return c.html(
     <Layout title="Error">
       <div class="empty-state">

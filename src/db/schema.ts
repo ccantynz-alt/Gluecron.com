@@ -8,7 +8,20 @@ import {
   uniqueIndex,
   index,
   serial,
+  bigint,
+  jsonb,
+  customType,
 } from "drizzle-orm/pg-core";
+
+// Postgres `bytea` — drizzle-orm doesn't ship a first-class bytea column, so
+// we declare one via customType that maps to Buffer on both read and write.
+// Used by `workflow_run_cache.content` where we really do need raw bytes
+// (unlike `workflow_artifacts.content`, which stayed base64-text for v1).
+const bytea = customType<{ data: Buffer; default: false }>({
+  dataType() {
+    return "bytea";
+  },
+});
 
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -2359,3 +2372,206 @@ export const commitStatuses = pgTable(
 );
 
 export type CommitStatus = typeof commitStatuses.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Collaborators — per-repo role grants (read / write / admin).
+// ---------------------------------------------------------------------------
+
+/**
+ * A user granted access to a repository beyond ownership. Roles are
+ * hierarchical — 'admin' implies write, write implies read. `invitedBy` tracks
+ * who added them (nullable once that user is deleted); `acceptedAt` is null
+ * until the invitee explicitly accepts. Unique per (repo, user) so a given
+ * user has at most one role per repo.
+ */
+export const repoCollaborators = pgTable(
+  "repo_collaborators",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    role: text("role", { enum: ["read", "write", "admin"] })
+      .notNull()
+      .default("read"),
+    invitedBy: uuid("invited_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    invitedAt: timestamp("invited_at").defaultNow().notNull(),
+    acceptedAt: timestamp("accepted_at"),
+    // sha256(plaintext) of the outstanding invite token. Set when the owner
+    // sends an invite, cleared when the invitee accepts. NULL on older rows
+    // that were auto-accepted before the email flow existed.
+    inviteTokenHash: text("invite_token_hash"),
+  },
+  (table) => [
+    uniqueIndex("repo_collaborators_repo_user_uq").on(
+      table.repositoryId,
+      table.userId
+    ),
+    index("repo_collaborators_repo_idx").on(table.repositoryId),
+    index("repo_collaborators_user_idx").on(table.userId),
+  ]
+);
+
+export type RepoCollaborator = typeof repoCollaborators.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Workflow engine v2 — Sprint 1 additions (drizzle/0037_workflow_engine_v2.sql)
+//
+// Strictly additive to Block C1. The original workflow tables defined above
+// (workflows / workflow_runs / workflow_jobs / workflow_artifacts) are locked
+// and must not be altered in-place; the four tables below extend the runner
+// with secrets, workflow_dispatch inputs, a content-addressable cache, and a
+// warm-runner worker pool.
+// ---------------------------------------------------------------------------
+
+/**
+ * Per-repo encrypted secrets exposed to workflow jobs as env vars.
+ *
+ * `encrypted_value` is base64 of `iv || authTag || ciphertext` produced by
+ * AES-256-GCM — the crypto lives in `src/lib/workflow-crypto.ts` (Agent 2);
+ * the DB only stores opaque ciphertext. `name` is validated against
+ * `[A-Z_][A-Z0-9_]*` at the write-site, not the DB. Unique per (repo, name).
+ */
+export const workflowSecrets = pgTable(
+  "workflow_secrets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    encryptedValue: text("encrypted_value").notNull(),
+    createdBy: uuid("created_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("workflow_secrets_repo_name_uq").on(
+      table.repositoryId,
+      table.name
+    ),
+    index("workflow_secrets_repo_idx").on(table.repositoryId),
+  ]
+);
+
+export type WorkflowSecret = typeof workflowSecrets.$inferSelect;
+export type NewWorkflowSecret = typeof workflowSecrets.$inferInsert;
+
+/**
+ * Parameter schema for the `workflow_dispatch` trigger. One row per input
+ * declared in the workflow YAML. `type` is constrained to the four values
+ * GitHub Actions supports; `options` is only meaningful for type='choice'
+ * (a JSON array of allowed strings). `default_value` and `description` are
+ * optional. Unique per (workflow, name) so two inputs on the same workflow
+ * can't share an identifier.
+ */
+export const workflowDispatchInputs = pgTable(
+  "workflow_dispatch_inputs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workflowId: uuid("workflow_id")
+      .notNull()
+      .references(() => workflows.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    type: text("type", {
+      enum: ["string", "boolean", "choice", "number"],
+    }).notNull(),
+    required: boolean("required").default(false).notNull(),
+    defaultValue: text("default_value"),
+    // JSON array of strings; only populated when type = 'choice'.
+    options: jsonb("options"),
+    description: text("description"),
+  },
+  (table) => [
+    uniqueIndex("workflow_dispatch_inputs_wf_name_uq").on(
+      table.workflowId,
+      table.name
+    ),
+  ]
+);
+
+export type WorkflowDispatchInput =
+  typeof workflowDispatchInputs.$inferSelect;
+export type NewWorkflowDispatchInput =
+  typeof workflowDispatchInputs.$inferInsert;
+
+/**
+ * Content-addressable cache backing the `gluecron/cache@v1` action. Rows are
+ * keyed by user-chosen `cache_key` within a `scope` — 'repo' for repo-wide
+ * entries, 'branch' or 'tag' when isolation is desired (with `scope_ref`
+ * holding the branch/tag name). `content_hash` is the sha256 of `content`
+ * so jobs can short-circuit redundant writes. `content` is real bytea; the
+ * 100MB payload cap is enforced at the write-site, not by the DB. LRU
+ * eviction reads (`repository_id`, `last_accessed_at`).
+ */
+export const workflowRunCache = pgTable(
+  "workflow_run_cache",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    cacheKey: text("cache_key").notNull(),
+    // 'repo' | 'branch' | 'tag' — constraint enforced at the write-site.
+    scope: text("scope").default("repo").notNull(),
+    scopeRef: text("scope_ref"),
+    contentHash: text("content_hash").notNull(),
+    content: bytea("content").notNull(),
+    sizeBytes: bigint("size_bytes", { mode: "number" }).notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    lastAccessedAt: timestamp("last_accessed_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("workflow_run_cache_repo_key_scope_uq").on(
+      table.repositoryId,
+      table.cacheKey,
+      table.scope,
+      table.scopeRef
+    ),
+    index("workflow_run_cache_repo_lru_idx").on(
+      table.repositoryId,
+      table.lastAccessedAt
+    ),
+  ]
+);
+
+export type WorkflowRunCache = typeof workflowRunCache.$inferSelect;
+export type NewWorkflowRunCache = typeof workflowRunCache.$inferInsert;
+
+/**
+ * Warm-runner worker registry. The scheduler reads idle rows to dispatch
+ * queued jobs without paying cold-start cost; workers heartbeat here so
+ * stale entries (>N seconds since `last_heartbeat_at`) can be reaped.
+ * `worker_id` is a stable string (hostname:pid or similar) and is globally
+ * unique so a restarted worker naturally replaces its predecessor.
+ * `current_run_id` is set when status='busy' and cleared on completion.
+ */
+export const workflowRunnerPool = pgTable(
+  "workflow_runner_pool",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workerId: text("worker_id").notNull().unique(),
+    status: text("status", {
+      enum: ["idle", "busy", "draining", "dead"],
+    }).notNull(),
+    currentRunId: uuid("current_run_id").references(() => workflowRuns.id, {
+      onDelete: "set null",
+    }),
+    warmedAt: timestamp("warmed_at").defaultNow().notNull(),
+    lastHeartbeatAt: timestamp("last_heartbeat_at").defaultNow().notNull(),
+    capacity: integer("capacity").default(1).notNull(),
+  },
+  (table) => [index("workflow_runner_pool_status_idx").on(table.status)]
+);
+
+export type WorkflowRunnerPoolEntry =
+  typeof workflowRunnerPool.$inferSelect;
+export type NewWorkflowRunnerPoolEntry =
+  typeof workflowRunnerPool.$inferInsert;

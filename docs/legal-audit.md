@@ -4,6 +4,35 @@
 **Branch:** `claude/setup-multi-repo-dev-BCwNQ`
 **Scope:** Inventory of user-facing legal pages on gluecron.com ahead of attorney review.
 
+## Update — 2026-04-21
+
+Since the original 2026-04-16 audit, the following legal documents have
+landed in-tree under `legal/`:
+
+- ~~Terms of Service~~ — shipped at `legal/TERMS.md`
+- ~~Privacy Policy~~ — shipped at `legal/PRIVACY.md`
+- ~~Acceptable Use Policy~~ — shipped at `legal/AUP.md`
+- ~~Data Processing Agreement template~~ — shipped at `legal/DPA.md`
+  (enterprise/SSO customers, GDPR Art. 28 structure)
+
+Items below that were framed as missing pre-launch requirements are
+addressed by these drafts, subject to counsel review. The umbrella-vs-
+standalone posture question (Scenario A vs B) is still open and must be
+resolved by the attorney before public launch.
+
+### Outstanding
+
+- Attorney review and sign-off on `legal/TERMS.md`, `legal/PRIVACY.md`,
+  `legal/AUP.md`, and the new `legal/DPA.md` template.
+- Footer wiring: `src/views/layout.tsx` still needs links to the legal
+  documents so users have notice at every page.
+- Scenario A vs B decision (umbrella under Crontech or standalone).
+- DMCA designated agent — the placeholder `[DMCA AGENT EMAIL]` in
+  `legal/TERMS.md` must be filled and registered with the U.S. Copyright
+  Office for 17 U.S.C. § 512 safe harbour.
+- Sub-processor list in `legal/DPA.md` should be reconciled with any
+  additional vendors counsel identifies.
+
 ## Summary
 
 **No user-facing legal pages exist** in the Gluecron codebase as of this audit.

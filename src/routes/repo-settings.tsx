@@ -10,6 +10,7 @@ import { Layout } from "../views/layout";
 import { RepoHeader } from "../views/components";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
+import { requireRepoAccess } from "../middleware/repo-access";
 import { listBranches } from "../git/repository";
 import { rm } from "fs/promises";
 import {
@@ -29,7 +30,7 @@ const repoSettings = new Hono<AuthEnv>();
 repoSettings.use("*", softAuth);
 
 // Settings page
-repoSettings.get("/:owner/:repo/settings", requireAuth, async (c) => {
+repoSettings.get("/:owner/:repo/settings", requireAuth, requireRepoAccess("admin"), async (c) => {
   const { owner: ownerName, repo: repoName } = c.req.param();
   const user = c.get("user")!;
   const success = c.req.query("success");
@@ -69,6 +70,11 @@ repoSettings.get("/:owner/:repo/settings", requireAuth, async (c) => {
       <RepoHeader owner={ownerName} repo={repoName} />
       <Container maxWidth={600}>
         <h2 style="margin-bottom: 20px">Repository settings</h2>
+        <p style="margin-bottom: 16px">
+          <a href={`/${ownerName}/${repoName}/settings/collaborators`}>
+            Manage collaborators →
+          </a>
+        </p>
         {success && (
           <Alert variant="success">{decodeURIComponent(success)}</Alert>
         )}
@@ -132,6 +138,23 @@ repoSettings.get("/:owner/:repo/settings", requireAuth, async (c) => {
 
         <div
           style="margin-top: 32px; padding: 20px; border: 1px solid var(--border); border-radius: var(--radius)"
+        >
+          <h3 style="margin-bottom: 8px">Spec to PR (experimental)</h3>
+          <p style="font-size: 14px; color: var(--text-muted); margin-bottom: 12px">
+            Paste a plain-English feature spec and let Claude draft a pull
+            request for you. PRs are opened as drafts — review every line
+            before merging.
+          </p>
+          <a
+            href={`/${ownerName}/${repoName}/spec`}
+            class="btn"
+          >
+            Open Spec to PR
+          </a>
+        </div>
+
+        <div
+          style="margin-top: 20px; padding: 20px; border: 1px solid var(--border); border-radius: var(--radius)"
         >
           <h3 style="margin-bottom: 8px">Template repository</h3>
           <p style="font-size: 14px; color: var(--text-muted); margin-bottom: 12px">
@@ -231,7 +254,7 @@ repoSettings.get("/:owner/:repo/settings", requireAuth, async (c) => {
 });
 
 // Save settings
-repoSettings.post("/:owner/:repo/settings", requireAuth, async (c) => {
+repoSettings.post("/:owner/:repo/settings", requireAuth, requireRepoAccess("admin"), async (c) => {
   const { owner: ownerName, repo: repoName } = c.req.param();
   const user = c.get("user")!;
   const body = await c.req.parseBody();
@@ -267,6 +290,7 @@ repoSettings.post("/:owner/:repo/settings", requireAuth, async (c) => {
 repoSettings.post(
   "/:owner/:repo/settings/template",
   requireAuth,
+  requireRepoAccess("admin"),
   async (c) => {
     const { owner: ownerName, repo: repoName } = c.req.param();
     const user = c.get("user")!;
@@ -301,6 +325,7 @@ repoSettings.post(
 repoSettings.post(
   "/:owner/:repo/settings/transfer",
   requireAuth,
+  requireRepoAccess("admin"),
   async (c) => {
     const { owner: ownerName, repo: repoName } = c.req.param();
     const user = c.get("user")!;
@@ -381,6 +406,7 @@ repoSettings.post(
 repoSettings.post(
   "/:owner/:repo/settings/archive",
   requireAuth,
+  requireRepoAccess("admin"),
   async (c) => {
     const { owner: ownerName, repo: repoName } = c.req.param();
     const user = c.get("user")!;
@@ -415,6 +441,7 @@ repoSettings.post(
 repoSettings.post(
   "/:owner/:repo/settings/delete",
   requireAuth,
+  requireRepoAccess("admin"),
   async (c) => {
     const { owner: ownerName, repo: repoName } = c.req.param();
     const user = c.get("user")!;

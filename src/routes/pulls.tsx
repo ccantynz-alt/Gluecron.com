@@ -21,6 +21,7 @@ import { loadPrTemplate } from "../lib/templates";
 import { renderMarkdown } from "../lib/markdown";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
+import { requireRepoAccess } from "../middleware/repo-access";
 import { isAiReviewEnabled, triggerAiReview } from "../lib/ai-review";
 import { triggerPrTriage } from "../lib/pr-triage";
 import { runAllGateChecks } from "../lib/gate";
@@ -104,7 +105,7 @@ const PrNav = ({
 );
 
 // List PRs
-pulls.get("/:owner/:repo/pulls", softAuth, async (c) => {
+pulls.get("/:owner/:repo/pulls", softAuth, requireRepoAccess("read"), async (c) => {
   const { owner: ownerName, repo: repoName } = c.req.param();
   const user = c.get("user");
   const state = c.req.query("state") || "open";
@@ -204,6 +205,7 @@ pulls.get(
   "/:owner/:repo/pulls/new",
   softAuth,
   requireAuth,
+  requireRepoAccess("write"),
   async (c) => {
     const { owner: ownerName, repo: repoName } = c.req.param();
     const user = c.get("user")!;
@@ -271,6 +273,7 @@ pulls.post(
   "/:owner/:repo/pulls/new",
   softAuth,
   requireAuth,
+  requireRepoAccess("write"),
   async (c) => {
     const { owner: ownerName, repo: repoName } = c.req.param();
     const user = c.get("user")!;
@@ -335,7 +338,7 @@ pulls.post(
 );
 
 // View single PR
-pulls.get("/:owner/:repo/pulls/:number", softAuth, async (c) => {
+pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), async (c) => {
   const { owner: ownerName, repo: repoName } = c.req.param();
   const prNum = parseInt(c.req.param("number"), 10);
   const user = c.get("user");
@@ -607,6 +610,7 @@ pulls.post(
   "/:owner/:repo/pulls/:number/comment",
   softAuth,
   requireAuth,
+  requireRepoAccess("write"),
   async (c) => {
     const { owner: ownerName, repo: repoName } = c.req.param();
     const prNum = parseInt(c.req.param("number"), 10);
@@ -645,10 +649,16 @@ pulls.post(
 );
 
 // Merge PR — with green gate enforcement and auto conflict resolution
+// NOTE: Merging is a high-impact action that arguably warrants "admin" access,
+// but we keep it at "write" for v1 so trusted collaborators can ship.
+// Revisit when we introduce a distinct "maintain" / "admin" collaborator role
+// surface. Branch-protection rules (evaluated below) are the current mechanism
+// for locking down merges further on specific branches.
 pulls.post(
   "/:owner/:repo/pulls/:number/merge",
   softAuth,
   requireAuth,
+  requireRepoAccess("write"),
   async (c) => {
     const { owner: ownerName, repo: repoName } = c.req.param();
     const prNum = parseInt(c.req.param("number"), 10);
@@ -864,6 +874,7 @@ pulls.post(
   "/:owner/:repo/pulls/:number/ready",
   softAuth,
   requireAuth,
+  requireRepoAccess("write"),
   async (c) => {
     const { owner: ownerName, repo: repoName } = c.req.param();
     const prNum = parseInt(c.req.param("number"), 10);
@@ -917,6 +928,7 @@ pulls.post(
   "/:owner/:repo/pulls/:number/draft",
   softAuth,
   requireAuth,
+  requireRepoAccess("write"),
   async (c) => {
     const { owner: ownerName, repo: repoName } = c.req.param();
     const prNum = parseInt(c.req.param("number"), 10);
@@ -957,6 +969,7 @@ pulls.post(
   "/:owner/:repo/pulls/:number/close",
   softAuth,
   requireAuth,
+  requireRepoAccess("write"),
   async (c) => {
     const { owner: ownerName, repo: repoName } = c.req.param();
     const prNum = parseInt(c.req.param("number"), 10);

@@ -10,6 +10,7 @@ import { Layout } from "../views/layout";
 import { RepoHeader } from "../views/components";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
+import { requireRepoAccess } from "../middleware/repo-access";
 import {
   Container,
   Flex,
@@ -28,6 +29,7 @@ webhookRoutes.use("*", softAuth);
 webhookRoutes.get(
   "/:owner/:repo/settings/webhooks",
   requireAuth,
+  requireRepoAccess("read"),
   async (c) => {
     const { owner: ownerName, repo: repoName } = c.req.param();
     const user = c.get("user")!;
@@ -154,6 +156,7 @@ webhookRoutes.get(
 webhookRoutes.post(
   "/:owner/:repo/settings/webhooks",
   requireAuth,
+  requireRepoAccess("admin"),
   async (c) => {
     const { owner: ownerName, repo: repoName } = c.req.param();
     const user = c.get("user")!;
@@ -214,6 +217,7 @@ webhookRoutes.post(
 webhookRoutes.post(
   "/:owner/:repo/settings/webhooks/:id/delete",
   requireAuth,
+  requireRepoAccess("admin"),
   async (c) => {
     const { owner: ownerName, repo: repoName, id } = c.req.param();
 

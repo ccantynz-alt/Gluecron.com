@@ -24,6 +24,7 @@ import { Layout } from "../views/layout";
 import { RepoHeader, RepoNav } from "../views/components";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
+import { requireRepoAccess } from "../middleware/repo-access";
 import {
   listBranches,
   listTags,
@@ -59,7 +60,7 @@ async function loadRepo(owner: string, repo: string) {
   return row;
 }
 
-releasesRoute.get("/:owner/:repo/releases", async (c) => {
+releasesRoute.get("/:owner/:repo/releases", requireRepoAccess("read"), async (c) => {
   const user = c.get("user");
   const { owner, repo } = c.req.param();
   const repoRow = await loadRepo(owner, repo);
@@ -179,7 +180,7 @@ releasesRoute.get("/:owner/:repo/releases", async (c) => {
   );
 });
 
-releasesRoute.get("/:owner/:repo/releases/new", requireAuth, async (c) => {
+releasesRoute.get("/:owner/:repo/releases/new", requireAuth, requireRepoAccess("write"), async (c) => {
   const user = c.get("user")!;
   const { owner, repo } = c.req.param();
   const repoRow = await loadRepo(owner, repo);
@@ -267,7 +268,7 @@ releasesRoute.get("/:owner/:repo/releases/new", requireAuth, async (c) => {
   );
 });
 
-releasesRoute.post("/:owner/:repo/releases", requireAuth, async (c) => {
+releasesRoute.post("/:owner/:repo/releases", requireAuth, requireRepoAccess("write"), async (c) => {
   const user = c.get("user")!;
   const { owner, repo } = c.req.param();
   const repoRow = await loadRepo(owner, repo);
@@ -382,7 +383,7 @@ releasesRoute.post("/:owner/:repo/releases", requireAuth, async (c) => {
   return c.redirect(`/${owner}/${repo}/releases/${encodeURIComponent(tag)}`);
 });
 
-releasesRoute.get("/:owner/:repo/releases/:tag", async (c) => {
+releasesRoute.get("/:owner/:repo/releases/:tag", requireRepoAccess("read"), async (c) => {
   const user = c.get("user");
   const { owner, repo } = c.req.param();
   const tag = decodeURIComponent(c.req.param("tag"));
@@ -464,6 +465,7 @@ releasesRoute.get("/:owner/:repo/releases/:tag", async (c) => {
 releasesRoute.post(
   "/:owner/:repo/releases/:tag/delete",
   requireAuth,
+  requireRepoAccess("write"),
   async (c) => {
     const user = c.get("user")!;
     const { owner, repo } = c.req.param();

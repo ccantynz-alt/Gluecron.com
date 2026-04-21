@@ -24,6 +24,7 @@ import {
 } from "../db/schema";
 import { Layout } from "../views/layout";
 import { RepoHeader, RepoNav } from "../views/components";
+import { LogTail } from "../views/log-tail";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
 import { getUnreadCount } from "../lib/unread";
@@ -468,13 +469,38 @@ actions.get("/:owner/:repo/actions/runs/:runId", async (c) => {
                     ))}
                   </div>
                 )}
-                {j.logs && j.logs.length > 0 && (
-                  <pre
-                    style="margin: 0; padding: 12px 14px; background: #0b0d0f; color: #c7ccd1; font-size: 12px; line-height: 1.45; overflow-x: auto; max-height: 480px; border-top: 1px solid var(--border)"
-                  >
-                    {j.logs}
-                  </pre>
-                )}
+                {(() => {
+                  const runLive =
+                    run.status === "running" || run.status === "queued";
+                  const jobTerminal =
+                    j.status === "success" ||
+                    j.status === "failure" ||
+                    j.status === "cancelled" ||
+                    j.status === "skipped" ||
+                    j.conclusion === "success" ||
+                    j.conclusion === "failure" ||
+                    j.conclusion === "cancelled" ||
+                    j.conclusion === "skipped";
+                  if (runLive && !jobTerminal) {
+                    return (
+                      <LogTail
+                        runId={run.id}
+                        jobId={j.id}
+                        fallbackLogs={j.logs || ""}
+                      />
+                    );
+                  }
+                  if (j.logs && j.logs.length > 0) {
+                    return (
+                      <pre
+                        style="margin: 0; padding: 12px 14px; background: #0b0d0f; color: #c7ccd1; font-size: 12px; line-height: 1.45; overflow-x: auto; max-height: 480px; border-top: 1px solid var(--border)"
+                      >
+                        {j.logs}
+                      </pre>
+                    );
+                  }
+                  return null;
+                })()}
               </details>
             );
           })}

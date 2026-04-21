@@ -21,6 +21,7 @@ import { loadIssueTemplate } from "../lib/templates";
 import { renderMarkdown } from "../lib/markdown";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
+import { requireRepoAccess } from "../middleware/repo-access";
 import {
   Flex,
   Container,
@@ -67,7 +68,7 @@ async function resolveRepo(ownerName: string, repoName: string) {
 }
 
 // Issue list
-issueRoutes.get("/:owner/:repo/issues", softAuth, async (c) => {
+issueRoutes.get("/:owner/:repo/issues", softAuth, requireRepoAccess("read"), async (c) => {
   const { owner: ownerName, repo: repoName } = c.req.param();
   const user = c.get("user");
   const state = c.req.query("state") || "open";
@@ -180,6 +181,7 @@ issueRoutes.get(
   "/:owner/:repo/issues/new",
   softAuth,
   requireAuth,
+  requireRepoAccess("write"),
   async (c) => {
     const { owner: ownerName, repo: repoName } = c.req.param();
     const user = c.get("user")!;
@@ -228,6 +230,7 @@ issueRoutes.post(
   "/:owner/:repo/issues/new",
   softAuth,
   requireAuth,
+  requireRepoAccess("write"),
   async (c) => {
     const { owner: ownerName, repo: repoName } = c.req.param();
     const user = c.get("user")!;
@@ -267,7 +270,7 @@ issueRoutes.post(
 );
 
 // View single issue
-issueRoutes.get("/:owner/:repo/issues/:number", softAuth, async (c) => {
+issueRoutes.get("/:owner/:repo/issues/:number", softAuth, requireRepoAccess("read"), async (c) => {
   const { owner: ownerName, repo: repoName } = c.req.param();
   const issueNum = parseInt(c.req.param("number"), 10);
   const user = c.get("user");
@@ -417,6 +420,7 @@ issueRoutes.post(
   "/:owner/:repo/issues/:number/comment",
   softAuth,
   requireAuth,
+  requireRepoAccess("write"),
   async (c) => {
     const { owner: ownerName, repo: repoName } = c.req.param();
     const issueNum = parseInt(c.req.param("number"), 10);
@@ -463,6 +467,7 @@ issueRoutes.post(
   "/:owner/:repo/issues/:number/close",
   softAuth,
   requireAuth,
+  requireRepoAccess("write"),
   async (c) => {
     const { owner: ownerName, repo: repoName } = c.req.param();
     const issueNum = parseInt(c.req.param("number"), 10);
@@ -491,6 +496,7 @@ issueRoutes.post(
   "/:owner/:repo/issues/:number/reopen",
   softAuth,
   requireAuth,
+  requireRepoAccess("write"),
   async (c) => {
     const { owner: ownerName, repo: repoName } = c.req.param();
     const issueNum = parseInt(c.req.param("number"), 10);

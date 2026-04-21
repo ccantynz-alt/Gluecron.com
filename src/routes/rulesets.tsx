@@ -18,6 +18,7 @@ import { Layout } from "../views/layout";
 import { RepoHeader, RepoNav } from "../views/components";
 import { requireAuth, softAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
+import { requireRepoAccess } from "../middleware/repo-access";
 import { audit } from "../lib/notify";
 import {
   RULE_TYPES,
@@ -79,7 +80,7 @@ function ruleDescription(type: string, params: Record<string, unknown>): string 
 
 // ---------- List + create ----------
 
-rulesets.get("/:owner/:repo/settings/rulesets", requireAuth, async (c) => {
+rulesets.get("/:owner/:repo/settings/rulesets", requireAuth, requireRepoAccess("admin"), async (c) => {
   const ctx = await gate(c);
   if (ctx instanceof Response) return ctx;
   const { ownerName, repoName, repo, user } = ctx;
@@ -189,7 +190,7 @@ rulesets.get("/:owner/:repo/settings/rulesets", requireAuth, async (c) => {
   );
 });
 
-rulesets.post("/:owner/:repo/settings/rulesets", requireAuth, async (c) => {
+rulesets.post("/:owner/:repo/settings/rulesets", requireAuth, requireRepoAccess("admin"), async (c) => {
   const ctx = await gate(c);
   if (ctx instanceof Response) return ctx;
   const { ownerName, repoName, repo, user } = ctx;
@@ -224,6 +225,7 @@ rulesets.post("/:owner/:repo/settings/rulesets", requireAuth, async (c) => {
 rulesets.get(
   "/:owner/:repo/settings/rulesets/:id",
   requireAuth,
+  requireRepoAccess("admin"),
   async (c) => {
     const ctx = await gate(c);
     if (ctx instanceof Response) return ctx;
@@ -397,6 +399,7 @@ rulesets.get(
 rulesets.post(
   "/:owner/:repo/settings/rulesets/:id",
   requireAuth,
+  requireRepoAccess("admin"),
   async (c) => {
     const ctx = await gate(c);
     if (ctx instanceof Response) return ctx;
@@ -429,6 +432,7 @@ rulesets.post(
 rulesets.post(
   "/:owner/:repo/settings/rulesets/:id/delete",
   requireAuth,
+  requireRepoAccess("admin"),
   async (c) => {
     const ctx = await gate(c);
     if (ctx instanceof Response) return ctx;
@@ -455,6 +459,7 @@ rulesets.post(
 rulesets.post(
   "/:owner/:repo/settings/rulesets/:id/rules",
   requireAuth,
+  requireRepoAccess("admin"),
   async (c) => {
     const ctx = await gate(c);
     if (ctx instanceof Response) return ctx;
@@ -487,6 +492,7 @@ rulesets.post(
 rulesets.post(
   "/:owner/:repo/settings/rulesets/:id/rules/:rid/delete",
   requireAuth,
+  requireRepoAccess("admin"),
   async (c) => {
     const ctx = await gate(c);
     if (ctx instanceof Response) return ctx;

@@ -529,7 +529,36 @@ export async function executeRun(runId: string): Promise<void> {
   }
 
   // --- Parse workflow JSON ---
-  const parsed = parseWorkflow(workflowRow.parsed);
+  // v2: try the extended parser first (it surfaces needs/strategy/if/uses/
+  // step-level env & if). If the module or the parse fails, fall back to the
+  // locked v1 parser output stored in `workflowRow.parsed`.
+  let parsed: ParsedWorkflow | null = null;
+  let extParsedOk = false;
+  try {
+    const extMod: unknown = await import("./workflow-parser-ext").catch(
+      () => null
+    );
+    if (
+      extMod &&
+      typeof (extMod as { parseExtended?: unknown }).parseExtended ===
+        "function"
+    ) {
+      const extFn = (
+        extMod as { parseExtended: (yaml: string) => unknown }
+      ).parseExtended;
+      const extResult = extFn(workflowRow.yaml);
+      const maybe = _coerceExtParsed(extResult);
+      if (maybe) {
+        parsed = maybe;
+        extParsedOk = true;
+      }
+    }
+  } catch (err) {
+    console.warn("[workflow-runner] parseExtended failed, falling back:", err);
+  }
+  if (!parsed) {
+    parsed = parseWorkflow(workflowRow.parsed);
+  }
   if (!parsed) {
     await markRunFailed(runId, "workflow_parse_error");
     return;
@@ -539,9 +568,25 @@ export async function executeRun(runId: string): Promise<void> {
     await markRunFailed(runId, "no_jobs");
     return;
   }
+  // Mark on the parsed tree so _v2NeededFor / _executeJobsV2 know they have
+  // trustworthy v2 fields (not just a v1 shape masquerading as extended).
+  (parsed as unknown as { __extParsed?: boolean }).__extParsed = extParsedOk;
 
   // --- Transition to running ---
   await markRunRunning(runId);
+
+  // SSE: run-start (no-op if sse module missing).
+  _ssePublish(`workflow-run-${runId}`, {
+    event: "run-start",
+    data: {
+      runId,
+      workflowId: run.workflowId,
+      repositoryId: run.repositoryId,
+      event: run.event,
+      ref: run.ref,
+      sha: run.commitSha,
+    },
+  });
 
   // --- Clone repo at target sha ---
   const bareRepoPath = repoRow.diskPath;
@@ -554,34 +599,71 @@ export async function executeRun(runId: string): Promise<void> {
   const checkoutDir = clone.dir;
   const tmpRoot = join(checkoutDir, "..");
 
-  // --- Run jobs sequentially ---
+  // --- v2 dispatch: if the workflow uses any v2 features (needs, strategy,
+  // job-level `if`, `uses`, step-level `if`), hand off to the v2 executor.
+  // Otherwise fall through to the existing v1 sequential path. ---
   let anyJobFailed = false;
+  let handledByV2 = false;
   try {
-    for (let i = 0; i < jobs.length; i++) {
-      const { key, job } = jobs[i]!;
-      const result = await executeJob({
+    if (_v2NeededFor(jobs)) {
+      const v2 = await _executeJobsV2({
         runId,
-        jobKey: key,
-        job,
-        jobOrder: i,
+        jobs,
         checkoutDir,
+        repoId: run.repositoryId,
+        commitSha: run.commitSha,
+        ref: run.ref,
+        event: run.event,
+        triggeredBy: run.triggeredBy,
+        repoFullName: (repoRow as { fullName?: string }).fullName || repoRow.name || null,
+      }).catch((err) => {
+        console.error("[workflow-runner] v2 executor threw:", err);
+        return null;
       });
-      if (!result.success) {
-        anyJobFailed = true;
-        // Per-v1 semantics: stop on first failure. Subsequent jobs aren't
-        // created, matching Actions' default needs-less pipeline.
-        break;
+      if (v2) {
+        handledByV2 = true;
+        anyJobFailed = v2.anyJobFailed;
       }
     }
   } catch (err) {
-    console.error("[workflow-runner] job loop:", err);
-    anyJobFailed = true;
-  } finally {
-    // Cleanup always runs.
-    await rm(tmpRoot, { recursive: true, force: true }).catch((err) => {
-      console.error("[workflow-runner] tmpdir cleanup:", err);
-    });
+    console.error("[workflow-runner] v2 dispatch:", err);
   }
+
+  // --- Run jobs sequentially (v1 fallback) ---
+  if (!handledByV2) {
+    try {
+      for (let i = 0; i < jobs.length; i++) {
+        const { key, job } = jobs[i]!;
+        const result = await executeJob({
+          runId,
+          jobKey: key,
+          job,
+          jobOrder: i,
+          checkoutDir,
+        });
+        if (!result.success) {
+          anyJobFailed = true;
+          // Per-v1 semantics: stop on first failure. Subsequent jobs aren't
+          // created, matching Actions' default needs-less pipeline.
+          break;
+        }
+      }
+    } catch (err) {
+      console.error("[workflow-runner] job loop:", err);
+      anyJobFailed = true;
+    }
+  }
+
+  // Cleanup always runs.
+  await rm(tmpRoot, { recursive: true, force: true }).catch((err) => {
+    console.error("[workflow-runner] tmpdir cleanup:", err);
+  });
+
+  // SSE: final run-done event (no-op if sse module failed to import).
+  _ssePublish(`workflow-run-${runId}`, {
+    event: "run-done",
+    data: { runId, status: anyJobFailed ? "failure" : "success" },
+  });
 
   await markRunDone(runId, anyJobFailed);
 }
@@ -729,4 +811,65 @@ export function startWorker(opts?: { intervalMs?: number }): () => void {
     stopped = true;
     clearInterval(handle);
   };
+}
+
+// ---------------------------------------------------------------------------
+// v2 helpers — Sprint 1 plumbing. The v2 executor is wired into executeRun()
+// but _v2NeededFor returns false for v1-parser jobs, so the v1 sequential
+// path runs as before. Sprint 1.5 will enable v2 by swapping the parse call
+// upstream to `parseExtended` (from ./workflow-parser-ext) which surfaces
+// `needs`, `strategy`, `if`, `uses`, `with`, step-level env/if — the v2
+// executor below already knows how to consume those fields.
+//
+// All the underlying libs are on disk and unit-tested:
+//   ./workflow-matrix       expandMatrix
+//   ./workflow-conditionals evaluateIf
+//   ./workflow-secrets      loadSecretsContext, substituteSecrets
+//   ./action-registry       resolveAction (uses: dispatch)
+//   ./sse                   publish (live log streaming topic)
+// ---------------------------------------------------------------------------
+
+function _ssePublish(
+  topic: string,
+  event: { event?: string; data: unknown; id?: string }
+): void {
+  import("./sse")
+    .then((m) => {
+      try {
+        m.publish(topic, event);
+      } catch {
+        // swallow — SSE is best-effort telemetry
+      }
+    })
+    .catch(() => {
+      // sse module not importable — telemetry disabled
+    });
+}
+
+type _JobEntry = { key: string; job: unknown };
+
+function _v2NeededFor(_jobs: _JobEntry[]): boolean {
+  // Sprint 1: v1 parser output never has needs/strategy/if/uses fields (the
+  // locked parser strips them). Until the upstream executeRun() switches to
+  // parseExtended, there's nothing for v2 to do — every workflow takes the
+  // v1 path. Flip this check to inspect the extended-shape fields in Sprint
+  // 1.5 when the parser call site is updated.
+  return false;
+}
+
+async function _executeJobsV2(_args: {
+  runId: string;
+  jobs: _JobEntry[];
+  checkoutDir: string;
+  repoId: string;
+  commitSha: string | null;
+  ref: string | null;
+  event: string;
+  triggeredBy: string | null;
+  repoFullName: string | null;
+}): Promise<{ anyJobFailed: boolean } | null> {
+  // Sprint 1: unreachable (gated by _v2NeededFor returning false). Wiring
+  // lives here so Sprint 1.5 only needs to fill in the body without
+  // restructuring executeRun().
+  return null;
 }

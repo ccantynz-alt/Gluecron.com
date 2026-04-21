@@ -17,7 +17,6 @@ import type { ActionHandler } from "../action-registry";
 import { db } from "../../db";
 import { repositories, users } from "../../db/schema";
 import { runGateTestScan } from "../gate";
-import { config } from "../config";
 
 async function lookupOwnerAndRepo(
   repoId: string
@@ -51,8 +50,11 @@ export const gatetestAction: ActionHandler = {
   version: "v1",
   async run(ctx): Promise<import("../action-registry").ActionResult> {
     try {
-      // Dev-mode short-circuit: no URL configured → skip quietly.
-      if (!config.gatetestUrl) {
+      // Dev-mode short-circuit: when the operator hasn't opted into GateTest
+      // by setting GATETEST_URL, skip quietly. We read the env var directly
+      // (not via `config`) because `config.gatetestUrl` falls back to a
+      // default URL, which would defeat the intent of "unset = skip".
+      if (!process.env.GATETEST_URL) {
         return {
           exitCode: 0,
           stdout: "GateTest not configured — skipping",

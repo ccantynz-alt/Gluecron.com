@@ -69,6 +69,11 @@ repoSettings.get("/:owner/:repo/settings", requireAuth, async (c) => {
       <RepoHeader owner={ownerName} repo={repoName} />
       <Container maxWidth={600}>
         <h2 style="margin-bottom: 20px">Repository settings</h2>
+        <p style="margin-bottom: 16px">
+          <a href={`/${ownerName}/${repoName}/settings/collaborators`}>
+            Manage collaborators →
+          </a>
+        </p>
         {success && (
           <Alert variant="success">{decodeURIComponent(success)}</Alert>
         )}

@@ -2359,3 +2359,45 @@ export const commitStatuses = pgTable(
 );
 
 export type CommitStatus = typeof commitStatuses.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Collaborators — per-repo role grants (read / write / admin).
+// ---------------------------------------------------------------------------
+
+/**
+ * A user granted access to a repository beyond ownership. Roles are
+ * hierarchical — 'admin' implies write, write implies read. `invitedBy` tracks
+ * who added them (nullable once that user is deleted); `acceptedAt` is null
+ * until the invitee explicitly accepts. Unique per (repo, user) so a given
+ * user has at most one role per repo.
+ */
+export const repoCollaborators = pgTable(
+  "repo_collaborators",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    role: text("role", { enum: ["read", "write", "admin"] })
+      .notNull()
+      .default("read"),
+    invitedBy: uuid("invited_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    invitedAt: timestamp("invited_at").defaultNow().notNull(),
+    acceptedAt: timestamp("accepted_at"),
+  },
+  (table) => [
+    uniqueIndex("repo_collaborators_repo_user_uq").on(
+      table.repositoryId,
+      table.userId
+    ),
+    index("repo_collaborators_repo_idx").on(table.repositoryId),
+    index("repo_collaborators_user_idx").on(table.userId),
+  ]
+);
+
+export type RepoCollaborator = typeof repoCollaborators.$inferSelect;

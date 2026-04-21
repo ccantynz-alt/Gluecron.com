@@ -15,6 +15,7 @@ import settingsRoutes from "./routes/settings";
 import settings2faRoutes from "./routes/settings-2fa";
 import issueRoutes from "./routes/issues";
 import repoSettings from "./routes/repo-settings";
+import collaboratorRoutes from "./routes/collaborators";
 import compareRoutes from "./routes/compare";
 import pullRoutes from "./routes/pulls";
 import editorRoutes from "./routes/editor";
@@ -184,6 +185,9 @@ app.route("/", notificationRoutes);
 
 // Repo settings (description, visibility, delete)
 app.route("/", repoSettings);
+
+// Repo collaborators (add/list/remove)
+app.route("/", collaboratorRoutes);
 
 // Webhooks management
 app.route("/", webhookRoutes);

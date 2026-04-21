@@ -1,67 +1,185 @@
 /**
  * Spec-to-PR (experimental).
  *
- * Entry point for the "describe a change in English, get a PR" feature. The
- * full pipeline — read the repo tree, call Claude to produce a patch, run it
- * through git plumbing, open a PR — is a follow-up patch. This file ships the
- * backend stub: it validates prerequisites (API key, repo existence) and
- * returns a structured `{ok:false}` result with a human-readable error that
- * the UI route surfaces directly.
+ * Pipeline:
+ *   1. Validate prerequisites: API key present, repo exists, user can be
+ *      resolved for author metadata.
+ *   2. `buildSpecContext` — read the bare repo, score paths against the spec,
+ *      collect a bounded file list + top-N relevant file contents.
+ *   3. `generateSpecEdits` — send that context to Claude; parse + validate the
+ *      proposed edits (forbidden paths filtered defence-in-depth).
+ *   4. `applyEditsToNewBranch` — write the edits to a fresh branch via git
+ *      plumbing (bare repo, no working tree).
+ *   5. Insert a draft `pullRequests` row pointing base→head.
  *
- * Keeping the stub real (not a throw) lets the UI wire up end-to-end today
- * and lets us light up the AI path without touching callers.
+ * Every failure mode is funnelled through `{ok:false, error}`. We never throw
+ * — the route (`src/routes/specs.tsx`) renders the error inline.
  */
+import { join } from "path";
 import { eq } from "drizzle-orm";
 import { db } from "../db";
 import { repositories, users, pullRequests } from "../db/schema";
-
-export type SpecPRResult = {
-  ok: boolean;
-  prNumber?: number;
-  branchName?: string;
-  filesChanged?: string[];
-  error?: string;
-};
+import { buildSpecContext } from "./spec-context";
+import { generateSpecEdits } from "./spec-ai";
+import { applyEditsToNewBranch } from "./spec-git";
 
 export type SpecPRArgs = {
-  repoId: number;
+  repoId: string;
   spec: string;
   baseRef?: string;
-  userId: number;
+  userId: string;
 };
 
+export type SpecPRResult =
+  | {
+      ok: true;
+      prNumber: number;
+      branchName: string;
+      filesChanged: string[];
+    }
+  | { ok: false; error: string };
+
+/** Derive a filesystem-safe branch suffix from the user's spec. */
+function slugify(spec: string): string {
+  const base = spec
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40);
+  return base || "change";
+}
+
+function randomSuffix(): string {
+  return Math.random().toString(16).slice(2, 8);
+}
+
 export async function createSpecPR(args: SpecPRArgs): Promise<SpecPRResult> {
-  // 1. Require ANTHROPIC_API_KEY — without it the AI step can't run, so we
-  //    fail fast rather than doing a pointless DB round-trip.
+  // 1. API key gate. Without it the AI step would fail anyway — bail before
+  //    any DB or disk work.
   if (!process.env.ANTHROPIC_API_KEY) {
     return { ok: false, error: "ANTHROPIC_API_KEY required for spec-to-PR" };
   }
 
-  // 2. Look up repo. If the repo doesn't exist we surface that specifically
-  //    so the UI can distinguish "bad id" from "AI not configured".
+  const spec = typeof args.spec === "string" ? args.spec.trim() : "";
+  if (!spec) return { ok: false, error: "spec is empty" };
+
+  // 2. Resolve repo + owner so we can build the on-disk path.
+  let repoRow: {
+    id: string;
+    name: string;
+    defaultBranch: string | null;
+    ownerName: string | null;
+  } | undefined;
   try {
     const rows = await db
-      .select()
+      .select({
+        id: repositories.id,
+        name: repositories.name,
+        defaultBranch: repositories.defaultBranch,
+        ownerName: users.username,
+      })
       .from(repositories)
-      .where(eq(repositories.id, args.repoId as unknown as string))
+      .leftJoin(users, eq(users.id, repositories.ownerId))
+      .where(eq(repositories.id, args.repoId))
       .limit(1);
-    if (rows.length === 0) return { ok: false, error: "repo not found" };
-  } catch (err) {
+    repoRow = rows[0];
+  } catch {
     return { ok: false, error: "db lookup failed" };
   }
+  if (!repoRow || !repoRow.ownerName) {
+    return { ok: false, error: "repo not found" };
+  }
 
-  // Touch the remaining imports so they aren't flagged as unused and so that
-  // the eventual implementation (user lookup for PR author, pullRequests
-  // insert) doesn't need an import change in the follow-up patch.
-  void users;
-  void pullRequests;
+  // 3. Resolve the author — needed for the commit-tree call and the PR row.
+  let authorRow: { username: string; email: string | null } | undefined;
+  try {
+    const rows = await db
+      .select({ username: users.username, email: users.email })
+      .from(users)
+      .where(eq(users.id, args.userId))
+      .limit(1);
+    authorRow = rows[0];
+  } catch {
+    return { ok: false, error: "db lookup failed" };
+  }
+  if (!authorRow) return { ok: false, error: "author not found" };
 
-  // 3. v1 stub — feature is experimental. For now, just return a clear
-  //    message. Full implementation (read tree, call Claude, git plumbing,
-  //    PR insert) is a follow-up. The UI route handles {ok:false} gracefully.
-  return {
-    ok: false,
-    error:
-      "spec-to-PR is experimental and not yet fully implemented. Backend stub only — full AI integration arriving in a follow-up patch.",
-  };
+  const base = process.env.GIT_REPOS_PATH || "./repos";
+  const repoDiskPath = join(base, repoRow.ownerName, `${repoRow.name}.git`);
+  const defaultBranch = repoRow.defaultBranch || "main";
+  const baseRef = (args.baseRef && args.baseRef.trim()) || defaultBranch;
+
+  // 4. Build context.
+  const ctx = await buildSpecContext({
+    repoDiskPath,
+    spec,
+    defaultBranch: baseRef,
+  });
+  if (!ctx.ok) {
+    return { ok: false, error: `context build failed: ${ctx.error}` };
+  }
+
+  // 5. Ask Claude for edits.
+  const ai = await generateSpecEdits({
+    spec,
+    fileList: ctx.context.fileList,
+    relevantFiles: ctx.context.relevantFiles,
+    defaultBranch: ctx.context.defaultBranch,
+  });
+  if (!ai.ok) return { ok: false, error: `AI failed: ${ai.error}` };
+  if (ai.edits.length === 0) {
+    return { ok: false, error: "AI proposed no changes" };
+  }
+
+  // 6. Apply edits to a fresh branch via git plumbing.
+  const branchName = `spec/${slugify(spec)}-${randomSuffix()}`;
+  const commitSubject = ai.summary || `spec: ${spec.slice(0, 60)}`;
+  const commitBody = `Generated by spec-to-PR.\n\nSpec:\n${spec}`;
+  const commitMessage = `${commitSubject}\n\n${commitBody}`;
+
+  const authorEmail =
+    authorRow.email || `${authorRow.username}@users.noreply.gluecron`;
+  const applied = await applyEditsToNewBranch({
+    repoDiskPath,
+    baseRef,
+    edits: ai.edits,
+    branchName,
+    commitMessage,
+    authorName: authorRow.username,
+    authorEmail,
+  });
+  if (!applied.ok) return { ok: false, error: `git apply failed: ${applied.error}` };
+
+  // 7. Insert the draft PR row.
+  try {
+    const [pr] = await db
+      .insert(pullRequests)
+      .values({
+        repositoryId: repoRow.id,
+        authorId: args.userId,
+        title: commitSubject.slice(0, 200),
+        body: `${commitBody}\n\nFiles changed:\n${applied.filesChanged
+          .map((p) => `- ${p}`)
+          .join("\n")}`,
+        baseBranch: baseRef,
+        headBranch: applied.branchName,
+        isDraft: true,
+      })
+      .returning();
+    const number = pr?.number;
+    if (typeof number !== "number") {
+      return { ok: false, error: "PR insert returned no number" };
+    }
+    return {
+      ok: true,
+      prNumber: number,
+      branchName: applied.branchName,
+      filesChanged: applied.filesChanged,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error: `PR insert failed: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
 }

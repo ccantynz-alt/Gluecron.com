@@ -65,3 +65,59 @@ export function liveSubscribeScript(args: {
     "}connect();}catch(e){}})();"
   );
 }
+
+/**
+ * Live log-tail script: subscribe to a workflow-run topic, append step-log
+ * chunks to a <pre>, and auto-close when 'run-done' arrives.
+ *
+ * Unlike liveSubscribeScript, this helper distinguishes SSE event types
+ * (step-log / step-start / step-done / run-done) and writes plain text
+ * (escaped to prevent HTML injection) into a <pre>. All interpolated
+ * option strings are JSON-encoded via safeJsonForScript so that the
+ * resulting script fragment is safe to splice into server-rendered HTML.
+ */
+export function liveLogTailScript(opts: {
+  topic: string;
+  targetElementId: string;
+  jobId?: string;
+  onRunDone?: string;
+}): string {
+  const topic = safeJsonForScript(opts.topic);
+  const targetId = safeJsonForScript(opts.targetElementId);
+  const jobFilter = safeJsonForScript(opts.jobId ?? "");
+  // onRunDone is raw JS supplied by the server. Wrap in try/catch.
+  const onRunDone = opts.onRunDone ? String(opts.onRunDone) : "";
+  const onRunDoneJson = safeJsonForScript(onRunDone);
+
+  return (
+    "(function(){try{" +
+    "if(typeof EventSource==='undefined')return;" +
+    "var t=" + topic + ",id=" + targetId + ",jf=" + jobFilter + ",onDone=" + onRunDoneJson + ";" +
+    "var el=document.getElementById(id);if(!el)return;" +
+    "var status=document.getElementById(id+'-status');" +
+    "function esc(s){return String(s==null?'':s).replace(/[&<>\"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c];});}" +
+    "function setStatus(s){if(status)status.textContent=s;}" +
+    "function scroll(){try{el.scrollTop=el.scrollHeight;}catch(e){}}" +
+    "function append(txt){el.insertAdjacentHTML('beforeend',esc(txt));scroll();}" +
+    "function match(d){if(!jf)return true;return d&&d.jobId===jf;}" +
+    "var es;" +
+    "try{es=new EventSource('/live-events/'+encodeURIComponent(t));}catch(e){return;}" +
+    "es.addEventListener('open',function(){setStatus('live');});" +
+    "es.addEventListener('step-log',function(m){try{var d=JSON.parse(m.data);if(!match(d))return;" +
+    "var prefix='[step '+d.stepIndex+' '+(d.stream||'stdout')+'] ';" +
+    "var chunk=String(d.chunk==null?'':d.chunk);" +
+    "var lines=chunk.split('\\n');" +
+    "for(var i=0;i<lines.length;i++){if(i===lines.length-1&&lines[i]==='')continue;append(prefix+lines[i]+'\\n');}" +
+    "}catch(e){}});" +
+    "es.addEventListener('step-start',function(m){try{var d=JSON.parse(m.data);if(!match(d))return;" +
+    "append('>>> step '+d.stepIndex+' ('+(d.name||'')+') started\\n');" +
+    "}catch(e){}});" +
+    "es.addEventListener('step-done',function(m){try{var d=JSON.parse(m.data);if(!match(d))return;" +
+    "var dur=typeof d.durationMs==='number'?(d.durationMs<1000?d.durationMs+'ms':(d.durationMs/1000).toFixed(1)+'s'):'';" +
+    "append('<<< step '+d.stepIndex+' done (exit '+d.exitCode+(dur?', '+dur:'')+')\\n');" +
+    "}catch(e){}});" +
+    "es.addEventListener('run-done',function(m){try{setStatus('done');try{es.close();}catch(e){}if(onDone){try{(new Function(onDone))();}catch(e){}}}catch(e){}});" +
+    "es.onerror=function(){setStatus('disconnected');};" +
+    "}catch(e){}})();"
+  );
+}

@@ -3,6 +3,7 @@ import { logger } from "hono/logger";
 import { cors } from "hono/cors";
 import { compress } from "hono/compress";
 import { Layout } from "./views/layout";
+import { reportError } from "./lib/observability";
 import { requestContext } from "./middleware/request-context";
 import { rateLimit } from "./middleware/rate-limit";
 import gitRoutes from "./routes/git";
@@ -25,6 +26,7 @@ import contributorRoutes from "./routes/contributors";
 import healthRoutes from "./routes/health-probe";
 import healthDashboardRoutes from "./routes/health";
 import statusRoutes from "./routes/status";
+import helpRoutes from "./routes/help";
 import seoRoutes from "./routes/seo";
 import { platformStatus } from "./routes/platform-status";
 import insightRoutes from "./routes/insights";
@@ -210,6 +212,9 @@ app.route("/api/platform-status", platformStatus);
 // Public /status — human-readable platform health page
 app.route("/", statusRoutes);
 
+// /help — quickstart + API cheatsheet
+app.route("/", helpRoutes);
+
 // SEO: robots.txt + sitemap.xml
 app.route("/", seoRoutes);
 
@@ -298,7 +303,11 @@ app.notFound((c) => {
 
 // Global error handler
 app.onError((err, c) => {
-  console.error("[error]", err);
+  reportError(err, {
+    requestId: c.get("requestId"),
+    path: c.req.path,
+    method: c.req.method,
+  });
   return c.html(
     <Layout title="Error">
       <div class="empty-state">

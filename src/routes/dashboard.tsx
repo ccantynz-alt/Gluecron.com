@@ -192,12 +192,50 @@ dashboard.get("/dashboard", requireAuth, async (c) => {
       {/* ─── Repo Grid ─── */}
       <h2 style="font-size: 18px; margin-bottom: 16px">Your Repositories</h2>
       {repos.length === 0 ? (
-        <div class="empty-state">
-          <h2>No repositories yet</h2>
-          <p>Create your first repository to see the command center in action.</p>
-          <a href="/new" class="btn btn-primary" style="margin-top: 16px">
-            Create repository
-          </a>
+        <div class="empty-state" style="text-align:left;padding:24px">
+          <div style="text-align:center;margin-bottom:20px">
+            <h2 style="margin-bottom:6px">Get started</h2>
+            <p style="color:var(--text-muted);font-size:14px;margin:0">
+              Ship safer code with AI-native hosting, automated CI, and push-time gates. Pick a path:
+            </p>
+          </div>
+          <div class="panel" style="margin-bottom:20px;text-align:left">
+            <div class="panel-item" style="justify-content:space-between;padding:16px;gap:12px">
+              <div style="flex:1">
+                <div style="font-size:15px;font-weight:600">Create a new repository</div>
+                <div style="font-size:13px;color:var(--text-muted);margin-top:2px">
+                  Start from scratch with green-ecosystem defaults.
+                </div>
+              </div>
+              <a href="/new" class="btn btn-primary">Create repo</a>
+            </div>
+            <div class="panel-item" style="justify-content:space-between;padding:16px;gap:12px">
+              <div style="flex:1">
+                <div style="font-size:15px;font-weight:600">Import from GitHub</div>
+                <div style="font-size:13px;color:var(--text-muted);margin-top:2px">
+                  Mirror an existing repo — history, branches, tags.
+                </div>
+              </div>
+              <a href="/import" class="btn">Import repo</a>
+            </div>
+            <div class="panel-item" style="justify-content:space-between;padding:16px;gap:12px">
+              <div style="flex:1">
+                <div style="font-size:15px;font-weight:600">Browse public repos</div>
+                <div style="font-size:13px;color:var(--text-muted);margin-top:2px">
+                  See what others are building, fork what you like.
+                </div>
+              </div>
+              <a href="/explore" class="btn">Browse</a>
+            </div>
+          </div>
+          <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px">
+            <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px">
+              Push an existing project (preview)
+            </div>
+            <pre style="margin:0;font-size:12px;overflow-x:auto;color:var(--text-muted)"><code># Once you create a repo, you'll see your real clone URL here.
+git remote add gluecron http://localhost:3000/{user.username}/&lt;your-repo&gt;.git
+git push -u gluecron main</code></pre>
+          </div>
         </div>
       ) : (
         <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 16px; margin-bottom: 32px">

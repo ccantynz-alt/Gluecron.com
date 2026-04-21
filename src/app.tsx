@@ -33,6 +33,9 @@ import insightRoutes from "./routes/insights";
 import dashboardRoutes from "./routes/dashboard";
 import legalRoutes from "./routes/legal";
 import importRoutes from "./routes/import";
+import importBulkRoutes from "./routes/import-bulk";
+import migrationRoutes from "./routes/migrations";
+import specsRoutes from "./routes/specs";
 import webRoutes from "./routes/web";
 import hookRoutes from "./routes/hooks";
 import eventsRoutes from "./routes/events";
@@ -232,6 +235,11 @@ app.route("/", legalRoutes);
 
 // GitHub import / migration
 app.route("/", importRoutes);
+app.route("/", importBulkRoutes);
+app.route("/", migrationRoutes);
+
+// Spec-to-PR (experimental AI-generated draft PRs)
+app.route("/", specsRoutes);
 
 // Explore page
 app.route("/", exploreRoutes);

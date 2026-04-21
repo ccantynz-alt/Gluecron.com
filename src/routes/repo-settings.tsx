@@ -133,6 +133,23 @@ repoSettings.get("/:owner/:repo/settings", requireAuth, async (c) => {
         <div
           style="margin-top: 32px; padding: 20px; border: 1px solid var(--border); border-radius: var(--radius)"
         >
+          <h3 style="margin-bottom: 8px">Spec to PR (experimental)</h3>
+          <p style="font-size: 14px; color: var(--text-muted); margin-bottom: 12px">
+            Paste a plain-English feature spec and let Claude draft a pull
+            request for you. PRs are opened as drafts — review every line
+            before merging.
+          </p>
+          <a
+            href={`/${ownerName}/${repoName}/spec`}
+            class="btn"
+          >
+            Open Spec to PR
+          </a>
+        </div>
+
+        <div
+          style="margin-top: 20px; padding: 20px; border: 1px solid var(--border); border-radius: var(--radius)"
+        >
           <h3 style="margin-bottom: 8px">Template repository</h3>
           <p style="font-size: 14px; color: var(--text-muted); margin-bottom: 12px">
             {repo.isTemplate

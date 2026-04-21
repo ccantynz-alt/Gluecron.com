@@ -83,6 +83,15 @@ importRoutes.get("/import", requireAuth, requireAdmin, async (c) => {
           Migrate your repositories from GitHub to gluecron automatically.
           All branches, all history, all code — one click.
         </p>
+        <a
+          href="/import/bulk"
+          style="display: block; background: var(--bg-secondary); border: 1px solid var(--border); border-left: 3px solid #3fb950; border-radius: var(--radius); padding: 14px 16px; margin-bottom: 20px; font-size: 14px; text-decoration: none; color: inherit"
+        >
+          <strong>Migrating a whole org? Try the bulk importer →</strong>
+          <div style="color: var(--text-muted); margin-top: 4px">
+            Paste a GitHub org name + token and clone every repo in one shot.
+          </div>
+        </a>
         {success && (
           <div class="auth-success">
             {decodeURIComponent(success)}

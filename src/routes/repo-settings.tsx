@@ -10,6 +10,7 @@ import { Layout } from "../views/layout";
 import { RepoHeader } from "../views/components";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
+import { requireRepoAccess } from "../middleware/repo-access";
 import { listBranches } from "../git/repository";
 import { rm } from "fs/promises";
 import {
@@ -29,7 +30,7 @@ const repoSettings = new Hono<AuthEnv>();
 repoSettings.use("*", softAuth);
 
 // Settings page
-repoSettings.get("/:owner/:repo/settings", requireAuth, async (c) => {
+repoSettings.get("/:owner/:repo/settings", requireAuth, requireRepoAccess("admin"), async (c) => {
   const { owner: ownerName, repo: repoName } = c.req.param();
   const user = c.get("user")!;
   const success = c.req.query("success");
@@ -253,7 +254,7 @@ repoSettings.get("/:owner/:repo/settings", requireAuth, async (c) => {
 });
 
 // Save settings
-repoSettings.post("/:owner/:repo/settings", requireAuth, async (c) => {
+repoSettings.post("/:owner/:repo/settings", requireAuth, requireRepoAccess("admin"), async (c) => {
   const { owner: ownerName, repo: repoName } = c.req.param();
   const user = c.get("user")!;
   const body = await c.req.parseBody();
@@ -289,6 +290,7 @@ repoSettings.post("/:owner/:repo/settings", requireAuth, async (c) => {
 repoSettings.post(
   "/:owner/:repo/settings/template",
   requireAuth,
+  requireRepoAccess("admin"),
   async (c) => {
     const { owner: ownerName, repo: repoName } = c.req.param();
     const user = c.get("user")!;
@@ -323,6 +325,7 @@ repoSettings.post(
 repoSettings.post(
   "/:owner/:repo/settings/transfer",
   requireAuth,
+  requireRepoAccess("admin"),
   async (c) => {
     const { owner: ownerName, repo: repoName } = c.req.param();
     const user = c.get("user")!;
@@ -403,6 +406,7 @@ repoSettings.post(
 repoSettings.post(
   "/:owner/:repo/settings/archive",
   requireAuth,
+  requireRepoAccess("admin"),
   async (c) => {
     const { owner: ownerName, repo: repoName } = c.req.param();
     const user = c.get("user")!;
@@ -437,6 +441,7 @@ repoSettings.post(
 repoSettings.post(
   "/:owner/:repo/settings/delete",
   requireAuth,
+  requireRepoAccess("admin"),
   async (c) => {
     const { owner: ownerName, repo: repoName } = c.req.param();
     const user = c.get("user")!;

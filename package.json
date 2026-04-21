@@ -9,7 +9,8 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "bun run src/db/migrate.ts",
     "db:studio": "drizzle-kit studio",
-    "test": "bun test"
+    "test": "bun test",
+    "preflight": "bun scripts/preflight.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.88.0",

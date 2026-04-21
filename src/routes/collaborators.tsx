@@ -1,9 +1,10 @@
 /**
  * Repository collaborators — add, list, remove.
  *
- * Owner-only. v1 auto-accepts the invite (no email flow yet): when the owner
- * adds a user by username, we insert a `repo_collaborators` row with
- * `acceptedAt = now()` so the grantee is immediately active.
+ * Owner-only. Adding a collaborator inserts a pending `repo_collaborators`
+ * row with `acceptedAt = NULL` and a hashed invite token, then emails the
+ * invitee a `/invites/:token` link. The grantee becomes active only after
+ * they click the link (see `src/routes/invites.tsx`).
  *
  * Collaborator lifecycle matrix:
  *   - Add:      POST /:owner/:repo/settings/collaborators/add
@@ -27,6 +28,8 @@ import { Layout } from "../views/layout";
 import { RepoHeader } from "../views/components";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
+import { generateInviteToken, hashInviteToken } from "../lib/invite-tokens";
+import { sendEmail, absoluteUrl } from "../lib/email";
 import {
   Container,
   Form,
@@ -119,6 +122,12 @@ collaboratorRoutes.get(
           <h2 style="margin-bottom: 16px">Collaborators</h2>
           <p style="font-size:14px;color:var(--text-muted);margin-bottom:16px">
             <a href={`/${ownerName}/${repoName}/settings`}>← Back to settings</a>
+            {" | "}
+            <a
+              href={`/${ownerName}/${repoName}/settings/collaborators/teams`}
+            >
+              Invite a team →
+            </a>
           </p>
           {success && (
             <Alert variant="success">{decodeURIComponent(success)}</Alert>
@@ -260,25 +269,56 @@ collaboratorRoutes.post(
       .limit(1);
 
     if (existing) {
+      // Re-inviting an existing collaborator just updates the role. We don't
+      // re-issue a token here — if the prior invite hasn't been accepted the
+      // existing token is still valid; if it has, they're already in.
       await db
         .update(repoCollaborators)
-        .set({ role, acceptedAt: existing.acceptedAt ?? new Date() })
+        .set({ role })
         .where(eq(repoCollaborators.id, existing.id));
       return c.redirect(
         `/${ownerName}/${repoName}/settings/collaborators?success=Role+updated`
       );
     }
 
+    // Fresh invite: generate a single-use token, store only its hash, and
+    // email the plaintext to the invitee. acceptedAt stays NULL until they
+    // click through /invites/:token.
+    const token = generateInviteToken();
+    const tokenHash = hashInviteToken(token);
+
     await db.insert(repoCollaborators).values({
       repositoryId: repo.id,
       userId: invitee.id,
       role,
       invitedBy: user.id,
-      acceptedAt: new Date(), // v1 auto-accept; no email invite flow yet
+      inviteTokenHash: tokenHash,
     });
 
+    // Email delivery degrades gracefully — a failed send should never block
+    // the invite row from existing. Owner can resend / share the URL by hand.
+    const inviteUrl = absoluteUrl(`/invites/${token}`);
+    try {
+      const result = await sendEmail({
+        to: invitee.email,
+        subject: `You've been invited to ${ownerName}/${repoName}`,
+        text: `You've been invited to ${ownerName}/${repoName}. Click: ${inviteUrl}`,
+      });
+      if (!result.ok) {
+        console.error(
+          `[collaborators] invite email send failed for ${invitee.username}:`,
+          result.error || result.skipped
+        );
+      }
+    } catch (err) {
+      console.error(
+        `[collaborators] invite email threw for ${invitee.username}:`,
+        err
+      );
+    }
+
     return c.redirect(
-      `/${ownerName}/${repoName}/settings/collaborators?success=Collaborator+added`
+      `/${ownerName}/${repoName}/settings/collaborators?success=Invite+sent`
     );
   }
 );

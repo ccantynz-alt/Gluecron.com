@@ -25,6 +25,7 @@ import {
   pullRequests,
 } from "../db/schema";
 import { Layout } from "../views/layout";
+import { LiveFeed } from "../views/live-feed";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
 import {
@@ -350,6 +351,9 @@ git push -u gluecron main</code></pre>
           </div>
         </>
       )}
+
+      {/* ─── Live Activity (SSE) ─── */}
+      <LiveFeed topic={`user:${user.id}`} title="Live activity" />
 
       {/* ─── Quick Links ─── */}
       <div style="margin-top: 32px; display: flex; gap: 16px; flex-wrap: wrap">

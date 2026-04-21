@@ -2389,6 +2389,10 @@ export const repoCollaborators = pgTable(
     }),
     invitedAt: timestamp("invited_at").defaultNow().notNull(),
     acceptedAt: timestamp("accepted_at"),
+    // sha256(plaintext) of the outstanding invite token. Set when the owner
+    // sends an invite, cleared when the invitee accepts. NULL on older rows
+    // that were auto-accepted before the email flow existed.
+    inviteTokenHash: text("invite_token_hash"),
   },
   (table) => [
     uniqueIndex("repo_collaborators_repo_user_uq").on(

@@ -16,6 +16,9 @@ import settings2faRoutes from "./routes/settings-2fa";
 import issueRoutes from "./routes/issues";
 import repoSettings from "./routes/repo-settings";
 import collaboratorRoutes from "./routes/collaborators";
+import teamCollaboratorRoutes from "./routes/team-collaborators";
+import invitesRoutes from "./routes/invites";
+import liveEventsRoutes from "./routes/live-events";
 import compareRoutes from "./routes/compare";
 import pullRoutes from "./routes/pulls";
 import editorRoutes from "./routes/editor";
@@ -188,6 +191,15 @@ app.route("/", repoSettings);
 
 // Repo collaborators (add/list/remove)
 app.route("/", collaboratorRoutes);
+
+// Team-based repo collaborators (invite a whole team)
+app.route("/", teamCollaboratorRoutes);
+
+// Collaborator invite accept flow (token-based)
+app.route("/", invitesRoutes);
+
+// Real-time SSE endpoint (topic-based live updates)
+app.route("/", liveEventsRoutes);
 
 // Webhooks management
 app.route("/", webhookRoutes);

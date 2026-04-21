@@ -12,6 +12,12 @@
  *   - no-ops gracefully if EventSource is not supported
  */
 
+// U+2028 (LINE SEPARATOR) and U+2029 (PARAGRAPH SEPARATOR) are valid
+// whitespace in HTML but not in JS string literals. Referenced via
+// String.fromCharCode so we never embed the raw codepoints in source.
+const LS = String.fromCharCode(0x2028);
+const PS = String.fromCharCode(0x2029);
+
 /**
  * JSON-encode a value for safe inlining inside an HTML <script> block.
  *
@@ -22,11 +28,11 @@
  */
 function safeJsonForScript(v: unknown): string {
   return JSON.stringify(v)
-    .replace(/</g, "\\u003C")
-    .replace(/>/g, "\\u003E")
-    .replace(/&/g, "\\u0026")
-    .replace(/ /g, "\\u2028")
-    .replace(/ /g, "\\u2029");
+    .split("<").join("\\u003C")
+    .split(">").join("\\u003E")
+    .split("&").join("\\u0026")
+    .split(LS).join("\\u2028")
+    .split(PS).join("\\u2029");
 }
 
 export function liveSubscribeScript(args: {

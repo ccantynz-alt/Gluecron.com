@@ -5,9 +5,17 @@
  * The fake `db.select(...)` chain returns whatever the per-test closure
  * decides — either undefined (repo not found) or a plausible row whose
  * on-disk path points somewhere that doesn't exist.
+ *
+ * Bun 1.3's `bun test` shares a single module registry across every test
+ * file in a run and `mock.restore()` does NOT un-mock `mock.module(...)`
+ * registrations. To avoid leaking our stub into other test files, we use a
+ * defensive fake: `_nextRow` defaults to `undefined` (so any library code
+ * that does `select().from().where().limit(1)` sees an empty result and
+ * falls through to its DB-unavailable branch), and we reset the row back
+ * to `undefined` in `afterAll`.
  */
 
-import { describe, it, expect, mock } from "bun:test";
+import { describe, it, expect, mock, afterAll } from "bun:test";
 
 // Per-test mutable row — each test assigns its own value before calling
 // verifyMigration. The chained Drizzle-style select builder ends in
@@ -20,17 +28,29 @@ let _nextRow: { repoName: string; ownerName: string | null } | undefined;
 const _chain: any = {
   from: () => _chain,
   leftJoin: () => _chain,
+  innerJoin: () => _chain,
+  rightJoin: () => _chain,
   where: () => _chain,
+  orderBy: () => _chain,
+  groupBy: () => _chain,
   limit: async () => (_nextRow ? [_nextRow] : []),
 };
 
 // Mock `../db` at module scope so the dynamic import of ../lib/import-verify
 // below picks up the stub instead of the real Neon-backed proxy.
 const _fakeDb = {
-  db: { select: () => _chain },
-  getDb: () => ({ select: () => _chain }),
+  db: { select: () => _chain, insert: () => _chain, update: () => _chain, delete: () => _chain },
+  getDb: () => ({ select: () => _chain, insert: () => _chain, update: () => _chain, delete: () => _chain }),
 };
 mock.module("../db", () => _fakeDb);
+
+// Reset the fake row after our tests finish so any later test file whose
+// code happens to run `db.select()...limit(1)` sees an empty result (and
+// falls through to its real null/empty branch) rather than inheriting the
+// half-built row from our "git dir missing" test.
+afterAll(() => {
+  _nextRow = undefined;
+});
 
 // Point GIT_REPOS_PATH at a directory that definitely doesn't contain
 // any of the fake repos we'll reference, so `clonable` checks fail.

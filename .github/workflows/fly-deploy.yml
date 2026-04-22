@@ -1,0 +1,64 @@
+name: Fly Deploy
+
+on:
+  push:
+    branches:
+      - main
+      - claude/build-status-update-3MXsf
+  workflow_dispatch: {}
+
+concurrency:
+  group: fly-deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to Fly.io
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Ensure app exists
+        run: |
+          if ! flyctl apps list --json 2>/dev/null | grep -q '"Name":\s*"gluecron"'; then
+            echo "Creating Fly app 'gluecron'..."
+            flyctl apps create gluecron --org personal
+          else
+            echo "App 'gluecron' already exists."
+          fi
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+      - name: Ensure volume exists
+        run: |
+          if ! flyctl volumes list -a gluecron --json 2>/dev/null | grep -q '"Name":\s*"gluecron_repos"'; then
+            echo "Creating volume 'gluecron_repos' in iad..."
+            flyctl volumes create gluecron_repos --app gluecron --size 3 --region iad --yes
+          else
+            echo "Volume 'gluecron_repos' already exists."
+          fi
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+      - name: Deploy
+        run: flyctl deploy --remote-only --app gluecron
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+      - name: Smoke test
+        run: |
+          sleep 10
+          for i in 1 2 3 4 5; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" https://gluecron.fly.dev/healthz || echo "000")
+            echo "Attempt $i: /healthz returned $code"
+            if [ "$code" = "200" ]; then
+              echo "Site is live."
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Site did not respond with 200 after 50s. Check 'fly logs -a gluecron'."
+          exit 1

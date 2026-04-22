@@ -1,0 +1,413 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>gluecron — git hosting + AI review + CI in one binary</title>
+    <meta
+      name="description"
+      content="Self-hostable code platform with AI review, dependency updates, semantic search, and a workflow runner built in. No plugins. No bolt-ons. One binary."
+    />
+    <meta name="theme-color" content="#0d1117" />
+    <meta property="og:title" content="gluecron" />
+    <meta
+      property="og:description"
+      content="GitHub, but the AI actually ships the code."
+    />
+    <meta property="og:type" content="website" />
+    <link rel="canonical" href="https://gluecron.com/" />
+    <style>
+      :root {
+        --bg: #0d1117;
+        --bg-secondary: #161b22;
+        --bg-tertiary: #21262d;
+        --border: #30363d;
+        --text: #e6edf3;
+        --text-muted: #8b949e;
+        --text-link: #58a6ff;
+        --accent: #1f6feb;
+        --accent-hover: #388bfd;
+        --green: #3fb950;
+        --radius: 6px;
+        --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+        --font-mono: 'SF Mono', 'Cascadia Code', 'Fira Code', ui-monospace, monospace;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; }
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font-family: var(--font-sans);
+        font-size: 15px;
+        line-height: 1.5;
+        -webkit-font-smoothing: antialiased;
+      }
+      a { color: var(--text-link); text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      code {
+        font-family: var(--font-mono);
+        background: var(--bg-secondary);
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        padding: 1px 6px;
+        font-size: 0.9em;
+      }
+      .btn {
+        display: inline-block;
+        padding: 10px 20px;
+        font-size: 15px;
+        font-weight: 600;
+        border-radius: var(--radius);
+        border: 1px solid var(--border);
+        cursor: pointer;
+        text-decoration: none;
+        transition: background 0.1s, border-color 0.1s;
+      }
+      .btn:hover { text-decoration: none; }
+      .btn-primary {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: white;
+      }
+      .btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+      .btn-secondary { background: transparent; color: var(--text); }
+      .btn-secondary:hover { background: var(--bg-secondary); }
+
+      .nav {
+        max-width: 1080px;
+        margin: 0 auto;
+        padding: 18px 16px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .nav-brand {
+        font-weight: 700;
+        color: var(--text);
+        font-size: 18px;
+        letter-spacing: -0.01em;
+      }
+      .nav-links { display: flex; gap: 22px; }
+      .nav-links a { color: var(--text-muted); font-size: 14px; }
+      .nav-links a:hover { color: var(--text); text-decoration: none; }
+
+      .hero {
+        padding: 72px 16px 56px;
+        text-align: center;
+        max-width: 860px;
+        margin: 0 auto;
+        border-bottom: 1px solid var(--border);
+      }
+      .hero h1 {
+        font-size: 44px;
+        line-height: 1.1;
+        letter-spacing: -0.02em;
+        margin: 0 0 20px;
+        font-weight: 700;
+      }
+      .hero p.sub {
+        font-size: 18px;
+        color: var(--text-muted);
+        margin: 0 auto 32px;
+        max-width: 640px;
+      }
+      .hero-ctas {
+        display: flex;
+        gap: 12px;
+        justify-content: center;
+        flex-wrap: wrap;
+        margin-bottom: 16px;
+      }
+      .trust {
+        font-size: 13px;
+        color: var(--text-muted);
+        margin-top: 12px;
+        letter-spacing: 0.02em;
+      }
+
+      .section {
+        padding: 64px 16px;
+        max-width: 1080px;
+        margin: 0 auto;
+        border-bottom: 1px solid var(--border);
+      }
+      .section h2 {
+        font-size: 28px;
+        font-weight: 700;
+        margin: 0 0 12px;
+        letter-spacing: -0.01em;
+      }
+      .section p.sub {
+        font-size: 15px;
+        color: var(--text-muted);
+        margin: 0 0 36px;
+        max-width: 680px;
+        line-height: 1.6;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 16px;
+      }
+      @media (max-width: 880px) { .grid { grid-template-columns: repeat(2, 1fr); } }
+      @media (max-width: 560px) { .grid { grid-template-columns: 1fr; } }
+
+      .feature {
+        background: var(--bg-secondary);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 22px;
+      }
+      .feature-icon {
+        font-size: 24px;
+        margin-bottom: 10px;
+        line-height: 1;
+      }
+      .feature h3 {
+        font-size: 16px;
+        font-weight: 600;
+        margin: 0 0 8px;
+        color: var(--text);
+      }
+      .feature p {
+        font-size: 14px;
+        color: var(--text-muted);
+        margin: 0;
+        line-height: 1.5;
+      }
+
+      .compare-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+      }
+      @media (max-width: 680px) { .compare-grid { grid-template-columns: 1fr; } }
+      .compare-col {
+        background: var(--bg-secondary);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 24px;
+      }
+      .compare-col h3 {
+        font-size: 18px;
+        margin: 0 0 16px;
+        font-weight: 600;
+      }
+      .compare-col ul {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+      }
+      .compare-col li {
+        padding: 6px 0;
+        font-size: 14px;
+        color: var(--text);
+      }
+      .compare-us { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
+      .check { color: var(--green); font-weight: 700; margin-right: 8px; }
+      .dash  { color: var(--text-muted); margin-right: 8px; }
+
+      .steps {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 20px;
+      }
+      @media (max-width: 720px) { .steps { grid-template-columns: 1fr; } }
+      .step {
+        background: var(--bg-secondary);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 24px;
+      }
+      .step-num {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 32px;
+        height: 32px;
+        border-radius: 16px;
+        background: var(--accent);
+        color: white;
+        font-weight: 700;
+        margin-bottom: 14px;
+      }
+      .step h3 { margin: 0 0 8px; font-size: 16px; font-weight: 600; }
+      .step p { margin: 0; color: var(--text-muted); font-size: 14px; }
+
+      .cta-band {
+        text-align: center;
+        padding: 72px 16px;
+        max-width: 860px;
+        margin: 0 auto;
+        border-bottom: 1px solid var(--border);
+      }
+      .cta-band h2 { font-size: 32px; margin: 0 0 14px; font-weight: 700; }
+      .cta-band p { color: var(--text-muted); margin: 0 0 28px; font-size: 16px; }
+
+      footer {
+        max-width: 1080px;
+        margin: 0 auto;
+        padding: 36px 16px 72px;
+        text-align: center;
+        font-size: 13px;
+        color: var(--text-muted);
+      }
+      footer a { color: var(--text-muted); margin: 0 10px; }
+      footer a:hover { color: var(--text); }
+    </style>
+  </head>
+  <body>
+    <nav class="nav">
+      <a href="/" class="nav-brand">gluecron</a>
+      <div class="nav-links">
+        <a href="#features">Features</a>
+        <a href="#compare">vs GitHub</a>
+        <a href="#how">How it works</a>
+      </div>
+    </nav>
+
+    <section class="hero">
+      <h1>GitHub, but the AI actually ships the code.</h1>
+      <p class="sub">
+        gluecron is a self-hostable code platform with AI review, dependency
+        updates, semantic search, and a workflow runner built in. No plugins.
+        No bolt-ons. One binary.
+      </p>
+      <div class="hero-ctas">
+        <a href="#how" class="btn btn-primary">See how it works</a>
+        <a href="https://github.com/ccantynz-alt/Gluecron.com" class="btn btn-secondary">Source on GitHub</a>
+      </div>
+      <p class="trust">Self-hostable · AI built in · Open source mindset</p>
+    </section>
+
+    <section id="features" class="section">
+      <h2>Everything in one binary</h2>
+      <p class="sub">
+        The features GitHub sells as separate products (Dependabot, Copilot,
+        Actions, Advanced Security) ship with gluecron by default.
+      </p>
+      <div class="grid">
+        <div class="feature">
+          <div class="feature-icon" aria-hidden="true">✨</div>
+          <h3>AI code review</h3>
+          <p>Claude Sonnet reviews every PR with inline comments. Can block merges when configured in branch protection.</p>
+        </div>
+        <div class="feature">
+          <div class="feature-icon" aria-hidden="true">↻</div>
+          <h3>AI dependency updates</h3>
+          <p>Scans <code>package.json</code>, opens PRs with bump tables, writes the branch via git plumbing. Dependabot without the setup.</p>
+        </div>
+        <div class="feature">
+          <div class="feature-icon" aria-hidden="true">⌕</div>
+          <h3>Semantic code search</h3>
+          <p>voyage-code-3 embeddings over every chunk, with lexical fallback. Finds code by intent, not just text.</p>
+        </div>
+        <div class="feature">
+          <div class="feature-icon" aria-hidden="true">📖</div>
+          <h3>Explain this codebase</h3>
+          <p>One click gets you a per-commit cached Markdown tour of the repo. Onboarding that writes itself.</p>
+        </div>
+        <div class="feature">
+          <div class="feature-icon" aria-hidden="true">✓</div>
+          <h3>Signed commit verification</h3>
+          <p>GPG and SSH signatures, Issuer Fingerprint extraction, a green Verified badge on the commit list.</p>
+        </div>
+        <div class="feature">
+          <div class="feature-icon" aria-hidden="true">⇄</div>
+          <h3>Merge queues + required checks</h3>
+          <p>Serialised merges with re-test against the latest base. Per-branch required check matrix, enforced at merge.</p>
+        </div>
+        <div class="feature">
+          <div class="feature-icon" aria-hidden="true">⚙</div>
+          <h3>Self-hosted workflow runner</h3>
+          <p>Actions-equivalent runner reads <code>.gluecron/workflows/*.yml</code>. Bun subprocesses, size-capped logs, per-step timeouts.</p>
+        </div>
+        <div class="feature">
+          <div class="feature-icon" aria-hidden="true">📦</div>
+          <h3>npm-protocol package registry</h3>
+          <p>Publish, install, yank over the real npm protocol. PAT-auth via <code>.npmrc</code>. No separate service to run.</p>
+        </div>
+        <div class="feature">
+          <div class="feature-icon" aria-hidden="true">🔐</div>
+          <h3>Enterprise SSO (OIDC)</h3>
+          <p>Okta, Azure AD, Auth0, Google Workspace. Auth-code flow, state+nonce, optional email-domain allow-list.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="compare" class="section">
+      <h2>gluecron vs GitHub</h2>
+      <p class="sub">
+        Honest comparison. GitHub is excellent at what it does. gluecron is
+        built for teams that want AI and CI in one place, on infrastructure
+        they control.
+      </p>
+      <div class="compare-grid">
+        <div class="compare-col compare-us">
+          <h3>gluecron</h3>
+          <ul>
+            <li><span class="check">✓</span>Self-host on your own box</li>
+            <li><span class="check">✓</span>AI review and completion included</li>
+            <li><span class="check">✓</span>Dependency updater included</li>
+            <li><span class="check">✓</span>Workflow runner included</li>
+            <li><span class="check">✓</span>Semantic search included</li>
+            <li><span class="check">✓</span>Green-by-default (gates, protection, codeowners)</li>
+            <li><span class="check">✓</span>One binary. One database. One deploy.</li>
+          </ul>
+        </div>
+        <div class="compare-col">
+          <h3>GitHub</h3>
+          <ul>
+            <li><span class="dash">–</span>SaaS-first (Enterprise Server is separate)</li>
+            <li><span class="dash">–</span>Copilot billed per seat</li>
+            <li><span class="dash">–</span>Dependabot configured per repo</li>
+            <li><span class="dash">–</span>Actions minutes metered</li>
+            <li><span class="dash">–</span>Code search is lexical by default</li>
+            <li><span class="dash">–</span>Advanced Security is an add-on</li>
+            <li><span class="dash">–</span>Many moving pieces to wire together</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section id="how" class="section">
+      <h2>How it works</h2>
+      <div class="steps">
+        <div class="step">
+          <div class="step-num">1</div>
+          <h3>Push code</h3>
+          <p><code>git push</code> to gluecron. Standard Smart HTTP. No agent to install.</p>
+        </div>
+        <div class="step">
+          <div class="step-num">2</div>
+          <h3>Gates + AI review run</h3>
+          <p>Secret scanner, security gate, AI reviewer, and your workflows fire automatically. Rulesets enforce push policy.</p>
+        </div>
+        <div class="step">
+          <div class="step-num">3</div>
+          <h3>Green pushes auto-deploy</h3>
+          <p>Default-branch commits that pass all gates trigger your configured deploy webhook. Failed deploys open an AI-authored incident issue.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="cta-band">
+      <h2>Ready to push?</h2>
+      <p>The full platform goes live on the production host shortly. Star the repo to be notified.</p>
+      <div class="hero-ctas">
+        <a href="https://github.com/ccantynz-alt/Gluecron.com" class="btn btn-primary">Star on GitHub</a>
+      </div>
+    </section>
+
+    <footer>
+      <a href="https://github.com/ccantynz-alt/Gluecron.com">Source</a>
+      <span>·</span>
+      <a href="https://github.com/ccantynz-alt/Gluecron.com/blob/main/legal/TERMS.md">Terms</a>
+      <span>·</span>
+      <a href="https://github.com/ccantynz-alt/Gluecron.com/blob/main/legal/PRIVACY.md">Privacy</a>
+      <span>·</span>
+      <a href="https://github.com/ccantynz-alt/Gluecron.com/blob/main/legal/AUP.md">Acceptable Use</a>
+    </footer>
+  </body>
+</html>

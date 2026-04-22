@@ -279,6 +279,7 @@ pagesRoute.get(
                   name="enabled"
                   value="1"
                   checked={settings.enabled}
+                  aria-label="Enable GitHub Pages"
                 />
                 {" "}Enable GitHub Pages
               </label>

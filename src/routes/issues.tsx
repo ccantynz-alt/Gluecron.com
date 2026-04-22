@@ -205,6 +205,7 @@ issueRoutes.get(
                 required
                 placeholder="Title"
                 style="font-size:16px;padding:10px 14px"
+                aria-label="Issue title"
               />
             </FormGroup>
             <FormGroup>

@@ -96,6 +96,8 @@ import templatesRoutes from "./routes/templates";
 import trafficRoutes from "./routes/traffic";
 import wikisRoutes from "./routes/wikis";
 import workflowsRoutes from "./routes/workflows";
+import workflowArtifactsRoutes from "./routes/workflow-artifacts";
+import workflowSecretsRoutes from "./routes/workflow-secrets";
 import { authRateLimit, gitRateLimit, searchRateLimit } from "./middleware/rate-limit";
 import { csrfToken, csrfProtect } from "./middleware/csrf";
 
@@ -307,6 +309,8 @@ app.route("/", templatesRoutes);
 app.route("/", trafficRoutes);
 app.route("/", wikisRoutes);
 app.route("/", workflowsRoutes);
+app.route("/", workflowArtifactsRoutes);
+app.route("/", workflowSecretsRoutes);
 
 // Web UI (catch-all, must be last)
 app.route("/", webRoutes);

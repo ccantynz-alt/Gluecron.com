@@ -1,0 +1,133 @@
+# Prometheus alerting rules for gluecron.com.
+#
+# Drop-in for any Prometheus-compatible system: Prometheus itself,
+# Grafana Mimir, VictoriaMetrics, Thanos. Point Alertmanager at the
+# rules file or include it via `rule_files:` in prometheus.yml.
+#
+# Scrape target assumed: /metrics on the gluecron container (Prom format).
+# Label `job="gluecron"` assumed — edit if your scrape config uses a
+# different job name.
+#
+# Severity convention:
+#   critical = page (SMS / phone / Slack-critical channel)
+#   warning  = notify (Slack-warning channel, email)
+#   info     = dashboard only
+
+groups:
+  - name: gluecron-availability
+    interval: 30s
+    rules:
+      - alert: GluecronDown
+        expr: up{job="gluecron"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: gluecron
+        annotations:
+          summary: "gluecron.com is down"
+          description: "Prometheus cannot scrape /metrics on {{ $labels.instance }}. Likely the container exited or Caddy can't reach it. Check `docker compose ps` and `docker compose logs gluecron` on 45.76.171.37."
+          runbook: "https://github.com/ccantynz-alt/Gluecron.com/blob/main/DEPLOY_CHECKLIST.md#rollback"
+
+      - alert: GluecronNotReady
+        expr: probe_success{instance=~".*/readyz"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          service: gluecron
+        annotations:
+          summary: "gluecron /readyz failing for 5m"
+          description: "App is running but /readyz is returning non-200. Usually means the DB (Neon) is unreachable or the git repos volume is unmounted. Check `docker compose exec gluecron bun run src/scripts/db-check.ts` or equivalent."
+
+  - name: gluecron-errors
+    interval: 30s
+    rules:
+      - alert: GluecronHigh5xxRate
+        expr: |
+          (
+            sum(rate(http_requests_total{job="gluecron",status=~"5.."}[5m]))
+            /
+            sum(rate(http_requests_total{job="gluecron"}[5m]))
+          ) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+          service: gluecron
+        annotations:
+          summary: ">5% 5xx rate over 10m"
+          description: "Current 5xx rate is {{ $value | humanizePercentage }}. Look at the error-webhook/Sentry sink and recent deploys."
+
+      - alert: GluecronSpike5xx
+        expr: |
+          sum(rate(http_requests_total{job="gluecron",status=~"5.."}[1m])) > 1
+        for: 2m
+        labels:
+          severity: critical
+          service: gluecron
+        annotations:
+          summary: "5xx spike (>1/s for 2m)"
+          description: "Absolute 5xx rate exceeded 1/s. A post-deploy regression or downstream outage."
+
+      - alert: GluecronErrorSinkFailing
+        expr: increase(error_sink_failures_total{job="gluecron"}[15m]) > 0
+        for: 15m
+        labels:
+          severity: warning
+          service: gluecron
+        annotations:
+          summary: "Error webhook / Sentry sink failing"
+          description: "Errors are being generated but the sink (ERROR_WEBHOOK_URL / SENTRY_DSN) is rejecting them. Check the credentials and the sink's own status page."
+
+  - name: gluecron-latency
+    interval: 30s
+    rules:
+      - alert: GluecronHighLatencyP95
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le) (rate(http_request_duration_seconds_bucket{job="gluecron"}[5m]))
+          ) > 2
+        for: 15m
+        labels:
+          severity: warning
+          service: gluecron
+        annotations:
+          summary: "p95 latency >2s for 15m"
+          description: "Current p95 is {{ $value }}s. Check DB connection pool, Neon status, and recent slow queries."
+
+  - name: gluecron-autopilot
+    interval: 1m
+    rules:
+      - alert: GluecronAutopilotStalled
+        expr: time() - autopilot_last_run_timestamp_seconds{job="gluecron"} > 900
+        for: 5m
+        labels:
+          severity: warning
+          service: gluecron
+        annotations:
+          summary: "Autopilot ticker stalled >15m"
+          description: "Autopilot runs every 5m; last tick was {{ $value | humanizeDuration }} ago. If AUTOPILOT_DISABLED=1 this alert should be muted at the receiver. Otherwise investigate the ticker in `src/lib/autopilot.ts`."
+
+  - name: gluecron-resources
+    interval: 30s
+    rules:
+      - alert: GluecronHighMemory
+        expr: |
+          (container_memory_usage_bytes{name=~".*gluecron.*"}
+            / container_spec_memory_limit_bytes{name=~".*gluecron.*"}) > 0.9
+        for: 15m
+        labels:
+          severity: warning
+          service: gluecron
+        annotations:
+          summary: "Container memory >90% of limit"
+          description: "Near the OOM cliff. Either raise the compose memory limit or investigate a leak."
+
+      - alert: GluecronDiskFillingFast
+        expr: |
+          predict_linear(node_filesystem_avail_bytes{mountpoint="/"}[1h], 24*3600) < 0
+        for: 30m
+        labels:
+          severity: warning
+          service: gluecron
+        annotations:
+          summary: "Disk will fill within 24h at current rate"
+          description: "Usually the git repos volume growing unchecked. Check `/data/repos` size and retention policy."

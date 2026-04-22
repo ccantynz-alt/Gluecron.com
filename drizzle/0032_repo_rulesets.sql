@@ -14,11 +14,14 @@ CREATE TABLE IF NOT EXISTS "repo_rulesets" (
   "created_at" timestamp NOT NULL DEFAULT now(),
   "updated_at" timestamp NOT NULL DEFAULT now()
 );
+--> statement-breakpoint
 
 CREATE INDEX IF NOT EXISTS "repo_rulesets_repo_idx"
   ON "repo_rulesets" ("repository_id");
+--> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "repo_rulesets_repo_name_unique"
   ON "repo_rulesets" ("repository_id", "name");
+--> statement-breakpoint
 
 CREATE TABLE IF NOT EXISTS "ruleset_rules" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -27,6 +30,7 @@ CREATE TABLE IF NOT EXISTS "ruleset_rules" (
   "params" text NOT NULL DEFAULT '{}', -- JSON
   "created_at" timestamp NOT NULL DEFAULT now()
 );
+--> statement-breakpoint
 
 CREATE INDEX IF NOT EXISTS "ruleset_rules_set_idx"
   ON "ruleset_rules" ("ruleset_id");

@@ -10,14 +10,11 @@ RUN bun install --frozen-lockfile --production
 
 # Copy source
 COPY src/ ./src/
+COPY drizzle/ ./drizzle/
 COPY tsconfig.json drizzle.config.ts ./
 COPY legal/ ./legal/
 COPY CLAUDE.md LICENSE ./
 
-# Create repos directory
-RUN mkdir -p /data/repos
-
-ENV GIT_REPOS_PATH=/data/repos
 ENV NODE_ENV=production
 ENV PORT=3000
 

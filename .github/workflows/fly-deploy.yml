@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - claude/build-status-update-3MXsf
+      - claude/crontech-platform-setup-SeKfw
   workflow_dispatch: {}
 
 concurrency:
@@ -58,7 +59,11 @@ jobs:
           EMAIL_PROVIDER: ${{ vars.EMAIL_PROVIDER || 'log' }}
 
       - name: Deploy
-        run: flyctl deploy --remote-only --app gluecron
+        # --ha=false forces single-machine deploy. The [[mounts]] block in
+        # fly.toml attaches to ONE gluecron_repos volume; Fly's default HA
+        # mode spins up a second machine that cannot attach the volume and
+        # crash-loops. Single volume → single machine.
+        run: flyctl deploy --remote-only --ha=false --app gluecron
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
 

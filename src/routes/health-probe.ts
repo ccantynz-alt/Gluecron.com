@@ -26,6 +26,7 @@ health.use("*", async (c, next) => {
 
 health.get("/healthz", (c) => {
   return c.json({
+    status: "ok",
     ok: true,
     uptimeMs: Date.now() - started,
   });

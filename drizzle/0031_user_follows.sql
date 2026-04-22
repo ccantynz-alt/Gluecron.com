@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS "user_follows" (
   PRIMARY KEY ("follower_id", "following_id"),
   CONSTRAINT "user_follows_no_self" CHECK ("follower_id" <> "following_id")
 );
+--> statement-breakpoint
 
 CREATE INDEX IF NOT EXISTS "user_follows_following_idx"
   ON "user_follows" ("following_id");

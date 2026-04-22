@@ -16,9 +16,11 @@ CREATE TABLE IF NOT EXISTS "commit_statuses" (
   "created_at" timestamp NOT NULL DEFAULT now(),
   "updated_at" timestamp NOT NULL DEFAULT now()
 );
+--> statement-breakpoint
 
 CREATE UNIQUE INDEX IF NOT EXISTS "commit_statuses_repo_sha_context_unique"
   ON "commit_statuses" ("repository_id", "commit_sha", "context");
+--> statement-breakpoint
 
 CREATE INDEX IF NOT EXISTS "commit_statuses_repo_sha_idx"
   ON "commit_statuses" ("repository_id", "commit_sha");

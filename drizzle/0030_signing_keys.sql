@@ -20,11 +20,14 @@ CREATE TABLE IF NOT EXISTS "signing_keys" (
   "last_used_at" timestamp,
   "created_at" timestamp NOT NULL DEFAULT now()
 );
+--> statement-breakpoint
 
 CREATE UNIQUE INDEX IF NOT EXISTS "signing_keys_fp_unique"
   ON "signing_keys" ("key_type", "fingerprint");
+--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "signing_keys_user_idx"
   ON "signing_keys" ("user_id");
+--> statement-breakpoint
 
 CREATE TABLE IF NOT EXISTS "commit_verifications" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -38,6 +41,7 @@ CREATE TABLE IF NOT EXISTS "commit_verifications" (
   "signer_fingerprint" text,
   "verified_at" timestamp NOT NULL DEFAULT now()
 );
+--> statement-breakpoint
 
 CREATE UNIQUE INDEX IF NOT EXISTS "commit_verifications_sha_unique"
   ON "commit_verifications" ("repository_id", "commit_sha");

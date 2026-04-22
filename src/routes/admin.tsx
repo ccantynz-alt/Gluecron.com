@@ -220,6 +220,7 @@ admin.get("/admin/users", async (c) => {
           name="q"
           value={q}
           placeholder="Search username or email"
+          aria-label="Search username or email"
           style="width:320px"
         />{" "}
         <button type="submit" class="btn">
@@ -422,6 +423,7 @@ admin.get("/admin/flags", async (c) => {
                 type="text"
                 name={k}
                 value={current}
+                aria-label={k}
                 style="font-family:var(--font-mono)"
               />
               <div
@@ -516,6 +518,7 @@ admin.get("/admin/digests", async (c) => {
             name="username"
             placeholder="username"
             required
+            aria-label="Username"
             style="width:240px"
           />
           <button type="submit" class="btn btn-sm">

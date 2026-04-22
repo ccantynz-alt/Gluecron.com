@@ -70,7 +70,7 @@ async function createWorktree(
   repoDir: string,
   branch: string
 ): Promise<{ path: string; ok: boolean; error?: string }> {
-  const path = join(repoDir, `_repair_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`);
+  const path = join(repoDir, `_repair_${Date.now()}_${crypto.randomUUID().replace(/-/g, '').slice(0, 8)}`);
   const res = await exec(["git", "worktree", "add", path, branch], { cwd: repoDir });
   if (res.exitCode !== 0) {
     return { path, ok: false, error: res.stderr };

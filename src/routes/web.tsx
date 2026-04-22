@@ -100,7 +100,7 @@ web.get("/new", requireAuth, (c) => {
         <form method="post" action="/new">
           <div class="form-group">
             <label>Owner</label>
-            <input type="text" value={user.username} disabled class="input-disabled" />
+            <input type="text" value={user.username} disabled aria-label="Owner" class="input-disabled" />
           </div>
           <div class="form-group">
             <label for="name">Repository name</label>
@@ -555,6 +555,7 @@ git push -u gluecron main`}</pre>
               name="name"
               placeholder="new-repo-name"
               required
+              aria-label="New repository name"
               style="width:200px"
             />
             <button type="submit" class="btn btn-primary">
@@ -1181,6 +1182,7 @@ web.get("/:owner/:repo/search", async (c) => {
             name="q"
             value={q}
             placeholder="Search code..."
+            aria-label="Search code"
             style="flex: 1; padding: 8px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); font-size: 14px"
           />
           <button type="submit" class="btn btn-primary">

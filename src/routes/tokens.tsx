@@ -137,6 +137,7 @@ tokens.get("/settings/tokens", async (c) => {
                     name="scopes"
                     value={scope}
                     checked={scope === "repo"}
+                    aria-label={scope}
                   />{" "}
                   {scope}
                 </label>

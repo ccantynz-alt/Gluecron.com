@@ -45,6 +45,14 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install project dependencies
+        run: bun install --frozen-lockfile
+
       - name: Clone GateTest (single source of truth)
         run: |
           git clone --depth 1 https://github.com/ccantynz-alt/gatetest.git "$RUNNER_TEMP/gatetest"

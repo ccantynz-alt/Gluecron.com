@@ -50,7 +50,7 @@ function slugify(spec: string): string {
 }
 
 function randomSuffix(): string {
-  return Math.random().toString(16).slice(2, 8);
+  return crypto.randomUUID().replace(/-/g, '').slice(0, 6);
 }
 
 export async function createSpecPR(args: SpecPRArgs): Promise<SpecPRResult> {

@@ -115,6 +115,7 @@ symbols.get("/:owner/:repo/symbols", async (c) => {
             name="q"
             placeholder="Search symbol name..."
             required
+            aria-label="Search symbol name"
             style="flex:1"
           />
           <button type="submit" class="btn">
@@ -228,6 +229,7 @@ symbols.get("/:owner/:repo/symbols/search", async (c) => {
             value={q}
             placeholder="Search symbol name..."
             required
+            aria-label="Search symbol name"
             style="flex:1"
           />
           <button type="submit" class="btn">

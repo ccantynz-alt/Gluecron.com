@@ -246,6 +246,7 @@ wikiRoutes.get("/:owner/:repo/wiki/new", requireAuth, async (c) => {
           name="title"
           placeholder="Page title"
           required
+          aria-label="Page title"
           style="padding: 8px;"
         />
         <textarea
@@ -426,6 +427,7 @@ wikiRoutes.get(
             name="title"
             value={page.title}
             required
+            aria-label="Page title"
             style="padding: 8px;"
           />
           <textarea
@@ -439,6 +441,7 @@ wikiRoutes.get(
             type="text"
             name="message"
             placeholder="Revision message (optional)"
+            aria-label="Revision message"
             style="padding: 8px;"
           />
           <button type="submit" class="btn btn-primary">

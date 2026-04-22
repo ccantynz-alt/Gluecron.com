@@ -22,7 +22,7 @@ describe("import-bulk — helper exports", () => {
 
   it("scrubSecrets redacts token + embedded-creds URL", async () => {
     const { scrubSecrets } = await import("../lib/import-helper");
-    const token = "ghp_abc123secret";
+    const token = "github-pat-test-fixture";
     const msg = `fatal: could not read from https://${token}@github.com/foo/bar.git (token=${token})`;
     const out = scrubSecrets(msg, token);
     expect(out).not.toContain(token);

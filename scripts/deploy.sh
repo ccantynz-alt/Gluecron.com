@@ -19,7 +19,9 @@ echo "=========================================="
 command -v git >/dev/null 2>&1 || { echo "git required"; exit 1; }
 command -v bun >/dev/null 2>&1 || {
   echo "Installing Bun..."
-  curl -fsSL https://bun.sh/install | bash
+  curl -fsSL --output /tmp/bun-install.sh https://bun.sh/install
+  bash /tmp/bun-install.sh
+  rm -f /tmp/bun-install.sh
   export PATH="$HOME/.bun/bin:$PATH"
 }
 

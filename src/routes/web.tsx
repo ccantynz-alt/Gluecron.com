@@ -7,6 +7,7 @@ import { Hono } from "hono";
 import { html } from "hono/html";
 import { eq, and, desc, inArray, sql } from "drizzle-orm";
 import { db } from "../db";
+import { config } from "../lib/config";
 import {
   users,
   repositories,
@@ -515,7 +516,7 @@ web.get("/:owner/:repo", async (c) => {
         <div class="empty-state">
           <h2>Empty repository</h2>
           <p>Get started by pushing code:</p>
-          <pre>{`git remote add gluecron http://localhost:3000/${owner}/${repo}.git
+          <pre>{`git remote add gluecron ${config.appBaseUrl}/${owner}/${repo}.git
 git push -u gluecron main`}</pre>
         </div>
       </Layout>

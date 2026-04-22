@@ -12,6 +12,7 @@ import type { AuthEnv } from "../middleware/auth";
 import { eq, sql } from "drizzle-orm";
 import { db } from "../db";
 import { repositories, sshKeys, apiTokens, users } from "../db/schema";
+import { config } from "../lib/config";
 import {
   Container,
   WelcomeHero,
@@ -149,7 +150,7 @@ onboardingRoutes.get("/getting-started", softAuth, requireAuth, async (c) => {
           <Card style="padding:16px;margin-bottom:20px">
             <h3 style="font-size:14px;margin:0 0 8px 0">Push an existing project</h3>
             <CopyBlock
-              text={`git remote add gluecron http://localhost:3000/${user.username}/your-repo.git\ngit push -u gluecron main`}
+              text={`git remote add gluecron ${config.appBaseUrl}/${user.username}/your-repo.git\ngit push -u gluecron main`}
               label="Commands"
             />
           </Card>

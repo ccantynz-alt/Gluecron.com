@@ -205,7 +205,7 @@ const navScript = `
         var item = filtered[i];
         var cls = i === selected ? 'cmdk-item cmdk-active' : 'cmdk-item';
         var bg = i === selected ? 'background:var(--bg);' : '';
-        html += '<div class="' + cls + '" data-idx="' + i + '" data-href="' + item.href + '"' +
+        html += '<div class="' + cls + '" data-idx="' + i + '" data-url="' + item.href + '"' +
                 ' style="padding:10px 16px;cursor:pointer;border-bottom:1px solid var(--border);' + bg + '">' +
                 '<div>' + item.label + '</div>' +
                 '<div style="font-size:11px;color:var(--text-muted)">' + item.href + '</div>' +
@@ -241,7 +241,7 @@ const navScript = `
       var t = e.target;
       if (t && t.id === 'cmdk-backdrop') { closePalette(); return; }
       var item = t && t.closest && t.closest('.cmdk-item');
-      if (item) { go(item.getAttribute('data-href')); }
+      if (item) { go(item.getAttribute('data-url')); }
     });
 
     document.addEventListener('input', function(e){

@@ -459,6 +459,8 @@ export const Avatar: FC<{
       <img
         src={url}
         alt={name}
+        width={size}
+        height={size}
         style={`width:${size}px;height:${size}px;border-radius:50%;object-fit:cover`}
         loading="lazy"
       />

@@ -88,7 +88,7 @@ describe("hooks/post-receive — triggerCrontechDeploy (Finding 1 sender)", () =
   });
 
   it("sends Authorization: Bearer <secret> when GLUECRON_WEBHOOK_SECRET is set", async () => {
-    process.env.GLUECRON_WEBHOOK_SECRET = "s3cret-token";
+    process.env.GLUECRON_WEBHOOK_SECRET = "webhook-test-value";
     const calls = installFetchCapture();
 
     await triggerCrontechDeploy(

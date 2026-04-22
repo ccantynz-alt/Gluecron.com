@@ -236,7 +236,7 @@ describe("GateTest inbound hook", () => {
 
   it("POST /api/hooks/gatetest rejects bad bearer token", async () => {
     const prev = process.env.GATETEST_CALLBACK_SECRET;
-    process.env.GATETEST_CALLBACK_SECRET = "real-secret-abc123";
+    process.env.GATETEST_CALLBACK_SECRET = "gatetest-cb-fixture";
     const res = await app.request("/api/hooks/gatetest", {
       method: "POST",
       headers: {
@@ -252,12 +252,12 @@ describe("GateTest inbound hook", () => {
 
   it("POST /api/hooks/gatetest rejects malformed payload even when authed", async () => {
     const prev = process.env.GATETEST_CALLBACK_SECRET;
-    process.env.GATETEST_CALLBACK_SECRET = "real-secret-abc123";
+    process.env.GATETEST_CALLBACK_SECRET = "gatetest-cb-fixture";
     const res = await app.request("/api/hooks/gatetest", {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        authorization: "Bearer real-secret-abc123",
+        authorization: "Bearer gatetest-cb-fixture",
       },
       body: "not-json",
     });

@@ -161,6 +161,7 @@ required.get(
               name="checkName"
               required
               placeholder="GateTest"
+              aria-label="Check name"
               style="font-family:var(--font-mono)"
             />
           </div>

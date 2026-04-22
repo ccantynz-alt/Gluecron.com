@@ -221,11 +221,12 @@ releasesRoute.get("/:owner/:repo/releases/new", requireAuth, requireRepoAccess("
             required
             placeholder="v1.0.0"
             pattern="[A-Za-z0-9._\\-]+"
+            aria-label="Tag"
           />
         </div>
         <div class="form-group">
           <label>Target branch / commit</label>
-          <select name="target">
+          <select name="target" aria-label="Target branch">
             {branches.map((b) => (
               <option value={b} selected={b === repoRow.defaultBranch}>
                 {b}
@@ -235,11 +236,11 @@ releasesRoute.get("/:owner/:repo/releases/new", requireAuth, requireRepoAccess("
         </div>
         <div class="form-group">
           <label>Release name</label>
-          <input type="text" name="name" required placeholder="v1.0.0 — the big one" />
+          <input type="text" name="name" required placeholder="v1.0.0 — the big one" aria-label="Release name" />
         </div>
         <div class="form-group">
           <label>Previous tag (for AI changelog)</label>
-          <select name="previousTag">
+          <select name="previousTag" aria-label="Previous tag">
             <option value="">(auto — last tag)</option>
             {tags.map((t) => (
               <option value={t.name}>{t.name}</option>

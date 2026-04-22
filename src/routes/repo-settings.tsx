@@ -117,6 +117,7 @@ repoSettings.get("/:owner/:repo/settings", requireAuth, requireRepoAccess("admin
                   name="visibility"
                   value="public"
                   checked={!repo.isPrivate}
+                  aria-label="Public"
                 />
                 <div class="vis-label">Public</div>
               </label>
@@ -126,6 +127,7 @@ repoSettings.get("/:owner/:repo/settings", requireAuth, requireRepoAccess("admin
                   name="visibility"
                   value="private"
                   checked={repo.isPrivate}
+                  aria-label="Private"
                 />
                 <div class="vis-label">Private</div>
               </label>
@@ -197,6 +199,7 @@ repoSettings.get("/:owner/:repo/settings", requireAuth, requireRepoAccess("admin
               name="new_owner"
               placeholder="new-owner-username"
               required
+              aria-label="New owner username"
               style="width:60%"
             />{" "}
             <button type="submit" class="btn">

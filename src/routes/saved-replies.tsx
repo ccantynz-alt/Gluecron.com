@@ -115,6 +115,7 @@ replies.get("/settings/replies", async (c) => {
                           required
                           value={r.shortcut}
                           maxLength={64}
+                          aria-label="Shortcut"
                         />
                       </div>
                       <div class="form-group">

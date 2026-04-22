@@ -148,6 +148,7 @@ search.get("/search", async (c) => {
           name="q"
           value={q}
           placeholder="Search repositories, users, issues, PRs…"
+          aria-label="Search"
           style="width: 100%; padding: 10px 14px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); font-size: 14px"
           autofocus
         />

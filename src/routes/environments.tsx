@@ -200,6 +200,7 @@ r.get("/:owner/:repo/settings/environments", requireAuth, async (c) => {
                     name="reviewers"
                     value={reviewers.join(", ")}
                     placeholder="alice, bob"
+                    aria-label="Reviewers"
                   />
                 </div>
                 <div class="form-group" style="margin: 0">
@@ -210,6 +211,7 @@ r.get("/:owner/:repo/settings/environments", requireAuth, async (c) => {
                     min="0"
                     max="1440"
                     value={String(env.waitTimerMinutes)}
+                    aria-label="Wait timer in minutes"
                     style="width: 120px"
                   />
                 </div>
@@ -220,6 +222,7 @@ r.get("/:owner/:repo/settings/environments", requireAuth, async (c) => {
                     name="allowedBranches"
                     value={branches.join(", ")}
                     placeholder="main, release/*"
+                    aria-label="Allowed branches"
                   />
                 </div>
                 <div style="display: flex; justify-content: flex-end">
@@ -252,6 +255,7 @@ r.get("/:owner/:repo/settings/environments", requireAuth, async (c) => {
             name="name"
             required
             placeholder="production"
+            aria-label="Environment name"
           />
         </div>
         <div class="form-group">
@@ -267,7 +271,7 @@ r.get("/:owner/:repo/settings/environments", requireAuth, async (c) => {
         </div>
         <div class="form-group">
           <label>Reviewers (comma-separated usernames)</label>
-          <input type="text" name="reviewers" placeholder="alice, bob" />
+          <input type="text" name="reviewers" placeholder="alice, bob" aria-label="Reviewers" />
         </div>
         <div class="form-group">
           <label>Wait timer (minutes)</label>
@@ -277,6 +281,7 @@ r.get("/:owner/:repo/settings/environments", requireAuth, async (c) => {
             min="0"
             max="1440"
             value="0"
+            aria-label="Wait timer in minutes"
             style="width: 120px"
           />
         </div>
@@ -286,6 +291,7 @@ r.get("/:owner/:repo/settings/environments", requireAuth, async (c) => {
             type="text"
             name="allowedBranches"
             placeholder="main, release/*"
+            aria-label="Allowed branches"
           />
         </div>
         <button type="submit" class="btn btn-primary">

@@ -19,18 +19,12 @@ dist
 build
 *.js.map
 
-# Documentation
-*.md
-LICENSE
-
 # Tests
 src/__tests__
 **/*.test.ts
 **/*.spec.ts
 
-# Local tooling config
-drizzle.config.ts
-tsconfig.json
+# Local tooling config (linters/formatters — not needed at runtime)
 .editorconfig
 .eslintrc*
 .prettierrc*
@@ -47,3 +41,6 @@ Thumbs.db
 .vscode
 *.swp
 *.swo
+
+# Claude / agent tooling (internal)
+.claude

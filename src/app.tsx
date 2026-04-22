@@ -90,6 +90,7 @@ import issueSimilarityRoutes from "./routes/issue-similarity";
 import prLeadTimeRoutes from "./routes/pr-lead-time";
 import languageRoutes from "./routes/languages";
 import repoSizeRoutes from "./routes/repo-size";
+import prSizeRoutes from "./routes/pr-size";
 import webRoutes from "./routes/web";
 
 const app = new Hono();
@@ -330,6 +331,9 @@ app.route("/", languageRoutes);
 // Must be mounted BEFORE insightsRoutes so the static `/insights/size` path
 // wins over any future dynamic `/insights/:id` route.
 app.route("/", repoSizeRoutes);
+
+// PR size distribution — /:owner/:repo/insights/pr-size (Block J32)
+app.route("/", prSizeRoutes);
 
 // Insights + milestones
 app.route("/", insightsRoutes);

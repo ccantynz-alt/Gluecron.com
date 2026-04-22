@@ -701,3 +701,36 @@ export async function aheadBehind(
   if (!Number.isFinite(ahead) || !Number.isFinite(behind)) return null;
   return { ahead, behind };
 }
+
+/**
+ * Total additions + deletions + file count between two refs, via
+ * `git diff --numstat base..head`. Binary files count as 0 lines.
+ * Returns null on any git failure — the caller decides how to degrade.
+ */
+export async function diffNumstat(
+  owner: string,
+  name: string,
+  base: string,
+  head: string
+): Promise<{ additions: number; deletions: number; files: number } | null> {
+  const path = repoPath(owner, name);
+  const { stdout, exitCode } = await exec(
+    ["git", "diff", "--numstat", `${base}..${head}`],
+    { cwd: path }
+  );
+  if (exitCode !== 0) return null;
+  let additions = 0;
+  let deletions = 0;
+  let files = 0;
+  for (const line of stdout.split("\n")) {
+    if (!line.trim()) continue;
+    const parts = line.split("\t");
+    if (parts.length < 3) continue;
+    files++;
+    const add = parts[0] === "-" ? 0 : Number.parseInt(parts[0]!, 10);
+    const del = parts[1] === "-" ? 0 : Number.parseInt(parts[1]!, 10);
+    if (Number.isFinite(add)) additions += add;
+    if (Number.isFinite(del)) deletions += del;
+  }
+  return { additions, deletions, files };
+}

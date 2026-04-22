@@ -182,6 +182,12 @@ insights.get("/:owner/:repo/insights", async (c) => {
           >
             Size audit &rarr;
           </a>
+          <a
+            href={`/${owner}/${repo}/insights/pr-size`}
+            style="font-size: 12px; color: var(--accent)"
+          >
+            PR size &rarr;
+          </a>
         </div>
       </div>
 

@@ -1801,6 +1801,11 @@ export const userQuotas = pgTable("user_quotas", {
     .default(0),
   cycleStart: timestamp("cycle_start").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  // Stripe linkage (migration 0038). Null until the user first upgrades.
+  stripeCustomerId: text("stripe_customer_id"),
+  stripeSubscriptionId: text("stripe_subscription_id"),
+  stripeSubscriptionStatus: text("stripe_subscription_status"),
+  currentPeriodEnd: timestamp("current_period_end"),
 });
 
 export type UserQuota = typeof userQuotas.$inferSelect;

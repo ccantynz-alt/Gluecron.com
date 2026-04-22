@@ -18,7 +18,11 @@
  */
 
 import { Hono } from "hono";
+import { eq, sql } from "drizzle-orm";
+import { db } from "../db";
+import { userQuotas } from "../db/schema";
 import { reportError } from "../lib/observability";
+import { getSubscription, planSlugFromSubscription } from "../lib/stripe";
 
 const stripeWebhook = new Hono();
 
@@ -96,8 +100,19 @@ stripeWebhook.post("/api/webhooks/stripe", async (c) => {
     `[stripe-webhook] authentic event id=${event.id} type=${event.type}`
   );
 
-  // v1: accept-and-log only. Full handling ships with the billing integration
-  // sprint. Stripe retries non-200s — returning 200 here prevents that.
+  // Handle subscription lifecycle. Every handler swallows errors and returns
+  // 200 so Stripe doesn't retry-storm on transient DB issues — we log and
+  // rely on the next event (Stripe fires subscription.updated periodically).
+  try {
+    await handleStripeEvent(event as StripeEvent);
+  } catch (err) {
+    reportError(err as Error, {
+      path: "/api/webhooks/stripe",
+      stripeEventType: (event as StripeEvent).type,
+      stripeEventId: (event as StripeEvent).id,
+    });
+  }
+
   return c.json({ received: true });
 });
 
@@ -108,5 +123,195 @@ stripeWebhook.onError((err, c) => {
   reportError(err, { path: c.req.path, scope: "stripe-webhook" });
   return c.json({ error: "internal error" }, 500);
 });
+
+// ---------------------------------------------------------------------------
+// Event handlers — each is defensive (never throws). Called from the main
+// route handler after signature verification.
+// ---------------------------------------------------------------------------
+
+type StripeEvent = {
+  id: string;
+  type: string;
+  data?: { object?: Record<string, unknown> };
+};
+
+async function handleStripeEvent(event: StripeEvent): Promise<void> {
+  const obj = event.data?.object ?? {};
+  switch (event.type) {
+    case "checkout.session.completed": {
+      const userId = String(obj.client_reference_id ?? "");
+      const customerId = String(obj.customer ?? "");
+      const subscriptionId = obj.subscription ? String(obj.subscription) : null;
+      if (!userId || !customerId) {
+        console.warn(
+          `[stripe-webhook] checkout.session.completed missing userId/customerId — skipping`
+        );
+        return;
+      }
+      await upsertQuotaRow(userId, {
+        stripeCustomerId: customerId,
+        stripeSubscriptionId: subscriptionId,
+      });
+      // Enrich from the subscription object to set the actual plan slug
+      if (subscriptionId) await reconcileSubscription(subscriptionId, userId);
+      return;
+    }
+    case "customer.subscription.created":
+    case "customer.subscription.updated": {
+      const subId = String(obj.id ?? "");
+      if (!subId) return;
+      const userId = String(
+        (obj.metadata as Record<string, string> | undefined)?.gluecron_user_id ?? ""
+      );
+      await reconcileSubscription(subId, userId || null);
+      return;
+    }
+    case "customer.subscription.deleted": {
+      const customerId = String(obj.customer ?? "");
+      if (!customerId) return;
+      await db
+        .update(userQuotas)
+        .set({
+          planSlug: "free",
+          stripeSubscriptionId: null,
+          stripeSubscriptionStatus: "canceled",
+          currentPeriodEnd: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(userQuotas.stripeCustomerId, customerId));
+      console.log(`[stripe-webhook] downgraded customer=${customerId} to free`);
+      return;
+    }
+    case "invoice.payment_failed": {
+      const customerId = String(obj.customer ?? "");
+      if (!customerId) return;
+      // Mark status — don't downgrade immediately (Stripe retries billing
+      // over a grace window; a future subscription.updated with status=
+      // past_due/unpaid/canceled will do the actual plan move).
+      await db
+        .update(userQuotas)
+        .set({
+          stripeSubscriptionStatus: "past_due",
+          updatedAt: new Date(),
+        })
+        .where(eq(userQuotas.stripeCustomerId, customerId));
+      return;
+    }
+    default:
+      // All other events (invoice.payment_succeeded etc.) — accept silently.
+      return;
+  }
+}
+
+async function reconcileSubscription(
+  subscriptionId: string,
+  fallbackUserId: string | null
+): Promise<void> {
+  const res = await getSubscription(subscriptionId);
+  if (!res.ok) {
+    console.warn(
+      `[stripe-webhook] getSubscription(${subscriptionId}) failed: ${res.error}`
+    );
+    return;
+  }
+  const sub = res.subscription;
+  const slug = planSlugFromSubscription(sub);
+  const customerId = sub.customer;
+  const status = sub.status;
+  const periodEnd = sub.current_period_end
+    ? new Date(sub.current_period_end * 1000)
+    : null;
+
+  // Prefer locating by customer id (set during checkout.session.completed).
+  // Fall back to metadata gluecron_user_id if present.
+  const userId =
+    (sub.metadata?.gluecron_user_id as string | undefined) ?? fallbackUserId ?? null;
+
+  if (status !== "active" && status !== "trialing") {
+    // Non-active subscriptions don't grant a paid plan. We still record
+    // their state so the user can see "past_due" in /settings/billing.
+    if (customerId) {
+      await db
+        .update(userQuotas)
+        .set({
+          stripeSubscriptionId: sub.id,
+          stripeSubscriptionStatus: status,
+          currentPeriodEnd: periodEnd,
+          updatedAt: new Date(),
+        })
+        .where(eq(userQuotas.stripeCustomerId, customerId));
+    }
+    return;
+  }
+
+  if (!slug) {
+    console.warn(
+      `[stripe-webhook] subscription ${sub.id} active but no plan slug resolvable — leaving plan unchanged`
+    );
+    return;
+  }
+
+  if (userId) {
+    await upsertQuotaRow(userId, {
+      planSlug: slug,
+      stripeCustomerId: customerId,
+      stripeSubscriptionId: sub.id,
+      stripeSubscriptionStatus: status,
+      currentPeriodEnd: periodEnd,
+    });
+    console.log(
+      `[stripe-webhook] user=${userId} → plan=${slug} (status=${status})`
+    );
+    return;
+  }
+
+  // Last resort: locate by customer id and update in place
+  if (customerId) {
+    await db
+      .update(userQuotas)
+      .set({
+        planSlug: slug,
+        stripeSubscriptionId: sub.id,
+        stripeSubscriptionStatus: status,
+        currentPeriodEnd: periodEnd,
+        updatedAt: new Date(),
+      })
+      .where(eq(userQuotas.stripeCustomerId, customerId));
+  }
+}
+
+async function upsertQuotaRow(
+  userId: string,
+  patch: {
+    planSlug?: string;
+    stripeCustomerId?: string | null;
+    stripeSubscriptionId?: string | null;
+    stripeSubscriptionStatus?: string | null;
+    currentPeriodEnd?: Date | null;
+  }
+): Promise<void> {
+  // Try update first; if no row exists, insert.
+  const res = await db
+    .update(userQuotas)
+    .set({ ...patch, updatedAt: new Date() })
+    .where(eq(userQuotas.userId, userId))
+    .returning({ userId: userQuotas.userId });
+  if (res.length === 0) {
+    await db
+      .insert(userQuotas)
+      .values({
+        userId,
+        planSlug: patch.planSlug ?? "free",
+        stripeCustomerId: patch.stripeCustomerId ?? null,
+        stripeSubscriptionId: patch.stripeSubscriptionId ?? null,
+        stripeSubscriptionStatus: patch.stripeSubscriptionStatus ?? null,
+        currentPeriodEnd: patch.currentPeriodEnd ?? null,
+      })
+      .onConflictDoUpdate({
+        target: userQuotas.userId,
+        set: { ...patch, updatedAt: new Date() },
+      });
+  }
+}
 
 export default stripeWebhook;

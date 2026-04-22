@@ -1,0 +1,413 @@
+================================================================================
+GLUECRON — COMPLETE SETUP & ARCHITECTURE GUIDE FOR ALECRAE
+================================================================================
+
+PREREQUISITES
+-------------
+curl -fsSL https://bun.sh/install | bash
+sudo apt install git
+Sign up at https://neon.tech for PostgreSQL
+
+CLONE & INSTALL
+---------------
+git clone https://github.com/ccantynz-alt/Gluecron.com.git
+cd Gluecron.com
+bun install
+
+ENVIRONMENT FILE (.env)
+-----------------------
+DATABASE_URL=postgresql://user:password@host/gluecron
+GIT_REPOS_PATH=./repos
+PORT=3000
+GATETEST_URL=https://gatetest.ai/api/scan/run
+GATETEST_API_KEY=
+GATETEST_CALLBACK_SECRET=
+GATETEST_HMAC_SECRET=
+CRONTECH_DEPLOY_URL=https://crontech.ai/api/trpc/tenant.deploy
+ANTHROPIC_API_KEY=
+EMAIL_PROVIDER=log
+EMAIL_FROM=gluecron <no-reply@gluecron.local>
+RESEND_API_KEY=
+APP_BASE_URL=http://localhost:3000
+
+DATABASE SETUP
+--------------
+bun run db:migrate
+bun run db:studio
+
+RUN
+---
+bun dev       (hot-reload dev server on port 3000)
+bun test      (1448 tests must pass)
+bun start     (production mode)
+
+VERIFICATION
+------------
+bun install
+bun run db:migrate
+mkdir -p repos
+bun test
+bun dev
+curl http://localhost:3000/health
+curl http://localhost:3000/explore
+
+================================================================================
+ARCHITECTURE
+================================================================================
+
+src/index.ts                  Bun HTTP server entry point
+src/app.tsx                   Hono app — middleware + all 87 route mounts
+
+src/db/schema.ts              Drizzle ORM — ALL tables
+src/db/index.ts               Lazy DB connection (proxy pattern)
+src/db/migrate.ts             Migration runner
+
+src/git/repository.ts         Git plumbing (tree, blob, commits, diff, branches, blame, search, raw, listTreeRecursive, aheadBehind, diffNumstat)
+src/git/protocol.ts           Smart HTTP protocol (pkt-line, clone/push)
+
+src/hooks/post-receive.ts     GateTest + Crontech webhooks on every git push
+
+src/middleware/auth.ts         softAuth (optional) + requireAuth (required)
+src/middleware/rate-limit.ts   Token-bucket rate limiter (X-RateLimit-* headers)
+src/middleware/request-context.ts  X-Request-Id + request timing
+
+src/views/layout.tsx           HTML shell + dark theme CSS + auth-aware nav
+src/views/components.tsx       RepoHeader, RepoNav, RepoCard, FileTable, DiffViewer
+src/views/reactions.tsx        ReactionsBar (no-JS compatible)
+
+src/lib/                       80 pure helper modules (IO-free, fully testable)
+src/routes/                    87 Hono route files
+src/__tests__/                 75 test files, 1448 tests
+drizzle/                       37 SQL migration files
+
+================================================================================
+COMPONENT CHECKLIST (DEPENDENCY ORDER)
+================================================================================
+
+INFRASTRUCTURE (must work first)
+ 1. Bun runtime — install Bun, verify bun --version
+ 2. PostgreSQL / Neon — get a DATABASE_URL, verify connectivity
+ 3. Git CLI — git --version must be 2.x+
+ 4. Run migrations — bun run db:migrate (37 migrations)
+ 5. Create repos/ directory — mkdir -p repos
+ 6. Verify health — curl http://localhost:3000/health
+
+CORE FEATURES
+ 7. Auth — register/login/logout, bcrypt passwords, 30-day sessions
+ 8. Repositories — create, clone, push (Smart HTTP protocol)
+ 9. File browser — tree view, blob view, syntax highlighting
+10. Commits — log, diff, blame
+11. Issues — CRUD, comments, labels, close/reopen
+12. Pull requests — create, review, merge (merge/squash/rebase), close
+13. Webhooks — HMAC-signed POST on push/issue/PR/star events
+14. Fork — full repo fork via git clone --bare
+15. Search — global search (repos, users, issues, PRs)
+16. Dashboard — personal feed
+17. Explore — discover public repos
+
+CI/CD & SECURITY
+18. GateTest integration — scan on every push, callback webhook
+19. Workflow runner — .gluecron/workflows/*.yml auto-discovery
+20. Security scanner — secret detection in push payloads
+21. Code scanning UI — vulnerability dashboard
+22. Branch protection — required reviews, status checks
+23. Rulesets — granular per-branch rules
+
+AI FEATURES (require ANTHROPIC_API_KEY)
+24. AI code review — automatic review comments on PRs
+25. AI code explain — /:owner/:repo/explain
+26. AI changelog — auto-generated release notes
+27. Copilot completions — POST /api/copilot/completions
+28. Semantic search — embeddings-based code search
+29. AI test generator — generate test skeletons
+30. AI assistant — /ask chat interface
+
+PLATFORM FEATURES
+31. Organizations + teams — multi-user access control
+32. OAuth provider — third-party app authorization
+33. 2FA / TOTP — time-based one-time passwords
+34. Passkeys / WebAuthn — hardware key auth
+35. Personal access tokens — SHA-256 hashed API keys
+36. Notifications — inbox with unread count
+37. Email notifications — Resend integration
+38. Releases + tags — semantic versioning, asset uploads
+39. Package registry — npm-compatible publish/install
+40. Pages / static hosting — deploy from branch
+41. Wiki — per-repo documentation
+42. Discussions — threaded Q&A
+43. Gists — shareable code snippets
+44. Projects — kanban boards
+45. Merge queue — automated merge sequencing
+
+INSIGHTS & ANALYTICS (J-series beyond-parity)
+46. Insights dashboard — green rate, contributors, commit graph
+47. Repository pulse — activity summary with rolling window
+48. Response time metric — p50/p90 time-to-first-response
+49. PR lead-time metric — created-to-merged percentiles
+50. PR size distribution — XS/S/M/L/XL classification
+51. Language breakdown — stacked bar + per-language table
+52. Size audit — largest files + directory breakdown
+53. Branch staleness — fresh/aging/stale/abandoned classification
+54. Stale issue detector — open issues past threshold
+55. Issue duplicate suggestions — token-Jaccard similarity
+56. Contribution heatmap — GitHub-style calendar
+57. Traffic analytics — views, clones, referrers
+58. Atom feeds — commits/releases/issues.atom
+
+================================================================================
+KEY LIB MODULES (src/lib/)
+================================================================================
+
+config.ts             Environment config
+auth.ts               Password hashing (bcrypt), session tokens
+cache.ts              LRU cache + cached() helper
+highlight.ts          Syntax highlighting (40+ languages)
+markdown.ts           Markdown rendering (GFM)
+ai-client.ts          Anthropic SDK wrapper
+ai-review.ts          AI code review
+ai-explain.ts         AI code explanation
+ai-completion.ts      Copilot completions
+gate.ts               GateTest CI integration
+security-scan.ts      Secret scanner
+workflow-parser.ts    Actions-equivalent YAML parser
+workflow-runner.ts    Workflow execution engine
+dep-updater.ts        Dependabot-equivalent
+oauth.ts              OAuth 2.0 provider
+totp.ts               2FA / TOTP
+webauthn.ts           WebAuthn / passkey
+graphql.ts            GraphQL schema
+email.ts              Email sending
+notify.ts             Notification fan-out
+orgs.ts               Organizations + teams
+packages.ts           npm-compatible registry
+pages.ts              Static hosting
+merge-queue.ts        Merge queue
+rulesets.ts           Repository rulesets
+branch-protection.ts  Branch protection
+branch-rename.ts      Branch rename with cascades
+branch-age.ts         Branch staleness analysis
+issue-query.ts        GitHub-style search DSL
+issue-similarity.ts   Duplicate detection
+issue-templates.ts    Issue/PR templates
+close-keywords.ts     Fixes #N auto-close
+code-suggestions.ts   Suggestion block apply
+codeowners-lint.ts    CODEOWNERS validator
+release-notes.ts      Changelog generator
+response-time.ts      Time-to-first-response (J25)
+pr-lead-time.ts       PR lead-time (J29)
+pr-size.ts            PR size distribution (J32)
+language-stats.ts     Language breakdown (J30)
+repo-size.ts          Size audit (J31)
+repo-pulse.ts         Activity summary
+stale-issues.ts       Stale issue detector
+atom-feed.ts          Atom feed renderer
+audit-csv.ts          CSV export (RFC 4180)
+badge.ts              SVG badges
+community.ts          Health scorecard
+contribution-heatmap.ts  Contribution calendar
+deps.ts               Dependency graph
+advisories.ts         Security advisories
+sso.ts                Enterprise SSO
+mirrors.ts            Repository mirroring
+symbols.ts            Symbol navigation
+traffic.ts            Traffic analytics
+billing.ts            Usage tracking
+marketplace.ts        App marketplace
+
+================================================================================
+KEY ROUTES (src/routes/)
+================================================================================
+
+git.ts                Smart HTTP clone/push
+api.ts                REST API (repo CRUD)
+auth.tsx              Register, login, logout
+web.tsx               File browser, commits, diffs (catch-all)
+issues.tsx            Issue tracker
+pulls.tsx             Pull requests
+editor.tsx            Web file editor
+compare.tsx           Branch comparison
+settings.tsx          User settings
+repo-settings.tsx     Repository settings
+insights.tsx          Insights dashboard
+workflows.tsx         CI/CD runner
+packages.tsx          Package registry UI
+pages.tsx             Static hosting
+discussions.tsx       Discussions
+wikis.tsx             Wiki
+gists.tsx             Gists
+projects.tsx          Projects
+orgs.tsx              Organizations
+admin.tsx             Admin panel
+billing.tsx           Billing UI
+graphql.ts            GraphQL endpoint
+marketplace.tsx       App marketplace
+languages.tsx         Language breakdown (J30)
+repo-size.tsx         Size audit (J31)
+pr-size.tsx           PR size distribution (J32)
+pr-lead-time.tsx      PR lead-time (J29)
+response-time.tsx     Response-time (J25)
+branch-age.tsx        Branch staleness (J27)
+pulse.tsx             Repository pulse (J18)
+
+================================================================================
+JSON CONFIGURATION (save as gluecron-setup.json)
+================================================================================
+
+{
+  "project": {
+    "name": "gluecron",
+    "version": "0.1.0",
+    "description": "AI-native code intelligence platform",
+    "repository": "https://github.com/ccantynz-alt/Gluecron.com"
+  },
+  "runtime": {
+    "engine": "bun",
+    "minimumVersion": "1.3.0",
+    "entryPoint": "src/index.ts"
+  },
+  "framework": {
+    "name": "hono",
+    "version": "^4.7.0",
+    "jsx": "react-jsx",
+    "jsxImportSource": "hono/jsx",
+    "rendering": "server-side (SSR)"
+  },
+  "database": {
+    "orm": "drizzle-orm",
+    "dialect": "postgresql",
+    "provider": "neon-serverless",
+    "schemaFile": "src/db/schema.ts",
+    "migrationsDir": "drizzle/",
+    "migrationCount": 37,
+    "connectionPattern": "lazy-proxy"
+  },
+  "git": {
+    "protocol": "smart-http",
+    "reposPath": "./repos",
+    "storageFormat": "bare",
+    "protocolFile": "src/git/protocol.ts",
+    "plumbingFile": "src/git/repository.ts"
+  },
+  "typescript": {
+    "target": "ES2022",
+    "module": "ES2022",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "types": ["bun-types"]
+  },
+  "testing": {
+    "runner": "bun:test",
+    "totalTests": 1448,
+    "testFiles": 75,
+    "testDir": "src/__tests__/",
+    "pattern": "**/*.test.ts",
+    "command": "bun test"
+  },
+  "integrations": {
+    "gatetest": {
+      "purpose": "CI security scanning on every git push",
+      "endpoint": "https://gatetest.ai/api/scan/run",
+      "callbackEndpoint": "/api/v1/gate-runs",
+      "authMethod": "HMAC"
+    },
+    "crontech": {
+      "purpose": "Auto-deploy on push to main",
+      "endpoint": "https://crontech.ai/api/trpc/tenant.deploy"
+    },
+    "anthropic": {
+      "purpose": "AI features (review, explain, copilot, search, tests, chat)",
+      "sdk": "@anthropic-ai/sdk ^0.88.0",
+      "gracefulDegradation": true,
+      "fallbackBehavior": "returns placeholder strings when no API key"
+    },
+    "resend": {
+      "purpose": "Transactional email delivery",
+      "fallbackProvider": "log"
+    }
+  },
+  "auth": {
+    "passwordHashing": "bcrypt",
+    "sessionDuration": "30 days",
+    "cookieBased": true,
+    "supportedMethods": [
+      "password",
+      "totp-2fa",
+      "webauthn-passkeys",
+      "oauth-apps",
+      "personal-access-tokens",
+      "enterprise-sso-oidc"
+    ]
+  },
+  "architecture": {
+    "layers": {
+      "entry": ["src/index.ts"],
+      "app": ["src/app.tsx"],
+      "middleware": ["src/middleware/auth.ts", "src/middleware/rate-limit.ts", "src/middleware/request-context.ts"],
+      "routes": "src/routes/ (87 files)",
+      "views": ["src/views/layout.tsx", "src/views/components.tsx", "src/views/reactions.tsx"],
+      "lib": "src/lib/ (80 pure helper modules)",
+      "db": ["src/db/schema.ts", "src/db/index.ts", "src/db/migrate.ts"],
+      "git": ["src/git/repository.ts", "src/git/protocol.ts"],
+      "hooks": ["src/hooks/post-receive.ts"]
+    },
+    "patterns": {
+      "pureFirst": "Business logic in src/lib/ as pure functions. Routes are thin shells.",
+      "neverFiveHundred": "Every route wraps resolveRepo in try/catch -> null -> 404.",
+      "internalReExports": "Every lib module exports __internal for testing.",
+      "softAuth": "Read-only routes use softAuth. Write routes use requireAuth.",
+      "mountOrder": "Static paths mount BEFORE dynamic /:number routes in app.tsx."
+    }
+  },
+  "commands": {
+    "install": "bun install",
+    "dev": "bun dev",
+    "start": "bun start",
+    "test": "bun test",
+    "dbMigrate": "bun run db:migrate",
+    "dbGenerate": "bun run db:generate",
+    "dbStudio": "bun run db:studio"
+  },
+  "environment": {
+    "required": ["DATABASE_URL"],
+    "optional": [
+      "GIT_REPOS_PATH (default: ./repos)",
+      "PORT (default: 3000)",
+      "ANTHROPIC_API_KEY (unlocks AI features)",
+      "GATETEST_URL",
+      "GATETEST_API_KEY",
+      "GATETEST_CALLBACK_SECRET",
+      "GATETEST_HMAC_SECRET",
+      "CRONTECH_DEPLOY_URL",
+      "EMAIL_PROVIDER (log | resend)",
+      "EMAIL_FROM",
+      "RESEND_API_KEY",
+      "APP_BASE_URL"
+    ]
+  },
+  "featureCounts": {
+    "routes": 87,
+    "libModules": 80,
+    "dbMigrations": 37,
+    "testFiles": 75,
+    "totalTests": 1448,
+    "totalExpects": 3810
+  },
+  "lockedComponents": [
+    "src/db/schema.ts",
+    "src/git/repository.ts",
+    "src/git/protocol.ts",
+    "src/hooks/post-receive.ts",
+    "src/views/layout.tsx",
+    "src/views/components.tsx",
+    "src/middleware/auth.ts",
+    "src/lib/config.ts",
+    "src/lib/auth.ts",
+    "src/lib/gate.ts",
+    "src/lib/security-scan.ts",
+    "BUILD_BIBLE.md"
+  ]
+}
+
+================================================================================
+END OF GUIDE
+================================================================================

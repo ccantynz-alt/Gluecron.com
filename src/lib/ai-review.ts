@@ -7,6 +7,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { config } from "./config";
+import { getRepoPath } from "../git/repository";
 
 interface ReviewComment {
   filePath: string;
@@ -43,15 +44,20 @@ export async function reviewDiff(
   headBranch: string,
   diffText: string
 ): Promise<ReviewResult> {
+  if (!isAiReviewEnabled()) {
+    return { summary: "AI review unavailable: ANTHROPIC_API_KEY not configured.", comments: [], approved: true };
+  }
   const client = getClient();
 
-  const message = await client.messages.create({
-    model: "claude-sonnet-4-20250514",
-    max_tokens: 4096,
-    messages: [
-      {
-        role: "user",
-        content: `You are reviewing a pull request on the repository "${repoFullName}".
+  let text = "";
+  try {
+    const message = await client.messages.create({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 4096,
+      messages: [
+        {
+          role: "user",
+          content: `You are reviewing a pull request on the repository "${repoFullName}".
 
 **PR Title:** ${prTitle}
 **PR Description:** ${prBody || "(none)"}
@@ -85,12 +91,14 @@ If the diff looks clean, return approved: true with an empty comments array.
 \`\`\`diff
 ${diffText.slice(0, 100000)}
 \`\`\``,
-      },
-    ],
-  });
-
-  const text =
-    message.content[0].type === "text" ? message.content[0].text : "";
+        },
+      ],
+    });
+    text = message.content[0].type === "text" ? message.content[0].text : "";
+  } catch (err) {
+    console.error("[ai-review] reviewDiff API call failed:", err);
+    return { summary: "AI review failed due to an API error.", comments: [], approved: true };
+  }
 
   try {
     // Extract JSON from response (may be wrapped in markdown code block)
@@ -125,20 +133,78 @@ export function isAiReviewEnabled(): boolean {
 }
 
 /**
- * Fire-and-forget AI review trigger. Callers .catch() failures.
- * Currently a stub that defers to reviewDiff once the diff is available.
+ * Fire-and-forget AI review trigger. Gets the branch diff, runs Claude review,
+ * and posts the results as pr_comments with isAiReview=true.
  */
 export async function triggerAiReview(
   ownerName: string,
   repoName: string,
-  _prId: string,
-  _title: string,
-  _body: string,
-  _baseBranch: string,
-  _headBranch: string,
+  prId: string,
+  title: string,
+  body: string,
+  baseBranch: string,
+  headBranch: string,
 ): Promise<void> {
   if (!isAiReviewEnabled()) return;
-  if (process.env.DEBUG_AI_REVIEW === "1") {
-    console.log("[ai-review] queued", ownerName, repoName, _prId);
+  try {
+    // Get branch diff
+    const repoDir = getRepoPath(ownerName, repoName);
+    const proc = Bun.spawn(
+      ["git", "diff", `${baseBranch}...${headBranch}`],
+      { cwd: repoDir, stdout: "pipe", stderr: "pipe" }
+    );
+    const diffRaw = await new Response(proc.stdout).text();
+    await proc.exited;
+
+    if (!diffRaw.trim()) return;
+
+    const result = await reviewDiff(
+      `${ownerName}/${repoName}`,
+      title,
+      body,
+      baseBranch,
+      headBranch,
+      diffRaw
+    );
+
+    // Load DB + schema lazily to avoid circular imports at module load time
+    const { db } = await import("../db");
+    const { pullRequests, prComments } = await import("../db/schema");
+    const { eq } = await import("drizzle-orm");
+
+    const [pr] = await db
+      .select({ repositoryId: pullRequests.repositoryId, authorId: pullRequests.authorId })
+      .from(pullRequests)
+      .where(eq(pullRequests.id, prId))
+      .limit(1);
+
+    if (!pr) return;
+
+    // Post summary comment
+    await db.insert(prComments).values({
+      pullRequestId: prId,
+      authorId: pr.authorId,
+      body: `**AI Code Review** ${result.approved ? "✓ Approved" : "⚠ Changes requested"}\n\n${result.summary}`,
+      isAiReview: true,
+    });
+
+    // Post inline comments
+    for (const comment of result.comments) {
+      if (!comment.body) continue;
+      await db.insert(prComments).values({
+        pullRequestId: prId,
+        authorId: pr.authorId,
+        body: comment.body,
+        isAiReview: true,
+        filePath: comment.filePath || null,
+        lineNumber: comment.lineNumber || null,
+      });
+    }
+
+    if (process.env.DEBUG_AI_REVIEW === "1") {
+      console.log("[ai-review] posted", 1 + result.comments.length, "comments on", ownerName, repoName, prId);
+    }
+  } catch (err) {
+    console.error("[ai-review] triggerAiReview failed:", err);
   }
 }

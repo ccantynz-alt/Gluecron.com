@@ -266,6 +266,9 @@ let _client: Anthropic | null = null;
 
 function getClient(): Anthropic {
   if (!_client) {
+    if (!config.anthropicApiKey) {
+      throw new Error("ANTHROPIC_API_KEY is not set");
+    }
     _client = new Anthropic({ apiKey: config.anthropicApiKey });
   }
   return _client;

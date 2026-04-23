@@ -92,13 +92,8 @@ export function detectTestFramework(
     return files.some((f) => needle.test(f));
   };
 
-  // Python first — it has the clearest signals.
-  if (language === "python") {
-    if (has("pytest.ini") || has("pyproject.toml") || has(/(^|\/)tests?\/.+test.*\.py$/))
-      return "pytest";
-    if (has(/(^|\/)test_.+\.py$/) || has(/_test\.py$/)) return "pytest";
-    return "pytest";
-  }
+  // Python always uses pytest (most widely adopted test runner).
+  if (language === "python") return "pytest";
 
   if (language === "go") return "go test";
   if (language === "rust") return "cargo test";

@@ -104,7 +104,9 @@ export const RepoNav: FC<{
     | "semantic"
     | "wiki"
     | "projects"
-    | "settings";
+    | "settings"
+    | "ask"
+    | "spec";
 }> = ({ owner, repo, active }) => (
   <div class="repo-nav">
     <a href={`/${owner}/${repo}`} class={active === "code" ? "active" : ""}>
@@ -171,11 +173,12 @@ export const RepoNav: FC<{
     >
       {"\u2728"} Explain
     </a>
-    <a href={`/${owner}/${repo}/ask`} style="color: #bc8cff">
+    <a href={`/${owner}/${repo}/ask`} class={active === "ask" ? "active" : ""} style="color: #bc8cff">
       {"\u2728"} Ask AI
     </a>
     <a
       href={`/${owner}/${repo}/spec`}
+      class={active === "spec" ? "active" : ""}
       style="color: #bc8cff"
       title="Spec to PR — paste a feature spec, AI opens a draft PR"
     >
@@ -246,14 +249,14 @@ export const Breadcrumb: FC<{
   return (
     <div class="breadcrumb">
       {crumbs.map((crumb, i) => (
-        <>
+        <span key={crumb.href}>
           {i > 0 && <span>/</span>}
           {i === crumbs.length - 1 ? (
             <strong>{crumb.name}</strong>
           ) : (
             <a href={crumb.href}>{crumb.name}</a>
           )}
-        </>
+        </span>
       ))}
     </div>
   );

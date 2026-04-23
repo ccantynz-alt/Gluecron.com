@@ -9,11 +9,12 @@ import { users, repositories, organizations, orgMembers } from "../db/schema";
 import { initBareRepo, repoExists } from "../git/repository";
 import { hashPassword } from "../lib/auth";
 import { orgRoleAtLeast } from "../lib/orgs";
+import { softAuth } from "../middleware/auth";
 
 const api = new Hono().basePath("/api");
 
 // Create repository
-api.post("/repos", async (c) => {
+api.post("/repos", softAuth, async (c) => {
   let body: {
     name: string;
     owner: string;
@@ -36,6 +37,12 @@ api.post("/repos", async (c) => {
     return c.json({ error: "Invalid repository name" }, 400);
   }
 
+  // Auth check after input validation so bad requests still get 400
+  const authUser = c.get("user");
+  if (!authUser) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+
   try {
     // Find creator (user who is performing the action)
     const [owner] = await db
@@ -45,6 +52,11 @@ api.post("/repos", async (c) => {
 
     if (!owner) {
       return c.json({ error: "Owner not found" }, 404);
+    }
+
+    // Verify the authenticated user is the requested owner
+    if (authUser.id !== owner.id) {
+      return c.json({ error: "Forbidden: cannot create repos for another user" }, 403);
     }
 
     // B2: if orgSlug supplied, place the repo in the org namespace.
@@ -173,8 +185,11 @@ api.get("/repos/:owner/:name", async (c) => {
   }
 });
 
-// Quick-setup: create user + repo in one call (dev convenience)
+// Quick-setup: create user + repo in one call (dev convenience, disabled in production)
 api.post("/setup", async (c) => {
+  if (!process.env.ALLOW_SETUP_ENDPOINT) {
+    return c.json({ error: "Endpoint disabled" }, 403);
+  }
   let body: {
     username: string;
     email: string;

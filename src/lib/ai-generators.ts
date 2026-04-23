@@ -81,13 +81,17 @@ export async function generateChangelog(
     .slice(0, 200)
     .map((c) => `- ${c.sha.slice(0, 7)} ${c.message.split("\n")[0]} — ${c.author}`)
     .join("\n");
-  const message = await client.messages.create({
-    model: MODEL_SONNET,
-    max_tokens: 2048,
-    messages: [
-      {
-        role: "user",
-        content: `Generate a polished release-notes changelog in Markdown for ${repoFullName}.
+  const plainFallback = () =>
+    `## ${toRef}${fromRef ? ` (since ${fromRef})` : ""}\n\n` +
+    commits.map((c) => `- ${c.message.split("\n")[0]} (${c.sha.slice(0, 7)}) — ${c.author}`).join("\n");
+  try {
+    const message = await client.messages.create({
+      model: MODEL_SONNET,
+      max_tokens: 2048,
+      messages: [
+        {
+          role: "user",
+          content: `Generate a polished release-notes changelog in Markdown for ${repoFullName}.
 
 Release: ${toRef}
 Previous: ${fromRef || "(initial)"}
@@ -96,10 +100,14 @@ Group commits by category (Features, Fixes, Performance, Refactoring, Docs, Othe
 
 Commits:
 ${commitBlob}`,
-      },
-    ],
-  });
-  return extractText(message).trim();
+        },
+      ],
+    });
+    return extractText(message).trim() || plainFallback();
+  } catch (err) {
+    console.error("[ai-generators] generateChangelog failed:", err);
+    return plainFallback();
+  }
 }
 
 interface IssueTriage {

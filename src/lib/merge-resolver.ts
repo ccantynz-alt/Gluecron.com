@@ -11,6 +11,10 @@ import Anthropic from "@anthropic-ai/sdk";
 import { config } from "./config";
 import { getRepoPath } from "../git/repository";
 
+export function isMergeResolverAvailable(): boolean {
+  return !!config.anthropicApiKey;
+}
+
 interface ConflictFile {
   path: string;
   content: string;
@@ -114,6 +118,16 @@ export async function mergeWithAutoResolve(
 
     if (conflictPaths.length === 0) {
       return { success: false, resolvedFiles: [], error: "Merge failed but no conflicts detected" };
+    }
+
+    // AI conflict resolution requires an API key
+    if (!isMergeResolverAvailable()) {
+      await exec(["git", "merge", "--abort"], { cwd: worktree });
+      return {
+        success: false,
+        resolvedFiles: [],
+        error: `Merge has ${conflictPaths.length} conflict(s) that require manual resolution (AI unavailable: ANTHROPIC_API_KEY not set)`,
+      };
     }
 
     // Read each conflicting file and resolve with Claude

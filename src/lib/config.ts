@@ -33,6 +33,22 @@ export const config = {
   get anthropicApiKey() {
     return process.env.ANTHROPIC_API_KEY || "";
   },
+  /** HMAC secret used to verify inbound GateTest callback signatures. */
+  get gatetestCallbackSecret() {
+    return process.env.GATETEST_CALLBACK_SECRET || "";
+  },
+  /** Shared HMAC secret for signing outbound GateTest payloads. */
+  get gatetestHmacSecret() {
+    return process.env.GATETEST_HMAC_SECRET || "";
+  },
+  /** Bearer token expected on inbound Crontech deploy-event webhooks. */
+  get crontechEventToken() {
+    return process.env.CRONTECH_EVENT_TOKEN || "";
+  },
+  /** Voyage AI API key for semantic (embedding) code search. */
+  get voyageApiKey() {
+    return process.env.VOYAGE_API_KEY || "";
+  },
   /** Email provider: "log" (dev, writes to stderr) or "resend" (HTTPS). */
   get emailProvider() {
     const v = (process.env.EMAIL_PROVIDER || "log").toLowerCase();

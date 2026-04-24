@@ -1,4 +1,5 @@
 import { fetchJSON, postJSON } from './client';
+import { useSettingsStore } from '../store/settingsStore';
 
 export interface Repository {
   id: number;
@@ -102,8 +103,9 @@ export async function getFileContent(
   ref: string,
   path: string,
 ): Promise<string> {
+  const host = useSettingsStore.getState().host;
   const response = await fetch(
-    `${require('../store/settingsStore').useSettingsStore.getState().host}/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/raw/${encodeURIComponent(ref)}/${path}`,
+    `${host}/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/raw/${encodeURIComponent(ref)}/${path}`,
     {
       headers: { Accept: 'text/plain' },
     },

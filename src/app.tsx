@@ -55,6 +55,8 @@ import orgRoutes from "./routes/orgs";
 import notificationRoutes from "./routes/notifications";
 import onboardingRoutes from "./routes/onboarding";
 import adminRoutes from "./routes/admin";
+import competitiveIntelRoutes from "./routes/competitive-intel";
+import mcpRoutes from "./routes/mcp";
 import advisoriesRoutes from "./routes/advisories";
 import aiChangelogRoutes from "./routes/ai-changelog";
 import aiExplainRoutes from "./routes/ai-explain";
@@ -110,6 +112,8 @@ app.use("*", async (c, next) => {
   return logger()(c, next);
 });
 app.use("/api/*", cors());
+// MCP endpoint needs CORS for external AI agent clients
+app.use("/mcp", cors());
 // Rate-limit API + auth endpoints (generous default)
 app.use("/api/*", rateLimit(120, 60_000, "api"));
 app.use("/login", rateLimit(20, 60_000, "login"));
@@ -236,6 +240,12 @@ app.route("/", helpRoutes);
 
 // SEO: robots.txt + sitemap.xml
 app.route("/", seoRoutes);
+
+// MCP server — Model Context Protocol endpoint for AI agent integrations
+app.route("/", mcpRoutes);
+
+// Competitive intelligence dashboard (admin only)
+app.route("/", competitiveIntelRoutes);
 
 // Health dashboard (per-repo health page)
 app.route("/", healthDashboardRoutes);

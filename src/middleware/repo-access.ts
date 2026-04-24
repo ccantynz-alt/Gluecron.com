@@ -153,26 +153,32 @@ export function requireRepoAccess(
     }
 
     // Resolve owner -> user row, then repo by (owner, name).
-    const [ownerRow] = await db
-      .select()
-      .from(users)
-      .where(eq(users.username, ownerName))
-      .limit(1);
+    let ownerRow: typeof users.$inferSelect | undefined;
+    let repo: typeof repositories.$inferSelect | undefined;
+    try {
+      [ownerRow] = await db
+        .select()
+        .from(users)
+        .where(eq(users.username, ownerName))
+        .limit(1);
 
-    if (!ownerRow) {
-      return c.notFound();
-    }
+      if (!ownerRow) {
+        return c.notFound();
+      }
 
-    const [repo] = await db
-      .select()
-      .from(repositories)
-      .where(
-        and(
-          eq(repositories.ownerId, ownerRow.id),
-          eq(repositories.name, repoName)
+      [repo] = await db
+        .select()
+        .from(repositories)
+        .where(
+          and(
+            eq(repositories.ownerId, ownerRow.id),
+            eq(repositories.name, repoName)
+          )
         )
-      )
-      .limit(1);
+        .limit(1);
+    } catch {
+      return c.json({ error: "Service unavailable" }, 503);
+    }
 
     if (!repo) {
       return c.notFound();

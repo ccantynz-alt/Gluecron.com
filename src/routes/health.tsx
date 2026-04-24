@@ -1,288 +1,543 @@
 /**
- * Repository Health Dashboard — the page GitHub doesn't have.
+ * Code Health Report routes.
  *
- * Shows a live health score, security scan results, test coverage estimate,
- * dependency freshness, complexity analysis, and actionable insights.
+ * GET  /:owner/:repo/health        — full health dashboard page
+ * POST /:owner/:repo/health/compute — trigger a fresh recompute (owner only)
  *
- * This runs EVERY TIME someone views the repo. No config needed.
- * No yaml. No CI setup. Just push code and gluecron tells you what's wrong.
+ * The scoring engine lives in src/lib/health-score.ts and writes results to
+ * the repo_health_scores table. These routes load that data and render it.
  */
 
 import { Hono } from "hono";
+import { eq } from "drizzle-orm";
+import { db } from "../db";
+import { repositories, users } from "../db/schema";
+import { and } from "drizzle-orm";
 import { Layout } from "../views/layout";
 import { RepoHeader, RepoNav } from "../views/components";
-import {
-  computeHealthScore,
-  detectCIConfig,
-  type RepoHealthReport,
-  type SecurityIssue,
-} from "../lib/intelligence";
-import { repoExists, getDefaultBranch } from "../git/repository";
-import { softAuth } from "../middleware/auth";
+import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
+import { requireRepoAccess } from "../middleware/repo-access";
+import {
+  getLatestHealthScore,
+  getHealthScoreHistory,
+  computeAndStoreHealthScore,
+  getBadgeColor,
+  type StoredHealthScore,
+  type HealthIssue,
+  type HealthRecommendation,
+} from "../lib/health-score";
+import { config } from "../lib/config";
 
 const health = new Hono<AuthEnv>();
 
-health.use("*", softAuth);
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
-health.get("/:owner/:repo/health", async (c) => {
-  const { owner, repo } = c.req.param();
-  const user = c.get("user");
+async function resolveRepo(ownerName: string, repoName: string) {
+  const [owner] = await db
+    .select()
+    .from(users)
+    .where(eq(users.username, ownerName))
+    .limit(1);
+  if (!owner) return null;
+  const [repo] = await db
+    .select()
+    .from(repositories)
+    .where(
+      and(eq(repositories.ownerId, owner.id), eq(repositories.name, repoName))
+    )
+    .limit(1);
+  if (!repo) return null;
+  return { owner, repo };
+}
 
-  if (!(await repoExists(owner, repo))) return c.notFound();
+function gradeColor(grade: string): string {
+  switch (grade) {
+    case "A":
+      return "#2ea44f";
+    case "B":
+      return "#44cc11";
+    case "C":
+      return "#dfb317";
+    case "D":
+      return "#fe7d37";
+    case "F":
+      return "#e05d44";
+    default:
+      return "#9f9f9f";
+  }
+}
 
-  const ref = (await getDefaultBranch(owner, repo)) || "main";
+function formatRelativeTime(date: Date): string {
+  const now = Date.now();
+  const diffMs = now - date.getTime();
+  const diffSec = Math.floor(diffMs / 1000);
+  if (diffSec < 60) return "just now";
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin} minute${diffMin !== 1 ? "s" : ""} ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr} hour${diffHr !== 1 ? "s" : ""} ago`;
+  const diffDay = Math.floor(diffHr / 24);
+  return `${diffDay} day${diffDay !== 1 ? "s" : ""} ago`;
+}
 
-  // Run analysis in parallel
-  const [report, ciConfig] = await Promise.all([
-    computeHealthScore(owner, repo),
-    detectCIConfig(owner, repo, ref),
-  ]);
+function formatDate(date: Date): string {
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
+}
 
-  const gradeColor =
-    report.grade === "A+" || report.grade === "A"
-      ? "var(--green)"
-      : report.grade === "B"
-        ? "#58a6ff"
-        : report.grade === "C"
-          ? "var(--yellow)"
-          : "var(--red)";
+function severityColor(severity: HealthIssue["severity"]): string {
+  switch (severity) {
+    case "critical":
+      return "#e05d44";
+    case "high":
+      return "#fe7d37";
+    case "medium":
+      return "#dfb317";
+    case "low":
+      return "#9f9f9f";
+    default:
+      return "#9f9f9f";
+  }
+}
 
-  return c.html(
-    <Layout title={`Health — ${owner}/${repo}`} user={user}>
-      <RepoHeader owner={owner} repo={repo} />
-      <HealthNav owner={owner} repo={repo} active="health" />
+function severityDot(severity: HealthIssue["severity"]): string {
+  switch (severity) {
+    case "critical":
+      return "🔴"; // 🔴
+    case "high":
+      return "🟠"; // 🟠
+    case "medium":
+      return "🟡"; // 🟡
+    case "low":
+      return "⚪"; // ⚪
+    default:
+      return "⚪";
+  }
+}
 
-      <div style="display: flex; gap: 24px; flex-wrap: wrap; margin-bottom: 32px">
-        <div
-          style={`text-align: center; padding: 24px 40px; background: var(--bg-secondary); border: 2px solid ${gradeColor}; border-radius: var(--radius);`}
-        >
-          <div style={`font-size: 48px; font-weight: 800; color: ${gradeColor}`}>
-            {report.grade}
-          </div>
-          <div style="font-size: 32px; font-weight: 600; color: var(--text)">
-            {report.score}/100
-          </div>
-          <div style="font-size: 13px; color: var(--text-muted); margin-top: 4px">
-            Health Score
-          </div>
-        </div>
+function priorityLabel(priority: HealthRecommendation["priority"]): string {
+  return priority.toUpperCase();
+}
 
-        <div style="flex: 1; min-width: 300px">
-          <h3 style="margin-bottom: 12px">Insights</h3>
-          {report.insights.map((insight) => (
-            <div style="padding: 8px 0; font-size: 14px; border-bottom: 1px solid var(--border); display: flex; gap: 8px; align-items: start">
-              <span style="color: var(--text-link); flex-shrink: 0">*</span>
-              <span>{insight}</span>
-            </div>
-          ))}
-        </div>
-      </div>
+function priorityColor(priority: HealthRecommendation["priority"]): string {
+  switch (priority) {
+    case "high":
+      return "#e05d44";
+    case "medium":
+      return "#dfb317";
+    case "low":
+      return "#9f9f9f";
+    default:
+      return "#9f9f9f";
+  }
+}
 
-      <div class="card-grid" style="grid-template-columns: repeat(auto-fill, minmax(280px, 1fr))">
-        <ScoreCard
-          title="Security"
-          score={report.breakdown.security.score}
-          details={[
-            `${report.breakdown.security.issues.length} issue${report.breakdown.security.issues.length !== 1 ? "s" : ""} found`,
-            `${report.breakdown.security.issues.filter((i) => i.severity === "critical").length} critical`,
-            `${report.breakdown.security.issues.filter((i) => i.severity === "high").length} high`,
-          ]}
-        />
-        <ScoreCard
-          title="Testing"
-          score={report.breakdown.testing.score}
-          details={[
-            report.breakdown.testing.hasTests ? `${report.breakdown.testing.testFileCount} test files` : "No tests found",
-            `Coverage estimate: ${report.breakdown.testing.estimatedCoverage}`,
-          ]}
-        />
-        <ScoreCard
-          title="Complexity"
-          score={report.breakdown.complexity.score}
-          details={[
-            `${report.breakdown.complexity.totalFiles} source files`,
-            `Avg file size: ${report.breakdown.complexity.avgFileSize} bytes`,
-          ]}
-        />
-        <ScoreCard
-          title="Dependencies"
-          score={report.breakdown.dependencies.score}
-          details={[
-            `${report.breakdown.dependencies.total} dependencies`,
-            report.breakdown.dependencies.lockfileExists ? "Lockfile present" : "No lockfile",
-          ]}
-        />
-        <ScoreCard
-          title="Documentation"
-          score={report.breakdown.documentation.score}
-          details={[
-            report.breakdown.documentation.hasReadme ? "README found" : "No README",
-            report.breakdown.documentation.hasLicense ? "License present" : "No license",
-            `${report.breakdown.documentation.docFileCount} doc files`,
-          ]}
-        />
-        <ScoreCard
-          title="Activity"
-          score={report.breakdown.activity.score}
-          details={[
-            `${report.breakdown.activity.recentCommits} commits (30d)`,
-            `${report.breakdown.activity.uniqueContributors} contributors`,
-            `Last push: ${report.breakdown.activity.lastPushDaysAgo}d ago`,
-          ]}
-        />
-      </div>
+// Category max scores (must sum to 100)
+const CATEGORY_MAX: Record<string, number> = {
+  security: 30,
+  gates: 25,
+  ai_review: 20,
+  dependencies: 15,
+  code_quality: 10,
+};
 
-      {report.breakdown.security.issues.length > 0 && (
-        <div style="margin-top: 32px">
-          <h3 style="margin-bottom: 12px">Security Issues</h3>
-          <div class="issue-list">
-            {report.breakdown.security.issues.map((issue) => (
-              <div class="issue-item">
-                <div style="display: flex; gap: 8px; align-items: center">
-                  <SeverityBadge severity={issue.severity} />
-                  <div>
-                    <div style="font-size: 14px; font-weight: 500">
-                      {issue.message}
-                    </div>
-                    <div style="font-size: 12px; color: var(--text-muted); font-family: var(--font-mono)">
-                      {issue.file}
-                      {issue.line ? `:${issue.line}` : ""} — {issue.rule}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+const CATEGORY_ICONS: Record<string, string> = {
+  security: "🔒", // 🔒
+  gates: "✅", // ✅
+  ai_review: "🤖", // 🤖
+  dependencies: "📦", // 📦
+  code_quality: "⭐", // ⭐
+};
 
-      {ciConfig.commands.length > 0 && (
-        <div style="margin-top: 32px">
-          <h3 style="margin-bottom: 12px">
-            Zero-Config CI
-            <span style="font-size: 13px; color: var(--text-muted); font-weight: 400; margin-left: 8px">
-              Auto-detected
-            </span>
-          </h3>
-          <div style="background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px">
-            <div style="margin-bottom: 12px; font-size: 13px; color: var(--text-muted)">
-              {ciConfig.detected.join(" | ")}
-            </div>
-            {ciConfig.commands.map((cmd) => (
-              <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border); align-items: center">
-                <span style="font-size: 14px; font-weight: 500">
-                  {cmd.name}
-                </span>
-                <code style="font-size: 12px; background: var(--bg-tertiary); padding: 4px 8px; border-radius: 3px">
-                  {cmd.command}
-                </code>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </Layout>
-  );
-});
+const CATEGORY_LABELS: Record<string, string> = {
+  security: "Security",
+  gates: "Gates",
+  ai_review: "AI Review",
+  dependencies: "Dependencies",
+  code_quality: "Code Quality",
+};
 
-const HealthNav = ({
-  owner,
-  repo,
-  active,
-}: {
-  owner: string;
-  repo: string;
-  active: string;
-}) => (
-  <div class="repo-nav">
-    <a href={`/${owner}/${repo}`} class={active === "code" ? "active" : ""}>
-      Code
-    </a>
-    <a
-      href={`/${owner}/${repo}/issues`}
-      class={active === "issues" ? "active" : ""}
-    >
-      Issues
-    </a>
-    <a
-      href={`/${owner}/${repo}/pulls`}
-      class={active === "pulls" ? "active" : ""}
-    >
-      Pull Requests
-    </a>
-    <a
-      href={`/${owner}/${repo}/health`}
-      class={active === "health" ? "active" : ""}
-    >
-      Health
-    </a>
-    <a
-      href={`/${owner}/${repo}/commits`}
-      class={active === "commits" ? "active" : ""}
-    >
-      Commits
-    </a>
-  </div>
-);
+// ---------------------------------------------------------------------------
+// Category row component
+// ---------------------------------------------------------------------------
 
-const ScoreCard = ({
-  title,
+const CategoryRow = ({
+  categoryKey,
   score,
-  details,
+  issues,
+  gradeStr,
 }: {
-  title: string;
+  categoryKey: string;
   score: number;
-  details: string[];
+  issues: HealthIssue[];
+  gradeStr: string;
 }) => {
-  const color =
-    score >= 80 ? "var(--green)" : score >= 50 ? "var(--yellow)" : "var(--red)";
+  const max = CATEGORY_MAX[categoryKey] ?? 10;
+  const pct = Math.min(100, Math.round((score / max) * 100));
+  const color = gradeColor(gradeStr);
+  const icon = CATEGORY_ICONS[categoryKey] ?? "";
+  const label = CATEGORY_LABELS[categoryKey] ?? categoryKey;
+  const catIssues = issues.filter((i) => i.category === categoryKey);
+
   return (
-    <div class="card">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px">
-        <h3 style="font-size: 15px">{title}</h3>
-        <span
-          style={`font-size: 18px; font-weight: 700; color: ${color}`}
+    <div style="margin-bottom: 16px">
+      <div style="display: flex; align-items: center; gap: 12px">
+        <span style="min-width: 140px; font-size: 14px; font-weight: 500; color: var(--text)">
+          {icon} {label}
+        </span>
+        <div
+          style="background: #21262d; border-radius: 4px; height: 8px; width: 200px; display: inline-block; flex-shrink: 0; overflow: hidden"
         >
-          {score}
+          <div
+            style={`height: 100%; width: ${pct}%; border-radius: 4px; background: ${color};`}
+          />
+        </div>
+        <span style="font-size: 13px; color: var(--text-muted); min-width: 56px">
+          {score}/{max}
         </span>
       </div>
-      <div
-        style="height: 4px; background: var(--bg-tertiary); border-radius: 2px; margin-bottom: 8px; overflow: hidden"
-      >
+      {catIssues.map((issue) => (
         <div
-          style={`height: 100%; width: ${score}%; background: ${color}; border-radius: 2px; transition: width 0.3s;`}
-        />
-      </div>
-      {details.map((d) => (
-        <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px">
-          {d}
+          style={`margin-top: 4px; margin-left: 152px; font-size: 12px; color: ${severityColor(issue.severity)}`}
+        >
+          {severityDot(issue.severity)} {issue.message}
         </div>
       ))}
     </div>
   );
 };
 
-const SeverityBadge = ({
-  severity,
-}: {
-  severity: SecurityIssue["severity"];
-}) => {
-  const colors: Record<string, string> = {
-    critical: "var(--red)",
-    high: "#ff7b72",
-    medium: "var(--yellow)",
-    low: "var(--text-muted)",
-    info: "var(--text-link)",
-  };
-  return (
-    <span
-      class="badge"
-      style={`color: ${colors[severity]}; border-color: ${colors[severity]}; font-size: 11px; text-transform: uppercase`}
-    >
-      {severity}
-    </span>
-  );
-};
+// ---------------------------------------------------------------------------
+// GET /:owner/:repo/health
+// ---------------------------------------------------------------------------
+
+health.get(
+  "/:owner/:repo/health",
+  softAuth,
+  requireRepoAccess("read"),
+  async (c) => {
+    const { owner: ownerName, repo: repoName } = c.req.param();
+    const user = c.get("user");
+    const repoRow = c.get("repository" as any) as any;
+
+    const resolved = await resolveRepo(ownerName, repoName);
+    if (!resolved) return c.notFound();
+
+    const isOwner = user?.id === resolved.owner.id;
+
+    // Load latest score + history in parallel
+    const [scoreRow, history] = await Promise.all([
+      getLatestHealthScore(resolved.repo.id),
+      getHealthScoreHistory(resolved.repo.id, 10),
+    ]);
+
+    // No score yet — trigger background compute
+    if (!scoreRow) {
+      computeAndStoreHealthScore(resolved.repo.id, ownerName, repoName).catch(
+        (err) => console.error("[health] background compute failed:", err)
+      );
+    }
+
+    const baseUrl = config.appBaseUrl;
+    const badgeUrl = `${baseUrl}/badge/${ownerName}/${repoName}`;
+    const pageUrl = `${baseUrl}/${ownerName}/${repoName}/health`;
+    const badgeMarkdown = `[![Gluecron Health${scoreRow ? ": " + scoreRow.grade : ""}](${badgeUrl})](${pageUrl})`;
+
+    return c.html(
+      <Layout
+        title={`Health — ${ownerName}/${repoName}`}
+        user={user}
+      >
+        <RepoHeader owner={ownerName} repo={repoName} />
+        <RepoNav owner={ownerName} repo={repoName} active={"health" as any} />
+
+        {!scoreRow ? (
+          // Computing state
+          <div
+            style="text-align: center; padding: 60px 20px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 24px"
+          >
+            <div style="font-size: 48px; margin-bottom: 16px">&#x231B;</div>
+            <h2 style="font-size: 24px; margin-bottom: 8px; color: var(--text)">
+              Computing health score…
+            </h2>
+            <p style="color: var(--text-muted); font-size: 14px; margin-bottom: 24px">
+              This is the first time we've analysed this repository. Results will
+              be ready shortly — refresh this page in a few seconds.
+            </p>
+            {isOwner && (
+              <form method="post" action={`/${ownerName}/${repoName}/health/compute`} style="display:inline">
+                <button type="submit" class="btn btn-primary">
+                  Compute now
+                </button>
+              </form>
+            )}
+          </div>
+        ) : (
+          <>
+            {/* ── Hero section ─────────────────────────────────── */}
+            <div
+              style={`background: var(--bg-secondary); border: 2px solid ${gradeColor(scoreRow.grade)}; border-radius: var(--radius); padding: 24px; margin-bottom: 24px`}
+            >
+              <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 16px">
+                <div>
+                  <h2 style="font-size: 18px; font-weight: 600; color: var(--text); margin-bottom: 4px">
+                    Code Health
+                  </h2>
+                  <div style="font-size: 13px; color: var(--text-muted)">
+                    Last computed: {formatRelativeTime(new Date(scoreRow.computedAt))}
+                  </div>
+                </div>
+                {isOwner && (
+                  <form method="post" action={`/${ownerName}/${repoName}/health/compute`} style="display:inline">
+                    <button type="submit" class="btn btn-sm">
+                      &#x21BA; Recompute
+                    </button>
+                  </form>
+                )}
+              </div>
+
+              <div style="display: flex; align-items: center; gap: 32px; margin-top: 20px; flex-wrap: wrap">
+                <div style="text-align: center">
+                  <div
+                    style={`font-size: 72px; font-weight: 700; line-height: 1; color: ${gradeColor(scoreRow.grade)}`}
+                  >
+                    {scoreRow.grade}
+                  </div>
+                  <div style="font-size: 14px; color: var(--text-muted); margin-top: 4px">
+                    Score: {scoreRow.score}/100
+                  </div>
+                </div>
+
+                <div style="flex: 1; min-width: 200px">
+                  <CategoryRow
+                    categoryKey="security"
+                    score={scoreRow.securityScore}
+                    issues={scoreRow.issues}
+                    gradeStr={scoreRow.grade}
+                  />
+                  <CategoryRow
+                    categoryKey="gates"
+                    score={scoreRow.gatesScore}
+                    issues={scoreRow.issues}
+                    gradeStr={scoreRow.grade}
+                  />
+                  <CategoryRow
+                    categoryKey="ai_review"
+                    score={scoreRow.aiReviewScore}
+                    issues={scoreRow.issues}
+                    gradeStr={scoreRow.grade}
+                  />
+                  <CategoryRow
+                    categoryKey="dependencies"
+                    score={scoreRow.dependenciesScore}
+                    issues={scoreRow.issues}
+                    gradeStr={scoreRow.grade}
+                  />
+                  <CategoryRow
+                    categoryKey="code_quality"
+                    score={scoreRow.codeQualityScore}
+                    issues={scoreRow.issues}
+                    gradeStr={scoreRow.grade}
+                  />
+                </div>
+              </div>
+
+              {/* Badge copy */}
+              <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border)">
+                <button
+                  type="button"
+                  class="btn btn-sm"
+                  onclick={`navigator.clipboard.writeText(${JSON.stringify(badgeMarkdown)}).then(function(){var b=this;b.textContent='Copied!';setTimeout(function(){b.textContent='Copy badge markdown'},1500)}.bind(this)).catch(function(){alert('Copy failed')})`}
+                >
+                  Copy badge markdown
+                </button>
+              </div>
+            </div>
+
+            {/* ── Issues section ────────────────────────────────── */}
+            {scoreRow.issues.length > 0 && (
+              <div
+                style="background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; margin-bottom: 24px"
+              >
+                <h3
+                  style="font-size: 16px; font-weight: 600; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border)"
+                >
+                  Issues Found
+                </h3>
+                {scoreRow.issues.map((issue) => (
+                  <div
+                    style={`display: flex; align-items: flex-start; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 14px`}
+                  >
+                    <span style="flex-shrink: 0; font-size: 16px">
+                      {severityDot(issue.severity)}
+                    </span>
+                    <span
+                      class="badge"
+                      style={`flex-shrink: 0; font-size: 11px; color: ${severityColor(issue.severity)}; border-color: ${severityColor(issue.severity)}; text-transform: uppercase; padding: 1px 6px`}
+                    >
+                      {issue.severity}
+                    </span>
+                    <span style="color: var(--text)">
+                      {issue.message}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* ── Recommendations section ────────────────────────── */}
+            {scoreRow.recommendations.length > 0 && (
+              <div
+                style="background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; margin-bottom: 24px"
+              >
+                <h3
+                  style="font-size: 16px; font-weight: 600; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border)"
+                >
+                  How to improve your score
+                </h3>
+                {scoreRow.recommendations.map((rec) => (
+                  <div
+                    style="display: flex; align-items: flex-start; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 14px"
+                  >
+                    <span style="flex-shrink: 0; color: var(--text-muted)">
+                      &#x2191;
+                    </span>
+                    <span
+                      class="badge"
+                      style={`flex-shrink: 0; font-size: 11px; color: ${priorityColor(rec.priority)}; border-color: ${priorityColor(rec.priority)}; text-transform: uppercase; padding: 1px 6px`}
+                    >
+                      {priorityLabel(rec.priority)}
+                    </span>
+                    <span style="color: var(--text)">
+                      {rec.message}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* ── Share your badge ──────────────────────────────── */}
+            <div
+              style="background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; margin-bottom: 24px"
+            >
+              <h3
+                style="font-size: 16px; font-weight: 600; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border)"
+              >
+                Share your health badge
+              </h3>
+
+              <div style="margin-bottom: 12px">
+                <img
+                  src={badgeUrl}
+                  alt={`Gluecron Health: ${scoreRow.grade}`}
+                  style="height: 20px; display: inline-block; vertical-align: middle"
+                />
+              </div>
+
+              <div
+                style="background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); word-break: break-all; margin-bottom: 12px"
+              >
+                {badgeMarkdown}
+              </div>
+
+              <div style="display: flex; gap: 8px; flex-wrap: wrap">
+                <button
+                  type="button"
+                  class="btn btn-sm"
+                  onclick={`navigator.clipboard.writeText(${JSON.stringify(badgeMarkdown)}).then(function(){var b=this;b.textContent='Copied!';setTimeout(function(){b.textContent='Copy markdown'},1500)}.bind(this)).catch(function(){alert('Copy failed')})`}
+                >
+                  Copy markdown
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-sm"
+                  onclick={`navigator.clipboard.writeText(${JSON.stringify(badgeUrl)}).then(function(){var b=this;b.textContent='Copied!';setTimeout(function(){b.textContent='Copy URL'},1500)}.bind(this)).catch(function(){alert('Copy failed')})`}
+                >
+                  Copy URL
+                </button>
+              </div>
+            </div>
+
+            {/* ── Score history ─────────────────────────────────── */}
+            {history.length > 1 && (
+              <div
+                style="background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; margin-bottom: 24px"
+              >
+                <h3
+                  style="font-size: 16px; font-weight: 600; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border)"
+                >
+                  Score history
+                </h3>
+                <table style="width: 100%; border-collapse: collapse; font-size: 14px">
+                  <thead>
+                    <tr style="color: var(--text-muted); font-size: 12px; border-bottom: 1px solid var(--border)">
+                      <th style="text-align: left; padding: 4px 8px; font-weight: 500">Date</th>
+                      <th style="text-align: left; padding: 4px 8px; font-weight: 500">Grade</th>
+                      <th style="text-align: right; padding: 4px 8px; font-weight: 500">Score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {history.map((row, i) => (
+                      <tr
+                        style={`border-bottom: 1px solid var(--border); ${i === 0 ? "font-weight: 600" : ""}`}
+                      >
+                        <td style="padding: 6px 8px; color: var(--text-muted)">
+                          {formatDate(new Date(row.computedAt))}
+                        </td>
+                        <td style={`padding: 6px 8px; font-weight: 700; color: ${gradeColor(row.grade)}`}>
+                          {row.grade}
+                        </td>
+                        <td style="padding: 6px 8px; text-align: right; color: var(--text)">
+                          {row.score}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
+        )}
+      </Layout>
+    );
+  }
+);
+
+// ---------------------------------------------------------------------------
+// POST /:owner/:repo/health/compute — trigger recompute (owner only)
+// ---------------------------------------------------------------------------
+
+health.post(
+  "/:owner/:repo/health/compute",
+  softAuth,
+  requireAuth,
+  requireRepoAccess("admin"),
+  async (c) => {
+    const { owner: ownerName, repo: repoName } = c.req.param();
+    const user = c.get("user")!;
+
+    const resolved = await resolveRepo(ownerName, repoName);
+    if (!resolved) return c.notFound();
+
+    // Only the repo owner may trigger a manual recompute
+    if (user.id !== resolved.owner.id) {
+      return c.redirect(`/${ownerName}/${repoName}/health`);
+    }
+
+    // Run synchronously so the redirect shows fresh data
+    try {
+      await computeAndStoreHealthScore(resolved.repo.id, ownerName, repoName);
+    } catch (err) {
+      console.error("[health/compute] failed:", err);
+    }
+
+    return c.redirect(`/${ownerName}/${repoName}/health`);
+  }
+);
 
 export default health;

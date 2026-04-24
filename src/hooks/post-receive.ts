@@ -13,7 +13,8 @@
 import { and, eq } from "drizzle-orm";
 import { config } from "../lib/config";
 import { autoRepair } from "../lib/autorepair";
-import { analyzePush, computeHealthScore } from "../lib/intelligence";
+import { analyzePush } from "../lib/intelligence";
+import { computeAndStoreHealthScore } from "../lib/health-score";
 import { db } from "../db";
 import { deployments, repositories, users } from "../db/schema";
 import { onDeployFailure } from "../lib/ai-incident";
@@ -65,14 +66,21 @@ export async function onPostReceive(
       console.error(`[push-analysis] error:`, err);
     }
 
-    // 3. Health score (async, don't block)
-    computeHealthScore(owner, repo).then((report) => {
-      console.log(
-        `[health] ${owner}/${repo}: ${report.grade} (${report.score}/100)`
-      );
-    }).catch((err) => {
-      console.error(`[health] error:`, err);
-    });
+    // 3. Health score — compute from platform data and persist to DB (async, non-blocking)
+    // Repo ID is resolved later in the deploy block; do a lightweight lookup here.
+    db.select({ id: repositories.id })
+      .from(repositories)
+      .innerJoin(users, eq(repositories.ownerId, users.id))
+      .where(and(eq(users.username, owner), eq(repositories.name, repo)))
+      .limit(1)
+      .then(([row]) => {
+        if (!row) return;
+        return computeAndStoreHealthScore(row.id, owner, repo);
+      })
+      .then((score) => {
+        if (score) console.log(`[health] ${owner}/${repo}: ${score.grade} (${score.score}/100)`);
+      })
+      .catch((err) => console.error(`[health] error:`, err));
   }
 
   // 4. GateTest scan — fire-and-forget via generic webhook; the standalone

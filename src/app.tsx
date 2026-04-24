@@ -55,6 +55,7 @@ import orgRoutes from "./routes/orgs";
 import notificationRoutes from "./routes/notifications";
 import onboardingRoutes from "./routes/onboarding";
 import adminRoutes from "./routes/admin";
+import badgeRoutes from "./routes/badge";
 import competitiveIntelRoutes from "./routes/competitive-intel";
 import mcpRoutes from "./routes/mcp";
 import advisoriesRoutes from "./routes/advisories";
@@ -240,6 +241,9 @@ app.route("/", helpRoutes);
 
 // SEO: robots.txt + sitemap.xml
 app.route("/", seoRoutes);
+
+// Public health badge — /badge/:owner/:repo returns SVG, no auth, CDN-cacheable
+app.route("/", badgeRoutes);
 
 // MCP server — Model Context Protocol endpoint for AI agent integrations
 app.route("/", mcpRoutes);

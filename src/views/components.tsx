@@ -106,7 +106,8 @@ export const RepoNav: FC<{
     | "projects"
     | "settings"
     | "ask"
-    | "spec";
+    | "spec"
+    | "health";
 }> = ({ owner, repo, active }) => (
   <div class="repo-nav">
     <a href={`/${owner}/${repo}`} class={active === "code" ? "active" : ""}>
@@ -165,6 +166,13 @@ export const RepoNav: FC<{
       class={active === "insights" ? "active" : ""}
     >
       Insights
+    </a>
+    <a
+      href={`/${owner}/${repo}/health`}
+      class={active === "health" ? "active" : ""}
+      title="Code Health Score"
+    >
+      {"⬡"} Health
     </a>
     <a
       href={`/${owner}/${repo}/explain`}

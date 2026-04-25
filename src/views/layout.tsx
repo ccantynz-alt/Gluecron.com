@@ -58,6 +58,9 @@ export const Layout: FC<
               <a href="/explore" class="nav-link">
                 Explore
               </a>
+              <a href="/ai/live" class="nav-link" title="Live AI activity">
+                AI&nbsp;Live
+              </a>
               {user ? (
                 <>
                   <a href="/dashboard" class="nav-link" style="font-weight: 600">

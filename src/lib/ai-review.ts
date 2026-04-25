@@ -7,6 +7,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { config } from "./config";
+import { MODEL_SONNET } from "./ai-client";
 
 interface ReviewComment {
   filePath: string;
@@ -46,7 +47,7 @@ export async function reviewDiff(
   const client = getClient();
 
   const message = await client.messages.create({
-    model: "claude-sonnet-4-20250514",
+    model: MODEL_SONNET,
     max_tokens: 4096,
     messages: [
       {

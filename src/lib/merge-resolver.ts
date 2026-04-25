@@ -10,6 +10,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { config } from "./config";
 import { getRepoPath } from "../git/repository";
+import { MODEL_SONNET } from "./ai-client";
 
 interface ConflictFile {
   path: string;
@@ -174,7 +175,7 @@ async function resolveConflict(
 
   try {
     const message = await client.messages.create({
-      model: "claude-sonnet-4-20250514",
+      model: MODEL_SONNET,
       max_tokens: 8192,
       messages: [
         {

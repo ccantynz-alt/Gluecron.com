@@ -2575,3 +2575,106 @@ export type WorkflowRunnerPoolEntry =
   typeof workflowRunnerPool.$inferSelect;
 export type NewWorkflowRunnerPoolEntry =
   typeof workflowRunnerPool.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// AI flywheel + integrations registry (drizzle/0038_ai_flywheel_and_integrations.sql)
+//
+// Strictly additive. The flywheel records every AI invocation so we can render
+// it live (/ai/live), surface per-repo "AI in action" panels, and feed future
+// learning loops. Integrations are repo-scoped third-party connectors.
+// ---------------------------------------------------------------------------
+
+export const aiActivity = pgTable(
+  "ai_activity",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    actionType: text("action_type").notNull(),
+    model: text("model").notNull(),
+    repositoryId: uuid("repository_id").references(() => repositories.id, {
+      onDelete: "cascade",
+    }),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    pullRequestId: uuid("pull_request_id").references(() => pullRequests.id, {
+      onDelete: "set null",
+    }),
+    issueId: uuid("issue_id").references(() => issues.id, {
+      onDelete: "set null",
+    }),
+    commitSha: text("commit_sha"),
+    summary: text("summary").notNull(),
+    inputTokens: integer("input_tokens"),
+    outputTokens: integer("output_tokens"),
+    latencyMs: integer("latency_ms").notNull(),
+    success: boolean("success").default(true).notNull(),
+    error: text("error"),
+    metadata: jsonb("metadata"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("ai_activity_created_idx").on(table.createdAt),
+    index("ai_activity_repo_idx").on(table.repositoryId, table.createdAt),
+    index("ai_activity_user_idx").on(table.userId, table.createdAt),
+    index("ai_activity_action_idx").on(table.actionType, table.createdAt),
+  ]
+);
+
+export type AiActivity = typeof aiActivity.$inferSelect;
+export type NewAiActivity = typeof aiActivity.$inferInsert;
+
+export const integrations = pgTable(
+  "integrations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    name: text("name").notNull(),
+    enabled: boolean("enabled").default(true).notNull(),
+    config: jsonb("config").default({}).notNull(),
+    events: jsonb("events").default([]).notNull(),
+    createdBy: uuid("created_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+    lastDeliveryAt: timestamp("last_delivery_at"),
+    lastStatus: text("last_status"),
+  },
+  (table) => [
+    index("integrations_repo_idx").on(table.repositoryId),
+    index("integrations_kind_idx").on(table.kind),
+    uniqueIndex("integrations_repo_name_unique").on(
+      table.repositoryId,
+      table.name
+    ),
+  ]
+);
+
+export type Integration = typeof integrations.$inferSelect;
+export type NewIntegration = typeof integrations.$inferInsert;
+
+export const integrationDeliveries = pgTable(
+  "integration_deliveries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    integrationId: uuid("integration_id")
+      .notNull()
+      .references(() => integrations.id, { onDelete: "cascade" }),
+    event: text("event").notNull(),
+    status: text("status").notNull(),
+    httpStatus: integer("http_status"),
+    error: text("error"),
+    durationMs: integer("duration_ms").default(0).notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("integration_deliveries_integration_idx").on(
+      table.integrationId,
+      table.createdAt
+    ),
+  ]
+);
+
+export type IntegrationDelivery = typeof integrationDeliveries.$inferSelect;
+export type NewIntegrationDelivery = typeof integrationDeliveries.$inferInsert;

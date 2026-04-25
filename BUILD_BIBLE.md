@@ -341,6 +341,16 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `drizzle/0031_user_follows.sql` (Block J4) — migration, never edited in place. Adds `user_follows` (composite PK on `(follower_id, following_id)`, CHECK no-self-follow, reverse index on `following_id`).
 - `drizzle/0032_repo_rulesets.sql` (Block J6) — migration, never edited in place. Adds `repo_rulesets` (unique on `(repository_id, name)`, enforcement enum) + `ruleset_rules` (JSON params).
 - `drizzle/0033_commit_statuses.sql` (Block J8) — migration, never edited in place. Adds `commit_statuses` (unique on `(repository_id, commit_sha, context)`, state vocabulary pending/success/failure/error).
+- `drizzle/0038_ai_flywheel_and_integrations.sql` (AI flywheel + integrations) — migration, never edited in place. Adds `ai_activity` (telemetry per AI invocation, indexed by created_at / repo / user / action_type), `integrations` (per-repo third-party connectors with `kind` + JSON `config`/`events`), `integration_deliveries` (per-call audit trail).
+
+### 4.10 AI flywheel + integrations (locked)
+- `src/lib/ai-client.ts` — `MODEL_SONNET = "claude-sonnet-4-6"` (env-overridable). Owner-mandated. Do not downgrade without permission.
+- `src/lib/ai-flywheel.ts` — `recordAi(meta, fn)` wraps any AI call to persist telemetry into `ai_activity` and publish to SSE topics `ai:global` + `ai:repo:<id>`. `logAiEvent(meta)` for non-wrapped (cache/auto-repair) events. `listRecentAiEvents`, `rollupByAction`. NEVER throws into request path. `__test = { redact, clamp, clampInt }`.
+- `src/lib/integrations.ts` — third-party connector registry. Pure helpers: `CONNECTORS`, `INTEGRATION_KINDS`, `INTEGRATION_EVENTS`, `validateConfig`, `redactConfig`, `render`, `isHttpUrl`, `hmacHex`, `summary`. DB helpers: `createIntegration`, `updateIntegration`, `deleteIntegration`, `listForRepo`, `getById`, `listDeliveries`. Delivery: `deliverEvent(repoId, event, payload)` + `deliverOne(integration, event, payload)` — both never throw, both record into `integration_deliveries`. `__test` exposes pure helpers.
+- `src/routes/ai-live.tsx` — public `GET /ai/live` renders the live AI activity dashboard (server-rendered initial 50 + EventSource on `/live-events/ai:global` for streaming additions). `GET /api/ai/activity` returns the same recent-events list as JSON.
+- `src/routes/integrations.tsx` — owner-only CRUD at `/:owner/:repo/settings/integrations` (list, add, toggle, delete, send test). All mutations gated via `requireRepoAccess("admin")`. Round-trips secrets through `redactConfig`.
+- `src/routes/live-events.ts` (extended) — `TOPIC_RE` now allows colons in the id portion so multi-segment topics like `ai:repo:<uuid>` work. Topic kind is still the lowercase prefix.
+- `src/hooks/post-receive.ts` (extended) — resolves `repositoryId` once, fans out `integrations.deliverEvent(..., "push", ...)`, and emits a `repair` flywheel event for every push (success/failure both visible on `/ai/live`).
 
 ### 4.2 Git layer (locked)
 - `src/git/repository.ts` — tree / blob / commits / diff / branches / blame / search / raw / tags / commitsBetween

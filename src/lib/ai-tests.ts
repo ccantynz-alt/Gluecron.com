@@ -291,13 +291,23 @@ export async function generateTestStub(
   }
 
   try {
+    const { recordAi } = await import("./ai-flywheel");
     const client = getAnthropic();
     const prompt = buildTestsPrompt(opts);
-    const message = await client.messages.create({
-      model: MODEL_SONNET,
-      max_tokens: 2048,
-      messages: [{ role: "user", content: prompt }],
-    });
+    const message = await recordAi(
+      {
+        actionType: "test",
+        model: MODEL_SONNET,
+        summary: `generate tests for ${opts.path}`,
+        metadata: { language: opts.language, framework: opts.framework },
+      },
+      () =>
+        client.messages.create({
+          model: MODEL_SONNET,
+          max_tokens: 2048,
+          messages: [{ role: "user", content: prompt }],
+        })
+    );
     const raw = extractText(message);
     const code = stripCodeFences(raw);
     if (!code) {

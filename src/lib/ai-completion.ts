@@ -120,27 +120,51 @@ export async function completeCode(
   const key = cacheKey(prefix, suffix, language);
   const hit = cacheGet(key);
   if (hit !== undefined) {
+    // Log the cache hit too — useful for cost-tracking and rate insight.
+    try {
+      const { logAiEvent } = await import("./ai-flywheel");
+      logAiEvent({
+        actionType: "completion",
+        model: MODEL_HAIKU,
+        summary: `cached completion (${language})`,
+        latencyMs: 0,
+        success: true,
+        metadata: { cached: true, language, repoHint },
+      });
+    } catch {
+      /* telemetry must not break completion */
+    }
     return { completion: hit, model: MODEL_HAIKU, cached: true };
   }
 
   try {
+    const { recordAi } = await import("./ai-flywheel");
     const client = getAnthropic();
-    const response = await client.messages.create({
-      model: MODEL_HAIKU,
-      max_tokens: maxTokens,
-      system:
-        "You are a code completion engine. Given a prefix and optional suffix, output ONLY the characters that should be inserted at the cursor. No explanations. No markdown fences. No commentary.",
-      messages: [
-        {
-          role: "user",
-          content:
-            `Language: ${language}\n` +
-            `Repo: ${repoHint}\n\n` +
-            `PREFIX:\n${prefix}\n\n` +
-            `SUFFIX:\n${suffix}`,
-        },
-      ],
-    });
+    const response = await recordAi(
+      {
+        actionType: "completion",
+        model: MODEL_HAIKU,
+        summary: `code completion (${language})`,
+        metadata: { language, repoHint, prefixLen: prefix.length },
+      },
+      () =>
+        client.messages.create({
+          model: MODEL_HAIKU,
+          max_tokens: maxTokens,
+          system:
+            "You are a code completion engine. Given a prefix and optional suffix, output ONLY the characters that should be inserted at the cursor. No explanations. No markdown fences. No commentary.",
+          messages: [
+            {
+              role: "user",
+              content:
+                `Language: ${language}\n` +
+                `Repo: ${repoHint}\n\n` +
+                `PREFIX:\n${prefix}\n\n` +
+                `SUFFIX:\n${suffix}`,
+            },
+          ],
+        })
+    );
 
     const raw = extractText(response);
     const completion = stripCodeFences(raw);

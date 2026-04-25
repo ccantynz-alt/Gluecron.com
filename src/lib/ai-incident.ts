@@ -121,8 +121,17 @@ async function askClaudeForAnalysis(
   commitSummary: string
 ): Promise<IncidentAnalysis | null> {
   try {
+    const { recordAi } = await import("./ai-flywheel");
     const client = getAnthropic();
-    const message = await client.messages.create({
+    const message = await recordAi(
+      {
+        actionType: "incident",
+        model: MODEL_SONNET,
+        summary: `incident analysis ${repoFullName}@${shortSha}`,
+        commitSha: shortSha,
+        metadata: { ref, errorMessage: errorMessage.slice(0, 200) },
+      },
+      () => client.messages.create({
       model: MODEL_SONNET,
       max_tokens: 1024,
       messages: [
@@ -146,7 +155,8 @@ ${commitSummary || "(no commits available)"}
 Write a crisp issue title (prefixed with "Deploy failed:"), a plausible likelyCause (2-4 sentences), a suspectedCommit sha (or null if unclear), and concrete remediation steps (bullet list as a single string with \\n separators).`,
         },
       ],
-    });
+    })
+    );
     const parsed = parseJsonResponse<IncidentAnalysis>(extractText(message));
     if (!parsed) return null;
     const suspected =

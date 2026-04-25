@@ -17,6 +17,7 @@ import { analyzePush, computeHealthScore } from "../lib/intelligence";
 import { db } from "../db";
 import { deployments, repositories, users } from "../db/schema";
 import { onDeployFailure } from "../lib/ai-incident";
+import { logAiEvent } from "../lib/ai-flywheel";
 
 interface PushRef {
   oldSha: string;
@@ -29,11 +30,28 @@ export async function onPostReceive(
   repo: string,
   refs: PushRef[]
 ): Promise<void> {
+  // Resolve repo id once so flywheel events can anchor to the repo topic.
+  let repositoryId: string | null = null;
+  try {
+    const [row] = await db
+      .select({ id: repositories.id })
+      .from(repositories)
+      .innerJoin(users, eq(repositories.ownerId, users.id))
+      .where(and(eq(users.username, owner), eq(repositories.name, repo)))
+      .limit(1);
+    repositoryId = row?.id ?? null;
+  } catch {
+    /* ignore — flywheel events still publish, just without repo anchor */
+  }
+
   for (const ref of refs) {
     if (ref.newSha.startsWith("0000")) continue; // Branch deletion
     const branchName = ref.refName.replace("refs/heads/", "");
 
-    // 1. Auto-repair (runs first, may create a new commit)
+    // 1. Auto-repair (runs first, may create a new commit). Always emit a
+    //    flywheel event so the live dashboard shows the heal attempt — even
+    //    when nothing needed fixing (always-green visibility).
+    const t0 = Date.now();
     try {
       const repair = await autoRepair(owner, repo, branchName);
       if (repair.repaired) {
@@ -41,8 +59,37 @@ export async function onPostReceive(
           `[autorepair] ${owner}/${repo}@${branchName}: ${repair.repairs.length} repairs committed`
         );
       }
+      logAiEvent({
+        actionType: "repair",
+        model: "auto-repair",
+        summary: repair.repaired
+          ? `auto-repaired ${repair.repairs.length} issue(s) on ${owner}/${repo}@${branchName}`
+          : `clean push on ${owner}/${repo}@${branchName}`,
+        repositoryId,
+        commitSha: repair.commitSha ?? ref.newSha.slice(0, 12),
+        latencyMs: Date.now() - t0,
+        success: true,
+        metadata: {
+          branch: branchName,
+          repaired: repair.repaired,
+          repairs: repair.repairs.map((r) => ({
+            file: r.file,
+            type: r.type,
+          })),
+        },
+      });
     } catch (err) {
       console.error(`[autorepair] error:`, err);
+      logAiEvent({
+        actionType: "repair",
+        model: "auto-repair",
+        summary: `auto-repair failed on ${owner}/${repo}@${branchName}`,
+        repositoryId,
+        commitSha: ref.newSha.slice(0, 12),
+        latencyMs: Date.now() - t0,
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
 
     // 2. Push analysis
@@ -78,28 +125,31 @@ export async function onPostReceive(
   // 4. GateTest scan — fire-and-forget via generic webhook; the standalone
   //    triggerGateTest helper is slated for the intelligence rework.
 
+  // 4b. Third-party integrations fanout (Slack/Linear/Vercel/Discord/...)
+  //     Every configured integration that subscribes to "push" gets delivered.
+  if (repositoryId) {
+    void import("../lib/integrations")
+      .then((m) =>
+        m.deliverEvent(repositoryId!, "push", {
+          repository: `${owner}/${repo}`,
+          refs: refs.map((r) => ({
+            ref: r.refName,
+            before: r.oldSha,
+            after: r.newSha,
+          })),
+        })
+      )
+      .catch((e) => console.error("[integrations] push fanout failed:", e));
+  }
+
   // 5. Crontech deploy on push to main
   const mainPush = refs.find(
     (r) => r.refName === "refs/heads/main" && !r.newSha.startsWith("0000")
   );
-  if (mainPush) {
-    let repositoryId = "";
-    try {
-      const [row] = await db
-        .select({ id: repositories.id })
-        .from(repositories)
-        .innerJoin(users, eq(repositories.ownerId, users.id))
-        .where(and(eq(users.username, owner), eq(repositories.name, repo)))
-        .limit(1);
-      repositoryId = row?.id || "";
-    } catch {
-      /* ignore */
-    }
-    if (repositoryId) {
-      triggerCrontechDeploy(owner, repo, mainPush.newSha, repositoryId).catch(
-        (err: unknown) => console.error(`[crontech] error:`, err),
-      );
-    }
+  if (mainPush && repositoryId) {
+    triggerCrontechDeploy(owner, repo, mainPush.newSha, repositoryId).catch(
+      (err: unknown) => console.error(`[crontech] error:`, err)
+    );
   }
 }
 

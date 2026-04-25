@@ -11,27 +11,36 @@ import {
   parseJsonResponse,
   isAiAvailable,
 } from "./ai-client";
+import { recordAi } from "./ai-flywheel";
 
 export async function generateCommitMessage(diff: string): Promise<string> {
   if (!isAiAvailable() || !diff.trim()) {
     return "chore: update files";
   }
   const client = getAnthropic();
-  const message = await client.messages.create({
-    model: MODEL_HAIKU,
-    max_tokens: 512,
-    messages: [
-      {
-        role: "user",
-        content: `Write a single conventional-commit message for this diff. One line subject under 72 chars, lowercase type (feat/fix/refactor/chore/docs/test/perf/style), then optional body wrapped at 72 chars. No backticks or markdown.
+  const message = await recordAi(
+    {
+      actionType: "commit-message",
+      model: MODEL_HAIKU,
+      summary: "generate commit message",
+    },
+    () =>
+      client.messages.create({
+        model: MODEL_HAIKU,
+        max_tokens: 512,
+        messages: [
+          {
+            role: "user",
+            content: `Write a single conventional-commit message for this diff. One line subject under 72 chars, lowercase type (feat/fix/refactor/chore/docs/test/perf/style), then optional body wrapped at 72 chars. No backticks or markdown.
 
 Diff:
 \`\`\`
 ${diff.slice(0, 40000)}
 \`\`\``,
-      },
-    ],
-  });
+          },
+        ],
+      })
+  );
   return extractText(message).trim();
 }
 
@@ -41,13 +50,20 @@ export async function generatePrSummary(
 ): Promise<string> {
   if (!isAiAvailable() || !diff.trim()) return "";
   const client = getAnthropic();
-  const message = await client.messages.create({
-    model: MODEL_SONNET,
-    max_tokens: 1024,
-    messages: [
-      {
-        role: "user",
-        content: `Generate a Markdown PR description for the following changes. Include: Summary (1-3 sentences focused on why), Key changes (bullets), Test plan (bullets), Risks (bullets — omit if minor).
+  const message = await recordAi(
+    {
+      actionType: "pr-summary",
+      model: MODEL_SONNET,
+      summary: `pr summary "${title.slice(0, 80)}"`,
+    },
+    () =>
+      client.messages.create({
+        model: MODEL_SONNET,
+        max_tokens: 1024,
+        messages: [
+          {
+            role: "user",
+            content: `Generate a Markdown PR description for the following changes. Include: Summary (1-3 sentences focused on why), Key changes (bullets), Test plan (bullets), Risks (bullets — omit if minor).
 
 Title: ${title}
 
@@ -55,9 +71,10 @@ Diff:
 \`\`\`
 ${diff.slice(0, 60000)}
 \`\`\``,
-      },
-    ],
-  });
+          },
+        ],
+      })
+  );
   return extractText(message).trim();
 }
 
@@ -81,7 +98,14 @@ export async function generateChangelog(
     .slice(0, 200)
     .map((c) => `- ${c.sha.slice(0, 7)} ${c.message.split("\n")[0]} — ${c.author}`)
     .join("\n");
-  const message = await client.messages.create({
+  const message = await recordAi(
+    {
+      actionType: "changelog",
+      model: MODEL_SONNET,
+      summary: `changelog ${repoFullName} ${fromRef ?? "(initial)"}..${toRef}`,
+      metadata: { commits: commits.length },
+    },
+    () => client.messages.create({
     model: MODEL_SONNET,
     max_tokens: 2048,
     messages: [
@@ -98,7 +122,8 @@ Commits:
 ${commitBlob}`,
       },
     ],
-  });
+  })
+  );
   return extractText(message).trim();
 }
 
@@ -123,7 +148,13 @@ export async function triageIssue(
   };
   if (!isAiAvailable()) return fallback;
   const client = getAnthropic();
-  const message = await client.messages.create({
+  const message = await recordAi(
+    {
+      actionType: "issue-triage",
+      model: MODEL_HAIKU,
+      summary: `triage issue "${title.slice(0, 80)}"`,
+    },
+    () => client.messages.create({
     model: MODEL_HAIKU,
     max_tokens: 512,
     messages: [
@@ -149,7 +180,8 @@ Respond ONLY with JSON:
 Only suggest labels from the available list. Set duplicateOfIssueNumber only when confident.`,
       },
     ],
-  });
+  })
+  );
   const parsed = parseJsonResponse<IssueTriage>(extractText(message));
   if (!parsed) return fallback;
   return {
@@ -199,7 +231,13 @@ export async function triagePullRequest(
   if (!isAiAvailable()) return fallback;
   try {
     const client = getAnthropic();
-    const message = await client.messages.create({
+    const message = await recordAi(
+      {
+        actionType: "triage",
+        model: MODEL_HAIKU,
+        summary: `triage PR "${title.slice(0, 80)}"`,
+      },
+      () => client.messages.create({
       model: MODEL_HAIKU,
       max_tokens: 512,
       messages: [
@@ -228,7 +266,8 @@ Respond ONLY with JSON:
 Only pick labels from the available list. Only pick reviewers from the candidate list. Priority must be one of critical|high|medium|low. riskArea must be one of frontend|backend|infra|docs|tests|mixed.`,
         },
       ],
-    });
+    })
+    );
     const parsed = parseJsonResponse<PrTriage>(extractText(message));
     if (!parsed) return fallback;
     const allowedRisk = ["frontend", "backend", "infra", "docs", "tests", "mixed"] as const;

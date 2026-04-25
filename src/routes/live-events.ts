@@ -29,7 +29,9 @@ import { subscribe, type SSEEvent } from "../lib/sse";
 
 const app = new Hono<AuthEnv>();
 
-const TOPIC_RE = /^[a-z]+:[a-zA-Z0-9\-]+$/;
+// kind is lowercase letters; id may include colons so multi-segment topics
+// like `ai:repo:<uuid>` parse cleanly into kind="ai", id="repo:<uuid>".
+const TOPIC_RE = /^[a-z]+:[a-zA-Z0-9:\-]+$/;
 const HEARTBEAT_MS = 25_000;
 
 app.get("/live-events/:topic", softAuth, async (c) => {

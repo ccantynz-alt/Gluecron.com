@@ -424,11 +424,21 @@ ${treeListing || "(empty)"}
 Representative files:
 ${fileBlob}`;
 
-  const message = await client.messages.create({
-    model: MODEL_SONNET,
-    max_tokens: 2048,
-    messages: [{ role: "user", content: prompt }],
-  });
+  const { recordAi } = await import("./ai-flywheel");
+  const message = await recordAi(
+    {
+      actionType: "explain",
+      model: MODEL_SONNET,
+      summary: `explain codebase`,
+      metadata: { files: samples.files.length },
+    },
+    () =>
+      client.messages.create({
+        model: MODEL_SONNET,
+        max_tokens: 2048,
+        messages: [{ role: "user", content: prompt }],
+      })
+  );
 
   const markdown = extractText(message).trim();
   const summary = extractSummary(markdown);

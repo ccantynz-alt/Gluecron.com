@@ -22,10 +22,15 @@ export function isAiAvailable(): boolean {
   return !!config.anthropicApiKey;
 }
 
-/** Default model for code understanding + review */
-export const MODEL_SONNET = "claude-sonnet-4-20250514";
-/** Fast model for lightweight tasks (commit messages, titles) */
-export const MODEL_HAIKU = "claude-haiku-4-5-20251001";
+/**
+ * Default model for code understanding + review.
+ * Owner-mandated to `claude-sonnet-4-6` — the most reliable model for the
+ * gluecron workload as of this build. Override at runtime with MODEL_SONNET
+ * env if a future model proves better; do not edit the constant.
+ */
+export const MODEL_SONNET = process.env.MODEL_SONNET || "claude-sonnet-4-6";
+/** Fast model for lightweight tasks (commit messages, titles, completions). */
+export const MODEL_HAIKU = process.env.MODEL_HAIKU || "claude-haiku-4-5-20251001";
 
 /**
  * Extract text content from an Anthropic message response.

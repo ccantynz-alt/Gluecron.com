@@ -74,6 +74,14 @@ repoSettings.get("/:owner/:repo/settings", requireAuth, requireRepoAccess("admin
           <a href={`/${ownerName}/${repoName}/settings/collaborators`}>
             Manage collaborators →
           </a>
+          {" · "}
+          <a href={`/${ownerName}/${repoName}/settings/integrations`}>
+            Integrations →
+          </a>
+          {" · "}
+          <a href={`/${ownerName}/${repoName}/settings/webhooks`}>
+            Webhooks →
+          </a>
         </p>
         {success && (
           <Alert variant="success">{decodeURIComponent(success)}</Alert>

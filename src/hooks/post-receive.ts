@@ -10,6 +10,7 @@
  * 6. Webhooks — fire registered webhook URLs
  */
 
+import { createHmac } from "crypto";
 import { and, eq } from "drizzle-orm";
 import { config } from "../lib/config";
 import { autoRepair } from "../lib/autorepair";
@@ -17,6 +18,7 @@ import { analyzePush, computeHealthScore } from "../lib/intelligence";
 import { db } from "../db";
 import { deployments, repositories, users } from "../db/schema";
 import { onDeployFailure } from "../lib/ai-incident";
+import { commitsBetween, getDefaultBranch } from "../git/repository";
 
 interface PushRef {
   oldSha: string;
@@ -78,73 +80,156 @@ export async function onPostReceive(
   // 4. GateTest scan — fire-and-forget via generic webhook; the standalone
   //    triggerGateTest helper is slated for the intelligence rework.
 
-  // 5. Crontech deploy on push to main
-  const mainPush = refs.find(
-    (r) => r.refName === "refs/heads/main" && !r.newSha.startsWith("0000")
-  );
-  if (mainPush) {
-    let repositoryId = "";
-    try {
-      const [row] = await db
-        .select({ id: repositories.id })
-        .from(repositories)
-        .innerJoin(users, eq(repositories.ownerId, users.id))
-        .where(and(eq(users.username, owner), eq(repositories.name, repo)))
-        .limit(1);
-      repositoryId = row?.id || "";
-    } catch {
-      /* ignore */
-    }
-    if (repositoryId) {
-      triggerCrontechDeploy(owner, repo, mainPush.newSha, repositoryId).catch(
-        (err: unknown) => console.error(`[crontech] error:`, err),
-      );
+  // 5. Crontech deploy (BLK-016) — only fires for the configured Crontech repo
+  //    (CRONTECH_REPO, default `ccantynz-alt/crontech`) on a push to its
+  //    default branch. The branch case (`Main` vs `main`) is determined by
+  //    the bare repo's HEAD, not hardcoded.
+  if (`${owner}/${repo}` === config.crontechRepo) {
+    let defaultBranch = (await getDefaultBranch(owner, repo).catch(() => null)) || "main";
+    const targetRef = `refs/heads/${defaultBranch}`;
+    const deployPush = refs.find(
+      (r) => r.refName === targetRef && !r.newSha.startsWith("0000")
+    );
+    if (deployPush) {
+      let repositoryId = "";
+      try {
+        const [row] = await db
+          .select({ id: repositories.id })
+          .from(repositories)
+          .innerJoin(users, eq(repositories.ownerId, users.id))
+          .where(and(eq(users.username, owner), eq(repositories.name, repo)))
+          .limit(1);
+        repositoryId = row?.id || "";
+      } catch {
+        /* ignore */
+      }
+      if (repositoryId) {
+        triggerCrontechDeploy({
+          owner,
+          repo,
+          before: deployPush.oldSha,
+          after: deployPush.newSha,
+          ref: targetRef,
+          branch: defaultBranch,
+          repositoryId,
+        }).catch((err: unknown) => console.error(`[crontech] error:`, err));
+      }
     }
   }
 }
 
 /**
- * Trigger Crontech auto-deploy via the outbound webhook.
+ * BLK-016 — outbound deploy webhook for Crontech's deploy-agent.
  *
- * Wire contract (Gluecron's copy — do not import from Crontech):
+ * Wire contract (matches Crontech's `apps/api/src/webhooks/gluecron-push.ts`):
  *
- *   POST  https://crontech.ai/api/hooks/gluecron/push
- *   Authorization: Bearer ${GLUECRON_WEBHOOK_SECRET}
+ *   POST  https://crontech.ai/api/webhooks/gluecron-push
  *   Content-Type: application/json
+ *   X-Gluecron-Signature: sha256=<hex(hmac-sha256(body, GLUECRON_WEBHOOK_SECRET))>
  *
  *   {
- *     "repository": "owner/name",
- *     "sha": "<40-hex>",
- *     "branch": "main",
- *     "ref": "refs/heads/main",
- *     "source": "gluecron",
- *     "timestamp": "<ISO-8601>"
+ *     "event": "push",
+ *     "repository": { "full_name": "ccantynz-alt/crontech" },
+ *     "ref": "refs/heads/Main",
+ *     "after":  "<40-hex commit SHA>",
+ *     "before": "<40-hex previous SHA>",
+ *     "pusher": { "name": "<author>", "email": "<email>" },
+ *     "commits": [ { "id": "<sha>", "message": "<msg>", "timestamp": "<iso8601>" } ]
  *   }
  *
- *   → 200 { ok: true, deploymentId, status: "queued" | "skipped" }
- *   → 401 invalid bearer token
- *   → 400 malformed payload
- *   → 404 repository not configured for auto-deploy on Crontech
+ * The `after` SHA is the dedupe key on the receiver side (idempotent).
  *
- * If `GLUECRON_WEBHOOK_SECRET` is unset we silently omit the Authorization
- * header — Crontech will then respond 401, which we treat as a failed deploy
- * row exactly like any other non-ok HTTP response.
+ * Delivery: at-least-once via exponential-backoff retry. Up to 5 attempts at
+ * delays 1s / 4s / 16s / 64s / 256s; first 2xx wins. If `GLUECRON_WEBHOOK_SECRET`
+ * is unset the signature header is omitted and Crontech is expected to reject —
+ * we still record the deploy row as failed.
  */
+const RETRY_DELAYS_MS = [1_000, 4_000, 16_000, 64_000, 256_000];
+
+interface TriggerArgs {
+  owner: string;
+  repo: string;
+  before: string;
+  after: string;
+  ref: string;
+  branch: string;
+  repositoryId: string;
+}
+
+interface TriggerOptions {
+  fetchImpl?: typeof fetch;
+  sleep?: (ms: number) => Promise<void>;
+  retryDelaysMs?: number[];
+  now?: () => Date;
+}
+
+function signBody(body: string, secret: string): string | null {
+  if (!secret) return null;
+  return "sha256=" + createHmac("sha256", secret).update(body).digest("hex");
+}
+
+async function buildPayload(args: TriggerArgs, now: Date): Promise<{
+  payload: Record<string, unknown>;
+  pusherName: string;
+  pusherEmail: string;
+}> {
+  // Walk commits new since the last push. Cap at 50 like GitHub's webhook.
+  // `before` may be all-zeros for a first push to the branch — commitsBetween
+  // handles that by treating null `from` as "everything reachable from `to`".
+  const fromSha = /^0+$/.test(args.before) ? null : args.before;
+  let commits: Array<{ id: string; message: string; timestamp: string }> = [];
+  let pusherName = "gluecron";
+  let pusherEmail = "noreply@gluecron.local";
+  try {
+    const list = await commitsBetween(args.owner, args.repo, fromSha, args.after);
+    commits = list.slice(0, 50).map((c) => ({
+      id: c.sha,
+      message: c.message,
+      timestamp: c.date,
+    }));
+    if (list[0]) {
+      pusherName = list[0].author || pusherName;
+      pusherEmail = list[0].authorEmail || pusherEmail;
+    }
+  } catch {
+    /* ignore — payload still valid with empty commits[] */
+  }
+  return {
+    payload: {
+      event: "push",
+      repository: { full_name: `${args.owner}/${args.repo}` },
+      ref: args.ref,
+      after: args.after,
+      before: args.before,
+      pusher: { name: pusherName, email: pusherEmail },
+      commits,
+      // Ancillary fields — receiver may ignore but they're useful for logs:
+      sent_at: now.toISOString(),
+      source: "gluecron",
+    },
+    pusherName,
+    pusherEmail,
+  };
+}
+
 async function triggerCrontechDeploy(
-  owner: string,
-  repo: string,
-  sha: string,
-  repositoryId: string
+  args: TriggerArgs,
+  opts: TriggerOptions = {}
 ): Promise<void> {
+  const fetchImpl = opts.fetchImpl ?? fetch;
+  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const delays = opts.retryDelaysMs ?? RETRY_DELAYS_MS;
+  const now = opts.now ?? (() => new Date());
+
   let deployId = "";
   try {
     const [row] = await db
       .insert(deployments)
       .values({
-        repositoryId,
+        repositoryId: args.repositoryId,
         environment: "production",
-        commitSha: sha,
-        ref: "refs/heads/main",
+        commitSha: args.after,
+        ref: args.ref,
         status: "pending",
         target: "crontech",
       })
@@ -154,93 +239,91 @@ async function triggerCrontechDeploy(
     /* ignore */
   }
 
-  try {
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-    };
-    if (config.gluecronWebhookSecret) {
-      headers["Authorization"] = `Bearer ${config.gluecronWebhookSecret}`;
+  const { payload } = await buildPayload(args, now());
+  const body = JSON.stringify(payload);
+  const signature = signBody(body, config.gluecronWebhookSecret);
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "User-Agent": "gluecron-webhook/1",
+    "X-Gluecron-Event": "push",
+    "X-Gluecron-Delivery": cryptoRandomId(),
+  };
+  if (signature) headers["X-Gluecron-Signature"] = signature;
+
+  let lastStatus = 0;
+  let lastError = "";
+  let success = false;
+
+  // Up to delays.length + 1 attempts (initial try + each delay).
+  const totalAttempts = delays.length + 1;
+  for (let attempt = 0; attempt < totalAttempts; attempt++) {
+    try {
+      const response = await fetchImpl(config.crontechDeployUrl, {
+        method: "POST",
+        headers,
+        body,
+      });
+      lastStatus = response.status;
+      console.log(
+        `[crontech] attempt ${attempt + 1}/${totalAttempts} → ${lastStatus} for ${args.owner}/${args.repo}@${args.after.slice(0, 7)}`
+      );
+      if (response.ok) {
+        success = true;
+        break;
+      }
+      // 4xx (except 408/429) is unrecoverable — stop retrying.
+      if (response.status >= 400 && response.status < 500 &&
+          response.status !== 408 && response.status !== 429) {
+        break;
+      }
+    } catch (err) {
+      lastError = err instanceof Error ? err.message : String(err);
+      console.error(
+        `[crontech] attempt ${attempt + 1}/${totalAttempts} failed: ${lastError}`
+      );
     }
-    const response = await fetch(config.crontechDeployUrl, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        repository: `${owner}/${repo}`,
-        sha,
-        branch: "main",
-        ref: "refs/heads/main",
-        source: "gluecron",
-        timestamp: new Date().toISOString(),
-      }),
-    });
-    console.log(
-      `[crontech] deploy triggered for ${owner}/${repo}@${sha.slice(0, 7)}: ${response.status}`
-    );
-    if (deployId) {
+    const nextDelay = delays[attempt];
+    if (nextDelay !== undefined && attempt < totalAttempts - 1) {
+      await sleep(nextDelay);
+    }
+  }
+
+  if (deployId) {
+    try {
       await db
         .update(deployments)
         .set({
-          status: response.ok ? "success" : "failed",
+          status: success ? "success" : "failed",
+          blockedReason: success
+            ? null
+            : (lastError ? lastError : `HTTP ${lastStatus}`),
           completedAt: new Date(),
         })
         .where(eq(deployments.id, deployId));
+    } catch {
+      /* ignore */
     }
-    // D4: when Crontech returns a non-ok HTTP status, kick off the AI
-    // incident responder AFTER the deployment row is flipped to "failed".
-    if (!response.ok && deployId) {
-      void onDeployFailure({
-        repositoryId,
-        deploymentId: deployId,
-        ref: "refs/heads/main",
-        commitSha: sha,
-        target: "crontech",
-        errorMessage: `HTTP ${response.status}`,
-      }).catch((e) => console.error("[ai-incident]", e));
-    }
-  } catch (err) {
-    console.error(`[crontech] failed to trigger deploy:`, err);
-    if (deployId) {
-      await db
-        .update(deployments)
-        .set({
-          status: "failed",
-          blockedReason: (err as Error).message,
-          completedAt: new Date(),
-        })
-        .where(eq(deployments.id, deployId));
-      // D4: fire-and-forget incident analysis AFTER marking the row failed.
-      void onDeployFailure({
-        repositoryId,
-        deploymentId: deployId,
-        ref: "refs/heads/main",
-        commitSha: sha,
-        target: "crontech",
-        errorMessage: (err as Error).message,
-      }).catch((e) => console.error("[ai-incident]", e));
-    }
+  }
+
+  if (!success && deployId) {
+    void onDeployFailure({
+      repositoryId: args.repositoryId,
+      deploymentId: deployId,
+      ref: args.ref,
+      commitSha: args.after,
+      target: "crontech",
+      errorMessage: lastError || `HTTP ${lastStatus}`,
+    }).catch((e) => console.error("[ai-incident]", e));
   }
 }
 
-async function fanoutWebhooks(
-  repositoryId: string,
-  owner: string,
-  repo: string,
-  refs: PushRef[]
-): Promise<void> {
-  try {
-    const { fireWebhooks } = await import("../routes/webhooks");
-    await fireWebhooks(repositoryId, "push", {
-      repository: `${owner}/${repo}`,
-      refs: refs.map((r) => ({
-        ref: r.refName,
-        before: r.oldSha,
-        after: r.newSha,
-      })),
-    });
-  } catch {
-    // best-effort
-  }
+function cryptoRandomId(): string {
+  // Short opaque delivery ID for log correlation. Not security-sensitive.
+  const bytes = new Uint8Array(8);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 /** Test-only access to internal helpers. */
-export const __test = { triggerCrontechDeploy };
+export const __test = { triggerCrontechDeploy, signBody, buildPayload, RETRY_DELAYS_MS };

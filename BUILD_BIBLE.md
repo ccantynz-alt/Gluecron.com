@@ -561,3 +561,16 @@ If a block is too large for a single session, split it into a sub-plan at the to
 - `src/views/landing.tsx` — marketing landing for logged-out `/`. Accepts optional `stats` prop; `src/routes/web.tsx` queries public repo + user counts.
 - `src/lib/demo-seed.ts` + tests — idempotent `ensureDemoContent()` seeds `demo` user + 3 public sample repos + seeded issues/PR. Boot flag `DEMO_SEED_ON_BOOT=1`. Site-admin reseed button on `/admin` (`POST /admin/demo/reseed`). Public `/demo` convenience redirect to `/demo/hello-python`.
 - Doc sync: `README.md`, `DEPLOY.md`, `LAUNCH_TODAY.md` aligned with current reality.
+
+**BLK-016 Crontech-Gluecron deploy wire — Gluecron sender rewritten (pending live verification):**
+- `src/hooks/post-receive.ts triggerCrontechDeploy` now matches the Crontech receiver at `apps/api/src/webhooks/gluecron-push.ts`:
+  - Endpoint default `POST https://crontech.ai/api/webhooks/gluecron-push` (was `/api/hooks/gluecron/push`).
+  - Auth model: HMAC-SHA256 of the JSON body in `X-Gluecron-Signature: sha256=<hex>`, signed with `GLUECRON_WEBHOOK_SECRET` (no longer Bearer).
+  - Payload shape is GitHub-style: `{event, repository:{full_name}, ref, after, before, pusher:{name,email}, commits:[{id,message,timestamp}]}` plus ancillary `sent_at`/`source`. Receiver dedupes on `after`.
+  - At-least-once delivery: 6 attempts (initial + 5 backoffs at 1s/4s/16s/64s/256s). Stops on first 2xx; bails immediately on unrecoverable 4xx (except 408/429); retries on 5xx + network errors.
+  - `commits[]` + pusher derived via `commitsBetween(owner, repo, before, after)` from the bare repo (capped at 50, like GitHub). Empty when the git layer can't read the repo.
+- `onPostReceive` no longer hardcodes `refs/heads/main` — gated by `${owner}/${repo} === config.crontechRepo` (env `CRONTECH_REPO`, default `ccantynz-alt/crontech`) and the repo's actual default branch via `getDefaultBranch`. Handles `Main` (capital M) without a code change.
+- Config additions: `config.crontechRepo` (env `CRONTECH_REPO`); `config.crontechDeployUrl` default flipped; both reflected in `.env.example`.
+- Tests: `src/__tests__/crontech-deploy.test.ts` rewritten — 19 tests covering endpoint, HMAC signature, payload shape, branch-case carry-through (`Main`), retry-on-5xx, give-up-after-N, no-retry-on-4xx, retry-on-408/429, retry-on-network-error, default backoff schedule. `triggerCrontechDeploy` now takes a single `args` object and an optional `opts: {fetchImpl, sleep, retryDelaysMs, now}` for injectability.
+- Removed dead `fanoutWebhooks` helper (defined-but-uncalled, per audit).
+- **Live verification (the BLK-016 done-criterion) is out of scope for this session** — it requires SSH to the Vultr box, a real test push, and confirming the deploy-agent log + GitHub Actions silence. Do not flip `BLK-016 → ✅ SHIPPED` in the Crontech BUILD_BIBLE without owner authorisation per Crontech CLAUDE.md §0.7.

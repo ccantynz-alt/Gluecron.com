@@ -19,13 +19,23 @@ export const config = {
   get crontechDeployUrl() {
     return (
       process.env.CRONTECH_DEPLOY_URL ||
-      "https://crontech.ai/api/hooks/gluecron/push"
+      "https://crontech.ai/api/webhooks/gluecron-push"
     );
   },
   /**
-   * Bearer token sent on outbound deploy webhook to Crontech's
-   * `POST /api/hooks/gluecron/push` endpoint. Default empty → header is
-   * omitted and Crontech will reject with 401 (treated as a failed deploy).
+   * BLK-016 — only fire the Crontech deploy webhook for pushes to this
+   * `<owner>/<name>`. Every other repo's push is ignored. Override per
+   * environment via `CRONTECH_REPO`.
+   */
+  get crontechRepo() {
+    return process.env.CRONTECH_REPO || "ccantynz-alt/crontech";
+  },
+  /**
+   * Shared HMAC secret for the outbound deploy webhook to Crontech's
+   * `POST /api/webhooks/gluecron-push` endpoint. Used to compute the
+   * `X-Gluecron-Signature: sha256=<hex>` header on every fire. Default
+   * empty → header is omitted and Crontech will reject with 401 (treated
+   * as a failed deploy).
    */
   get gluecronWebhookSecret() {
     return process.env.GLUECRON_WEBHOOK_SECRET || "";

@@ -1,0 +1,78 @@
+{
+  "version": "1.0.0",
+  "description": "Complete registry of AI capabilities in Gluecron and how each improves via the flywheel",
+  "capabilities": [
+    {
+      "name": "Semantic Code Search",
+      "description": "Search your codebase by meaning and intent, not just keyword matching",
+      "how_it_works": "Embeds code chunks into vector space using Claude's understanding of code semantics. Queries are also embedded and matched by semantic similarity.",
+      "model_used": "claude-sonnet-4-6",
+      "flywheel_input": "Which results users clicked, whether they found what they needed, subsequent search refinements",
+      "flywheel_output": "Improved embedding weighting for your codebase's specific domain language and patterns",
+      "competitive_advantage_vs_github": "GitHub search is keyword + regex. Gluecron search understands that 'where do we validate payments' and 'payment validation logic' are the same question."
+    },
+    {
+      "name": "AI PR Reviewer",
+      "description": "Reviews PRs like a senior engineer on your team, not a generic linter",
+      "how_it_works": "Reads the full PR diff, surrounding context, and your repo's historical patterns. Posts specific, actionable comments. Learns which comment styles your team accepts.",
+      "model_used": "claude-opus-4-7",
+      "flywheel_input": "Which review comments were accepted, dismissed, or argued against. What the final merged code looked like.",
+      "flywheel_output": "Review style adapts to your team's standards. Comments get more precise and less noisy over time.",
+      "competitive_advantage_vs_github": "GitHub Copilot code review is generic. Gluecron's reviewer learns your team's specific standards and enforces them consistently."
+    },
+    {
+      "name": "Predictive CI",
+      "description": "Runs only the tests that matter for the files you changed",
+      "how_it_works": "Analyses changed files, maps them to test coverage data and historical failure correlations. Selects the minimal test set most likely to catch regressions.",
+      "model_used": "claude-haiku-4-5",
+      "flywheel_input": "Whether the selected tests caught the failures, whether missed tests would have caught additional failures",
+      "flywheel_output": "Improved file-to-test mapping accuracy. Faster CI with higher confidence.",
+      "competitive_advantage_vs_github": "GitHub Actions runs everything every time. Gluecron predicts which tests matter and cuts CI time by up to 60% without missing failures."
+    },
+    {
+      "name": "Smart Merge",
+      "description": "Resolves merge conflicts by understanding semantic intent, not just line differences",
+      "how_it_works": "When a conflict occurs, reads both branches' changes in context, understands the intent of each, and proposes a resolution that satisfies both.",
+      "model_used": "claude-opus-4-7",
+      "flywheel_input": "Whether the proposed resolution was accepted, modified, or rejected. What the final resolution looked like.",
+      "flywheel_output": "Improved conflict resolution accuracy for your codebase's common patterns.",
+      "competitive_advantage_vs_github": "GitHub shows you the conflict. Gluecron resolves it."
+    },
+    {
+      "name": "Auto Documentation",
+      "description": "Generates and keeps documentation in sync with code changes",
+      "how_it_works": "On every PR merge, scans changed files, updates or generates corresponding documentation, opens a follow-up PR with doc updates.",
+      "model_used": "claude-sonnet-4-6",
+      "flywheel_input": "Whether generated docs were accepted as-is, edited, or rejected. What the final docs looked like.",
+      "flywheel_output": "Documentation style matches your team's voice and technical depth preferences.",
+      "competitive_advantage_vs_github": "GitHub has no documentation automation. Gluecron ensures docs never go stale."
+    },
+    {
+      "name": "Security Intelligence",
+      "description": "Explains vulnerabilities in plain language with prioritized, context-aware fix suggestions",
+      "how_it_works": "Scans dependencies and code on every push. For each finding, generates an explanation of the risk in your specific context and a concrete fix suggestion.",
+      "model_used": "claude-sonnet-4-6",
+      "flywheel_input": "Which findings developers fixed first, which they deferred, whether AI-suggested fixes were applied",
+      "flywheel_output": "Improved prioritization: surfaces the vulnerabilities your team is most likely to act on, in the order most impactful for your risk profile.",
+      "competitive_advantage_vs_github": "GitHub Dependabot lists CVEs. Gluecron explains what they mean for your code and tells you exactly what to change."
+    },
+    {
+      "name": "Codebase Q&A",
+      "description": "Ask questions about the repo in natural language, get accurate answers",
+      "how_it_works": "Maintains a live semantic index of the codebase. Answers questions by retrieving relevant code chunks and synthesizing an accurate response.",
+      "model_used": "claude-sonnet-4-6",
+      "flywheel_input": "Whether the answer was rated helpful, follow-up questions asked, source code references clicked",
+      "flywheel_output": "More accurate retrieval and better answer synthesis for your specific codebase structure.",
+      "competitive_advantage_vs_github": "GitHub has no Q&A. Gluecron is the institutional knowledge layer for your codebase."
+    },
+    {
+      "name": "Release Note Generator",
+      "description": "Writes release notes that match your team's style and voice",
+      "how_it_works": "Reads merged PRs and commits since last release, synthesizes a release note in your team's established style. Learns from edits to previous generated notes.",
+      "model_used": "claude-sonnet-4-6",
+      "flywheel_input": "How much the generated notes were edited before publishing",
+      "flywheel_output": "Style drift toward zero edits needed over time.",
+      "competitive_advantage_vs_github": "GitHub has no release note AI. Teams spend hours on this manually."
+    }
+  ]
+}

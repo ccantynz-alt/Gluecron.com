@@ -1,0 +1,116 @@
+{
+  "version": "1.0.0",
+  "product": "gluecron",
+  "description": "AI flywheel configuration for the Gluecron code platform",
+
+  "signal_collection": {
+    "pull_requests": [
+      "pr_id",
+      "repo",
+      "author",
+      "files_changed",
+      "lines_added",
+      "lines_removed",
+      "review_comments_by_ai",
+      "review_comments_accepted",
+      "review_comments_dismissed",
+      "time_to_first_review_ms",
+      "time_to_merge_ms",
+      "ci_pass_on_first_run",
+      "reviewer_assigned_by_ai",
+      "reviewer_assignment_accepted",
+      "merge_conflict_occurred",
+      "merge_conflict_resolved_by_ai"
+    ],
+    "ci_runs": [
+      "run_id",
+      "repo",
+      "branch",
+      "commit_sha",
+      "tests_selected_by_ai",
+      "tests_selected_total",
+      "total_tests_in_suite",
+      "failures_caught_in_selected",
+      "failures_missed",
+      "duration_ms",
+      "duration_savings_ms"
+    ],
+    "code_search": [
+      "query",
+      "repo",
+      "result_count",
+      "result_clicked",
+      "result_position_clicked",
+      "user_found_what_they_needed"
+    ],
+    "security_scans": [
+      "finding_id",
+      "severity",
+      "cve_id",
+      "file_path",
+      "ai_explanation_rating",
+      "fix_applied",
+      "time_to_fix_hours",
+      "fix_correct"
+    ]
+  },
+
+  "learning_cycles": {
+    "on_pr_review_comment_resolved": {
+      "action": "update_review_style_model_for_repo",
+      "model": "claude-sonnet-4-6",
+      "latency_budget_ms": 1000
+    },
+    "on_pr_merge": {
+      "action": "score_prediction_accuracy_and_update_file_risk_index",
+      "model": "claude-sonnet-4-6",
+      "latency_budget_ms": 2000
+    },
+    "on_ci_complete": {
+      "action": "update_test_selection_model_with_coverage_outcome",
+      "model": "claude-haiku-4-5",
+      "latency_budget_ms": 500
+    },
+    "on_issue_close": {
+      "action": "update_issue_classification_and_resolution_pattern_index",
+      "model": "claude-haiku-4-5",
+      "latency_budget_ms": 500
+    },
+    "daily_repo_health": {
+      "action": "generate_repo_health_report_per_active_repo",
+      "model": "claude-sonnet-4-6",
+      "schedule": "0 8 * * *",
+      "output": "repo_dashboard_and_owner_digest_email"
+    }
+  },
+
+  "improvement_targets": [
+    {
+      "metric": "pr_review_acceptance_rate",
+      "measure": "ai_comments_accepted / ai_comments_posted",
+      "target": 0.70
+    },
+    {
+      "metric": "ci_test_selection_coverage",
+      "measure": "failures_caught_in_selected / total_failures",
+      "target": 0.95,
+      "with_test_reduction_target": 0.40
+    },
+    {
+      "metric": "reviewer_assignment_accuracy",
+      "measure": "pct_of_ai_assigned_reviewers_who_complete_review",
+      "target": 0.85
+    },
+    {
+      "metric": "security_fix_acceptance_rate",
+      "measure": "pct_of_ai_suggested_fixes_applied",
+      "target": 0.75
+    }
+  ],
+
+  "data_retention": {
+    "per_repo_rolling_months": 12,
+    "anonymized_aggregate_months": 36,
+    "delete_on_repo_delete": true
+  }
+}

@@ -1,0 +1,80 @@
+{
+  "product": "Gluecron",
+  "tagline": "The AI-native code platform. Every commit gets smarter.",
+  "version": "1.0.0",
+  "type": "standalone-platform",
+  "category": "developer-platform",
+  "purpose": "AI-native code hosting, review, and CI/CD platform that supersedes GitHub",
+  "standalone": true,
+  "supersedes": "GitHub",
+  "also_replaces": ["GitLab", "Bitbucket", "Gitea", "Forgejo"],
+  "core_capabilities": [
+    "git_hosting",
+    "ai_code_review",
+    "intelligent_ci_cd",
+    "issue_tracking",
+    "project_management",
+    "dependency_analysis",
+    "security_scanning",
+    "vscode_extension",
+    "cli_tools",
+    "api_access"
+  ],
+  "ai_advantages_over_github": [
+    "Semantic code search that understands meaning, not just keyword matching",
+    "AI PR reviewer that thinks like a senior engineer and learns from accepted/rejected comments",
+    "Predictive CI that knows which tests to run based on semantic analysis of changed files",
+    "Smart merge conflict resolution that understands semantic intent, not just line diffs",
+    "Auto-generated and maintained documentation that stays in sync with code changes",
+    "Security intelligence that explains vulnerabilities in plain language with prioritized fix suggestions",
+    "Codebase Q&A: ask questions in natural language, get answers that improve over time",
+    "AI-written release notes that learn your team's style and voice"
+  ],
+  "stack": {
+    "runtime": "Bun v1.x",
+    "database": "PostgreSQL 16 via Drizzle ORM",
+    "deployment": "Docker on Crontech bare metal",
+    "cli": "gc (gluecron CLI, installable via bun or curl)",
+    "ide_integration": "VSCode extension"
+  },
+  "integrates_with_via_api_only": {
+    "crontech": {
+      "relationship": "Gluecron is HOSTED on Crontech",
+      "push_trigger": "POST /api/v1/deploy on every merge to main"
+    },
+    "gatetest": {
+      "webhook": "POST /api/gate/result",
+      "purpose": "Block PR merges that fail test gates"
+    },
+    "alecrae": {
+      "relationship": "AlecRae repos are hosted on Gluecron"
+    }
+  },
+  "ai_flywheel": {
+    "enabled": true,
+    "core_principle": "Every interaction (PR review, CI run, issue close, code search query) feeds back to make the next interaction smarter",
+    "models": {
+      "deep_code_analysis": "claude-opus-4-7",
+      "standard_analysis": "claude-sonnet-4-6",
+      "real_time_autocomplete": "claude-haiku-4-5"
+    },
+    "learns_from": [
+      "pr_review_comment_acceptance_rates",
+      "ci_pass_rates_by_file_path",
+      "issue_resolution_time_by_label",
+      "code_churn_by_module",
+      "merge_conflict_frequency_by_file",
+      "test_coverage_trends",
+      "security_finding_fix_prioritization",
+      "code_search_query_satisfaction"
+    ],
+    "improves": [
+      "pr_review_suggestion_relevance",
+      "ci_test_selection_efficiency",
+      "reviewer_assignment_accuracy",
+      "bug_prediction_by_file_churn",
+      "security_fix_prioritization"
+    ]
+  },
+  "competitive_position": "GitHub Copilot is an add-on. Gluecron is AI from the ground up. Every feature, every workflow, every data model is designed for AI-native operation. The AI that reviews your PR today is smarter than it was yesterday, because yesterday's accepted and rejected suggestions trained it. GitHub cannot replicate this without rebuilding from scratch."
+}

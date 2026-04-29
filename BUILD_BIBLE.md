@@ -137,6 +137,12 @@ Legend: ✅ shipped · 🟡 partial · ❌ not built
 | Code scanning UI | ✅ | I5 — `src/routes/code-scanning.tsx`, `GET /:owner/:repo/security`. Aggregates last-100 `gate_runs` matching `%scan%`/`%security%`, rolls up latest status per gate, shows failed/repaired/total cards + scanner status list + recent runs. |
 | Copilot code completion | ✅ | D9 — `POST /api/copilot/completions` (PAT/OAuth/session), `GET /api/copilot/ping`. `src/lib/ai-completion.ts`, `src/routes/copilot.ts`. LRU-cached, rate-limited 60/min. |
 | Semantic code search | ✅ | D1 — see 2.2 |
+| Spec-to-PR (NL feature spec → draft PR) | ✅ | `src/routes/specs.tsx` UI, `src/lib/spec-to-pr.ts` orchestrator, `src/lib/spec-ai.ts` Claude call + parser, `src/lib/spec-context.ts` repo context reader, `src/lib/spec-git.ts` plumbing-only branch writer. Graceful fallback when `ANTHROPIC_API_KEY` is unset. |
+| Repository intelligence engine | ✅ | `src/lib/intelligence.ts` — repo-level summarisation + signals. |
+| Time-travel code explorer | ✅ | `src/lib/timetravel.ts` — historical snapshot navigation. |
+| Dependency impact analyzer | ✅ | `src/lib/depimpact.ts` — "what breaks if I bump X" cross-reference. |
+| One-click rollback | ✅ | `src/lib/rollback.ts` — fast revert helper for failed deploys. |
+| Auto-repair (intelligence path) | ✅ | `src/lib/autorepair.ts` `autoRepair(...)` — invoked from `src/hooks/post-receive.ts`. Distinct from `src/lib/auto-repair.ts` `repairSecrets`/`repairSecurityIssues` (gate-time). Both are load-bearing — do not dedupe without owner approval. |
 
 ### 2.5 Platform
 | Feature | Status | Notes |
@@ -169,7 +175,16 @@ Legend: ✅ shipped · 🟡 partial · ❌ not built
 |---|---|---|
 | Rate limiting | ✅ | `src/middleware/rate-limit.ts` |
 | Request-ID tracing | ✅ | `src/middleware/request-context.ts` |
-| Health / readiness / metrics | ✅ | `/healthz` `/readyz` `/metrics` |
+| Health / readiness / metrics | ✅ | `/healthz` `/readyz` `/metrics`. Extended probe surface in `src/routes/health-probe.ts`; public dashboard `src/routes/status.tsx` (`GET /status` + `/status.svg` shields badge). |
+| Public platform status JSON | ✅ | `src/routes/platform-status.ts` — machine-readable status JSON. |
+| Error tracking | ✅ | `src/lib/observability.ts` — wired into `app.onError`. Sinks: `ERROR_WEBHOOK_URL` and/or `SENTRY_DSN`. Never throws. |
+| Comprehensive REST API v2 | ✅ | `src/routes/api-v2.ts` — full CRUD across resources. Authoritative integration surface alongside the v1 `/api/*` endpoints in §4.6. |
+| API documentation page | ✅ | `src/routes/api-docs.tsx` — interactive in-app docs. |
+| SSE in-process pub/sub | ✅ | `src/lib/sse.ts` + `src/lib/sse-client.ts` — topic-based broadcaster. `src/routes/live-events.ts` exposes `GET /live-events/:topic`. Used by the live UI updates layer. |
+| Inbound deploy event receiver (Signal Bus P1) | ✅ | `src/routes/events.ts` — Crontech → Gluecron event ingest. Idempotent via `drizzle/0034_processed_events.sql` (sha256 of payload deduped at write-site). |
+| Autopilot ticker | ✅ | `src/lib/autopilot.ts` — 5-min cycle: mirror sync, merge-queue peek, weekly digests, advisory rescans. `AUTOPILOT_DISABLED=1` opt-out. Admin page `/admin/autopilot`. |
+| Demo seed | ✅ | `src/lib/demo-seed.ts` — idempotent `ensureDemoContent()`. `DEMO_SEED_ON_BOOT=1` boot flag. Site-admin reseed at `/admin` (`POST /admin/demo/reseed`). `/demo` redirect to a sample repo. |
+| SEO (robots + sitemap) | ✅ | `src/routes/seo.ts` — `/robots.txt` + `/sitemap.xml`. |
 | Audit log (table) | ✅ | `audit_log` table |
 | Audit log UI | ✅ | `/settings/audit` (personal) + `/:owner/:repo/settings/audit` (per-repo, owner-only) |
 | Traffic analytics per repo | ✅ | F1 — `src/lib/traffic.ts` + `src/routes/traffic.tsx`, `drizzle/0020_analytics_and_admin.sql`; owner-only 7/14/30/90d windows, ascii-bar daily chart. SHA-256-truncated IP for unique visitors. Fire-and-forget wiring in `web.tsx` + `git.ts`. |
@@ -183,6 +198,12 @@ Legend: ✅ shipped · 🟡 partial · ❌ not built
 | Official CLI | ✅ | G3 — `cli/gluecron.ts` Bun-compilable single binary. REST + GraphQL client, `~/.gluecron/config.json` 0600. |
 | VS Code extension | ✅ | G4 — `vscode-extension/` with commands for explain / open-on-web / semantic search / generate tests. |
 | Native mobile apps | ❌ | |
+| Repository collaborators (per-repo roles) | ✅ | `drizzle/0035_repo_collaborators.sql` (read/write/admin, hierarchical) + `drizzle/0036_invite_token_hash.sql` (sha256 invite tokens). `src/routes/collaborators.tsx`, `src/routes/team-collaborators.tsx`, `src/routes/invites.tsx`, `src/lib/invite-tokens.ts`. Wired through `src/middleware/repo-access.ts` permission middleware. |
+| GitHub import (single repo) | ✅ | `src/routes/import.tsx` + `src/lib/import-helper.ts`. PAT-based clone-and-rehost. |
+| Bulk GitHub import (org migration) | ✅ | `src/routes/import-bulk.tsx` — paste a token, mirror an entire org in one pass. |
+| Migration history + verifier | ✅ | `src/routes/migrations.tsx` per-user history dashboard, `src/lib/import-verify.ts` post-migration smoke check (object count, branches, default branch). |
+| Onboarding flow | ✅ | `src/routes/onboarding.tsx` — guided first-five-minutes for new accounts. |
+| Public help / quickstart | ✅ | `src/routes/help.tsx` — owner-facing migration cheatsheet at `/help`. |
 | Dark mode | ✅ | default |
 | Light-mode toggle | ✅ | `/theme/toggle` + `theme` cookie, pre-paint script avoids FOUC, nav sun/moon icon |
 | Keyboard shortcuts | ✅ | `/shortcuts` page |
@@ -341,6 +362,10 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `drizzle/0031_user_follows.sql` (Block J4) — migration, never edited in place. Adds `user_follows` (composite PK on `(follower_id, following_id)`, CHECK no-self-follow, reverse index on `following_id`).
 - `drizzle/0032_repo_rulesets.sql` (Block J6) — migration, never edited in place. Adds `repo_rulesets` (unique on `(repository_id, name)`, enforcement enum) + `ruleset_rules` (JSON params).
 - `drizzle/0033_commit_statuses.sql` (Block J8) — migration, never edited in place. Adds `commit_statuses` (unique on `(repository_id, commit_sha, context)`, state vocabulary pending/success/failure/error).
+- `drizzle/0034_processed_events.sql` (Signal Bus P1) — migration, never edited in place. Idempotency table for inbound deploy events; sha256-keyed dedupe of at-least-once delivery from Crontech.
+- `drizzle/0035_repo_collaborators.sql` — migration, never edited in place. Adds `repo_collaborators` (unique on `(repository_id, user_id)`, role enum read/write/admin, `invited_by` nullable, `accepted_at` nullable).
+- `drizzle/0036_invite_token_hash.sql` — migration, never edited in place. Adds `invite_token_hash` column (sha256 of plaintext) to `repo_collaborators` for email-flow invites; NULL on legacy auto-accepted rows.
+- `drizzle/0037_workflow_engine_v2.sql` — migration, never edited in place. Strictly additive to Block C1 (`drizzle/0008_workflows.sql` stays locked). Adds `workflow_secrets` (AES-256-GCM, `(repo, name)` unique), `workflow_dispatch_inputs` (per-workflow input schema), `workflow_run_cache` (content-addressable cache, repo/branch/tag scoped), `workflow_runner_pool` (warm-runner registry).
 
 ### 4.2 Git layer (locked)
 - `src/git/repository.ts` — tree / blob / commits / diff / branches / blame / search / raw / tags / commitsBetween
@@ -363,6 +388,13 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `src/lib/pages.ts` (Block C3) — `onPagesPush` (never throws), `resolvePagesPath` (probe list including pretty URLs + traversal strip), `contentTypeFor` (MIME).
 - `src/lib/environments.ts` (Block C4) — `matchGlob`, `listEnvironments`, `getOrCreateEnvironment`, `getEnvironmentByName`, `isReviewer`, `reviewerIdsOf`, `allowedBranchesOf`, `computeApprovalState`, `reduceApprovalState`, `recordApproval`, `requiresApprovalFor`. Empty reviewers list → repo owner approves. Any rejection hard-stops.
 
+### 4.3.1 Permissions + collaborators (locked)
+- `src/middleware/repo-access.ts` — centralised permission check applied to all repo-write routes. Resolves owner / collaborator-role / org-team-role and rejects unauthorised mutations.
+- `src/lib/invite-tokens.ts` — opaque single-use invite secret generator + sha256 hasher. Hash stored in `repo_collaborators.invite_token_hash`; plaintext is delivered once via the invite email link.
+- `src/routes/collaborators.tsx` — per-repo collaborator add/list/remove. Owner-or-admin only. Audit-logged.
+- `src/routes/team-collaborators.tsx` — bulk-grant: invite every accepted member of a given team to a repo as a collaborator in one action.
+- `src/routes/invites.tsx` — invite acceptance landing page. Verifies token hash, sets `accepted_at`, redirects to repo.
+
 ### 4.4 AI layer (locked)
 - `src/lib/ai-client.ts` — Anthropic client + model constants
 - `src/lib/ai-generators.ts` — commit / PR / changelog / issue-triage / **pull-request-triage (D3)**
@@ -377,6 +409,13 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `src/lib/ai-incident.ts` (Block D4) — `onDeployFailure({deploymentId, reason, logs?})` and pure helper `summariseCommitsForIncident(commits)`. Sonnet 4 structured JSON RCA → opens `issues` row, attaches `incident` label if present, sets `deployments.blockedReason`. Never throws; deterministic fallback body when no API key. Wired from `post-receive.ts triggerCrontechDeploy` + `deployments.tsx retry-incident`.
 - `src/lib/ai-tests.ts` (Block D8) — pure helpers `detectLanguage`, `detectTestFramework`, `buildTestsPrompt`, `suggestedTestPath`, `generateTestStub`, `contentTypeFor`. Returns `{code:"", framework:"fallback"}` on no API key. Never throws.
 - `src/lib/branch-protection.ts` (Block D5) — `matchProtection(repoId, branch)` (exact wins; deterministic glob sort), `evaluateProtection(rule, ctx)` (pure — checks `requireAiApproval | requireGreenGates | requireHumanReview | requiredApprovals`), `countHumanApprovals(prId)` (LGTM/+1/approved heuristic). Never throws. Enforcement is in `src/routes/pulls.tsx` merge handler, after existing hard-gate filter.
+- `src/lib/intelligence.ts` — repository intelligence engine (repo-level summarisation + signals).
+- `src/lib/timetravel.ts` — time-travel code explorer (historical snapshot navigation).
+- `src/lib/depimpact.ts` — dependency impact analyzer (cross-reference of who breaks if X bumps).
+- `src/lib/rollback.ts` — one-click rollback helper for failed deploys.
+- `src/lib/spec-to-pr.ts` + `src/lib/spec-ai.ts` + `src/lib/spec-context.ts` + `src/lib/spec-git.ts` — Spec-to-PR v2 pipeline (NL feature spec → Claude → branch via git plumbing → PR row). Graceful fallback when no `ANTHROPIC_API_KEY`.
+- `src/lib/autorepair.ts` — `autoRepair(...)` invoked from `src/hooks/post-receive.ts` and exercised by `src/__tests__/intelligence.test.ts`. **Distinct from `src/lib/auto-repair.ts`** (gate-time `repairSecrets`/`repairSecurityIssues` used by `src/lib/gate.ts`). Both are load-bearing — do not dedupe.
+- `src/lib/pr-triage.ts` — placeholder for a future post-create PR-triage hook (logs only, no AI call). Distinct from `triagePullRequest` in `src/lib/ai-generators.ts` which is the live D3 path.
 
 ### 4.5 Platform (locked)
 - `src/lib/notify.ts` — notification creation + audit log (swallow-failures pattern). Also fans out email to opted-in recipients for `mention|review_requested|assigned|gate_failed`. Exports `__internal` for tests.
@@ -387,6 +426,19 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `src/lib/gate.ts` — gate orchestration + persistence
 - `src/lib/cache.ts` — LRU cache, git-cache invalidation
 - `src/lib/reactions.ts` — `summariseReactions`, `toggleReaction`, `ALLOWED_EMOJIS`, `EMOJI_GLYPH`, `isAllowedEmoji`, `isAllowedTarget`
+- `src/lib/observability.ts` — minimal dependency-free observability layer. Wired into `app.onError`. Sinks: `ERROR_WEBHOOK_URL` and/or `SENTRY_DSN`. Never throws.
+- `src/lib/sse.ts` — in-process topic-based pub/sub broadcaster for Server-Sent Events. Backs the live UI updates layer.
+- `src/lib/sse-client.ts` — emits a `<script>`-droppable JS snippet for SSR'd views to subscribe to a topic. Plain JS only — no client framework.
+- `src/lib/autopilot.ts` — 5-minute self-sufficiency ticker (mirror sync, merge-queue peek, weekly digests, advisory rescans). `AUTOPILOT_DISABLED=1` opt-out. Observability via `getLastTick()` + `getTickCount()`.
+- `src/lib/demo-seed.ts` — idempotent `ensureDemoContent()` (creates `demo` user + `hello-python` / `todo-api` / `design-docs`). `DEMO_SEED_ON_BOOT=1` boot flag in `src/index.ts`.
+- `src/lib/import-helper.ts` — small helpers for the GitHub import flow (`src/routes/import.tsx`).
+- `src/lib/import-verify.ts` — post-migration smoke verifier (object count, branches, default-branch HEAD). Re-runnable from `src/routes/migrations.tsx`.
+- `src/lib/namespace.ts` — namespace resolution for Block B2 (user vs org slug → owner record).
+- `src/lib/action-registry.ts` — built-in action registry for workflow engine v2 (Sprint 1). Backs `src/lib/actions/{cache,checkout,download-artifact,gatetest,upload-artifact}-action.ts`.
+- `src/lib/workflow-conditionals.ts` — `if:` expression evaluator for workflow steps.
+- `src/lib/workflow-matrix.ts` — matrix expansion for workflow jobs.
+- `src/lib/workflow-artifacts.ts` — artifact persistence helpers backing `workflow_run_cache`-style storage.
+- `src/lib/workflow-secrets.ts` + `src/lib/workflow-secrets-crypto.ts` — AES-256-GCM secret storage. Crypto lib stays separate from DB lib so the DB layer holds opaque bytes only.
 
 ### 4.6 Routes (locked endpoints — behaviour must be preserved)
 - `src/routes/git.ts` — Smart HTTP (clone/push)
@@ -473,6 +525,26 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `src/lib/close-keywords.ts` (Block J7) — pure parser. Exports `extractClosingRefs(text)` + `extractClosingRefsMulti(sources[])`. Verbs: close/closes/closed/fix/fixes/fixed/resolve/resolves/resolved. Case-insensitive, word-boundary-respecting, ignores cross-repo `owner/repo#N` refs, rejects non-positive numbers, returns sorted de-duped list. Tolerates `:` / `-` / whitespace between verb and ref.
 - `src/lib/commit-statuses.ts` (Block J8) — pure helpers: `isValidSha`, `isValidState`, `sanitiseContext`, `reduceCombined`. DB helpers: `setStatus` (delete-then-insert upsert on `(repo, sha, context)`, SHA lowercased, description/url clamped to 1000/2048 chars), `listStatuses` (newest first), `combinedStatus` (latest per context, reduces to worst state, returns counts + context pills). `STATUS_STATES` exported array. Never throws on clamping; null/empty description returns null.
 - `src/routes/commit-statuses.ts` (Block J8) — `POST /api/v1/repos/:owner/:repo/statuses/:sha` (requireAuth — accepts session/OAuth/PAT; owner-only), `GET /api/v1/repos/:owner/:repo/commits/:sha/statuses` (softAuth, private-repo visibility enforced), `GET /api/v1/repos/:owner/:repo/commits/:sha/status` (combined rollup, same visibility rules).
+- `src/routes/api-v2.ts` — Comprehensive REST API v2 (full CRUD across resources). Authoritative integration surface alongside the v1 endpoints in this section.
+- `src/routes/api-docs.tsx` — interactive in-app API documentation page.
+- `src/routes/collaborators.tsx` — repo collaborator add / list / remove. Owner-or-admin only. Audit-logged. (See §4.3.1.)
+- `src/routes/team-collaborators.tsx` — bulk team-to-repo collaborator grant. (See §4.3.1.)
+- `src/routes/invites.tsx` — invite acceptance flow. (See §4.3.1.)
+- `src/routes/events.ts` — `POST /events/...` inbound deploy-event receiver for Crontech (Signal Bus P1). Idempotent via `processed_events`.
+- `src/routes/live-events.ts` — `GET /live-events/:topic` SSE subscription endpoint backed by `src/lib/sse.ts`.
+- `src/routes/health-probe.ts` — extended health + metrics probes for load-balancer + observability sinks.
+- `src/routes/help.tsx` — public `/help` quickstart + API cheatsheet for owners migrating from GitHub.
+- `src/routes/import.tsx` — single-repo GitHub → Gluecron import (PAT-based clone-and-rehost).
+- `src/routes/import-bulk.tsx` — `/import/bulk` paste-a-token org-wide migration.
+- `src/routes/migrations.tsx` — `/migrations` per-user import history dashboard with re-run-verifier button.
+- `src/routes/onboarding.tsx` — guided first-five-minutes flow for new accounts.
+- `src/routes/platform-status.ts` — machine-readable platform status JSON.
+- `src/routes/seo.ts` — `/robots.txt` + `/sitemap.xml`.
+- `src/routes/signing-keys.tsx` — Block J3 UI: `GET/POST /settings/signing-keys` + `POST /settings/signing-keys/:id/delete`. Audit-logged. (Library is `src/lib/signatures.ts`, see §4.6 for the underlying lib.)
+- `src/routes/specs.tsx` — Spec-to-PR UI. Paste a plain-English feature spec, get back a draft PR. Calls `src/lib/spec-to-pr.ts`.
+- `src/routes/status.tsx` — public `GET /status` HTML dashboard + `/status.svg` shields-style badge.
+- `src/routes/workflow-artifacts.ts` — REST API for workflow run artifacts (workflow engine v2 / Sprint 1).
+- `src/routes/workflow-secrets.tsx` — per-repo workflow secrets settings UI (list / create / delete encrypted secrets). Backed by `workflow_secrets` table from `drizzle/0037`.
 
 ### 4.7 Views (locked contracts)
 - `src/views/layout.tsx` — `Layout` accepts `title`, `user`, `notificationCount`
@@ -507,7 +579,7 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 ```bash
 bun install
 bun dev          # hot reload
-bun test         # 601 tests currently pass
+bun test         # 1033 tests currently pass (8 skipped, 0 failed) as of 2026-04-29 — run `bun install` first
 bun run db:migrate
 ```
 
@@ -556,7 +628,27 @@ If a block is too large for a single session, split it into a sub-plan at the to
 
 (Intentionally empty. Add here if a block is partially complete at session end.)
 
-**Polish batch shipped this session:**
+**2026-04-29 reconciliation pass (branch `claude/platform-launch-assessment-8dWV8`):**
+
+The Bible had drifted behind reality. This session reconciled §2 / §4 / §5 against the actual codebase. All edits below are strictly additive — no locked entry was deleted or renamed.
+
+What was added:
+- §2.4 — surfaced previously undocumented AI features now on disk: Spec-to-PR (real AI), repository intelligence engine, time-travel code explorer, dependency impact analyzer, one-click rollback. Clarified that `auto-repair.ts` (gate-time) and `autorepair.ts` (intelligence-time) are two distinct load-bearing modules — do not dedupe.
+- §2.5 — surfaced repository collaborators (per-repo roles), single-repo GitHub import, bulk org import, migration history + verifier, onboarding flow, public `/help` quickstart.
+- §2.6 — surfaced public status page (`/status` + `/status.svg`), platform-status JSON, error-tracking wiring (`src/lib/observability.ts`), comprehensive REST API v2 (`src/routes/api-v2.ts`), API docs page, SSE pub/sub (`src/lib/sse.ts` + `src/routes/live-events.ts`), inbound deploy event receiver (`src/routes/events.ts`), autopilot ticker, demo seed, SEO routes.
+- §4.1 — added migrations 0034–0037 to LOCKED.
+- §4.3.1 (new sub-section) — permissions + collaborators surface (`src/middleware/repo-access.ts`, `src/lib/invite-tokens.ts`, three new collaborator routes).
+- §4.4 — added intelligence / time-travel / depimpact / rollback / spec-to-PR libs; clarified the `auto-repair` vs `autorepair` distinction; flagged `pr-triage.ts` as a placeholder distinct from the live D3 path.
+- §4.5 — added observability, SSE, autopilot, demo-seed, import helpers, namespace, action-registry, and the workflow-engine-v2 family (conditionals / matrix / artifacts / secrets / secrets-crypto).
+- §4.6 — added 21 new routes: api-v2, api-docs, collaborators, team-collaborators, invites, events, live-events, health-probe, help, import, import-bulk, migrations, onboarding, platform-status, seo, signing-keys, specs, status, workflow-artifacts, workflow-secrets. Plus a note pointing signing-keys.tsx at the existing `src/lib/signatures.ts`.
+- §5.1 — bumped the test-count claim from `601` to the actual current number `1033 pass / 8 skip / 0 fail` (verified with deps installed on this branch).
+
+What was verified, not changed:
+- `bun install && bun test` → 1033 pass, 0 fail. Suite is genuinely green.
+- `auto-repair.ts` (472 lines, used by `src/lib/gate.ts`) and `autorepair.ts` (328 lines, used by `src/hooks/post-receive.ts`) are not duplicates — they expose disjoint APIs (`repairSecrets` / `repairSecurityIssues` vs `autoRepair`) and are both in active use.
+- Workflow engine v2 is strictly additive on top of the locked v1 (`src/lib/workflow-runner.ts`); no v1 file was replaced.
+
+**Polish batch shipped earlier:**
 - `src/lib/autopilot.ts` + tests — 5-min ticker (mirror sync, merge-queue peek, weekly digests, advisory rescans). `AUTOPILOT_DISABLED=1` opt-out. Observability via `getLastTick()` / `getTickCount()`. Admin page at `/admin/autopilot` with "Run tick now" button.
 - `src/views/landing.tsx` — marketing landing for logged-out `/`. Accepts optional `stats` prop; `src/routes/web.tsx` queries public repo + user counts.
 - `src/lib/demo-seed.ts` + tests — idempotent `ensureDemoContent()` seeds `demo` user + 3 public sample repos + seeded issues/PR. Boot flag `DEMO_SEED_ON_BOOT=1`. Site-admin reseed button on `/admin` (`POST /admin/demo/reseed`). Public `/demo` convenience redirect to `/demo/hello-python`.

@@ -136,6 +136,9 @@ Legend: ✅ shipped · 🟡 partial · ❌ not built
 | Scheduled workflows (cron triggers) | ✅ | 2026-04-30 — `on: schedule: [{cron: "0 * * * *"}]` triggers fire from the autopilot tick. `src/lib/cron.ts` (5-field UNIX parser/matcher, POSIX dom/dow OR, no @aliases or L/W/#/?). `src/lib/scheduled-workflows.ts` walks non-disabled workflows, computes `since` from latest schedule run (fallback now-6min), enqueues at most one schedule run per workflow per tick. `MAX_RUNS_PER_TICK=50` safety cap. Wired as the `scheduled-workflows` autopilot task. |
 | Live comment updates (SSE) | ✅ | 2026-04-30 — `src/routes/issues.tsx` + `src/routes/pulls.tsx` publish on comment create via `src/lib/sse.ts`; the same detail pages render a hidden banner + `liveCommentBannerScript` from `src/lib/sse-client.ts` that reveals "X new comment(s) — reload" when remote tabs post. Multi-segment topic grammar (`repo:<uuid>:issue:<n>`) accepted by `src/routes/live-events.ts`. In-process broadcaster only — cross-node fanout still in §7. |
 | AI Suggest PR description | ✅ | 2026-04-30 — "Suggest description with AI" button on `/:owner/:repo/pulls/new` calls `POST /:owner/:repo/ai/pr-description` (write-access gated). Endpoint computes `git diff base...head`, calls `generatePrSummary` (Sonnet 4), returns JSON `{ok, body}`. Inline JS replaces the description textarea on success (with a confirm-overwrite prompt if non-empty). Helper was on disk but unused until 2026-04-30. |
+| AI Issue triage | ✅ | 2026-04-30 — On every issue create the system fires `triggerIssueTriage` (`src/lib/issue-triage.ts`) which calls `triageIssue()` from `src/lib/ai-generators.ts`. Posts a "## AI Triage" issue comment with one-line summary, priority, suggested labels filtered against the repo's existing labels, and a "Possible duplicate of #N" callout when confidence is high. Idempotent via `ISSUE_TRIAGE_MARKER`. Suggestions only. The `triageIssue` helper was on disk but unused until 2026-04-30. |
+| AI commit message suggestion | ✅ | 2026-04-30 — "Suggest with AI" button on the file-edit form. `POST /:owner/:repo/ai/commit-message` (write-access gated) reads the on-disk blob via `getBlob`, builds a minimal Old/New diff representation, calls `generateCommitMessage()` from `src/lib/ai-generators.ts`, caps to one line + 100 chars. The helper was on disk but unused until 2026-04-30. |
+| Workflow secret substitution | ✅ | 2026-04-30 — `${{ secrets.NAME }}` references inside step `run:` are now substituted at execution time. Pure helper `substituteSecrets(template, secrets)` in `src/lib/workflow-secrets.ts` (strict `[A-Z_][A-Z0-9_]*` grammar; missing names left intact as a loud failure signal; uses `hasOwnProperty` to block prototype-pollution). The v1 runner (`src/lib/workflow-runner.ts`) loads the per-run secrets map once via `loadSecretsContext(repositoryId)` and passes it into every `runStep` call. Was a stub until 2026-04-30. |
 | Dependabot equivalent (AI dep bumper) | ✅ | D2 — `dep_update_runs` table, npm registry fetch, plan + apply bumps, creates `gluecron/dep-update-*` branch + PR row via git plumbing. `src/lib/dep-updater.ts`, `src/routes/dep-updater.tsx`, settings UI at `/:owner/:repo/settings/dep-updater`. |
 | Code scanning UI | ✅ | I5 — `src/routes/code-scanning.tsx`, `GET /:owner/:repo/security`. Aggregates last-100 `gate_runs` matching `%scan%`/`%security%`, rolls up latest status per gate, shows failed/repaired/total cards + scanner status list + recent runs. |
 | Copilot code completion | ✅ | D9 — `POST /api/copilot/completions` (PAT/OAuth/session), `GET /api/copilot/ping`. `src/lib/ai-completion.ts`, `src/routes/copilot.ts`. LRU-cached, rate-limited 60/min. |
@@ -401,7 +404,7 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 
 ### 4.4 AI layer (locked)
 - `src/lib/ai-client.ts` — Anthropic client + model constants
-- `src/lib/ai-generators.ts` — commit / PR / changelog / issue-triage / **pull-request-triage (D3)**
+- `src/lib/ai-generators.ts` — commit / PR / changelog / issue-triage / **pull-request-triage (D3)**. `IssueTriage` interface is exported (was module-local until 2026-04-30 when issue-triage.ts started consuming it). `generatePrSummary` + `generateCommitMessage` + `triageIssue` are now wired into routes (previously orphan exports).
 - `src/lib/ai-chat.ts` — conversational chat
 - `src/lib/ai-review.ts` — PR code review
 - `src/lib/auto-repair.ts` — worktree-backed repair commits
@@ -420,6 +423,7 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `src/lib/spec-to-pr.ts` + `src/lib/spec-ai.ts` + `src/lib/spec-context.ts` + `src/lib/spec-git.ts` — Spec-to-PR v2 pipeline (NL feature spec → Claude → branch via git plumbing → PR row). Graceful fallback when no `ANTHROPIC_API_KEY`. Issue-driven entry: the issue detail page renders a "Build with AI" button for owners on open issues, linking to `/spec?fromIssue=N`; spec is pre-filled with `Implement: <title>\n\n<body>\n\nCloses #N` so J7 close-keywords auto-close the issue on merge. Pure helper `buildSpecFromIssue` exported from `src/routes/specs.tsx`.
 - `src/lib/autorepair.ts` — `autoRepair(...)` invoked from `src/hooks/post-receive.ts` and exercised by `src/__tests__/intelligence.test.ts`. **Distinct from `src/lib/auto-repair.ts`** (gate-time `repairSecrets`/`repairSecurityIssues` used by `src/lib/gate.ts`). Both are load-bearing — do not dedupe.
 - `src/lib/pr-triage.ts` — `triggerPrTriage(input)` post-PR-create hook. Builds a tiny diff summary (numstat only), loads available labels + candidate reviewers (owner + recent PR authors, capped at 12), calls `triagePullRequest()` from `ai-generators.ts`, then inserts a "## AI Triage" comment. Idempotent via `PR_TRIAGE_MARKER` (HTML comment in body). Pure helper `renderTriageComment(triage)` exported. Suggestions only — never applies.
+- `src/lib/issue-triage.ts` — `triggerIssueTriage(input)` post-issue-create hook. Mirrors the PR-triage pattern: idempotency via `ISSUE_TRIAGE_MARKER`, loads existing labels + recent issues (last 30) for context, calls `triageIssue()` from `ai-generators.ts`, inserts "## AI Triage" issue comment with summary / priority / labels / possible-duplicate callout. Pure helper `renderIssueTriageComment(triage)` exported. Suggestions only.
 - `src/lib/ai-review.ts` — `triggerAiReview(...)` PR-create hook now actually runs Claude review. Computes `git diff base...head`, caps at 100KB, calls `reviewDiff()`, posts a summary comment + N inline file/line comments. Idempotent via `AI_REVIEW_MARKER`; degrades to a single "AI review unavailable" comment on Anthropic API failure. Never throws.
 
 ### 4.5 Platform (locked)
@@ -443,7 +447,7 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `src/lib/workflow-conditionals.ts` — `if:` expression evaluator for workflow steps.
 - `src/lib/workflow-matrix.ts` — matrix expansion for workflow jobs.
 - `src/lib/workflow-artifacts.ts` — artifact persistence helpers backing `workflow_run_cache`-style storage.
-- `src/lib/workflow-secrets.ts` + `src/lib/workflow-secrets-crypto.ts` — AES-256-GCM secret storage. Crypto lib stays separate from DB lib so the DB layer holds opaque bytes only.
+- `src/lib/workflow-secrets.ts` + `src/lib/workflow-secrets-crypto.ts` — AES-256-GCM secret storage. Crypto lib stays separate from DB lib so the DB layer holds opaque bytes only. `substituteSecrets(template, secrets)` is the pure regex-replace helper consumed by the v1 runner; `loadSecretsContext(repoId)` is the per-run loader (fail-soft on master-key absence / decrypt failure / DB error).
 - `src/lib/cron.ts` — pure 5-field UNIX cron parser + matcher. Supports literals, ranges, steps (`a-b/n`, `*/n`), comma-lists, full POSIX OR semantics for dom + dow. Rejects @aliases and L/W/#/? with clear errors. Exports `parseCron`, `cronMatches`, `cronFiredBetween` (caps lookback at 1 day). Zero side effects.
 - `src/lib/scheduled-workflows.ts` — `runScheduledWorkflowsTick(now)` scans non-disabled workflows whose parsed JSON includes `schedules`, computes `since` from the latest schedule-triggered run (fallback now-6min), enqueues at most one schedule run per workflow per tick. `MAX_RUNS_PER_TICK=50` safety cap. Pure helpers `schedulesFromParsedJson` + `firstCronToFire` exported. Wired into `src/lib/autopilot.ts` as the `scheduled-workflows` task.
 - `src/lib/push-policy.ts` — pre-receive enforcement at the HTTP layer. Exports `evaluatePushPolicy({repositoryId, refs, pusherUserId})` returning `{allowed, violations}`; combines `matchProtectedTag` + `canBypassProtectedTag` (E7) and `evaluatePush` (J6) over the ref list. Only "active" enforcement blocks; "evaluate" enforcement remains dry-run. `formatPolicyError(violations)` builds the 403 body. Fail-open on any DB hiccup so a Postgres blip cannot wedge legitimate pushes. `ZERO_SHA` exported.
@@ -562,6 +566,9 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - Nav links: logo · search · theme-toggle · Explore · Ask · Notifications · New · Profile (or Sign in / Register)
 - Keyboard chords: `/`, `Cmd+K`, `?`, `n`, `g d`, `g n`, `g e`, `g a`
 
+### 4.7.1 Workflow runner extensions (locked)
+- `src/lib/workflow-runner.ts` — v1 runner. Now loads workflow secrets once per run via `loadSecretsContext(run.repositoryId)` and passes them through to `executeJob` → `runStep`. `runStep` substitutes `${{ secrets.NAME }}` in `step.run` via `substituteSecrets` only when the template contains `${{` (cheap pre-check); otherwise the hot path is unchanged. The v2 executor stays gated off via `_v2NeededFor` returning false; secrets plumbing for v2 will reuse the same args.
+
 ### 4.8 Tests (locked)
 - `src/__tests__/green-ecosystem.test.ts` — secret scanner, codeowners, AI fallback, health, rate-limit headers, `/shortcuts`, `/search`
 - All other existing test files — do not delete without owner permission
@@ -588,7 +595,7 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 ```bash
 bun install
 bun dev          # hot reload
-bun test         # 1143 tests currently pass (8 skipped, 0 failed) as of 2026-04-30 — run `bun install` first
+bun test         # 1185 tests currently pass (8 skipped, 0 failed) as of 2026-04-30 — run `bun install` first
 bun run db:migrate
 ```
 

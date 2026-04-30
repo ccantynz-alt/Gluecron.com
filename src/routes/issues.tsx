@@ -358,6 +358,16 @@ issueRoutes.get("/:owner/:repo/issues/:number", softAuth, requireRepoAccess("rea
             </strong>{" "}
             opened this issue {formatRelative(issue.createdAt)}
           </span>
+          {issue.state === "open" && user && user.id === resolved.owner.id && (
+            <a
+              href={`/${ownerName}/${repoName}/spec?fromIssue=${issue.number}`}
+              class="btn btn-primary"
+              style="margin-left:auto;font-size:13px;padding:4px 10px"
+              title="Generate a draft pull request from this issue using Claude"
+            >
+              Build with AI
+            </a>
+          )}
         </Flex>
 
         {issue.body && (

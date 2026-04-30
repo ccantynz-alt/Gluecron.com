@@ -44,6 +44,7 @@ help.get("/help", (c) => {
           <a href="#webhooks">Webhooks</a> &middot;{" "}
           <a href="#tokens">Personal access tokens</a> &middot;{" "}
           <a href="#gates">Gates & AI review</a> &middot;{" "}
+          <a href="#ai-native">AI-native flow</a> &middot;{" "}
           <a href="#shortcuts">Keyboard shortcuts</a> &middot;{" "}
           <a href="#api">API</a>
         </nav>
@@ -259,6 +260,64 @@ help.get("/help", (c) => {
                 results appear on the commit page and in the repo's{" "}
                 <em>Gate runs</em> tab. Configure gate policy per-repo in
                 <strong> Settings → Gates</strong>.
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="ai-native" style="margin-bottom: 32px">
+          <h2 style="margin-bottom: 12px; font-size: 20px">
+            AI-native flow
+          </h2>
+          <div class="panel">
+            <div class="panel-item">
+              <div>
+                <strong>Issue → PR in one click.</strong> Open any issue you
+                own and hit <em>Build with AI</em> in the header. The spec
+                form pre-fills with the issue title + body and a{" "}
+                <code>Closes #N</code> footer; Claude drafts the diff, opens
+                a draft PR, and the merge auto-closes the originating issue.
+              </div>
+            </div>
+            <div class="panel-item">
+              <div>
+                <strong>AI-drafted PR descriptions.</strong> The new-PR form
+                has a <em>Suggest description with AI</em> button that runs
+                <code> generatePrSummary</code> against{" "}
+                <code>git diff base...head</code> and fills the description
+                with a structured summary (Why · Key changes · Test plan ·
+                Risks).
+              </div>
+            </div>
+            <div class="panel-item">
+              <div>
+                <strong>Auto-review on PR open.</strong> Non-draft PRs get a
+                summary comment plus inline file/line annotations from the
+                AI reviewer. A second comment posts label + reviewer +
+                priority suggestions (the <em>AI Triage</em> block). All
+                suggestions; nothing applied automatically.
+              </div>
+            </div>
+            <div class="panel-item">
+              <div>
+                <strong>Repo-wide AI surfaces.</strong>{" "}
+                <a href="/help#explore">Explain</a> a codebase, run{" "}
+                <a href="/help#explore">semantic search</a>, ask the chat
+                anything about the repo, generate failing test stubs from a
+                source file (the <em>Tests</em> link in the repo nav), and
+                draft full PRs from a plain-English spec via{" "}
+                <em>Spec to PR</em>. All require{" "}
+                <code>ANTHROPIC_API_KEY</code>; without it the surfaces
+                degrade gracefully to deterministic fallbacks.
+              </div>
+            </div>
+            <div class="panel-item">
+              <div>
+                <strong>Scheduled workflows.</strong> Drop{" "}
+                <code>on: schedule: [{`{cron: "0 * * * *"}`}]</code> into any
+                <code> .gluecron/workflows/*.yml</code>. The autopilot
+                ticker fires the cron from the same node that handles your
+                pushes — no external scheduler needed.
               </div>
             </div>
           </div>

@@ -19,6 +19,8 @@ import { ReactionsBar } from "../views/reactions";
 import { summariseReactions } from "../lib/reactions";
 import { loadIssueTemplate } from "../lib/templates";
 import { renderMarkdown } from "../lib/markdown";
+import { liveCommentBannerScript } from "../lib/sse-client";
+import { triggerIssueTriage } from "../lib/issue-triage";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
 import { requireRepoAccess } from "../middleware/repo-access";
@@ -264,6 +266,20 @@ issueRoutes.post(
       .set({ issueCount: resolved.repo.issueCount + 1 })
       .where(eq(repositories.id, resolved.repo.id));
 
+    // Fire-and-forget AI triage. Posts a "## AI Triage" comment with
+    // suggested labels, priority, summary, and a possible-duplicate
+    // callout. Suggestions only — nothing applied automatically.
+    triggerIssueTriage({
+      ownerName,
+      repoName,
+      repositoryId: resolved.repo.id,
+      issueId: issue.id,
+      issueNumber: issue.number,
+      authorId: user.id,
+      title,
+      body: issueBody,
+    }).catch(() => {});
+
     return c.redirect(
       `/${ownerName}/${repoName}/issues/${issue.number}`
     );
@@ -334,6 +350,7 @@ issueRoutes.get("/:owner/:repo/issues/:number", softAuth, requireRepoAccess("rea
   const canManage =
     user &&
     (user.id === resolved.owner.id || user.id === issue.authorId);
+  const info = c.req.query("info");
 
   return c.html(
     <Layout
@@ -342,7 +359,30 @@ issueRoutes.get("/:owner/:repo/issues/:number", softAuth, requireRepoAccess("rea
     >
       <RepoHeader owner={ownerName} repo={repoName} />
       <IssueNav owner={ownerName} repo={repoName} active="issues" />
+      <div
+        id="live-comment-banner"
+        class="alert"
+        style="display:none;margin:12px 0;padding:10px 14px;border-radius:6px;background:var(--accent);color:var(--bg);font-size:14px"
+      >
+        <strong class="js-live-count">0</strong> new comment(s) —{" "}
+        <a class="js-live-link" href="#" style="color:inherit;text-decoration:underline">
+          reload to view
+        </a>
+      </div>
+      <script
+        dangerouslySetInnerHTML={{
+          __html: liveCommentBannerScript({
+            topic: `repo:${resolved.repo.id}:issue:${issue.number}`,
+            bannerElementId: "live-comment-banner",
+          }),
+        }}
+      />
       <div class="issue-detail">
+        {info && (
+          <div style="margin: 12px 0; padding: 10px 14px; border-radius: 6px; background: rgba(56, 139, 253, 0.1); border: 1px solid var(--accent); color: var(--text); font-size: 14px">
+            {decodeURIComponent(info)}
+          </div>
+        )}
         <h2>
           {issue.title}{" "}
           <span style="color:var(--text-muted);font-weight:400">
@@ -417,6 +457,17 @@ issueRoutes.get("/:owner/:repo/issues/:number", softAuth, requireRepoAccess("rea
                       : "Reopen issue"}
                   </button>
                 )}
+                {canManage && issue.state === "open" && (
+                  <button
+                    type="submit"
+                    formaction={`/${ownerName}/${repoName}/issues/${issue.number}/ai-retriage`}
+                    formnovalidate
+                    class="btn"
+                    title="Re-run AI triage. Posts a fresh suggestions comment (use after editing the issue body)."
+                  >
+                    Re-run AI triage
+                  </button>
+                )}
               </div>
             </form>
           </div>
@@ -461,11 +512,33 @@ issueRoutes.post(
 
     if (!issue) return c.redirect(`/${ownerName}/${repoName}/issues`);
 
-    await db.insert(issueComments).values({
-      issueId: issue.id,
-      authorId: user.id,
-      body: commentBody,
-    });
+    const [inserted] = await db
+      .insert(issueComments)
+      .values({
+        issueId: issue.id,
+        authorId: user.id,
+        body: commentBody,
+      })
+      .returning();
+
+    // Live update: nudge any browser tabs subscribed to this issue. Pure
+    // fanout — never blocks the redirect, never throws into the request.
+    if (inserted) {
+      try {
+        const { publish } = await import("../lib/sse");
+        publish(`repo:${resolved.repo.id}:issue:${issueNum}`, {
+          event: "issue-comment",
+          data: {
+            issueId: issue.id,
+            commentId: inserted.id,
+            authorId: user.id,
+            authorUsername: user.username,
+          },
+        });
+      } catch {
+        /* SSE is best-effort */
+      }
+    }
 
     return c.redirect(
       `/${ownerName}/${repoName}/issues/${issueNum}`
@@ -548,6 +621,56 @@ const IssueNav = ({
       { label: "Commits", href: `/${owner}/${repo}/commits`, active: active === "commits" },
     ]}
   />
+);
+
+// Re-run AI triage on demand (e.g. after the issue body has been edited).
+// Bypasses ISSUE_TRIAGE_MARKER via { force: true }. Write-access only.
+issueRoutes.post(
+  "/:owner/:repo/issues/:number/ai-retriage",
+  softAuth,
+  requireAuth,
+  requireRepoAccess("write"),
+  async (c) => {
+    const { owner: ownerName, repo: repoName } = c.req.param();
+    const issueNum = parseInt(c.req.param("number"), 10);
+    const user = c.get("user")!;
+    const resolved = await resolveRepo(ownerName, repoName);
+    if (!resolved) return c.redirect(`/${ownerName}/${repoName}`);
+
+    const [issue] = await db
+      .select()
+      .from(issues)
+      .where(
+        and(
+          eq(issues.repositoryId, resolved.repo.id),
+          eq(issues.number, issueNum)
+        )
+      )
+      .limit(1);
+    if (!issue) {
+      return c.redirect(`/${ownerName}/${repoName}/issues`);
+    }
+
+    triggerIssueTriage(
+      {
+        ownerName,
+        repoName,
+        repositoryId: resolved.repo.id,
+        issueId: issue.id,
+        issueNumber: issue.number,
+        authorId: user.id,
+        title: issue.title,
+        body: issue.body || "",
+      },
+      { force: true }
+    ).catch(() => {});
+
+    return c.redirect(
+      `/${ownerName}/${repoName}/issues/${issueNum}?info=${encodeURIComponent(
+        "AI re-triage queued. The new comment will appear in 10-30s; reload to see it."
+      )}`
+    );
+  }
 );
 
 export default issueRoutes;

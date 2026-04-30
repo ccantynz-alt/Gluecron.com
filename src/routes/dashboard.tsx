@@ -352,6 +352,9 @@ git push -u gluecron main</code></pre>
         </>
       )}
 
+      {/* ─── AI Health Coach (move #10 from STRATEGY) ─── */}
+      <HealthCoach repoData={repoData} username={user.username} />
+
       {/* ─── Live Activity (SSE) ─── */}
       <LiveFeed topic={`user:${user.id}`} title="Live activity" />
 
@@ -552,6 +555,120 @@ dashboard.get("/:owner/:repo/pushes", softAuth, async (c) => {
 });
 
 // ─── COMPONENTS ──────────────────────────────────────────────
+
+/**
+ * Pure helper: pick the bottom-N repos by health score and return a
+ * prioritized "fix this next" plan. Health=0 repos (couldn't be
+ * computed) are excluded so the coach doesn't recommend ghost repos.
+ *
+ * Exported under __test for unit testing without touching the DB.
+ */
+export function pickRepoCoachPicks<T extends { healthScore: number; repo: { name: string; description?: string | null }; healthGrade: string }>(
+  repoData: T[],
+  topN = 3
+): T[] {
+  return repoData
+    .filter((r) => r.healthScore > 0 && r.healthScore < 90)
+    .sort((a, b) => a.healthScore - b.healthScore)
+    .slice(0, topN);
+}
+
+/** Module-scoped color picker for grade chips. Mirrors the inner
+ *  `gradeColor` defined in the request handler scope, exposed at module
+ *  level so HealthCoach (also module-scope) can reach it. */
+function moduleGradeColor(grade: string): string {
+  if (grade === "A+" || grade === "A") return "var(--green)";
+  if (grade === "B") return "#58a6ff";
+  if (grade === "C") return "var(--yellow)";
+  if (grade === "?") return "var(--text-muted)";
+  return "var(--red)";
+}
+
+const HealthCoach = ({
+  repoData,
+  username,
+}: {
+  repoData: Array<{
+    repo: { name: string; description: string | null };
+    healthScore: number;
+    healthGrade: string;
+  }>;
+  username: string;
+}) => {
+  const picks = pickRepoCoachPicks(repoData, 3);
+  if (picks.length === 0) {
+    return (
+      <div
+        class="card"
+        style="margin-bottom: 32px; padding: 16px; background: rgba(63,185,80,0.08); border-color: var(--green)"
+      >
+        <h3 style="margin: 0 0 4px; font-size: 15px">
+          {"✨"} AI Health Coach
+        </h3>
+        <p style="margin: 0; color: var(--text-muted); font-size: 13px">
+          All your repos are healthy (score &ge; 90). Nothing to triage.
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div
+      class="card"
+      style="margin-bottom: 32px; padding: 0; overflow: hidden"
+    >
+      <div
+        style="padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between"
+      >
+        <div>
+          <h3 style="margin: 0; font-size: 15px">
+            {"✨"} AI Health Coach
+          </h3>
+          <p
+            style="margin: 4px 0 0; color: var(--text-muted); font-size: 12px"
+          >
+            Top {picks.length} repos that would benefit from attention
+            this week.
+          </p>
+        </div>
+      </div>
+      <ul style="list-style: none; margin: 0; padding: 0">
+        {picks.map((p) => (
+          <li
+            style="padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px"
+          >
+            <div
+              style={`min-width: 40px; padding: 4px 8px; border-radius: 4px; text-align: center; font-weight: 600; color: var(--bg); background: ${moduleGradeColor(p.healthGrade)}`}
+            >
+              {p.healthGrade}
+            </div>
+            <div style="flex: 1; min-width: 0">
+              <a
+                href={`/${username}/${p.repo.name}`}
+                style="font-weight: 500"
+              >
+                {p.repo.name}
+              </a>
+              <div
+                style="font-size: 12px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis"
+              >
+                Health score {p.healthScore}/100 — open the repo to see
+                breakdown + AI suggestions.
+              </div>
+            </div>
+            <a
+              href={`/${username}/${p.repo.name}/explain`}
+              class="btn"
+              style="font-size: 12px; padding: 4px 10px"
+              title="Run AI explain on this repo"
+            >
+              Coach me
+            </a>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+};
 
 const StatBox = ({
   label,

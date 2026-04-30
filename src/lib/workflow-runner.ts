@@ -27,6 +27,10 @@ import {
   workflowRuns,
   workflows,
 } from "../db/schema";
+import {
+  loadSecretsContext,
+  substituteSecrets,
+} from "./workflow-secrets";
 
 // ---------------------------------------------------------------------------
 // Tunables
@@ -190,18 +194,32 @@ async function markRunDone(
  * Run a single step via `bash -c`. Captures stdout/stderr (capped), enforces
  * a hard timeout with SIGTERM → SIGKILL escalation, and returns a StepResult
  * shaped for persistence.
+ *
+ * `secrets` is the per-run plaintext map produced by
+ * `loadSecretsContext(repoId)`. Default `{}` keeps the legacy callers
+ * working — when no secrets are loaded the substitution pass is a no-op
+ * because the regex matches nothing.
  */
 async function runStep(
   step: ParsedStep,
   checkoutDir: string,
-  runId: string
+  runId: string,
+  secrets: Record<string, string> = {}
 ): Promise<StepResult> {
   const name =
     typeof step.name === "string" && step.name.length > 0
       ? step.name
       : (typeof step.run === "string" ? step.run.split("\n")[0] : "") ||
         "step";
-  const run = typeof step.run === "string" ? step.run : "";
+  const rawRun = typeof step.run === "string" ? step.run : "";
+  // Substitute `${{ secrets.NAME }}` only when the template actually
+  // contains a token — otherwise this is a free pass-through. The function
+  // is pure + safe for empty secret maps; the conditional avoids an
+  // unnecessary regex compile + scan on the hot path.
+  const run =
+    rawRun.indexOf("${{") >= 0
+      ? substituteSecrets(rawRun, secrets)
+      : rawRun;
   const started = Date.now();
 
   if (!run) {
@@ -386,6 +404,9 @@ async function executeJob(opts: {
   job: ParsedJob;
   jobOrder: number;
   checkoutDir: string;
+  /** Per-run plaintext secrets. Default `{}` preserves the v1 contract
+   *  for callers that haven't been updated to plumb secrets through. */
+  secrets?: Record<string, string>;
 }): Promise<{ success: boolean }> {
   const { runId, jobKey, job, jobOrder, checkoutDir } = opts;
   const name = typeof job.name === "string" && job.name ? job.name : jobKey;
@@ -441,7 +462,7 @@ async function executeJob(opts: {
       });
       continue;
     }
-    const result = await runStep(step, checkoutDir, runId);
+    const result = await runStep(step, checkoutDir, runId, opts.secrets || {});
     stepResults.push(result);
     logParts.push(
       `==> ${result.name}\n$ ${result.run}\n${result.stdout}${
@@ -631,6 +652,17 @@ export async function executeRun(runId: string): Promise<void> {
 
   // --- Run jobs sequentially (v1 fallback) ---
   if (!handledByV2) {
+    // Load per-run secrets once. loadSecretsContext is fail-soft — empty
+    // map on missing master key, decrypt failures, or DB error — so this
+    // is always safe to call. A small overhead per run; secret-free
+    // workflows just see {} pass through.
+    let runSecrets: Record<string, string> = {};
+    try {
+      runSecrets = await loadSecretsContext(run.repositoryId);
+    } catch (err) {
+      console.error("[workflow-runner] loadSecretsContext threw:", err);
+      runSecrets = {};
+    }
     try {
       for (let i = 0; i < jobs.length; i++) {
         const { key, job } = jobs[i]!;
@@ -640,6 +672,7 @@ export async function executeRun(runId: string): Promise<void> {
           job,
           jobOrder: i,
           checkoutDir,
+          secrets: runSecrets,
         });
         if (!result.success) {
           anyJobFailed = true;

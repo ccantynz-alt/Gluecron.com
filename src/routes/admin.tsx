@@ -631,7 +631,8 @@ admin.get("/admin/autopilot", async (c) => {
         <h1 style="margin-bottom: 8px">Autopilot</h1>
         <p style="color: var(--text-muted); margin-bottom: 24px">
           Periodic platform-maintenance loop — mirror sync, merge-queue
-          progress, weekly digests, advisory rescans.
+          progress, weekly digests, advisory rescans, environment
+          wait-timer release, scheduled workflow triggers (cron).
         </p>
         {msg && (
           <div

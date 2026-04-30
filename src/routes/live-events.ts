@@ -29,7 +29,14 @@ import { subscribe, type SSEEvent } from "../lib/sse";
 
 const app = new Hono<AuthEnv>();
 
-const TOPIC_RE = /^[a-z]+:[a-zA-Z0-9\-]+$/;
+/**
+ * Topic shape — `kind:id(:segment)*`. The first colon separates the kind
+ * (lowercase, used for the read-gate dispatch) from the id; subsequent
+ * colon-segments are scoping suffixes the publisher chose, e.g.
+ * `repo:<uuid>:issue:7`. Each segment is alphanumerics + dash so the
+ * URL path stays predictable.
+ */
+const TOPIC_RE = /^[a-z]+:[a-zA-Z0-9\-]+(?::[a-zA-Z0-9\-]+)*$/;
 const HEARTBEAT_MS = 25_000;
 
 app.get("/live-events/:topic", softAuth, async (c) => {
@@ -39,9 +46,19 @@ app.get("/live-events/:topic", softAuth, async (c) => {
   }
 
   const user = c.get("user") ?? null;
-  const colon = topic.indexOf(":");
-  const kind = topic.slice(0, colon);
-  const id = topic.slice(colon + 1);
+  // Topic is `kind:primaryId(:scope)*`. Slice on the first two colons so a
+  // multi-segment topic like `repo:<uuid>:issue:7` resolves to
+  //   kind = "repo", primaryId = "<uuid>"
+  // and the trailing `:issue:7` is treated as scoping that the publisher
+  // chose (the broadcaster is keyed on the full topic string, so the suffix
+  // is preserved across publish/subscribe).
+  const firstColon = topic.indexOf(":");
+  const secondColon = topic.indexOf(":", firstColon + 1);
+  const kind = topic.slice(0, firstColon);
+  const primaryId =
+    secondColon === -1
+      ? topic.slice(firstColon + 1)
+      : topic.slice(firstColon + 1, secondColon);
 
   // For repo topics, gate on read access. Other topic kinds pass through.
   if (kind === "repo") {
@@ -49,7 +66,7 @@ app.get("/live-events/:topic", softAuth, async (c) => {
       const [repo] = await db
         .select({ id: repositories.id, isPrivate: repositories.isPrivate })
         .from(repositories)
-        .where(eq(repositories.id, id))
+        .where(eq(repositories.id, primaryId))
         .limit(1);
 
       if (!repo) {

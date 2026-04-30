@@ -15,6 +15,9 @@ import {
   reduceApprovalState,
   reviewerIdsOf,
   allowedBranchesOf,
+  latestApprovalAt,
+  computeReadyAfter,
+  releaseExpiredWaitTimers,
 } from "../lib/environments";
 import type { Environment, DeploymentApproval } from "../db/schema";
 
@@ -192,5 +195,103 @@ describe("environments routes — unauthed guards", () => {
     });
     // 401 from requireAuth with invalid bearer; 404/503 tolerated pre-route.
     expect([401, 404, 503]).toContain(res.status);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Wait-timer enforcement (no longer a stub)
+// ---------------------------------------------------------------------------
+
+const mkApprovalAt = (
+  decision: "approved" | "rejected",
+  createdAt: Date,
+  userId = "u1"
+): DeploymentApproval =>
+  ({
+    id: `a-${Math.random()}`,
+    deploymentId: "d1",
+    userId,
+    decision,
+    comment: null,
+    createdAt,
+  }) as DeploymentApproval;
+
+describe("latestApprovalAt", () => {
+  it("returns null when there are no approvals", () => {
+    expect(latestApprovalAt([])).toBeNull();
+  });
+
+  it("ignores rejection timestamps", () => {
+    const t1 = new Date("2026-01-01T00:00:00Z");
+    expect(latestApprovalAt([mkApprovalAt("rejected", t1)])).toBeNull();
+  });
+
+  it("returns the most recent approval timestamp", () => {
+    const t1 = new Date("2026-01-01T00:00:00Z");
+    const t2 = new Date("2026-01-02T00:00:00Z");
+    const t3 = new Date("2026-01-03T00:00:00Z");
+    const out = latestApprovalAt([
+      mkApprovalAt("approved", t2, "u1"),
+      mkApprovalAt("approved", t3, "u2"),
+      mkApprovalAt("approved", t1, "u3"),
+    ]);
+    expect(out?.toISOString()).toBe(t3.toISOString());
+  });
+
+  it("tolerates a malformed createdAt", () => {
+    const out = latestApprovalAt([
+      {
+        ...mkApprovalAt("approved", new Date("2026-01-01T00:00:00Z")),
+        createdAt: new Date("not-a-real-date"),
+      } as any,
+    ]);
+    expect(out).toBeNull();
+  });
+});
+
+describe("computeReadyAfter", () => {
+  it("returns null when waitTimerMinutes <= 0", () => {
+    const env = envFixture({ waitTimerMinutes: 0 });
+    const t = new Date("2026-01-01T00:00:00Z");
+    expect(computeReadyAfter(env, [mkApprovalAt("approved", t)])).toBeNull();
+  });
+
+  it("returns null when there are no approvals (timer hasn't started)", () => {
+    const env = envFixture({ waitTimerMinutes: 30 });
+    expect(computeReadyAfter(env, [])).toBeNull();
+  });
+
+  it("adds waitTimerMinutes to the latest approval timestamp", () => {
+    const env = envFixture({ waitTimerMinutes: 30 });
+    const t = new Date("2026-01-01T12:00:00Z");
+    const ready = computeReadyAfter(env, [mkApprovalAt("approved", t)]);
+    expect(ready?.toISOString()).toBe("2026-01-01T12:30:00.000Z");
+  });
+
+  it("uses the latest approval, not the earliest", () => {
+    const env = envFixture({ waitTimerMinutes: 60 });
+    const t1 = new Date("2026-01-01T00:00:00Z");
+    const t2 = new Date("2026-01-01T01:00:00Z");
+    const ready = computeReadyAfter(env, [
+      mkApprovalAt("approved", t1, "u1"),
+      mkApprovalAt("approved", t2, "u2"),
+    ]);
+    expect(ready?.toISOString()).toBe("2026-01-01T02:00:00.000Z");
+  });
+
+  it("returns null on a malformed waitTimerMinutes value", () => {
+    const env = envFixture({ waitTimerMinutes: NaN as any });
+    const t = new Date("2026-01-01T00:00:00Z");
+    expect(computeReadyAfter(env, [mkApprovalAt("approved", t)])).toBeNull();
+  });
+});
+
+describe("releaseExpiredWaitTimers — fail-open", () => {
+  it("returns 0 (not throws) when DB is unavailable / no rows match", async () => {
+    // No live DB → drizzle will throw inside the helper, which catches and
+    // returns 0. Either way the test asserts the never-throw contract.
+    const out = await releaseExpiredWaitTimers(new Date());
+    expect(typeof out).toBe("number");
+    expect(out).toBeGreaterThanOrEqual(0);
   });
 });

@@ -181,6 +181,13 @@ export const RepoNav: FC<{
     >
       {"\u2728"} Spec
     </a>
+    <a
+      href={`/${owner}/${repo}/ai/tests`}
+      style="color: #bc8cff"
+      title="AI Tests \u2014 generate failing test stubs from a source file"
+    >
+      {"\u2728"} Tests
+    </a>
   </div>
 );
 

@@ -16,6 +16,8 @@ import { syncAllDue } from "./mirrors";
 import { peekHead } from "./merge-queue";
 import { sendDigestsToAll } from "./email-digest";
 import { scanRepositoryForAlerts } from "./advisories";
+import { releaseExpiredWaitTimers } from "./environments";
+import { runScheduledWorkflowsTick } from "./scheduled-workflows";
 
 export interface AutopilotTaskResult {
   name: string;
@@ -77,6 +79,18 @@ export function defaultTasks(): AutopilotTask[] {
       name: "advisory-rescan",
       run: async () => {
         await rescanAdvisoriesBatch(ADVISORY_RESCAN_BATCH);
+      },
+    },
+    {
+      name: "wait-timer-release",
+      run: async () => {
+        await releaseExpiredWaitTimers();
+      },
+    },
+    {
+      name: "scheduled-workflows",
+      run: async () => {
+        await runScheduledWorkflowsTick();
       },
     },
   ];

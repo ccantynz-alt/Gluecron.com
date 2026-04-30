@@ -40,6 +40,13 @@ export type WorkflowJob = {
 export type ParsedWorkflow = {
   name: string;
   on: string[];
+  /**
+   * Cron expressions captured from `on: { schedule: [{cron: "..."}, ...] }`.
+   * Empty when the workflow has no schedule trigger (the common case).
+   * Strings are passed through verbatim — validation happens later when
+   * the scheduler tries to parse them via `src/lib/cron.ts`.
+   */
+  schedules?: string[];
   jobs: WorkflowJob[];
 };
 
@@ -497,6 +504,44 @@ function normaliseOn(v: unknown): string[] | null {
   return null;
 }
 
+/**
+ * Extract cron expressions from the raw `on:` value when it is a mapping
+ * containing a `schedule:` key. Returns [] for any other shape so callers
+ * can unconditionally read `parsed.schedules ?? []`. Tolerant of:
+ *   - schedule: [{cron: "0 * * * *"}, ...]
+ *   - schedule: {cron: "0 * * * *"}
+ *   - schedule: "0 * * * *"  (legacy, not standard but seen in the wild)
+ *
+ * Pure helper — exported alongside the existing `__test` bundle.
+ */
+function extractSchedules(rawOn: unknown): string[] {
+  if (!rawOn || typeof rawOn !== "object" || Array.isArray(rawOn)) return [];
+  const m = rawOn as Record<string, unknown>;
+  const node = m.schedule;
+  if (node == null) return [];
+
+  const out: string[] = [];
+  const collect = (entry: unknown) => {
+    if (typeof entry === "string") {
+      const s = entry.trim();
+      if (s) out.push(s);
+      return;
+    }
+    if (entry && typeof entry === "object" && !Array.isArray(entry)) {
+      const cron = (entry as Record<string, unknown>).cron;
+      const s = typeof cron === "string" ? cron.trim() : "";
+      if (s) out.push(s);
+    }
+  };
+
+  if (Array.isArray(node)) {
+    for (const e of node) collect(e);
+  } else {
+    collect(node);
+  }
+  return out;
+}
+
 function normaliseStep(
   raw: unknown,
   jobName: string,
@@ -575,6 +620,7 @@ export function parseWorkflow(yaml: string): ParseResult {
   if (!on || on.length === 0) {
     return { ok: false, error: "workflow missing 'on' trigger" };
   }
+  const schedules = extractSchedules(doc.on);
 
   const jobsRaw = doc.jobs;
   if (
@@ -594,5 +640,12 @@ export function parseWorkflow(yaml: string): ParseResult {
     jobs.push(res.job);
   }
 
-  return { ok: true, workflow: { name, on, jobs } };
+  const workflow: ParsedWorkflow = { name, on, jobs };
+  if (schedules.length > 0) workflow.schedules = schedules;
+  return { ok: true, workflow };
 }
+
+/**
+ * Test-only export of the schedule extractor. Pure helper, no DB.
+ */
+export const __test = { extractSchedules };

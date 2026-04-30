@@ -183,6 +183,46 @@ export async function deleteRepoSecret(args: {
 }
 
 /**
+ * Substitute `${{ secrets.NAME }}` references inside a template string with
+ * the corresponding plaintext from `secrets`. Pure helper — no DB, no
+ * side effects. Designed to feed the workflow runner's per-step `run:`
+ * value before handing it to `bash -c`.
+ *
+ * Behaviour:
+ *   - Whitespace inside the `{{ ... }}` is tolerated: `${{secrets.X}}`,
+ *     `${{ secrets.X }}`, `${{  secrets . X  }}`.
+ *   - Names that don't appear in `secrets` are left intact (so the
+ *     unsubstituted token shows up in logs and surfaces the misconfig
+ *     loudly — matches the loadSecretsContext docstring contract).
+ *   - Names that don't match the GitHub-Actions secret-name grammar
+ *     (`[A-Z_][A-Z0-9_]*`) are also left intact, defence-in-depth
+ *     against malformed YAML producing weird tokens.
+ *   - The function never throws on bad input; non-string templates
+ *     return `""`.
+ *
+ * Pure regex; no exec-on-string allocations beyond the single replace.
+ */
+export function substituteSecrets(
+  template: string,
+  secrets: Record<string, string>
+): string {
+  if (typeof template !== "string") return "";
+  if (!template || !secrets) return template || "";
+  // ${{ <ws>* secrets <ws>* . <ws>* NAME <ws>* }}
+  // We split the regex on the dot so we can tolerate whitespace either
+  // side of it; the NAME group is captured with the strict grammar so a
+  // malformed identifier won't accidentally substitute.
+  return template.replace(
+    /\$\{\{\s*secrets\s*\.\s*([A-Z_][A-Z0-9_]*)\s*\}\}/g,
+    (match, name: string) => {
+      if (Object.prototype.hasOwnProperty.call(secrets, name)) {
+        return secrets[name];
+      }
+      return match;
+    }
+  );
+}
+/**
  * Build the `{ NAME: plaintext }` map consumed by the runner's
  * `substituteSecrets(template, secrets)` calls.
  *

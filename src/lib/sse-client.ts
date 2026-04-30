@@ -67,6 +67,42 @@ export function liveSubscribeScript(args: {
 }
 
 /**
+ * Live comment-banner script: subscribe to a topic and increment a
+ * counter inside a banner element when new events arrive. Use on
+ * issue / PR detail pages to nudge the user to reload when remote
+ * comments land while their tab is open.
+ *
+ * Banner contract: the page renders a hidden element with the given
+ * id and an inner `<a class="js-live-count">` and `<a class="js-live-link">`.
+ * The script reveals the banner on the first event, updates the count
+ * text, and points the link at the current URL so a click reloads the
+ * page (cleanest way to pick up the new comment HTML server-side).
+ */
+export function liveCommentBannerScript(args: {
+  topic: string;
+  bannerElementId: string;
+}): string {
+  const topic = safeJsonForScript(args.topic);
+  const id = safeJsonForScript(args.bannerElementId);
+  return (
+    "(function(){try{" +
+    "if(typeof EventSource==='undefined')return;" +
+    "var t=" + topic + ",bid=" + id + ";" +
+    "var b=document.getElementById(bid);if(!b)return;" +
+    "var n=0;var es,delay=1000;" +
+    "function show(){if(b.style)b.style.display='';" +
+    "var c=b.querySelector('.js-live-count');" +
+    "if(c)c.textContent=String(n);" +
+    "var lk=b.querySelector('.js-live-link');" +
+    "if(lk)lk.setAttribute('href',window.location.pathname+window.location.search);}" +
+    "function connect(){try{es=new EventSource('/live-events/'+encodeURIComponent(t));}catch(e){setTimeout(connect,delay);return;}" +
+    "es.onmessage=function(){n++;show();};" +
+    "es.onerror=function(){try{es.close();}catch(e){}setTimeout(connect,delay);};" +
+    "}connect();}catch(e){}})();"
+  );
+}
+
+/**
  * Live log-tail script: subscribe to a workflow-run topic, append step-log
  * chunks to a <pre>, and auto-close when 'run-done' arrives.
  *

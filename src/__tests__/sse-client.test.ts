@@ -1,5 +1,8 @@
 import { describe, it, expect } from "bun:test";
-import { liveSubscribeScript } from "../lib/sse-client";
+import {
+  liveSubscribeScript,
+  liveCommentBannerScript,
+} from "../lib/sse-client";
 
 describe("liveSubscribeScript", () => {
   it("returns a string containing EventSource and the topic path", () => {
@@ -35,5 +38,43 @@ describe("liveSubscribeScript", () => {
     // remains functional — at minimum the inner `alert(1)` literal is there
     // as an escaped JSON string, but the HTML-breakout is gone.
     expect(js).toContain("EventSource");
+  });
+});
+
+describe("liveCommentBannerScript", () => {
+  it("emits a self-invoking IIFE that opens an EventSource", () => {
+    const js = liveCommentBannerScript({
+      topic: "repo:r1:issue:7",
+      bannerElementId: "live-comment-banner",
+    });
+    expect(typeof js).toBe("string");
+    expect(js).toContain("EventSource");
+    expect(js).toContain("/live-events/");
+    expect(js).toContain('"repo:r1:issue:7"');
+    expect(js).toContain('"live-comment-banner"');
+    // Counter increment + show contract.
+    expect(js).toContain("n++");
+    expect(js).toContain("js-live-count");
+    expect(js).toContain("js-live-link");
+  });
+
+  it("escapes topic strings to prevent </script> injection", () => {
+    const malicious = '</script><script>alert(1)</script>';
+    const js = liveCommentBannerScript({
+      topic: malicious,
+      bannerElementId: "banner",
+    });
+    expect(js).not.toContain("</script>");
+    expect(js).not.toContain("<script>alert(1)");
+    expect(js).toContain("EventSource");
+  });
+
+  it("uses the current location for the reload link", () => {
+    const js = liveCommentBannerScript({
+      topic: "repo:r1:pr:9",
+      bannerElementId: "banner",
+    });
+    // Must reference window.location so a click reloads the same page.
+    expect(js).toContain("window.location");
   });
 });

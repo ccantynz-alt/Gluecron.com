@@ -19,6 +19,7 @@ import { ReactionsBar } from "../views/reactions";
 import { summariseReactions } from "../lib/reactions";
 import { loadIssueTemplate } from "../lib/templates";
 import { renderMarkdown } from "../lib/markdown";
+import { liveCommentBannerScript } from "../lib/sse-client";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
 import { requireRepoAccess } from "../middleware/repo-access";
@@ -341,6 +342,24 @@ issueRoutes.get("/:owner/:repo/issues/:number", softAuth, requireRepoAccess("rea
     >
       <RepoHeader owner={ownerName} repo={repoName} />
       <IssueNav owner={ownerName} repo={repoName} active="issues" />
+      <div
+        id="live-comment-banner"
+        class="alert"
+        style="display:none;margin:12px 0;padding:10px 14px;border-radius:6px;background:var(--accent);color:var(--bg);font-size:14px"
+      >
+        <strong class="js-live-count">0</strong> new comment(s) —{" "}
+        <a class="js-live-link" href="#" style="color:inherit;text-decoration:underline">
+          reload to view
+        </a>
+      </div>
+      <script
+        dangerouslySetInnerHTML={{
+          __html: liveCommentBannerScript({
+            topic: `repo:${resolved.repo.id}:issue:${issue.number}`,
+            bannerElementId: "live-comment-banner",
+          }),
+        }}
+      />
       <div class="issue-detail">
         <h2>
           {issue.title}{" "}

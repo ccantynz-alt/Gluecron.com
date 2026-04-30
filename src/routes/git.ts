@@ -18,6 +18,7 @@ import {
   formatPolicyError,
 } from "../lib/push-policy";
 import { resolvePusher } from "../lib/git-push-auth";
+import { audit } from "../lib/notify";
 
 const git = new Hono();
 
@@ -98,6 +99,26 @@ git.post("/:owner/:repo.git/git-receive-pack", async (c) => {
           pusherUserId: pusher?.userId || null,
         });
         if (!decision.allowed) {
+          // Audit the rejection so owners can see blocked-push attempts
+          // even though the request never reached the post-receive hook.
+          // Fire-and-forget — never block the 403.
+          audit({
+            userId: pusher?.userId || null,
+            repositoryId: repoRow.id,
+            action: "push.rejected",
+            targetType: "repository",
+            targetId: repoRow.id,
+            ip:
+              c.req.header("x-forwarded-for") ||
+              c.req.header("x-real-ip") ||
+              undefined,
+            userAgent: c.req.header("user-agent") || undefined,
+            metadata: {
+              violations: decision.violations,
+              refs: refs.map((r) => r.refName),
+              pusherSource: pusher?.source || "anonymous",
+            },
+          }).catch(() => {});
           // Returning 403 with a plain-text body — git smart-HTTP clients
           // surface the body to the user (`remote: ` prefix). Existing
           // behaviour for repos with no policy is unchanged.

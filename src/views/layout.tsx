@@ -947,4 +947,147 @@ const css = `
     transform: translateX(20px);
     background: #fff;
   }
+
+  /* ============================================================
+   * 2026 polish layer (purely additive — no layout changes).
+   * Improves typography rendering, focus states, hover affordances,
+   * and adds the gradient brand cue to primary buttons. Anything
+   * that could alter dimensions stays in the rules above.
+   * ============================================================ */
+  html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+  body { letter-spacing: -0.005em; font-feature-settings: 'cv11', 'ss01', 'ss03'; }
+  *::selection { background: rgba(168,85,247,0.35); color: var(--text); }
+
+  h1, h2, h3, h4 { letter-spacing: -0.018em; }
+  h1 { letter-spacing: -0.025em; }
+
+  /* Smoother colour transitions everywhere links live */
+  a { transition: color 120ms cubic-bezier(0.16,1,0.3,1); }
+
+  /* Buttons: focus rings + smoother transitions; primary gets the gradient */
+  .btn {
+    transition:
+      background 120ms cubic-bezier(0.16,1,0.3,1),
+      border-color 120ms cubic-bezier(0.16,1,0.3,1),
+      transform 120ms cubic-bezier(0.16,1,0.3,1),
+      box-shadow 120ms cubic-bezier(0.16,1,0.3,1);
+  }
+  .btn:active { transform: translateY(0.5px); }
+  .btn:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(168,85,247,0.30);
+  }
+  .btn-primary {
+    background: linear-gradient(135deg, #a855f7 0%, #06b6d4 100%);
+    border-color: transparent;
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.15),
+      0 1px 2px rgba(168,85,247,0.25);
+  }
+  .btn-primary:hover {
+    background: linear-gradient(135deg, #b766f8 0%, #22cce0 100%);
+    filter: none;
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.20),
+      0 4px 12px rgba(168,85,247,0.30);
+  }
+
+  /* Inputs: cleaner focus ring + hover */
+  .form-group input:hover,
+  .form-group textarea:hover,
+  .form-group select:hover {
+    border-color: rgba(255,255,255,0.14);
+  }
+  .form-group input:focus,
+  .form-group textarea:focus,
+  .form-group select:focus {
+    border-color: rgba(168,85,247,0.55);
+    box-shadow: 0 0 0 3px rgba(168,85,247,0.22);
+  }
+  :root[data-theme='light'] .form-group input:hover,
+  :root[data-theme='light'] .form-group textarea:hover,
+  :root[data-theme='light'] .form-group select:hover {
+    border-color: rgba(0,0,0,0.18);
+  }
+
+  /* Cards: subtle hover lift */
+  .card {
+    transition:
+      border-color 160ms cubic-bezier(0.16,1,0.3,1),
+      transform 160ms cubic-bezier(0.16,1,0.3,1),
+      box-shadow 200ms cubic-bezier(0.16,1,0.3,1);
+  }
+  .card:hover {
+    border-color: rgba(255,255,255,0.18);
+    transform: translateY(-1px);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.30);
+  }
+  :root[data-theme='light'] .card:hover {
+    border-color: rgba(0,0,0,0.18);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+  }
+
+  /* Issue / commit / panel rows: smoother hover */
+  .issue-item, .commit-item {
+    transition: background 120ms cubic-bezier(0.16,1,0.3,1);
+  }
+  .repo-nav a {
+    transition: color 120ms cubic-bezier(0.16,1,0.3,1),
+                border-bottom-color 120ms cubic-bezier(0.16,1,0.3,1);
+  }
+  .nav-link {
+    transition: color 120ms cubic-bezier(0.16,1,0.3,1);
+  }
+
+  /* Auth card: subtle elevation so register/login feel premium */
+  .auth-container {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg, 12px);
+    padding: 32px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.30), 0 0 0 1px var(--border);
+  }
+  :root[data-theme='light'] .auth-container {
+    box-shadow: 0 4px 16px rgba(0,0,0,0.06), 0 0 0 1px var(--border);
+  }
+  .auth-container h2 { letter-spacing: -0.025em; }
+
+  /* Empty state: dashed border, generous padding */
+  .empty-state {
+    border: 1px dashed var(--border);
+    border-radius: var(--r-lg, 12px);
+    background: var(--bg);
+  }
+
+  /* Badges + commit-sha: smoother transition */
+  .commit-sha, .badge { transition: all 120ms cubic-bezier(0.16,1,0.3,1); }
+
+  /* Gradient text utility — matches landing's accent treatment */
+  .gradient-text {
+    background: linear-gradient(135deg, #a855f7 0%, #06b6d4 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  /* Custom scrollbars (subtle, themed) */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(255,255,255,0.06);
+    border: 2px solid var(--bg);
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.14); }
+  :root[data-theme='light'] ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.10); }
+  :root[data-theme='light'] ::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.18); }
+
+  /* Honour reduced-motion preference */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
 `;

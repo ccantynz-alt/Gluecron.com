@@ -134,7 +134,8 @@ export function renderIssueTriageComment(t: IssueTriage): string {
 }
 
 export async function triggerIssueTriage(
-  input: IssueTriageInput
+  input: IssueTriageInput,
+  options: { force?: boolean } = {}
 ): Promise<void> {
   try {
     if (process.env.DEBUG_ISSUE_TRIAGE === "1") {
@@ -146,7 +147,7 @@ export async function triggerIssueTriage(
       );
     }
     if (!isAiAvailable()) return;
-    if (await alreadyTriaged(input.issueId)) return;
+    if (!options.force && (await alreadyTriaged(input.issueId))) return;
 
     const [availableLabels, recent] = await Promise.all([
       loadAvailableLabels(input.repositoryId),

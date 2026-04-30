@@ -211,12 +211,43 @@ export async function createApp(args: CreateAppArgs): Promise<App | null> {
         .returning();
       if (!row) return null;
       // Create matching bot account
+      const botUname = botUsername(slug);
       await db.insert(appBots).values({
         appId: row.id,
-        username: botUsername(slug),
+        username: botUname,
         displayName: `${args.name} (bot)`,
         avatarUrl: args.iconUrl,
       });
+      // Create a synthetic users row so install-token push auth has a real
+      // users.id to attribute to. Email + passwordHash are deliberately
+      // unusable so bots cannot log in via password — auth is install-token
+      // only via Authorization: Bearer ghi_*. Idempotent: onConflictDoNothing
+      // keeps re-runs safe (e.g. if the apps insert succeeds but the bot
+      // row had to be retried).
+      const botEmail = `${botUname}@gluecron.local`;
+      try {
+        await db
+          .insert(users)
+          .values({
+            username: botUname,
+            email: botEmail,
+            displayName: `${args.name} (bot)`,
+            // Random non-functional hash. Anyone trying to "guess" it
+            // would still fail bcrypt-compare since no password makes it.
+            passwordHash: `!bot:${randomBytes(24).toString("hex")}`,
+            avatarUrl: args.iconUrl,
+            // Bots opt out of all email notifications by default.
+            notifyEmailOnMention: false,
+            notifyEmailOnAssign: false,
+            notifyEmailOnGateFail: false,
+          })
+          .onConflictDoNothing?.();
+      } catch {
+        // Bot user already exists or onConflictDoNothing isn't supported on
+        // this driver — either way, the install-token resolver will fail
+        // soft on lookup and treat the call as anonymous. Do not let this
+        // block app creation.
+      }
       return row;
     } catch (err: any) {
       if (String(err?.message || "").includes("duplicate")) continue;

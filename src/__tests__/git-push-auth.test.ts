@@ -107,4 +107,13 @@ describe("resolvePusher — anonymous fallbacks", () => {
   it("returns null on a Basic with an empty secret", async () => {
     expect(await resolvePusher(`Basic ${b64("alice:")}`)).toBeNull();
   });
+
+  it("returns null for a ghi_ install token that doesn't exist in DB", async () => {
+    // Real install tokens are sha256-hashed in app_install_tokens; an
+    // unknown token should fail soft to anonymous, never throw.
+    expect(await resolvePusher("Bearer ghi_definitely-not-real")).toBeNull();
+    expect(
+      await resolvePusher(`Basic ${b64("x-access-token:ghi_definitely-not-real")}`)
+    ).toBeNull();
+  });
 });

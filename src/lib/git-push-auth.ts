@@ -3,17 +3,15 @@
  *
  * Smart-HTTP push doesn't ride the cookie/session middleware (git CLI
  * doesn't keep cookies). It sends `Authorization: Basic <b64(user:secret)>`
- * or `Authorization: Bearer <token>`. We accept two secret shapes:
+ * or `Authorization: Bearer <token>`. We accept three secret shapes:
  *
  *   - `glc_*`  — personal access token (Block C2)
  *   - `glct_*` — OAuth access token  (Block B6)
- *
- * Installation tokens (`ghi_*`, Block H2) are deliberately not handled
- * here yet: app bots are stored in `app_bots` with their own `username`
- * but no link to a `users.id` row, so they can't currently own a push
- * decision in the protected-tag path. Adding bot identities to the auth
- * decision is future work — the resolver returns null for `ghi_*` and the
- * push falls back to anonymous, which is rejected by every protected ref.
+ *   - `ghi_*`  — installation token for an app-bot (Block H2). The
+ *                token resolves to the synthetic users row created by
+ *                `createApp(...)` (`<slug>[bot]` username). Legacy bots
+ *                created before the synthetic-user back-fill landed
+ *                fail soft and resolve as anonymous.
  *
  * Best-effort only: returns null (anonymous) on any failure. The caller
  * must decide what anonymous can do (current policy: anonymous can
@@ -22,13 +20,20 @@
 
 import { eq } from "drizzle-orm";
 import { db } from "../db";
-import { users, apiTokens, oauthAccessTokens } from "../db/schema";
+import {
+  users,
+  apiTokens,
+  oauthAccessTokens,
+  appInstallTokens,
+  appInstallations,
+  appBots,
+} from "../db/schema";
 import { sha256Hex } from "./oauth";
 
 export type ResolvedPusher = {
   userId: string;
   username: string;
-  source: "pat" | "oauth";
+  source: "pat" | "oauth" | "install_token";
 };
 
 /** Decode a `Basic` auth header → `{user, secret}` or null on malformed. */
@@ -110,11 +115,59 @@ async function resolveByOauth(token: string): Promise<ResolvedPusher | null> {
   }
 }
 
+async function resolveByInstallToken(
+  token: string
+): Promise<ResolvedPusher | null> {
+  if (!token.startsWith("ghi_")) return null;
+  try {
+    const hash = await sha256Hex(token);
+    // Look up the install token + its installation + the app's bot
+    // username in one round-trip via the join shape.
+    const [row] = await db
+      .select({
+        tokenId: appInstallTokens.id,
+        revokedAt: appInstallTokens.revokedAt,
+        expiresAt: appInstallTokens.expiresAt,
+        suspendedAt: appInstallations.suspendedAt,
+        uninstalledAt: appInstallations.uninstalledAt,
+        botUsername: appBots.username,
+      })
+      .from(appInstallTokens)
+      .innerJoin(
+        appInstallations,
+        eq(appInstallTokens.installationId, appInstallations.id)
+      )
+      .innerJoin(appBots, eq(appBots.appId, appInstallations.appId))
+      .where(eq(appInstallTokens.tokenHash, hash))
+      .limit(1);
+    if (!row) return null;
+    if (row.revokedAt) return null;
+    if (row.expiresAt && new Date(row.expiresAt) < new Date()) return null;
+    if (row.suspendedAt) return null;
+    if (row.uninstalledAt) return null;
+
+    // Find the synthetic users row that createApp inserts for the bot.
+    // Legacy bots (created before the back-fill landed) won't have one;
+    // those resolve as anonymous, which fails closed on every protected
+    // ref but doesn't break public-repo writes.
+    const [u] = await db
+      .select({ id: users.id, username: users.username })
+      .from(users)
+      .where(eq(users.username, row.botUsername))
+      .limit(1);
+    if (!u) return null;
+    return { userId: u.id, username: u.username, source: "install_token" };
+  } catch {
+    return null;
+  }
+}
+
 /**
- * Resolve the pusher from an Authorization header. Tries Bearer (PAT or
- * OAuth) then Basic (where the secret in the password field can also be
- * a PAT or OAuth token — git CLI sends `git config credential.helper`
- * output as username + password).
+ * Resolve the pusher from an Authorization header. Tries Bearer (PAT,
+ * OAuth, or install token) then Basic (where the secret in the password
+ * field can also be any of the three). git CLI sends
+ * `credential.helper` output as username + password; users typically
+ * paste the token as the password.
  */
 export async function resolvePusher(
   authHeader: string | null | undefined
@@ -125,7 +178,8 @@ export async function resolvePusher(
   if (bearer) {
     return (
       (await resolveByPat(bearer)) ||
-      (await resolveByOauth(bearer))
+      (await resolveByOauth(bearer)) ||
+      (await resolveByInstallToken(bearer))
     );
   }
 
@@ -134,7 +188,8 @@ export async function resolvePusher(
     const secret = basic.secret;
     return (
       (await resolveByPat(secret)) ||
-      (await resolveByOauth(secret))
+      (await resolveByOauth(secret)) ||
+      (await resolveByInstallToken(secret))
     );
   }
 

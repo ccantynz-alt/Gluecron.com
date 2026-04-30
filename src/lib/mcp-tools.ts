@@ -23,7 +23,8 @@ import {
   users,
   codebaseExplanations,
 } from "../db/schema";
-import { getBlob } from "../git/repository";
+import { getBlob, repoExists } from "../git/repository";
+import { computeHealthScore } from "./intelligence";
 import { McpError, ERR_INVALID_PARAMS, ERR_METHOD_NOT_FOUND } from "./mcp";
 import type { McpContext } from "./mcp";
 
@@ -304,6 +305,58 @@ const repoExplain: McpToolHandler = {
 };
 
 // ---------------------------------------------------------------------------
+// gluecron_repo_health
+// ---------------------------------------------------------------------------
+
+const repoHealth: McpToolHandler = {
+  tool: {
+    name: "gluecron_repo_health",
+    description:
+      "Compute the current health report for a public repo: overall score (0-100), letter grade, per-category breakdown (security/testing/complexity/dependencies/documentation/activity), and a list of insights to fix next. Backed by computeHealthScore in src/lib/intelligence.ts.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        owner: { type: "string", description: "Repo owner username" },
+        repo: { type: "string", description: "Repo name" },
+      },
+      required: ["owner", "repo"],
+    },
+  },
+  async run(args) {
+    const owner = argString(args, "owner");
+    const repo = argString(args, "repo");
+
+    const [r] = await db
+      .select({ id: repositories.id, isPrivate: repositories.isPrivate })
+      .from(repositories)
+      .innerJoin(users, eq(repositories.ownerId, users.id))
+      .where(and(eq(users.username, owner), eq(repositories.name, repo)))
+      .limit(1);
+    if (!r) throw new McpError(ERR_METHOD_NOT_FOUND, `repo not found: ${owner}/${repo}`);
+    if (r.isPrivate) {
+      throw new McpError(
+        ERR_METHOD_NOT_FOUND,
+        `${owner}/${repo} is private; v1 MCP tools are public-only`
+      );
+    }
+    if (!(await repoExists(owner, repo))) {
+      throw new McpError(
+        ERR_METHOD_NOT_FOUND,
+        `${owner}/${repo} has no on-disk git data yet`
+      );
+    }
+    const report = await computeHealthScore(owner, repo);
+    return {
+      score: report.score,
+      grade: report.grade,
+      breakdown: report.breakdown,
+      insights: report.insights,
+      generatedAt: report.generatedAt,
+    };
+  },
+};
+
+// ---------------------------------------------------------------------------
 // Default tool registry
 // ---------------------------------------------------------------------------
 
@@ -313,6 +366,7 @@ export function defaultTools(): Record<string, McpToolHandler> {
     [repoReadFile.tool.name]: repoReadFile,
     [repoListIssues.tool.name]: repoListIssues,
     [repoExplain.tool.name]: repoExplain,
+    [repoHealth.tool.name]: repoHealth,
   };
 }
 
@@ -324,4 +378,5 @@ export const __test = {
   repoReadFile,
   repoListIssues,
   repoExplain,
+  repoHealth,
 };

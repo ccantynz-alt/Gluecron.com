@@ -7,17 +7,20 @@
  *   - if `reviewers` is empty, the repo owner is treated as the implicit reviewer.
  *   - `allowedBranches` is a JSON array of glob patterns. When non-empty only
  *     refs matching at least one pattern may deploy through the environment.
- *   - `waitTimerMinutes` is stored but NOT enforced in v1 (stub).
+ *   - `waitTimerMinutes` is now enforced: approval flips status to
+ *     "waiting_timer" + populates `deployments.ready_after`; the autopilot
+ *     ticker sweeps timers that have elapsed and flips them to "pending".
  *
  * All DB calls are wrapped in try/catch so the caller gets well-defined
  * shapes even when the database is unreachable (keeps the hot push path safe).
  */
 
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNotNull, lte, sql } from "drizzle-orm";
 import { db } from "../db";
 import {
   environments,
   deploymentApprovals,
+  deployments,
   repositories,
 } from "../db/schema";
 import type { Environment, DeploymentApproval } from "../db/schema";
@@ -227,19 +230,69 @@ export function reduceApprovalState(decided: DeploymentApproval[]): {
 }
 
 /**
+ * Pure helper — return the timestamp of the most recent "approved"
+ * decision, or null if there are no approvals. Used as the basis for
+ * wait-timer enforcement.
+ */
+export function latestApprovalAt(
+  decided: DeploymentApproval[]
+): Date | null {
+  let latest: Date | null = null;
+  for (const d of decided) {
+    if (d.decision !== "approved") continue;
+    const t = d.createdAt ? new Date(d.createdAt) : null;
+    if (!t || isNaN(t.getTime())) continue;
+    if (!latest || t.getTime() > latest.getTime()) latest = t;
+  }
+  return latest;
+}
+
+/**
+ * Pure helper — given an environment + the current approvals + a "now"
+ * reference, return the Date when the deploy may proceed, or null if
+ * either the env has no wait timer (waitTimerMinutes <= 0) or there are
+ * no approvals yet. Returning a past timestamp is deliberate — caller
+ * can compare `readyAfter <= now` to decide whether to skip the
+ * "waiting_timer" state entirely.
+ */
+export function computeReadyAfter(
+  env: Pick<Environment, "waitTimerMinutes">,
+  decided: DeploymentApproval[]
+): Date | null {
+  const minutes = Number(env.waitTimerMinutes || 0);
+  if (!Number.isFinite(minutes) || minutes <= 0) return null;
+  const last = latestApprovalAt(decided);
+  if (!last) return null;
+  return new Date(last.getTime() + minutes * 60_000);
+}
+
+/**
  * v1 semantics: approved = at least one approval exists and no rejection.
  * rejected   = at least one rejection exists.
+ *
+ * waitTimerMinutes enforcement: when the env carries a positive timer
+ * the response includes `readyAfter` — the wall-clock the deployer
+ * should not run before. Callers compare against `now`:
+ *   - readyAfter == null   → proceed immediately on approval
+ *   - readyAfter <= now    → proceed (timer already elapsed)
+ *   - readyAfter >  now    → set deployment.status="waiting_timer" and
+ *                            deployment.readyAfter=readyAfter, then let
+ *                            the autopilot ticker (`releaseExpiredWaitTimers`)
+ *                            flip it to "pending" once the wall passes.
  */
 export async function computeApprovalState(
   deploymentId: string,
-  _env: Environment
+  env: Environment
 ): Promise<{
   approved: boolean;
   rejected: boolean;
   decided: DeploymentApproval[];
+  readyAfter: Date | null;
 }> {
   const decided = await listApprovals(deploymentId);
-  return reduceApprovalState(decided);
+  const base = reduceApprovalState(decided);
+  const readyAfter = base.approved ? computeReadyAfter(env, decided) : null;
+  return { ...base, readyAfter };
 }
 
 /**
@@ -302,3 +355,46 @@ export async function requiresApprovalFor(
   if (env.requireApproval) return { required: true, env };
   return { required: false, env };
 }
+
+// ---------------------------------------------------------------------------
+// Wait-timer sweeper
+// ---------------------------------------------------------------------------
+
+/**
+ * Flip every "waiting_timer" deployment whose `ready_after` has passed to
+ * "pending" so the deployer picks it up. Called from the autopilot ticker.
+ *
+ * Returns the number of deployments released. Best-effort — DB hiccups
+ * resolve to `0` rather than throw, so the autopilot loop never wedges.
+ */
+export async function releaseExpiredWaitTimers(
+  now: Date = new Date()
+): Promise<number> {
+  try {
+    const rows = await db
+      .update(deployments)
+      .set({ status: "pending" })
+      .where(
+        and(
+          eq(deployments.status, "waiting_timer"),
+          isNotNull(deployments.readyAfter),
+          lte(deployments.readyAfter, sql`${now.toISOString()}::timestamptz`)
+        )
+      )
+      .returning({ id: deployments.id });
+    return rows ? rows.length : 0;
+  } catch (err) {
+    console.error("[environments] releaseExpiredWaitTimers failed:", err);
+    return 0;
+  }
+}
+
+/**
+ * Test-only: pure helpers + the sweeper exposed without DB. The sweeper is
+ * already async-DB; we mainly want the pure helpers reachable for tests
+ * that don't have access to a Postgres.
+ */
+export const __test = {
+  latestApprovalAt,
+  computeReadyAfter,
+};

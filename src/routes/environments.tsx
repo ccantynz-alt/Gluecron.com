@@ -527,13 +527,26 @@ async function decide(
     comment,
   });
 
-  // Re-read state and flip the deployment row accordingly.
+  // Re-read state and flip the deployment row accordingly. When the env
+  // carries a wait timer and the timer hasn't elapsed yet, we hold the
+  // deploy in status="waiting_timer" with `readyAfter` populated; the
+  // autopilot ticker (`releaseExpiredWaitTimers`) flips it later.
   const state = await computeApprovalState(deploymentId, env);
   let newStatus: string | null = null;
+  let readyAfter: Date | null = null;
+  let blockedReason: string | null = null;
   if (state.rejected) {
     newStatus = "rejected";
+    blockedReason = "rejected by reviewer";
   } else if (state.approved && deployment.status === "pending_approval") {
-    newStatus = "pending"; // hand off to existing deployer
+    const now = new Date();
+    if (state.readyAfter && state.readyAfter.getTime() > now.getTime()) {
+      newStatus = "waiting_timer";
+      readyAfter = state.readyAfter;
+      blockedReason = `wait_timer until ${state.readyAfter.toISOString()}`;
+    } else {
+      newStatus = "pending"; // hand off to existing deployer
+    }
   }
 
   if (newStatus) {
@@ -542,7 +555,10 @@ async function decide(
         .update(deployments)
         .set({
           status: newStatus,
-          blockedReason: newStatus === "rejected" ? "rejected by reviewer" : null,
+          blockedReason,
+          // Always overwrite readyAfter — clears any prior value when the
+          // status flips to anything other than waiting_timer.
+          readyAfter,
         })
         .where(eq(deployments.id, deploymentId));
     } catch (err) {

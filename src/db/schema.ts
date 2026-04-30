@@ -397,10 +397,16 @@ export const deployments = pgTable(
     environment: text("environment").notNull().default("production"),
     commitSha: text("commit_sha").notNull(),
     ref: text("ref").notNull(),
-    status: text("status").notNull(), // pending, running, success, failed, blocked
+    status: text("status").notNull(), // pending, running, success, failed, blocked, waiting_timer
     blockedReason: text("blocked_reason"),
     target: text("target"), // e.g. "crontech", "fly.io"
     triggeredBy: uuid("triggered_by").references(() => users.id),
+    /**
+     * Set when an approved deploy is held by `environments.wait_timer_minutes`.
+     * NULL = no wait; non-null = autopilot flips status from "waiting_timer"
+     * to "pending" once `now() >= ready_after`.
+     */
+    readyAfter: timestamp("ready_after"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     completedAt: timestamp("completed_at"),
   },

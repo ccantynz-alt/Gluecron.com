@@ -25,6 +25,9 @@ import type { AuthEnv } from "../middleware/auth";
 import { requireRepoAccess } from "../middleware/repo-access";
 import { isAiReviewEnabled, triggerAiReview } from "../lib/ai-review";
 import { triggerPrTriage } from "../lib/pr-triage";
+import { generatePrSummary } from "../lib/ai-generators";
+import { isAiAvailable } from "../lib/ai-client";
+import { getRepoPath } from "../git/repository";
 import { runAllGateChecks } from "../lib/gate";
 import type { GateCheckResult } from "../lib/gate";
 import {
@@ -66,6 +69,47 @@ import {
 } from "../views/ui";
 
 const pulls = new Hono<AuthEnv>();
+
+/**
+ * Tiny inline JS that drives the "Suggest description with AI" button.
+ * On click, gathers form values, POSTs JSON to the given endpoint, and
+ * pipes the response into the #pr-body textarea. All DOM lookups are
+ * defensive — element absence is a silent no-op.
+ *
+ * Built as a string template so it lives next to its server-side caller
+ * and there is no bundler dependency. The endpoint URL is JSON-escaped
+ * to avoid </script> breakouts.
+ */
+function AI_PR_DESC_SCRIPT(endpointUrl: string): string {
+  const url = JSON.stringify(endpointUrl)
+    .split("<").join("\\u003C")
+    .split(">").join("\\u003E")
+    .split("&").join("\\u0026");
+  return (
+    "(function(){try{" +
+    "var btn=document.getElementById('ai-suggest-desc');" +
+    "var status=document.getElementById('ai-suggest-status');" +
+    "var body=document.getElementById('pr-body');" +
+    "var form=btn&&btn.closest&&btn.closest('form');" +
+    "if(!btn||!body||!form)return;" +
+    "btn.addEventListener('click',function(ev){ev.preventDefault();" +
+    "var fd=new FormData(form);" +
+    "var title=String(fd.get('title')||'').trim();" +
+    "var base=String(fd.get('base')||'').trim();" +
+    "var head=String(fd.get('head')||'').trim();" +
+    "if(!base||!head){if(status)status.textContent='Pick base + head first.';return;}" +
+    "btn.disabled=true;if(status)status.textContent='Drafting (10-30s)...';" +
+    "fetch(" + url + ",{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:'title='+encodeURIComponent(title)+'&base='+encodeURIComponent(base)+'&head='+encodeURIComponent(head),credentials:'same-origin'})" +
+    ".then(function(r){return r.json().catch(function(){return {ok:false,error:'Server error.'};});})" +
+    ".then(function(j){btn.disabled=false;" +
+    "if(j&&j.ok&&typeof j.body==='string'){if(body.value&&body.value.trim().length>0){if(!confirm('Replace existing description?')){if(status)status.textContent='Cancelled.';return;}}" +
+    "body.value=j.body;if(status)status.textContent='Filled from AI. Review before submitting.';" +
+    "}else{if(status)status.textContent=(j&&j.error)||'AI unavailable.';}" +
+    "}).catch(function(){btn.disabled=false;if(status)status.textContent='Network error.';});" +
+    "});" +
+    "}catch(e){}})();"
+  );
+}
 
 async function resolveRepo(ownerName: string, repoName: string) {
   const [owner] = await db
@@ -254,18 +298,104 @@ pulls.get(
             <FormGroup>
               <TextArea
                 name="body"
+                id="pr-body"
                 rows={8}
                 placeholder="Description (Markdown supported)"
                 mono
               />
             </FormGroup>
-            <Button type="submit" variant="primary">
-              Create pull request
-            </Button>
+            <Flex gap={8} align="center">
+              <Button type="submit" variant="primary">
+                Create pull request
+              </Button>
+              <button
+                type="button"
+                id="ai-suggest-desc"
+                class="btn"
+                style="font-weight:500"
+                title="Generate a Markdown PR description using Claude based on the diff between the selected branches"
+              >
+                Suggest description with AI
+              </button>
+              <span
+                id="ai-suggest-status"
+                style="color:var(--text-muted);font-size:13px"
+              />
+            </Flex>
           </Form>
+          <script
+            dangerouslySetInnerHTML={{
+              __html: AI_PR_DESC_SCRIPT(`/${ownerName}/${repoName}/ai/pr-description`),
+            }}
+          />
         </Container>
       </Layout>
     );
+  }
+);
+
+// AI-suggested PR description — JSON endpoint driven by the form button.
+// Returns {ok:true, body} on success, {ok:false, error} otherwise. Always
+// 200; the inline script reads `ok` to decide what to do.
+pulls.post(
+  "/:owner/:repo/ai/pr-description",
+  softAuth,
+  requireAuth,
+  requireRepoAccess("write"),
+  async (c) => {
+    const { owner: ownerName, repo: repoName } = c.req.param();
+    if (!isAiAvailable()) {
+      return c.json({
+        ok: false,
+        error: "AI is not available — set ANTHROPIC_API_KEY.",
+      });
+    }
+    const body = await c.req.parseBody();
+    const title = String(body.title || "").trim();
+    const baseBranch = String(body.base || "").trim();
+    const headBranch = String(body.head || "").trim();
+    if (!baseBranch || !headBranch) {
+      return c.json({ ok: false, error: "Pick base + head branches first." });
+    }
+    if (baseBranch === headBranch) {
+      return c.json({ ok: false, error: "Base and head must differ." });
+    }
+
+    let diff = "";
+    try {
+      const cwd = getRepoPath(ownerName, repoName);
+      const proc = Bun.spawn(
+        [
+          "git",
+          "diff",
+          `${baseBranch}...${headBranch}`,
+          "--",
+        ],
+        { cwd, stdout: "pipe", stderr: "pipe" }
+      );
+      diff = await new Response(proc.stdout).text();
+      await proc.exited;
+    } catch {
+      diff = "";
+    }
+    if (!diff.trim()) {
+      return c.json({
+        ok: false,
+        error: "No diff between branches — nothing to summarise.",
+      });
+    }
+
+    let summary = "";
+    try {
+      summary = await generatePrSummary(title || "(untitled)", diff);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "AI request failed.";
+      return c.json({ ok: false, error: msg });
+    }
+    if (!summary.trim()) {
+      return c.json({ ok: false, error: "AI returned an empty draft." });
+    }
+    return c.json({ ok: true, body: summary });
   }
 );
 

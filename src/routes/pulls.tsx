@@ -520,6 +520,7 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
     (user.id === resolved.owner.id || user.id === pr.authorId);
 
   const error = c.req.query("error");
+  const info = c.req.query("info");
 
   // Get gate check status for open PRs
   let gateChecks: GateCheckResult[] = [];
@@ -683,6 +684,12 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
               </div>
             )}
 
+            {info && (
+              <div style="margin-top: 16px; padding: 12px; background: rgba(56, 139, 253, 0.1); border: 1px solid var(--accent); border-radius: var(--radius); color: var(--text)">
+                {decodeURIComponent(info)}
+              </div>
+            )}
+
             {pr.state === "open" && gateChecks.length > 0 && (
               <div style="margin-top: 20px; padding: 16px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius)">
                 <h3 style="margin: 0 0 12px; font-size: 14px">Gate Checks</h3>
@@ -734,6 +741,17 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
                         >
                           Merge pull request
                         </button>
+                        {isAiReviewEnabled() && (
+                          <button
+                            type="submit"
+                            formaction={`/${ownerName}/${repoName}/pulls/${pr.number}/ai-rereview`}
+                            formnovalidate
+                            class="btn"
+                            title="Re-run AI review (e.g. after a force-push). Posts a fresh summary + inline comments."
+                          >
+                            Re-run AI review
+                          </button>
+                        )}
                         <Button
                           type="submit"
                           variant="danger"
@@ -1162,6 +1180,62 @@ pulls.post(
       );
 
     return c.redirect(`/${ownerName}/${repoName}/pulls/${prNum}`);
+  }
+);
+
+// Re-run AI review on demand (e.g. after a force-push). Bypasses the
+// idempotency marker via { force: true }. Write-access only.
+pulls.post(
+  "/:owner/:repo/pulls/:number/ai-rereview",
+  softAuth,
+  requireAuth,
+  requireRepoAccess("write"),
+  async (c) => {
+    const { owner: ownerName, repo: repoName } = c.req.param();
+    const prNum = parseInt(c.req.param("number"), 10);
+    const resolved = await resolveRepo(ownerName, repoName);
+    if (!resolved) return c.redirect(`/${ownerName}/${repoName}`);
+
+    const [pr] = await db
+      .select()
+      .from(pullRequests)
+      .where(
+        and(
+          eq(pullRequests.repositoryId, resolved.repo.id),
+          eq(pullRequests.number, prNum)
+        )
+      )
+      .limit(1);
+    if (!pr) {
+      return c.redirect(`/${ownerName}/${repoName}/pulls`);
+    }
+
+    if (!isAiReviewEnabled()) {
+      return c.redirect(
+        `/${ownerName}/${repoName}/pulls/${prNum}?error=${encodeURIComponent(
+          "AI review is not configured (ANTHROPIC_API_KEY)."
+        )}`
+      );
+    }
+
+    // Fire-and-forget but with { force: true } to bypass the
+    // already-reviewed marker. The function still never throws.
+    triggerAiReview(
+      ownerName,
+      repoName,
+      pr.id,
+      pr.title || "",
+      pr.body || "",
+      pr.baseBranch,
+      pr.headBranch,
+      { force: true }
+    ).catch(() => {});
+
+    return c.redirect(
+      `/${ownerName}/${repoName}/pulls/${prNum}?info=${encodeURIComponent(
+        "AI re-review queued. The new comment will appear in 10-30s; reload to see it."
+      )}`
+    );
   }
 );
 

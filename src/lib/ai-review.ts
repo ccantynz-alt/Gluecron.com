@@ -221,10 +221,11 @@ export async function triggerAiReview(
   body: string,
   baseBranch: string,
   headBranch: string,
+  options: { force?: boolean } = {}
 ): Promise<void> {
   try {
     if (!isAiReviewEnabled()) return;
-    if (await alreadyReviewed(prId)) return;
+    if (!options.force && (await alreadyReviewed(prId))) return;
 
     const [pr] = await db
       .select({ id: pullRequests.id, authorId: pullRequests.authorId })

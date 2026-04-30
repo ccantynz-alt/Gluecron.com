@@ -638,11 +638,32 @@ pulls.post(
 
     if (!pr) return c.redirect(`/${ownerName}/${repoName}/pulls`);
 
-    await db.insert(prComments).values({
-      pullRequestId: pr.id,
-      authorId: user.id,
-      body: commentBody,
-    });
+    const [inserted] = await db
+      .insert(prComments)
+      .values({
+        pullRequestId: pr.id,
+        authorId: user.id,
+        body: commentBody,
+      })
+      .returning();
+
+    // Live update: nudge any browser tabs subscribed to this PR.
+    if (inserted) {
+      try {
+        const { publish } = await import("../lib/sse");
+        publish(`repo:${resolved.repo.id}:pr:${prNum}`, {
+          event: "pr-comment",
+          data: {
+            pullRequestId: pr.id,
+            commentId: inserted.id,
+            authorId: user.id,
+            authorUsername: user.username,
+          },
+        });
+      } catch {
+        /* SSE is best-effort */
+      }
+    }
 
     return c.redirect(`/${ownerName}/${repoName}/pulls/${prNum}`);
   }

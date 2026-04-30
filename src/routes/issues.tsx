@@ -460,11 +460,33 @@ issueRoutes.post(
 
     if (!issue) return c.redirect(`/${ownerName}/${repoName}/issues`);
 
-    await db.insert(issueComments).values({
-      issueId: issue.id,
-      authorId: user.id,
-      body: commentBody,
-    });
+    const [inserted] = await db
+      .insert(issueComments)
+      .values({
+        issueId: issue.id,
+        authorId: user.id,
+        body: commentBody,
+      })
+      .returning();
+
+    // Live update: nudge any browser tabs subscribed to this issue. Pure
+    // fanout — never blocks the redirect, never throws into the request.
+    if (inserted) {
+      try {
+        const { publish } = await import("../lib/sse");
+        publish(`repo:${resolved.repo.id}:issue:${issueNum}`, {
+          event: "issue-comment",
+          data: {
+            issueId: issue.id,
+            commentId: inserted.id,
+            authorId: user.id,
+            authorUsername: user.username,
+          },
+        });
+      } catch {
+        /* SSE is best-effort */
+      }
+    }
 
     return c.redirect(
       `/${ownerName}/${repoName}/issues/${issueNum}`

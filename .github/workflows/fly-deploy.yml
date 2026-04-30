@@ -18,8 +18,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up flyctl
-        uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: Install flyctl
+        run: |
+          curl -fsSL https://github.com/superfly/flyctl/releases/download/v0.4.38/flyctl_0.4.38_Linux_x86_64.tar.gz -o /tmp/flyctl.tgz
+          mkdir -p $HOME/.fly/bin
+          tar -xzf /tmp/flyctl.tgz -C $HOME/.fly/bin
+          echo "$HOME/.fly/bin" >> $GITHUB_PATH
+          $HOME/.fly/bin/flyctl version
 
       - name: Ensure app exists
         run: |

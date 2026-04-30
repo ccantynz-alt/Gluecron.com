@@ -26,6 +26,12 @@ import {
   listPlans,
   setUserPlan,
 } from "../lib/billing";
+import {
+  createBillingPortalSession,
+  createCheckoutSession,
+  findOrCreateCustomer,
+} from "../lib/stripe";
+import { config } from "../lib/config";
 
 const billing = new Hono<AuthEnv>();
 billing.use("*", softAuth);
@@ -144,15 +150,129 @@ billing.get("/settings/billing", requireAuth, async (c) => {
                   CURRENT PLAN
                 </div>
               )}
+              {!isCurrent && p.slug !== "free" && p.priceCents > 0 && (
+                <form
+                  method="post"
+                  action={`/billing/upgrade/${p.slug}`}
+                  style="margin-top:10px"
+                >
+                  <button
+                    type="submit"
+                    class="btn btn-primary"
+                    style="width:100%;font-size:13px"
+                  >
+                    {quota.planSlug === "free" ? "Upgrade" : "Switch"} to {p.name}
+                  </button>
+                </form>
+              )}
             </div>
           );
         })}
       </div>
-      <p style="font-size:12px;color:var(--text-muted);margin-top:12px">
-        To change plans, contact a site administrator.
-      </p>
+      {quota.planSlug !== "free" && (
+        <div style="margin-top:16px">
+          <form method="post" action="/billing/manage" style="display:inline">
+            <button
+              type="submit"
+              class="btn"
+              style="font-size:13px"
+            >
+              Manage subscription (Stripe Customer Portal)
+            </button>
+          </form>
+          <span
+            style="font-size:12px;color:var(--text-muted);margin-left:12px"
+          >
+            — change card, download invoices, cancel anytime.
+          </span>
+        </div>
+      )}
+      {!process.env.STRIPE_SECRET_KEY && (
+        <p
+          style="font-size:12px;color:var(--text-muted);margin-top:12px;font-style:italic"
+        >
+          (Stripe not yet configured on this instance — upgrade buttons will
+          return a setup error. Run the Stripe Bootstrap workflow to enable.)
+        </p>
+      )}
     </Layout>
   );
+});
+
+// ----- Upgrade flow (Stripe Checkout) -----
+
+billing.post("/billing/upgrade/:plan", requireAuth, async (c) => {
+  const user = c.get("user")!;
+  const planSlug = c.req.param("plan");
+  if (planSlug !== "pro" && planSlug !== "team" && planSlug !== "enterprise") {
+    return c.redirect("/settings/billing?error=invalid-plan");
+  }
+
+  const quota = await getUserQuota(user.id);
+  const customer = await findOrCreateCustomer({
+    userId: user.id,
+    email: user.email ?? `${user.username}@gluecron.local`,
+    existingCustomerId: quota.stripeCustomerId ?? null,
+  });
+  if (!customer.ok) {
+    console.error(`[billing/upgrade] customer: ${customer.error}`);
+    return c.redirect(
+      `/settings/billing?error=${encodeURIComponent(customer.error)}`
+    );
+  }
+
+  const base = (config.appBaseUrl || "").replace(/\/$/, "") || "";
+  const session = await createCheckoutSession({
+    customerId: customer.customerId,
+    planSlug,
+    successUrl: `${base}/billing/success?session_id={CHECKOUT_SESSION_ID}`,
+    cancelUrl: `${base}/billing/cancel`,
+    userId: user.id,
+  });
+  if (!session.ok) {
+    console.error(`[billing/upgrade] checkout: ${session.error}`);
+    return c.redirect(
+      `/settings/billing?error=${encodeURIComponent(session.error)}`
+    );
+  }
+
+  // Stash the customerId onto the quota row now (doesn't wait for webhook)
+  // so subsequent upgrades don't re-create a customer.
+  await db
+    .update(userQuotas)
+    .set({ stripeCustomerId: customer.customerId, updatedAt: new Date() })
+    .where(eq(userQuotas.userId, user.id));
+
+  return c.redirect(session.url, 303);
+});
+
+billing.get("/billing/success", requireAuth, async (c) => {
+  // The webhook does the actual plan assignment; this is just a landing page.
+  return c.redirect("/settings/billing?upgraded=1");
+});
+
+billing.get("/billing/cancel", requireAuth, async (c) => {
+  return c.redirect("/settings/billing?canceled=1");
+});
+
+billing.post("/billing/manage", requireAuth, async (c) => {
+  const user = c.get("user")!;
+  const quota = await getUserQuota(user.id);
+  if (!quota.stripeCustomerId) {
+    return c.redirect("/settings/billing?error=no-subscription");
+  }
+  const base = (config.appBaseUrl || "").replace(/\/$/, "") || "";
+  const session = await createBillingPortalSession({
+    customerId: quota.stripeCustomerId,
+    returnUrl: `${base}/settings/billing`,
+  });
+  if (!session.ok) {
+    console.error(`[billing/manage] portal: ${session.error}`);
+    return c.redirect(
+      `/settings/billing?error=${encodeURIComponent(session.error)}`
+    );
+  }
+  return c.redirect(session.url, 303);
 });
 
 // ----- Admin billing panel -----

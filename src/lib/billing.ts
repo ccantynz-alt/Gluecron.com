@@ -116,6 +116,11 @@ export interface QuotaView {
     bandwidthGbUsedThisMonth: number;
   };
   cycleStart: Date | null;
+  /** Stripe linkage — populated once the user completes a checkout session. */
+  stripeCustomerId: string | null;
+  stripeSubscriptionId: string | null;
+  stripeSubscriptionStatus: string | null;
+  currentPeriodEnd: Date | null;
   percent: {
     storage: number;
     aiTokens: number;
@@ -164,6 +169,11 @@ export async function getUserQuota(userId: string): Promise<QuotaView> {
     plan,
     usage,
     cycleStart: (row?.cycleStart as Date | null) || null,
+    stripeCustomerId: (row?.stripeCustomerId as string | null) || null,
+    stripeSubscriptionId: (row?.stripeSubscriptionId as string | null) || null,
+    stripeSubscriptionStatus:
+      (row?.stripeSubscriptionStatus as string | null) || null,
+    currentPeriodEnd: (row?.currentPeriodEnd as Date | null) || null,
     percent: {
       storage: pct(usage.storageMbUsed, plan.storageMbLimit),
       aiTokens: pct(usage.aiTokensUsedThisMonth, plan.aiTokensMonthly),

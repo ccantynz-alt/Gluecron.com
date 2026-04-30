@@ -61,6 +61,7 @@ import aiExplainRoutes from "./routes/ai-explain";
 import aiTestsRoutes from "./routes/ai-tests";
 import askRoutes from "./routes/ask";
 import billingRoutes from "./routes/billing";
+import stripeWebhookRoutes from "./routes/stripe-webhook";
 import codeScanningRoutes from "./routes/code-scanning";
 import commitStatusesRoutes from "./routes/commit-statuses";
 import copilotRoutes from "./routes/copilot";
@@ -95,6 +96,8 @@ import templatesRoutes from "./routes/templates";
 import trafficRoutes from "./routes/traffic";
 import wikisRoutes from "./routes/wikis";
 import workflowsRoutes from "./routes/workflows";
+import workflowArtifactsRoutes from "./routes/workflow-artifacts";
+import workflowSecretsRoutes from "./routes/workflow-secrets";
 import { authRateLimit, gitRateLimit, searchRateLimit } from "./middleware/rate-limit";
 import { csrfToken, csrfProtect } from "./middleware/csrf";
 
@@ -271,6 +274,7 @@ app.route("/", aiExplainRoutes);
 app.route("/", aiTestsRoutes);
 app.route("/", askRoutes);
 app.route("/", billingRoutes);
+app.route("/", stripeWebhookRoutes);
 app.route("/", codeScanningRoutes);
 app.route("/", commitStatusesRoutes);
 app.route("/", copilotRoutes);
@@ -305,6 +309,8 @@ app.route("/", templatesRoutes);
 app.route("/", trafficRoutes);
 app.route("/", wikisRoutes);
 app.route("/", workflowsRoutes);
+app.route("/", workflowArtifactsRoutes);
+app.route("/", workflowSecretsRoutes);
 
 // Web UI (catch-all, must be last)
 app.route("/", webRoutes);

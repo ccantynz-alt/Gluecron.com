@@ -153,6 +153,12 @@ auth.post("/register", async (c) => {
     .values({ username, email, passwordHash, isAdmin: isFirstUser })
     .returning();
 
+  // If username matches SITE_ADMIN_USERNAME env, grant site admin instantly
+  // so the operator doesn't have to wait for the next boot's bootstrap pass.
+  await import("../lib/admin-bootstrap").then((m) =>
+    m.ensureEnvAdminOnRegister({ userId: user.id, username })
+  ).catch(() => {});
+
   // Create session
   const token = generateSessionToken();
   await db.insert(sessions).values({

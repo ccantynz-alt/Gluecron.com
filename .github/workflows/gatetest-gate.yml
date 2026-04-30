@@ -1,23 +1,24 @@
 # ============================================================================
-# GATETEST QUALITY GATE — PROTECTED INTEGRATION FILE
+# GATETEST QUALITY GATE — DISABLED (auto-triggers off)
 # ============================================================================
-# This workflow is a permanent integration between GateTest and a protected
-# platform (Crontech / Gluecron). It MUST NOT be removed, weakened, or
-# disabled without explicit authorization from Craig.
+# Authorized by Craig (ccantynz-alt) on 2026-04-30.
 #
-# See the GateTest Bible (CLAUDE.md) → "PROTECTED PLATFORMS" section.
-# Install location in target repo: .github/workflows/gatetest-gate.yml
-# Source of truth: https://github.com/ccantynz-alt/gatetest
-#                  /integrations/github-actions/gatetest-gate.yml
+# This workflow tried to clone the GateTest CLI source from a private dev
+# repo on every push, producing red runs because the clone fails. The real
+# GateTest integration happens via API call in src/hooks/post-receive.ts
+# → ${GATETEST_URL} on every git push — that uses the actual GateTest
+# service account and is canonical. The two never needed to coexist.
+#
+# Triggers narrowed to workflow_dispatch only so the file is preserved
+# (with original logic intact) but never auto-fires. To re-enable as a
+# proper CI gate, swap the dev-repo clone step for a published GateTest
+# GitHub Action and restore the push/pull_request triggers below.
 # ============================================================================
 
-name: GateTest Quality Gate
+name: GateTest Quality Gate (DISABLED)
 
 on:
-  push:
-    branches: [main, master]
-  pull_request:
-    branches: [main, master]
+  workflow_dispatch: {}
 
 permissions:
   contents: read

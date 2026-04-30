@@ -15,7 +15,7 @@
 import { Hono } from "hono";
 import { and, eq } from "drizzle-orm";
 import { db } from "../db";
-import { repositories, users } from "../db/schema";
+import { repositories, users, issues } from "../db/schema";
 import { Layout } from "../views/layout";
 import { RepoHeader } from "../views/components";
 import { softAuth, requireAuth } from "../middleware/auth";
@@ -108,6 +108,38 @@ function hasWriteAccess(
   return !!userId && resolved.ownerId === userId;
 }
 
+/**
+ * Build the default spec text for an issue-driven generation. Format:
+ *
+ *   Implement: <title>
+ *
+ *   <body>
+ *
+ *   Closes #<n>
+ *
+ * The trailing `Closes #N` is picked up by `src/lib/close-keywords.ts` (J7)
+ * so the issue auto-closes when the AI-generated PR is merged. Body is
+ * trimmed and falls back to an empty string if missing. Pure helper —
+ * exported for tests.
+ */
+export function buildSpecFromIssue(input: {
+  number: number;
+  title: string;
+  body: string | null | undefined;
+}): string {
+  const title = (input.title || "").trim();
+  const body = (input.body || "").trim();
+  const lines: string[] = [];
+  if (title) lines.push(`Implement: ${title}`);
+  if (body) {
+    lines.push("");
+    lines.push(body);
+  }
+  lines.push("");
+  lines.push(`Closes #${input.number}`);
+  return lines.join("\n");
+}
+
 function SpecForm({
   ownerName,
   repoName,
@@ -116,6 +148,8 @@ function SpecForm({
   spec,
   baseRef,
   error,
+  fromIssueNumber,
+  fromIssueTitle,
 }: {
   ownerName: string;
   repoName: string;
@@ -124,6 +158,8 @@ function SpecForm({
   spec?: string;
   baseRef?: string;
   error?: string;
+  fromIssueNumber?: number;
+  fromIssueTitle?: string;
 }) {
   const branchList = branches.length > 0 ? branches : [defaultBranch];
   const selectedBase = baseRef && branchList.includes(baseRef)
@@ -140,6 +176,18 @@ function SpecForm({
         AI-generated PRs are draft by default. Review every line before
         merging.
       </div>
+
+      {fromIssueNumber && (
+        <Alert variant="info">
+          Building from issue{" "}
+          <a href={`/${ownerName}/${repoName}/issues/${fromIssueNumber}`}>
+            #{fromIssueNumber}
+            {fromIssueTitle ? ` — ${fromIssueTitle}` : ""}
+          </a>
+          . The spec below has been pre-filled from the issue and will
+          auto-close it on merge.
+        </Alert>
+      )}
 
       <h2 style="margin-bottom:4px">Spec to PR</h2>
       <Text muted style="display:block;margin-bottom:16px">
@@ -259,6 +307,39 @@ specs.get("/:owner/:repo/spec", softAuth, requireAuth, async (c) => {
     branches = [];
   }
 
+  // Optional: pre-fill from an issue. Triggered from the "Build with AI"
+  // button on the issue detail page. Silently no-ops on missing/unknown
+  // issue so the form still renders.
+  let prefilledSpec: string | undefined;
+  let fromIssueNumber: number | undefined;
+  let fromIssueTitle: string | undefined;
+  const fromIssueRaw = c.req.query("fromIssue");
+  if (fromIssueRaw) {
+    const n = Number.parseInt(fromIssueRaw, 10);
+    if (Number.isInteger(n) && n > 0) {
+      try {
+        const [issueRow] = await db
+          .select()
+          .from(issues)
+          .where(
+            and(eq(issues.repositoryId, resolved.repoId), eq(issues.number, n))
+          )
+          .limit(1);
+        if (issueRow) {
+          fromIssueNumber = issueRow.number;
+          fromIssueTitle = issueRow.title;
+          prefilledSpec = buildSpecFromIssue({
+            number: issueRow.number,
+            title: issueRow.title,
+            body: issueRow.body,
+          });
+        }
+      } catch {
+        // Pre-fill is a convenience, never block form render.
+      }
+    }
+  }
+
   return c.html(
     <Layout title={`Spec to PR — ${owner}/${repo}`} user={user}>
       <RepoHeader owner={owner} repo={repo} />
@@ -267,6 +348,9 @@ specs.get("/:owner/:repo/spec", softAuth, requireAuth, async (c) => {
         repoName={repo}
         branches={branches}
         defaultBranch={resolved.defaultBranch}
+        spec={prefilledSpec}
+        fromIssueNumber={fromIssueNumber}
+        fromIssueTitle={fromIssueTitle}
       />
     </Layout>
   );

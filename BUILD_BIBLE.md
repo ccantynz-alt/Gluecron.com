@@ -366,6 +366,7 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `drizzle/0035_repo_collaborators.sql` — migration, never edited in place. Adds `repo_collaborators` (unique on `(repository_id, user_id)`, role enum read/write/admin, `invited_by` nullable, `accepted_at` nullable).
 - `drizzle/0036_invite_token_hash.sql` — migration, never edited in place. Adds `invite_token_hash` column (sha256 of plaintext) to `repo_collaborators` for email-flow invites; NULL on legacy auto-accepted rows.
 - `drizzle/0037_workflow_engine_v2.sql` — migration, never edited in place. Strictly additive to Block C1 (`drizzle/0008_workflows.sql` stays locked). Adds `workflow_secrets` (AES-256-GCM, `(repo, name)` unique), `workflow_dispatch_inputs` (per-workflow input schema), `workflow_run_cache` (content-addressable cache, repo/branch/tag scoped), `workflow_runner_pool` (warm-runner registry).
+- `drizzle/0038_deployment_ready_after.sql` — migration, never edited in place. Adds `deployments.ready_after` (timestamptz, NULL = no wait) + partial index. Backs the wait-timer enforcement for environment approvals (was previously a stub per Block C4 v1).
 
 ### 4.2 Git layer (locked)
 - `src/git/repository.ts` — tree / blob / commits / diff / branches / blame / search / raw / tags / commitsBetween
@@ -386,7 +387,7 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `src/lib/workflow-runner.ts` (Block C1) — shell executor. Exports `executeRun`, `drainOneRun`, `enqueueRun`, `startWorker`. Clones repo to tmpdir, runs each job via `Bun.spawn(["bash","-c",step.run])` with SIGTERM→SIGKILL timeouts, size-capped stdout/stderr, cleans up in `finally`.
 - `src/lib/packages.ts` (Block C2) — npm protocol helpers: `parsePackageName`, `computeShasum` (sha1), `computeIntegrity` (sha512 base64), `buildPackument`, `resolveRepoFromPackageJson`, `parseRepoUrl`, `tarballFilename`. Pure functions.
 - `src/lib/pages.ts` (Block C3) — `onPagesPush` (never throws), `resolvePagesPath` (probe list including pretty URLs + traversal strip), `contentTypeFor` (MIME).
-- `src/lib/environments.ts` (Block C4) — `matchGlob`, `listEnvironments`, `getOrCreateEnvironment`, `getEnvironmentByName`, `isReviewer`, `reviewerIdsOf`, `allowedBranchesOf`, `computeApprovalState`, `reduceApprovalState`, `recordApproval`, `requiresApprovalFor`. Empty reviewers list → repo owner approves. Any rejection hard-stops.
+- `src/lib/environments.ts` (Block C4) — `matchGlob`, `listEnvironments`, `getOrCreateEnvironment`, `getEnvironmentByName`, `isReviewer`, `reviewerIdsOf`, `allowedBranchesOf`, `computeApprovalState` (now also returns `readyAfter`), `reduceApprovalState`, `recordApproval`, `requiresApprovalFor`. Wait-timer enforcement: `latestApprovalAt(decided)`, `computeReadyAfter(env, decided)`, `releaseExpiredWaitTimers(now)` flip `status="waiting_timer"` → `"pending"` once `ready_after` elapses. Wired into autopilot as the `wait-timer-release` task. Empty reviewers list → repo owner approves. Any rejection hard-stops.
 
 ### 4.3.1 Permissions + collaborators (locked)
 - `src/middleware/repo-access.ts` — centralised permission check applied to all repo-write routes. Resolves owner / collaborator-role / org-team-role and rejects unauthorised mutations.
@@ -413,9 +414,10 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `src/lib/timetravel.ts` — time-travel code explorer (historical snapshot navigation).
 - `src/lib/depimpact.ts` — dependency impact analyzer (cross-reference of who breaks if X bumps).
 - `src/lib/rollback.ts` — one-click rollback helper for failed deploys.
-- `src/lib/spec-to-pr.ts` + `src/lib/spec-ai.ts` + `src/lib/spec-context.ts` + `src/lib/spec-git.ts` — Spec-to-PR v2 pipeline (NL feature spec → Claude → branch via git plumbing → PR row). Graceful fallback when no `ANTHROPIC_API_KEY`.
+- `src/lib/spec-to-pr.ts` + `src/lib/spec-ai.ts` + `src/lib/spec-context.ts` + `src/lib/spec-git.ts` — Spec-to-PR v2 pipeline (NL feature spec → Claude → branch via git plumbing → PR row). Graceful fallback when no `ANTHROPIC_API_KEY`. Issue-driven entry: the issue detail page renders a "Build with AI" button for owners on open issues, linking to `/spec?fromIssue=N`; spec is pre-filled with `Implement: <title>\n\n<body>\n\nCloses #N` so J7 close-keywords auto-close the issue on merge. Pure helper `buildSpecFromIssue` exported from `src/routes/specs.tsx`.
 - `src/lib/autorepair.ts` — `autoRepair(...)` invoked from `src/hooks/post-receive.ts` and exercised by `src/__tests__/intelligence.test.ts`. **Distinct from `src/lib/auto-repair.ts`** (gate-time `repairSecrets`/`repairSecurityIssues` used by `src/lib/gate.ts`). Both are load-bearing — do not dedupe.
-- `src/lib/pr-triage.ts` — placeholder for a future post-create PR-triage hook (logs only, no AI call). Distinct from `triagePullRequest` in `src/lib/ai-generators.ts` which is the live D3 path.
+- `src/lib/pr-triage.ts` — `triggerPrTriage(input)` post-PR-create hook. Builds a tiny diff summary (numstat only), loads available labels + candidate reviewers (owner + recent PR authors, capped at 12), calls `triagePullRequest()` from `ai-generators.ts`, then inserts a "## AI Triage" comment. Idempotent via `PR_TRIAGE_MARKER` (HTML comment in body). Pure helper `renderTriageComment(triage)` exported. Suggestions only — never applies.
+- `src/lib/ai-review.ts` — `triggerAiReview(...)` PR-create hook now actually runs Claude review. Computes `git diff base...head`, caps at 100KB, calls `reviewDiff()`, posts a summary comment + N inline file/line comments. Idempotent via `AI_REVIEW_MARKER`; degrades to a single "AI review unavailable" comment on Anthropic API failure. Never throws.
 
 ### 4.5 Platform (locked)
 - `src/lib/notify.ts` — notification creation + audit log (swallow-failures pattern). Also fans out email to opted-in recipients for `mention|review_requested|assigned|gate_failed`. Exports `__internal` for tests.
@@ -439,6 +441,10 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `src/lib/workflow-matrix.ts` — matrix expansion for workflow jobs.
 - `src/lib/workflow-artifacts.ts` — artifact persistence helpers backing `workflow_run_cache`-style storage.
 - `src/lib/workflow-secrets.ts` + `src/lib/workflow-secrets-crypto.ts` — AES-256-GCM secret storage. Crypto lib stays separate from DB lib so the DB layer holds opaque bytes only.
+- `src/lib/cron.ts` — pure 5-field UNIX cron parser + matcher. Supports literals, ranges, steps (`a-b/n`, `*/n`), comma-lists, full POSIX OR semantics for dom + dow. Rejects @aliases and L/W/#/? with clear errors. Exports `parseCron`, `cronMatches`, `cronFiredBetween` (caps lookback at 1 day). Zero side effects.
+- `src/lib/scheduled-workflows.ts` — `runScheduledWorkflowsTick(now)` scans non-disabled workflows whose parsed JSON includes `schedules`, computes `since` from the latest schedule-triggered run (fallback now-6min), enqueues at most one schedule run per workflow per tick. `MAX_RUNS_PER_TICK=50` safety cap. Pure helpers `schedulesFromParsedJson` + `firstCronToFire` exported. Wired into `src/lib/autopilot.ts` as the `scheduled-workflows` task.
+- `src/lib/push-policy.ts` — pre-receive enforcement at the HTTP layer. Exports `evaluatePushPolicy({repositoryId, refs, pusherUserId})` returning `{allowed, violations}`; combines `matchProtectedTag` + `canBypassProtectedTag` (E7) and `evaluatePush` (J6) over the ref list. Only "active" enforcement blocks; "evaluate" enforcement remains dry-run. `formatPolicyError(violations)` builds the 403 body. Fail-open on any DB hiccup so a Postgres blip cannot wedge legitimate pushes. `ZERO_SHA` exported.
+- `src/lib/git-push-auth.ts` — Authorization-header → User resolver for `git-receive-pack`. Accepts Basic (user:secret) and Bearer schemes; secrets matching `glc_` (PAT) or `glct_` (OAuth) prefixes are looked up. Decoders `decodeBasicAuth` / `decodeBearerAuth` exported. Returns `null` on any failure → caller treats as anonymous.
 
 ### 4.6 Routes (locked endpoints — behaviour must be preserved)
 - `src/routes/git.ts` — Smart HTTP (clone/push)
@@ -579,7 +585,7 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 ```bash
 bun install
 bun dev          # hot reload
-bun test         # 1033 tests currently pass (8 skipped, 0 failed) as of 2026-04-29 — run `bun install` first
+bun test         # 1143 tests currently pass (8 skipped, 0 failed) as of 2026-04-30 — run `bun install` first
 bun run db:migrate
 ```
 

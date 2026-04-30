@@ -167,9 +167,7 @@ export async function applyEditsToNewBranch(args: {
 
   // 4. Allocate a transient index file. Keep it inside the repo dir so it
   //    lives on the same filesystem as the object store.
-  const tmpIndex = `${repoDiskPath}/index.spec-git.${process.pid}.${Date.now()}.${Math.random()
-    .toString(36)
-    .slice(2)}`;
+  const tmpIndex = `${repoDiskPath}/index.spec-git.${process.pid}.${Date.now()}.${crypto.randomUUID().replace(/-/g, '').slice(0, 8)}`;
   const baseEnv: Record<string, string> = {
     GIT_INDEX_FILE: tmpIndex,
     GIT_AUTHOR_NAME: authorName,

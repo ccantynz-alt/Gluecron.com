@@ -162,6 +162,7 @@ function renderPicker(
           value={currentPath}
           placeholder="src/lib/foo.ts"
           required
+          aria-label="Source file"
           style="padding: 6px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text);"
         />
       </label>

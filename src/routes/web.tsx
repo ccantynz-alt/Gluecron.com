@@ -7,6 +7,7 @@ import { Hono } from "hono";
 import { html } from "hono/html";
 import { eq, and, desc, inArray, sql } from "drizzle-orm";
 import { db } from "../db";
+import { config } from "../lib/config";
 import {
   users,
   repositories,
@@ -99,7 +100,7 @@ web.get("/new", requireAuth, (c) => {
         <form method="post" action="/new">
           <div class="form-group">
             <label>Owner</label>
-            <input type="text" value={user.username} disabled class="input-disabled" />
+            <input type="text" value={user.username} disabled aria-label="Owner" class="input-disabled" />
           </div>
           <div class="form-group">
             <label for="name">Repository name</label>
@@ -515,7 +516,7 @@ web.get("/:owner/:repo", async (c) => {
         <div class="empty-state">
           <h2>Empty repository</h2>
           <p>Get started by pushing code:</p>
-          <pre>{`git remote add gluecron http://localhost:3000/${owner}/${repo}.git
+          <pre>{`git remote add gluecron ${config.appBaseUrl}/${owner}/${repo}.git
 git push -u gluecron main`}</pre>
         </div>
       </Layout>
@@ -554,6 +555,7 @@ git push -u gluecron main`}</pre>
               name="name"
               placeholder="new-repo-name"
               required
+              aria-label="New repository name"
               style="width:200px"
             />
             <button type="submit" class="btn btn-primary">
@@ -1180,6 +1182,7 @@ web.get("/:owner/:repo/search", async (c) => {
             name="q"
             value={q}
             placeholder="Search code..."
+            aria-label="Search code"
             style="flex: 1; padding: 8px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); font-size: 14px"
           />
           <button type="submit" class="btn btn-primary">

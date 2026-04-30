@@ -101,4 +101,86 @@ describe("routes/specs — auth guard on GET /:owner/:repo/spec", () => {
     });
     expect(res.status).toBeLessThan(500);
   });
+
+  it("GET /spec?fromIssue=N is not a 500 even when the issue/repo doesn't exist", async () => {
+    const loaded = await tryLoadSpecsRoute();
+    if (!loaded.ok) {
+      expect(loaded.reason).toBe("jsx-dev-runtime");
+      return;
+    }
+    const res = await loaded.mod.default.request(
+      "/alice/demo/spec?fromIssue=123",
+      { redirect: "manual" }
+    );
+    expect(res.status).toBeLessThan(500);
+  });
+
+  it("GET /spec?fromIssue=garbage is not a 500", async () => {
+    const loaded = await tryLoadSpecsRoute();
+    if (!loaded.ok) {
+      expect(loaded.reason).toBe("jsx-dev-runtime");
+      return;
+    }
+    const res = await loaded.mod.default.request(
+      "/alice/demo/spec?fromIssue=not-a-number",
+      { redirect: "manual" }
+    );
+    expect(res.status).toBeLessThan(500);
+  });
+});
+
+describe("routes/specs — buildSpecFromIssue pure helper", () => {
+  it("emits Implement: <title>, body, then Closes #N", async () => {
+    const loaded = await tryLoadSpecsRoute();
+    if (!loaded.ok) {
+      expect(loaded.reason).toBe("jsx-dev-runtime");
+      return;
+    }
+    const fn = loaded.mod.buildSpecFromIssue;
+    expect(typeof fn).toBe("function");
+    const out = fn({
+      number: 42,
+      title: "Add dark mode toggle",
+      body: "It should sit in the navbar and persist via cookie.",
+    });
+    expect(out).toContain("Implement: Add dark mode toggle");
+    expect(out).toContain("It should sit in the navbar and persist via cookie.");
+    expect(out).toContain("Closes #42");
+    // Closes line should be last so close-keywords (J7) parses cleanly.
+    expect(out.trimEnd().endsWith("Closes #42")).toBe(true);
+  });
+
+  it("handles a missing/empty body — still emits the Closes line", async () => {
+    const loaded = await tryLoadSpecsRoute();
+    if (!loaded.ok) {
+      expect(loaded.reason).toBe("jsx-dev-runtime");
+      return;
+    }
+    const fn = loaded.mod.buildSpecFromIssue;
+    const a = fn({ number: 7, title: "Bug: race in upload handler", body: null });
+    const b = fn({ number: 7, title: "Bug: race in upload handler", body: "" });
+    const c = fn({ number: 7, title: "Bug: race in upload handler", body: "   " });
+    for (const out of [a, b, c]) {
+      expect(out).toContain("Implement: Bug: race in upload handler");
+      expect(out).toContain("Closes #7");
+    }
+  });
+
+  it("trims surrounding whitespace from the title and body", async () => {
+    const loaded = await tryLoadSpecsRoute();
+    if (!loaded.ok) {
+      expect(loaded.reason).toBe("jsx-dev-runtime");
+      return;
+    }
+    const fn = loaded.mod.buildSpecFromIssue;
+    const out = fn({
+      number: 1,
+      title: "   leading + trailing   ",
+      body: "   body text   ",
+    });
+    expect(out).toContain("Implement: leading + trailing");
+    expect(out).toContain("body text");
+    // No leading whitespace on the title line.
+    expect(out.startsWith("Implement: leading + trailing")).toBe(true);
+  });
 });

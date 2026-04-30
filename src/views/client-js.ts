@@ -259,7 +259,7 @@ export const clientJs = `
       else if (diff < 43200) el.textContent = Math.floor(diff / 1440) + 'd ago';
     });
   }
-  setInterval(updateTimes, 60000);
+  var _timesInterval = setInterval(updateTimes, 60000);
 
   // ─── Confirmation on Dangerous Actions ─────────────────────────────────
 

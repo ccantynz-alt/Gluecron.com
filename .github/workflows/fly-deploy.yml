@@ -38,10 +38,12 @@ jobs:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
 
       - name: Ensure volume exists
+        continue-on-error: true
         run: |
-          if ! flyctl volumes list -a gluecron --json 2>/dev/null | grep -q '"Name":\s*"gluecron_repos"'; then
+          if ! flyctl volumes list -a gluecron --json 2>/dev/null | grep -qi '"name":\s*"gluecron_repos"'; then
             echo "Creating volume 'gluecron_repos' in iad..."
-            flyctl volumes create gluecron_repos --app gluecron --size 3 --region iad --yes
+            flyctl volumes create gluecron_repos --app gluecron --size 3 --region iad --yes || \
+              echo "Warning: volume creation failed (may already exist or account limit reached). Continuing."
           else
             echo "Volume 'gluecron_repos' already exists."
           fi

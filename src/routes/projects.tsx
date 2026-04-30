@@ -159,6 +159,7 @@ projectRoutes.get(
             name="title"
             placeholder="Title"
             required
+            aria-label="Project title"
             style="padding: 8px;"
           />
           <textarea
@@ -309,12 +310,12 @@ projectRoutes.get(
         <div class="kanban">
           {columns.map((col) => (
             <div class="kcol">
-              <h4>
+              <h2>
                 <span>{col.name}</span>
                 <span style="color: var(--text-muted); font-size: 13px;">
                   {(itemsByCol[col.id] || []).length}
                 </span>
-              </h4>
+              </h2>
               {(itemsByCol[col.id] || []).map((it) => (
                 <div class="kcard">
                   <div>
@@ -355,6 +356,7 @@ projectRoutes.get(
                         <button
                           type="submit"
                           class="btn"
+                          aria-label="Delete item"
                           style="font-size: 11px; padding: 2px 6px;"
                         >
                           ×
@@ -376,6 +378,7 @@ projectRoutes.get(
                     name="title"
                     placeholder="New card title"
                     required
+                    aria-label="New card title"
                     style="padding: 4px; font-size: 12px;"
                   />
                   <button
@@ -401,6 +404,7 @@ projectRoutes.get(
                   name="name"
                   placeholder="New column"
                   required
+                  aria-label="New column name"
                   style="padding: 6px;"
                 />
                 <button type="submit" class="btn">

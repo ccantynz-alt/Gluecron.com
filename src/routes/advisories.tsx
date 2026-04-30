@@ -216,6 +216,7 @@ async function renderList(
                           name="reason"
                           placeholder="reason (optional)"
                           maxLength={280}
+                          aria-label="Dismiss reason"
                           style="font-size:12px;padding:4px 6px"
                         />
                         <button

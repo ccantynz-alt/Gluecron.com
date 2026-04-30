@@ -135,6 +135,7 @@ importBulkRoutes.get("/import/bulk", requireAuth, async (c) => {
               name="githubOrg"
               required
               placeholder="my-company"
+              aria-label="GitHub org"
               style="padding: 8px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); font-size: 14px; width: 100%"
             />
           </div>
@@ -149,6 +150,7 @@ importBulkRoutes.get("/import/bulk", requireAuth, async (c) => {
               required
               placeholder="ghp_xxxxxxxxxxxx"
               autocomplete="off"
+              aria-label="GitHub personal access token"
               style="padding: 8px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); font-size: 14px; font-family: var(--font-mono); width: 100%"
             />
           </div>
@@ -159,6 +161,7 @@ importBulkRoutes.get("/import/bulk", requireAuth, async (c) => {
             </label>
             <select
               name="visibility"
+              aria-label="Visibility filter"
               style="padding: 8px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); font-size: 14px; width: 100%"
             >
               <option value="both" selected>Both (public + private)</option>

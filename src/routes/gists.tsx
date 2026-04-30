@@ -141,6 +141,7 @@ gistRoutes.get("/gists/new", requireAuth, async (c) => {
           type="text"
           name="description"
           placeholder="Gist description..."
+          aria-label="Gist description"
           style="padding: 8px;"
         />
         <div style="display: flex; gap: 16px;">
@@ -159,6 +160,7 @@ gistRoutes.get("/gists/new", requireAuth, async (c) => {
               name="filename[]"
               placeholder="filename.ext"
               required
+              aria-label="Filename"
               style="padding: 6px; width: 300px;"
             />
             <textarea
@@ -425,12 +427,14 @@ gistRoutes.get("/gists/:slug/edit", requireAuth, async (c) => {
           name="description"
           value={gist.description}
           placeholder="Description"
+          aria-label="Gist description"
           style="padding: 8px;"
         />
         <input
           type="text"
           name="message"
           placeholder="Revision message (optional)"
+          aria-label="Revision message"
           style="padding: 8px;"
         />
         <div id="files">
@@ -441,6 +445,7 @@ gistRoutes.get("/gists/:slug/edit", requireAuth, async (c) => {
                 name="filename[]"
                 value={f.filename}
                 required
+                aria-label="Filename"
                 style="padding: 6px; width: 300px;"
               />
               <textarea

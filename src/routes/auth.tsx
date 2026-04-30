@@ -65,6 +65,7 @@ auth.get("/register", (c) => {
               required
               placeholder="you@example.com"
               autocomplete="email"
+              aria-label="Email"
             />
           </FormGroup>
           <FormGroup label="Password" htmlFor="password">
@@ -75,6 +76,7 @@ auth.get("/register", (c) => {
               minLength={8}
               placeholder="Min 8 characters"
               autocomplete="new-password"
+              aria-label="Password"
             />
           </FormGroup>
           <Button type="submit" variant="primary">
@@ -193,6 +195,7 @@ auth.get("/login", async (c) => {
               required
               placeholder="username or email"
               autocomplete="username"
+              aria-label="Username or email"
             />
           </FormGroup>
           <FormGroup label="Password" htmlFor="password">
@@ -202,6 +205,7 @@ auth.get("/login", async (c) => {
               required
               placeholder="Password"
               autocomplete="current-password"
+              aria-label="Password"
             />
           </FormGroup>
           <Button type="submit" variant="primary">

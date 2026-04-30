@@ -120,6 +120,7 @@ explore.get("/explore", async (c) => {
             name="q"
             value={q}
             placeholder="Search repositories..."
+            aria-label="Search repositories"
             style="flex:1;padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:14px"
           />
           <Button type="submit" variant="primary">

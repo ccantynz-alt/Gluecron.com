@@ -205,6 +205,7 @@ discussionRoutes.get(
             name="title"
             placeholder="Title"
             required
+            aria-label="Discussion title"
             style="padding: 8px;"
           />
           <select name="category" style="padding: 8px;">
@@ -349,7 +350,7 @@ discussionRoutes.get(
             }}
           />
         </article>
-        <h3 style="margin-top: 32px;">{comments.length} Comments</h3>
+        <h2 style="margin-top: 32px;">{comments.length} Comments</h2>
         {comments.map((com) => {
           const isAnswer = com.c.id === discussion.d.answerCommentId;
           return (

@@ -833,7 +833,7 @@ export async function createOrUpdateFileOnBranch(input: {
 
   // Use a temporary index file so we don't disturb whatever index the repo
   // already has (and so parallel writes don't stomp on each other).
-  const tmpIndex = join(path, `index.tmp.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2)}`);
+  const tmpIndex = join(path, `index.tmp.${process.pid}.${Date.now()}.${crypto.randomUUID().replace(/-/g, '').slice(0, 8)}`);
   const envWithIndex = {
     ...process.env,
     GIT_INDEX_FILE: tmpIndex,

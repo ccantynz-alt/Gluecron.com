@@ -248,6 +248,7 @@ pulls.get(
                 required
                 placeholder="Title"
                 style="font-size:16px;padding:10px 14px"
+                aria-label="Pull request title"
               />
             </FormGroup>
             <FormGroup>

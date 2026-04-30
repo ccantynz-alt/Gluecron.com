@@ -48,7 +48,7 @@ async function extractArchive(content: Buffer, destDir: string): Promise<void> {
   await mkdir(destDir, { recursive: true });
   const tmpPath = join(
     tmpdir(),
-    `gluecron-dl-${Date.now()}-${Math.random().toString(36).slice(2)}.tar.gz`
+    `gluecron-dl-${Date.now()}-${crypto.randomUUID().replace(/-/g, '').slice(0, 8)}.tar.gz`
   );
   await Bun.write(tmpPath, content);
   try {

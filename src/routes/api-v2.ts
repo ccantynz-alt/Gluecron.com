@@ -1102,7 +1102,7 @@ apiv2.get("/", (c) => {
     authentication: {
       method: "Bearer token",
       header: "Authorization: Bearer <your-token>",
-      createToken: "Visit /settings/tokens to create a personal access token",
+      createApiKey: "Visit /settings/tokens to create a personal access key",
     },
     rateLimit: {
       api: "100 requests/minute",

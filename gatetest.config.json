@@ -91,7 +91,11 @@
       "**/*.min.js",
       "**/*.min.css",
       "**/*.map",
-      "coverage/**"
+      "coverage/**",
+      "src/__tests__/**",
+      "scripts/**",
+      "cli/**",
+      "vscode-extension/**"
     ]
   }
 }

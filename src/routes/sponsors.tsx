@@ -96,6 +96,7 @@ sponsors.get("/sponsors/:username", async (c) => {
                 placeholder="Amount in cents (e.g. 500 = $5)"
                 min="100"
                 required
+                aria-label="Sponsorship amount in cents"
                 style="width:60%"
               />{" "}
               <button type="submit" class="btn btn-primary">
@@ -324,7 +325,7 @@ sponsors.get("/settings/sponsors", requireAuth, async (c) => {
       >
         <div class="form-group">
           <label>Name</label>
-          <input type="text" name="name" required style="width:100%" />
+          <input type="text" name="name" required aria-label="Tier name" style="width:100%" />
         </div>
         <div class="form-group">
           <label>Description</label>
@@ -338,6 +339,7 @@ sponsors.get("/settings/sponsors", requireAuth, async (c) => {
             min="0"
             placeholder="500 = $5/mo"
             required
+            aria-label="Monthly amount in cents"
           />
         </div>
         <button type="submit" class="btn btn-primary">

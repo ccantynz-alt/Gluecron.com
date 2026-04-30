@@ -140,7 +140,7 @@ async function unpackTar(content: Buffer, destDir: string): Promise<void> {
   // but a tmp file avoids subtle Bun subprocess stdin EAGAIN edge cases.
   const tmpPath = join(
     tmpdir(),
-    `gluecron-cache-${Date.now()}-${Math.random().toString(36).slice(2)}.tar`
+    `gluecron-cache-${Date.now()}-${crypto.randomUUID().replace(/-/g, '').slice(0, 8)}.tar`
   );
   await Bun.write(tmpPath, content);
   try {

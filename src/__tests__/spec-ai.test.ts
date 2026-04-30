@@ -132,7 +132,7 @@ describe("lib/spec-ai — generateSpecEdits", () => {
   });
 
   it("parses a well-formed response", async () => {
-    process.env.ANTHROPIC_API_KEY = "test-key";
+    process.env.ANTHROPIC_API_KEY = "anthropic-test-placeholder";
     installAnthropicFetch(
       JSON.stringify({
         summary: "add greet()",
@@ -177,7 +177,7 @@ describe("lib/spec-ai — generateSpecEdits", () => {
   // If Claude proposes ONLY forbidden edits, the caller receives
   // `{ok:true, edits:[], summary:"AI proposed no changes"}`.
   it("rejects edits targeting forbidden paths (silently dropped)", async () => {
-    process.env.ANTHROPIC_API_KEY = "test-key";
+    process.env.ANTHROPIC_API_KEY = "anthropic-test-placeholder";
     installAnthropicFetch(
       JSON.stringify({
         summary: "mixed forbidden + allowed",
@@ -236,7 +236,7 @@ describe("lib/spec-ai — generateSpecEdits", () => {
   });
 
   it("handles malformed JSON response", async () => {
-    process.env.ANTHROPIC_API_KEY = "test-key";
+    process.env.ANTHROPIC_API_KEY = "anthropic-test-placeholder";
     installAnthropicFetch("this is not JSON, sorry");
 
     const result = await generateSpecEdits({

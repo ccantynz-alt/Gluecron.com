@@ -141,6 +141,7 @@ mirrors.get("/:owner/:repo/settings/mirror", requireAuth, async (c) => {
               name="is_enabled"
               value="1"
               checked={mirror ? mirror.isEnabled : true}
+              aria-label="Enabled"
             />
             <span>Enabled</span>
           </label>

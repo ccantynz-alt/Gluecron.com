@@ -595,7 +595,7 @@ const ToggleSetting = ({
       </div>
     </div>
     <label class="toggle-switch">
-      <input type="checkbox" name={name} value="on" checked={defaultChecked} />
+      <input type="checkbox" name={name} value="on" checked={defaultChecked} aria-label={label} />
       <span class="toggle-slider" />
     </label>
   </div>

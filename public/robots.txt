@@ -1,0 +1,13 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /settings
+Disallow: /api/
+Disallow: /login
+Disallow: /register
+Disallow: /logout
+Disallow: /oauth/
+Disallow: /*/settings
+Disallow: /*.git/
+
+Sitemap: /sitemap.xml

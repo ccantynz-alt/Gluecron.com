@@ -128,6 +128,7 @@ passkeys.get("/settings/passkeys", async (c) => {
                       name="name"
                       defaultValue={k.name}
                       maxLength={60}
+                      aria-label="Passkey name"
                       style="width: 160px"
                     />
                     <button type="submit" class="btn btn-sm">

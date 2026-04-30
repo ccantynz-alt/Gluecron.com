@@ -192,7 +192,7 @@ gates.get("/:owner/:repo/gates/settings", requireAuth, async (c) => {
     <label
       style="display: flex; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--border); cursor: pointer"
     >
-      <input type="checkbox" name={name} value="1" checked={checked} />
+      <input type="checkbox" name={name} value="1" checked={checked} aria-label={label} />
       <div>
         <div style="font-weight: 500">{label}</div>
         {desc && (
@@ -337,6 +337,7 @@ gates.get("/:owner/:repo/gates/settings", requireAuth, async (c) => {
             name="pattern"
             required
             placeholder="release/* or main"
+            aria-label="Branch protection pattern"
           />
         </div>
         <div style="display: flex; flex-wrap: wrap; gap: 16px">

@@ -134,6 +134,7 @@ protectedTagsRoutes.get(
               name="pattern"
               required
               placeholder="v* or release-*"
+              aria-label="Tag protection pattern"
               style="font-family:var(--font-mono)"
             />
           </div>

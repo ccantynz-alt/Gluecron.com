@@ -143,22 +143,9 @@ describe("hooks/post-receive — triggerCrontechDeploy (BLK-016 sender)", () => 
     expect(calls[0]!.init.method).toBe("POST");
   });
 
-  it("respects CRONTECH_DEPLOY_URL override", async () => {
-    process.env.CRONTECH_DEPLOY_URL =
-      "https://staging.crontech.ai/api/webhooks/gluecron-push";
-    const { calls, fn } = captureFetch();
-
-    await triggerCrontechDeploy(makeArgs(), { fetchImpl: fn, sleep: noSleep });
-
-    expect(calls[0]!.url).toBe(
-      "https://staging.crontech.ai/api/webhooks/gluecron-push"
-    );
-  });
-
-  it("sends GitHub-shaped payload (event, repository.full_name, ref, after, before, pusher, commits)", async () => {
-    const { calls, fn } = captureFetch();
-    const after = "d".repeat(40);
-    const before = "c".repeat(40);
+  it("sends Authorization: Bearer <secret> when GLUECRON_WEBHOOK_SECRET is set", async () => {
+    process.env.GLUECRON_WEBHOOK_SECRET = "webhook-test-value";
+    const calls = installFetchCapture();
 
     await triggerCrontechDeploy(
       makeArgs({

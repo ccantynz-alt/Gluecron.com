@@ -99,6 +99,7 @@ settings.get("/settings", (c) => {
               name="notify_email_on_mention"
               value="1"
               checked={user.notifyEmailOnMention}
+              aria-label="Someone @mentions me or requests a review"
             />
             <span>
               Someone <code>@mentions</code> me or requests a review
@@ -112,6 +113,7 @@ settings.get("/settings", (c) => {
               name="notify_email_on_assign"
               value="1"
               checked={user.notifyEmailOnAssign}
+              aria-label="I am assigned to an issue or PR"
             />
             <span>I am assigned to an issue or PR</span>
           </label>
@@ -123,6 +125,7 @@ settings.get("/settings", (c) => {
               name="notify_email_on_gate_fail"
               value="1"
               checked={user.notifyEmailOnGateFail}
+              aria-label="A gate fails on one of my repositories"
             />
             <span>A gate fails on one of my repositories</span>
           </label>
@@ -134,6 +137,7 @@ settings.get("/settings", (c) => {
               name="notify_email_digest_weekly"
               value="1"
               checked={user.notifyEmailDigestWeekly}
+              aria-label="Weekly digest email"
             />
             <span>
               Weekly digest &mdash;{" "}

@@ -14,7 +14,7 @@ export type RequestContextEnv = {
 };
 
 function genId(): string {
-  const rand = Math.random().toString(36).slice(2, 10);
+  const rand = crypto.randomUUID().replace(/-/g, '').slice(0, 8);
   const ts = Date.now().toString(36);
   return `${ts}-${rand}`;
 }

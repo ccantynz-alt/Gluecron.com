@@ -64,6 +64,7 @@ editor.get("/:owner/:repo/new/:ref{.+$}", requireAuth, requireRepoAccess("write"
                 placeholder="filename.ts"
                 style="flex: 1"
                 autocomplete="off"
+                aria-label="File path"
               />
             </Flex>
           </FormGroup>
@@ -81,6 +82,7 @@ editor.get("/:owner/:repo/new/:ref{.+$}", requireAuth, requireRepoAccess("write"
               name="message"
               placeholder="Create new file"
               required
+              aria-label="Commit message"
             />
           </FormGroup>
           <Button type="submit" variant="primary">
@@ -232,6 +234,7 @@ editor.get("/:owner/:repo/edit/:ref{.+$}", requireAuth, requireRepoAccess("write
               name="message"
               placeholder={`Update ${filePath.split("/").pop()}`}
               required
+              aria-label="Commit message"
             />
           </FormGroup>
           <Flex gap={8}>

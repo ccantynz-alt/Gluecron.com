@@ -28,7 +28,7 @@ describe("createSpecPR", () => {
   });
 
   it("returns ok:false when spec is empty", async () => {
-    process.env.ANTHROPIC_API_KEY = "fake-key-for-testing";
+    process.env.ANTHROPIC_API_KEY = "anthropic-test-placeholder";
     const result = await createSpecPR({
       repoId: "00000000-0000-0000-0000-000000000000",
       spec: "   ",

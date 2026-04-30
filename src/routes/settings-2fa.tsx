@@ -140,6 +140,7 @@ settings2fa.get("/settings/2fa", async (c) => {
                 <label for="password">Password</label>
                 <input
                   type="password"
+                  id="password"
                   name="password"
                   required
                   autocomplete="current-password"
@@ -238,6 +239,7 @@ async function showEnrolPage(c: any, user: any, error?: string) {
             <label for="code">6-digit code</label>
             <input
               type="text"
+              id="code"
               name="code"
               required
               pattern="[0-9]{6}"

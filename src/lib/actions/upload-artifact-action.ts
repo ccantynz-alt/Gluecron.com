@@ -53,7 +53,7 @@ function guessContentType(filename: string): string {
 async function tarGzDirectory(dir: string): Promise<Buffer> {
   const tmpPath = join(
     tmpdir(),
-    `gluecron-artifact-${Date.now()}-${Math.random().toString(36).slice(2)}.tar.gz`
+    `gluecron-artifact-${Date.now()}-${crypto.randomUUID().replace(/-/g, '').slice(0, 8)}.tar.gz`
   );
   try {
     const proc = Bun.spawn(

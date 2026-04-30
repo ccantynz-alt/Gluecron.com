@@ -135,6 +135,7 @@ aiChangelog.get("/:owner/:repo/ai/changelog", async (c) => {
             list="ai-changelog-refs"
             value={from}
             placeholder="v1.0.0"
+            aria-label="From ref"
             style="padding: 6px 10px"
           />
           <label style="font-size: 13px; color: var(--text-muted)">To</label>
@@ -144,6 +145,7 @@ aiChangelog.get("/:owner/:repo/ai/changelog", async (c) => {
             list="ai-changelog-refs"
             value={to}
             placeholder="main"
+            aria-label="To ref"
             style="padding: 6px 10px"
           />
           <datalist id="ai-changelog-refs">
@@ -255,6 +257,7 @@ aiChangelog.get("/:owner/:repo/ai/changelog", async (c) => {
           name="from"
           list="ai-changelog-refs"
           value={from}
+          aria-label="From ref"
           style="padding: 6px 10px"
         />
         <span style="color: var(--text-muted)">..</span>
@@ -263,6 +266,7 @@ aiChangelog.get("/:owner/:repo/ai/changelog", async (c) => {
           name="to"
           list="ai-changelog-refs"
           value={to}
+          aria-label="To ref"
           style="padding: 6px 10px"
         />
         <datalist id="ai-changelog-refs">

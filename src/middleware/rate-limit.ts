@@ -15,7 +15,7 @@ interface RateLimitEntry {
 const store = new Map<string, RateLimitEntry>();
 
 // Cleanup stale entries every 60 seconds
-setInterval(() => {
+const _cleanupInterval = setInterval(() => {
   const now = Date.now();
   for (const [key, entry] of store) {
     if (entry.resetAt < now) {

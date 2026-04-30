@@ -148,6 +148,7 @@ export const Input: FC<{
   minLength?: number;
   maxLength?: number;
   style?: string;
+  "aria-label"?: string;
 }> = (props) => (
   <input
     type={props.type || "text"}
@@ -164,6 +165,7 @@ export const Input: FC<{
     maxLength={props.maxLength}
     class={props.disabled ? "input-disabled" : ""}
     style={props.style}
+    aria-label={props["aria-label"] || props.placeholder || props.name}
   />
 );
 
@@ -459,6 +461,8 @@ export const Avatar: FC<{
       <img
         src={url}
         alt={name}
+        width={size}
+        height={size}
         style={`width:${size}px;height:${size}px;border-radius:50%;object-fit:cover`}
         loading="lazy"
       />

@@ -205,6 +205,7 @@ apps.get("/settings/applications/new", async (c) => {
                 name="confidential"
                 value="on"
                 checked
+                aria-label="Confidential client"
               />
               {" "}Confidential client (server-side app)
             </label>

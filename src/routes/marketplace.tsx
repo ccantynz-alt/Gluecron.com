@@ -63,6 +63,7 @@ marketplace.get("/marketplace", async (c) => {
           name="q"
           value={q}
           placeholder="Search apps"
+          aria-label="Search apps"
           style="width:320px"
         />{" "}
         <button type="submit" class="btn">
@@ -307,7 +308,7 @@ marketplace.get("/developer/apps-new", requireAuth, async (c) => {
       <form method="post" action="/developer/apps-new" class="panel" style="padding:16px">
         <div class="form-group">
           <label>Name</label>
-          <input type="text" name="name" required style="width:100%" />
+          <input type="text" name="name" required aria-label="App name" style="width:100%" />
         </div>
         <div class="form-group">
           <label>Description</label>
@@ -315,11 +316,11 @@ marketplace.get("/developer/apps-new", requireAuth, async (c) => {
         </div>
         <div class="form-group">
           <label>Homepage URL</label>
-          <input type="url" name="homepageUrl" style="width:100%" />
+          <input type="url" name="homepageUrl" aria-label="Homepage URL" style="width:100%" />
         </div>
         <div class="form-group">
           <label>Webhook URL (optional)</label>
-          <input type="url" name="webhookUrl" style="width:100%" />
+          <input type="url" name="webhookUrl" aria-label="Webhook URL" style="width:100%" />
         </div>
         <div class="form-group">
           <label>Permissions</label>

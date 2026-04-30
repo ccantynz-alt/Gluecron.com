@@ -371,6 +371,7 @@ orgRoutes.get("/orgs/:slug/people", async (c) => {
               placeholder="username to add"
               required
               maxLength={64}
+              aria-label="Username to add"
               style="flex: 1"
             />
             <select name="role">
@@ -510,6 +511,7 @@ orgRoutes.get("/orgs/:org/settings", softAuth, requireAuth, async (c) => {
               required
               maxLength={39}
               pattern="[a-z0-9][a-z0-9-]{0,38}"
+              aria-label="Team slug"
             />
             <input
               type="text"
@@ -517,6 +519,7 @@ orgRoutes.get("/orgs/:org/settings", softAuth, requireAuth, async (c) => {
               placeholder="Team name"
               required
               maxLength={80}
+              aria-label="Team name"
             />
             <button type="submit" class="btn btn-primary">
               Create team
@@ -634,6 +637,7 @@ orgRoutes.get("/orgs/:org/members/invite", softAuth, requireAuth, async (c) => {
             placeholder="username"
             required
             maxLength={64}
+            aria-label="Username to invite"
             style="flex: 1"
           />
           <select name="role">

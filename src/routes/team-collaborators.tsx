@@ -202,6 +202,8 @@ teamCollaboratorRoutes.get(
                         <img
                           src={row.avatarUrl}
                           alt=""
+                          width={20}
+                          height={20}
                           style="width:20px;height:20px;border-radius:50%;vertical-align:middle;margin-right:6px"
                         />
                       )}

@@ -23,4 +23,8 @@ ENV PORT=3000
 
 EXPOSE 3000
 
+# Run as non-root user for security
+RUN chown -R bun:bun /app /data/repos
+USER bun
+
 CMD ["bun", "run", "src/index.ts"]

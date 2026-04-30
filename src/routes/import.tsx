@@ -136,6 +136,7 @@ importRoutes.get("/import", requireAuth, requireAdmin, async (c) => {
                 name="github_username"
                 required
                 placeholder="GitHub username or org"
+                aria-label="GitHub username or org"
                 style="flex: 1; padding: 8px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); font-size: 14px"
               />
               <button type="submit" class="btn btn-primary">
@@ -157,6 +158,7 @@ importRoutes.get("/import", requireAuth, requireAdmin, async (c) => {
                 name="repo_url"
                 required
                 placeholder="https://github.com/owner/repo"
+                aria-label="Repository URL"
                 style="flex: 1; padding: 8px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); font-size: 14px"
               />
               <button type="submit" class="btn btn-primary">
@@ -179,6 +181,7 @@ importRoutes.get("/import", requireAuth, requireAdmin, async (c) => {
                 name="github_username"
                 required
                 placeholder="GitHub username"
+                aria-label="GitHub username"
                 style="padding: 8px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); font-size: 14px; width: 100%"
               />
             </div>
@@ -188,6 +191,7 @@ importRoutes.get("/import", requireAuth, requireAdmin, async (c) => {
                 name="github_token"
                 required
                 placeholder="ghp_xxxxxxxxxxxx (GitHub personal access token)"
+                aria-label="GitHub personal access token"
                 style="padding: 8px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); font-size: 14px; font-family: var(--font-mono); width: 100%"
               />
             </div>

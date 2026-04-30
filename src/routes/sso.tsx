@@ -120,6 +120,7 @@ sso.get("/admin/sso", requireAuth, async (c) => {
               name="enabled"
               value="1"
               checked={!!cfg?.enabled}
+              aria-label="Enable SSO sign-in on /login"
             />
             <span>Enable SSO sign-in on /login</span>
           </label>
@@ -226,6 +227,7 @@ sso.get("/admin/sso", requireAuth, async (c) => {
               name="auto_create_users"
               value="1"
               checked={cfg ? cfg.autoCreateUsers : true}
+              aria-label="Auto-create users on first SSO sign-in"
             />
             <span>
               Auto-create local accounts on first SSO sign-in (turn off to

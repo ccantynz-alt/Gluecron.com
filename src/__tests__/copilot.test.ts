@@ -59,7 +59,7 @@ describe("completeCode (ai-completion.ts)", () => {
     completionTestHooks.clear();
     // Force ANTHROPIC_API_KEY on so completeCode doesn't short-circuit to
     // the fallback path (which skips the cache lookup entirely).
-    process.env.ANTHROPIC_API_KEY = "sk-test-fake-not-real";
+    process.env.ANTHROPIC_API_KEY = "anthropic-test-placeholder";
 
     const prefix = "const double = (x) =>";
     const suffix = "";

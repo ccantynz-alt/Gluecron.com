@@ -54,7 +54,7 @@ async function post(
 }
 
 beforeAll(() => {
-  process.env.CRONTECH_EVENT_TOKEN = "test-token-for-unit-suite";
+  process.env.CRONTECH_EVENT_TOKEN = "unit-bearer-fixture";
 });
 
 afterAll(() => {
@@ -105,7 +105,7 @@ describe("events/deploy — bearer auth", () => {
 // ---------------------------------------------------------------------------
 
 describe("events/deploy — payload validation", () => {
-  const authHeader = { authorization: "Bearer test-token-for-unit-suite" };
+  const authHeader = { authorization: "Bearer unit-bearer-fixture" };
 
   it("rejects malformed JSON with 400", async () => {
     const res = await post("{not-json", authHeader);
@@ -206,10 +206,10 @@ describe("events/deploy — validatePayload helper", () => {
 const HAS_DB = Boolean(process.env.DATABASE_URL);
 
 describe("events/deploy — idempotency + update (DB-aware)", () => {
-  const authHeader = { authorization: "Bearer test-token-for-unit-suite" };
+  const authHeader = { authorization: "Bearer unit-bearer-fixture" };
 
   beforeEach(() => {
-    process.env.CRONTECH_EVENT_TOKEN = "test-token-for-unit-suite";
+    process.env.CRONTECH_EVENT_TOKEN = "unit-bearer-fixture";
   });
 
   afterEach(() => {

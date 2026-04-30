@@ -1,10 +1,10 @@
 name: Fly Deploy
 
 on:
-  push:
-    branches:
-      - main
-      - claude/build-status-update-3MXsf
+  # Disabled automatic deploys until Fly.io credit card is added
+  # push:
+  #   branches:
+  #     - main
   workflow_dispatch: {}
 
 concurrency:

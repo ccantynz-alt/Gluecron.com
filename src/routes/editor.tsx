@@ -23,6 +23,8 @@ import {
   getRepoPath,
   repoExists,
 } from "../git/repository";
+import { generateCommitMessage } from "../lib/ai-generators";
+import { isAiAvailable } from "../lib/ai-client";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
 import { requireRepoAccess } from "../middleware/repo-access";
@@ -31,6 +33,50 @@ import { join } from "path";
 const editor = new Hono<AuthEnv>();
 
 editor.use("*", softAuth);
+
+/**
+ * Inline JS for the editor's "Suggest with AI" commit-message button.
+ * Picks up the textarea content + form-pinned ref/filePath, POSTs JSON
+ * to the suggest endpoint, fills the message Input on success.
+ *
+ * Built as a string so we don't need a bundler. JSON-escapes against
+ * </script> breakout. Defensive DOM lookups (silent no-op on absence).
+ */
+function AI_COMMIT_MSG_SCRIPT(args: {
+  endpoint: string;
+  ref: string;
+  filePath: string;
+}): string {
+  const safe = (v: string) =>
+    JSON.stringify(v)
+      .split("<").join("\\u003C")
+      .split(">").join("\\u003E")
+      .split("&").join("\\u0026");
+  const url = safe(args.endpoint);
+  const ref = safe(args.ref);
+  const filePath = safe(args.filePath);
+  return (
+    "(function(){try{" +
+    "var btn=document.getElementById('ai-commit-msg-btn');" +
+    "var status=document.getElementById('ai-commit-msg-status');" +
+    "var input=document.getElementById('commit-message-input');" +
+    "var ta=document.querySelector('textarea[name=\"content\"]');" +
+    "if(!btn||!input||!ta)return;" +
+    "btn.addEventListener('click',function(ev){ev.preventDefault();" +
+    "btn.disabled=true;if(status)status.textContent='Drafting (10-30s)...';" +
+    "var fd='ref='+encodeURIComponent(" + ref + ")+'&filePath='+encodeURIComponent(" + filePath + ")+'&content='+encodeURIComponent(ta.value||'');" +
+    "fetch(" + url + ",{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:fd,credentials:'same-origin'})" +
+    ".then(function(r){return r.json().catch(function(){return {ok:false,error:'Server error.'};});})" +
+    ".then(function(j){btn.disabled=false;" +
+    "if(j&&j.ok&&typeof j.message==='string'){" +
+    "if(input.value&&input.value.trim().length>0){if(!confirm('Replace existing message?')){if(status)status.textContent='Cancelled.';return;}}" +
+    "input.value=j.message;if(status)status.textContent='Filled from AI. Edit before committing.';" +
+    "}else{if(status)status.textContent=(j&&j.error)||'AI unavailable.';}" +
+    "}).catch(function(){btn.disabled=false;if(status)status.textContent='Network error.';});" +
+    "});" +
+    "}catch(e){}})();"
+  );
+}
 
 // New file form
 editor.get("/:owner/:repo/new/:ref{.+$}", requireAuth, requireRepoAccess("write"), async (c) => {
@@ -229,24 +275,116 @@ editor.get("/:owner/:repo/edit/:ref{.+$}", requireAuth, requireRepoAccess("write
           </FormGroup>
           <FormGroup label="Commit message">
             <Input
+              id="commit-message-input"
               name="message"
               placeholder={`Update ${filePath.split("/").pop()}`}
               required
             />
           </FormGroup>
-          <Flex gap={8}>
+          <Flex gap={8} align="center">
             <Button type="submit" variant="primary">
               Commit changes
             </Button>
+            <button
+              type="button"
+              id="ai-commit-msg-btn"
+              class="btn"
+              title="Generate a one-line commit message using Claude based on the diff"
+            >
+              Suggest with AI
+            </button>
+            <span
+              id="ai-commit-msg-status"
+              style="color:var(--text-muted);font-size:13px"
+            />
             <LinkButton href={`/${owner}/${repo}/blob/${ref}/${filePath}`}>
               Cancel
             </LinkButton>
           </Flex>
+          <script
+            dangerouslySetInnerHTML={{
+              __html: AI_COMMIT_MSG_SCRIPT({
+                endpoint: `/${owner}/${repo}/ai/commit-message`,
+                ref,
+                filePath,
+              }),
+            }}
+          />
         </Form>
       </Container>
     </Layout>
   );
 });
+
+// AI-suggested commit message — JSON endpoint driven by the editor button.
+// Reads the on-disk blob at (ref, filePath), diffs against the submitted
+// new content, and asks generateCommitMessage() for a one-liner. Returns
+// {ok:true, message} on success, {ok:false, error} otherwise. Always 200.
+editor.post(
+  "/:owner/:repo/ai/commit-message",
+  requireAuth,
+  requireRepoAccess("write"),
+  async (c) => {
+    const { owner, repo } = c.req.param();
+    if (!isAiAvailable()) {
+      return c.json({
+        ok: false,
+        error: "AI is not available — set ANTHROPIC_API_KEY.",
+      });
+    }
+    const body = await c.req.parseBody();
+    const ref = String(body.ref || "").trim();
+    const filePath = String(body.filePath || "").trim();
+    const newContent = String(body.content || "");
+    if (!ref || !filePath) {
+      return c.json({ ok: false, error: "ref + filePath required" });
+    }
+
+    let oldContent = "";
+    try {
+      const blob = await getBlob(owner, repo, ref, filePath);
+      oldContent = blob?.content || "";
+    } catch {
+      oldContent = "";
+    }
+
+    if (oldContent === newContent) {
+      return c.json({
+        ok: false,
+        error: "No changes to summarise.",
+      });
+    }
+
+    // Build a minimal unified-diff-ish summary the AI helper can consume.
+    // generateCommitMessage was written for git diff text; we feed a
+    // header + truncated old/new sample so it has shape to summarise.
+    const truncate = (s: string) => (s.length > 4000 ? s.slice(0, 4000) + "\n…(truncated)" : s);
+    const diff =
+      `--- a/${filePath}\n+++ b/${filePath}\n` +
+      "## Old:\n" +
+      truncate(oldContent) +
+      "\n\n## New:\n" +
+      truncate(newContent);
+
+    let message = "";
+    try {
+      message = await generateCommitMessage(diff);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "AI request failed.";
+      return c.json({ ok: false, error: msg });
+    }
+    if (!message.trim()) {
+      return c.json({
+        ok: false,
+        error: "AI returned an empty draft.",
+      });
+    }
+    // Cap to one line + 100 chars (commit-message convention).
+    const oneLine = message.split("\n")[0]!.trim();
+    const capped = oneLine.length > 100 ? oneLine.slice(0, 97) + "..." : oneLine;
+    return c.json({ ok: true, message: capped });
+  }
+);
 
 // Save edited file
 editor.post("/:owner/:repo/edit/:ref{.+$}", requireAuth, requireRepoAccess("write"), async (c) => {

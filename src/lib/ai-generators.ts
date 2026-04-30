@@ -102,7 +102,7 @@ ${commitBlob}`,
   return extractText(message).trim();
 }
 
-interface IssueTriage {
+export interface IssueTriage {
   suggestedLabels: string[];
   duplicateOfIssueNumber: number | null;
   priority: "critical" | "high" | "medium" | "low";

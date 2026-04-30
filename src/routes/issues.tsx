@@ -20,6 +20,7 @@ import { summariseReactions } from "../lib/reactions";
 import { loadIssueTemplate } from "../lib/templates";
 import { renderMarkdown } from "../lib/markdown";
 import { liveCommentBannerScript } from "../lib/sse-client";
+import { triggerIssueTriage } from "../lib/issue-triage";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
 import { requireRepoAccess } from "../middleware/repo-access";
@@ -263,6 +264,20 @@ issueRoutes.post(
       .update(repositories)
       .set({ issueCount: resolved.repo.issueCount + 1 })
       .where(eq(repositories.id, resolved.repo.id));
+
+    // Fire-and-forget AI triage. Posts a "## AI Triage" comment with
+    // suggested labels, priority, summary, and a possible-duplicate
+    // callout. Suggestions only — nothing applied automatically.
+    triggerIssueTriage({
+      ownerName,
+      repoName,
+      repositoryId: resolved.repo.id,
+      issueId: issue.id,
+      issueNumber: issue.number,
+      authorId: user.id,
+      title,
+      body: issueBody,
+    }).catch(() => {});
 
     return c.redirect(
       `/${ownerName}/${repoName}/issues/${issue.number}`

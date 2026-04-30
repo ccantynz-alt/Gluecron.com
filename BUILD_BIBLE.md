@@ -185,7 +185,7 @@ Legend: ✅ shipped · 🟡 partial · ❌ not built
 | API documentation page | ✅ | `src/routes/api-docs.tsx` — interactive in-app docs. |
 | SSE in-process pub/sub | ✅ | `src/lib/sse.ts` + `src/lib/sse-client.ts` — topic-based broadcaster. `src/routes/live-events.ts` exposes `GET /live-events/:topic`. Used by the live UI updates layer. |
 | Inbound deploy event receiver (Signal Bus P1) | ✅ | `src/routes/events.ts` — Crontech → Gluecron event ingest. Idempotent via `drizzle/0034_processed_events.sql` (sha256 of payload deduped at write-site). |
-| Autopilot ticker | ✅ | `src/lib/autopilot.ts` — 5-min cycle: mirror sync, merge-queue peek, weekly digests, advisory rescans. `AUTOPILOT_DISABLED=1` opt-out. Admin page `/admin/autopilot`. |
+| Autopilot ticker | ✅ | `src/lib/autopilot.ts` — 5-min cycle: mirror sync, merge-queue peek, weekly digests, advisory rescans, **wait-timer-release** (env approvals), **scheduled-workflows** (cron triggers). `AUTOPILOT_DISABLED=1` opt-out. Admin page `/admin/autopilot`. |
 | Demo seed | ✅ | `src/lib/demo-seed.ts` — idempotent `ensureDemoContent()`. `DEMO_SEED_ON_BOOT=1` boot flag. Site-admin reseed at `/admin` (`POST /admin/demo/reseed`). `/demo` redirect to a sample repo. |
 | SEO (robots + sitemap) | ✅ | `src/routes/seo.ts` — `/robots.txt` + `/sitemap.xml`. |
 | Audit log (table) | ✅ | `audit_log` table |
@@ -434,7 +434,7 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `src/lib/observability.ts` — minimal dependency-free observability layer. Wired into `app.onError`. Sinks: `ERROR_WEBHOOK_URL` and/or `SENTRY_DSN`. Never throws.
 - `src/lib/sse.ts` — in-process topic-based pub/sub broadcaster for Server-Sent Events. Backs the live UI updates layer.
 - `src/lib/sse-client.ts` — emits a `<script>`-droppable JS snippet for SSR'd views to subscribe to a topic. Plain JS only — no client framework.
-- `src/lib/autopilot.ts` — 5-minute self-sufficiency ticker (mirror sync, merge-queue peek, weekly digests, advisory rescans). `AUTOPILOT_DISABLED=1` opt-out. Observability via `getLastTick()` + `getTickCount()`.
+- `src/lib/autopilot.ts` — 5-minute self-sufficiency ticker. Default tasks (in order): `mirror-sync`, `merge-queue`, `weekly-digest`, `advisory-rescan`, `wait-timer-release`, `scheduled-workflows`. `AUTOPILOT_DISABLED=1` opt-out. Observability via `getLastTick()` + `getTickCount()`.
 - `src/lib/demo-seed.ts` — idempotent `ensureDemoContent()` (creates `demo` user + `hello-python` / `todo-api` / `design-docs`). `DEMO_SEED_ON_BOOT=1` boot flag in `src/index.ts`.
 - `src/lib/import-helper.ts` — small helpers for the GitHub import flow (`src/routes/import.tsx`).
 - `src/lib/import-verify.ts` — post-migration smoke verifier (object count, branches, default-branch HEAD). Re-runnable from `src/routes/migrations.tsx`.

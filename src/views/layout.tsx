@@ -20,6 +20,12 @@ export const Layout: FC<
         <meta name="theme-color" content="#0d1117" />
         <link rel="manifest" href="/manifest.webmanifest" />
         <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="" />
+        <link
+          rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+        />
         <title>{title ? `${title} — gluecron` : "gluecron"}</title>
         <script>{themeInitScript}</script>
         <style>{css}</style>
@@ -315,36 +321,86 @@ const navScript = `
 
 const css = `
   :root, :root[data-theme='dark'] {
-    --bg: #0d1117;
-    --bg-secondary: #161b22;
-    --bg-tertiary: #21262d;
-    --border: #30363d;
-    --text: #e6edf3;
-    --text-muted: #8b949e;
-    --text-link: #58a6ff;
-    --accent: #1f6feb;
-    --accent-hover: #388bfd;
-    --green: #3fb950;
-    --red: #f85149;
-    --yellow: #d29922;
-    --font-mono: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
-    --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
-    --radius: 6px;
+    --bg: #0a0a0f;
+    --bg-secondary: #12121a;
+    --bg-tertiary: #1a1a25;
+    --bg-elevated: #12121a;
+    --bg-surface: #1a1a25;
+    --bg-hover: rgba(255,255,255,0.04);
+    --bg-active: rgba(255,255,255,0.08);
+    --border: rgba(255,255,255,0.08);
+    --border-strong: rgba(255,255,255,0.14);
+    --border-focus: rgba(168,85,247,0.5);
+    --text: #e6e6f0;
+    --text-muted: #8b8ba0;
+    --text-faint: #5a5a70;
+    --text-link: #a855f7;
+    --accent: #a855f7;
+    --accent-2: #06b6d4;
+    --accent-hover: #b966f8;
+    --accent-gradient: linear-gradient(135deg, #a855f7 0%, #06b6d4 100%);
+    --accent-gradient-soft: linear-gradient(135deg, rgba(168,85,247,0.15) 0%, rgba(6,182,212,0.15) 100%);
+    --green: #10b981;
+    --red: #ef4444;
+    --yellow: #f59e0b;
+    --amber: #f59e0b;
+    --blue: #3b82f6;
+    --font-mono: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', 'Fira Code', ui-monospace, monospace;
+    --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    --radius: 8px;
+    --r-sm: 6px;
+    --r: 8px;
+    --r-lg: 12px;
+    --r-xl: 16px;
+    --r-full: 9999px;
+    --t-xs: 11px;
+    --t-sm: 13px;
+    --t-base: 14px;
+    --t-md: 16px;
+    --t-lg: 20px;
+    --t-xl: 28px;
+    --t-2xl: 40px;
+    --t-3xl: 56px;
+    --s-1: 4px;
+    --s-2: 8px;
+    --s-3: 12px;
+    --s-4: 16px;
+    --s-5: 20px;
+    --s-6: 24px;
+    --s-8: 32px;
+    --s-10: 40px;
+    --s-12: 48px;
+    --s-16: 64px;
+    --elev-0: 0 0 0 1px var(--border);
+    --elev-1: 0 1px 2px rgba(0,0,0,0.3), 0 0 0 1px var(--border);
+    --elev-2: 0 4px 16px rgba(0,0,0,0.4), 0 0 0 1px var(--border);
+    --elev-glow: 0 0 0 1px rgba(168,85,247,0.3), 0 0 24px rgba(168,85,247,0.15);
+    --ease: cubic-bezier(0.16, 1, 0.3, 1);
+    --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+    --t-fast: 120ms;
+    --t-slow: 320ms;
   }
 
   :root[data-theme='light'] {
-    --bg: #ffffff;
-    --bg-secondary: #f6f8fa;
-    --bg-tertiary: #eaeef2;
-    --border: #d0d7de;
-    --text: #1f2328;
-    --text-muted: #656d76;
-    --text-link: #0969da;
-    --accent: #0969da;
-    --accent-hover: #0550ae;
-    --green: #1a7f37;
-    --red: #cf222e;
-    --yellow: #9a6700;
+    --bg: #fafafa;
+    --bg-secondary: #ffffff;
+    --bg-tertiary: #f4f4f7;
+    --bg-elevated: #ffffff;
+    --bg-surface: #f4f4f7;
+    --bg-hover: rgba(0,0,0,0.04);
+    --bg-active: rgba(0,0,0,0.08);
+    --border: rgba(0,0,0,0.08);
+    --border-strong: rgba(0,0,0,0.14);
+    --text: #0a0a0f;
+    --text-muted: #5a5a70;
+    --text-faint: #8b8ba0;
+    --text-link: #7c3aed;
+    --accent: #7c3aed;
+    --accent-2: #0891b2;
+    --accent-hover: #6d28d9;
+    --green: #059669;
+    --red: #dc2626;
+    --yellow: #d97706;
   }
 
   /* Theme toggle — show the icon for the *opposite* theme so users see what they'll switch to. */

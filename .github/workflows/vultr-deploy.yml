@@ -108,7 +108,7 @@ jobs:
             sleep 5
             systemctl status gluecron --no-pager | head -20
 
-      # ─── 5. AI failure diagnosis (only on failure, only if ANTHROPIC set) ─
+      # ─── 5. Failure diagnostics — captured into a file for summary + AI ──
       - name: Capture failure context
         if: failure()
         id: ctx
@@ -120,13 +120,37 @@ jobs:
           script_stop: false
           script: |
             echo "===== systemd status ====="
-            systemctl status gluecron --no-pager 2>&1 | head -30 || true
-            echo "===== last 100 journal lines ====="
-            journalctl -u gluecron -n 100 --no-pager 2>&1 || true
-            echo "===== caddy reload check ====="
-            caddy validate --config /etc/caddy/Caddyfile 2>&1 || true
-            echo "===== /healthz from box ====="
-            curl -s -w "HTTP %{http_code}\n" http://localhost:3000/healthz 2>&1 || true
+            systemctl status gluecron --no-pager 2>&1 | head -40 || true
+            echo ""
+            echo "===== last 80 journal lines (gluecron) ====="
+            journalctl -u gluecron -n 80 --no-pager --output=cat 2>&1 || true
+            echo ""
+            echo "===== caddy validate ====="
+            caddy validate --config /etc/caddy/Caddyfile 2>&1 | head -20 || true
+            echo ""
+            echo "===== /healthz from inside box ====="
+            curl -s -w "\nHTTP %{http_code}\n" http://localhost:3000/healthz 2>&1 || true
+            echo ""
+            echo "===== port 3000 listener ====="
+            ss -tlnp 2>&1 | grep ':3000' || echo '(nothing listening on :3000)'
+
+      # Always post the captured diagnostics to the workflow summary so the
+      # owner can read what broke without SSH'ing or grepping log files.
+      - name: Post diagnostics to summary
+        if: failure() && steps.ctx.outputs.stdout != ''
+        env:
+          DIAG: ${{ steps.ctx.outputs.stdout }}
+        run: |
+          {
+            echo "## ❌ Deploy failed — diagnostics"
+            echo ""
+            echo "**Commit:** \`${GITHUB_SHA:0:7}\` — ${GITHUB_EVENT_HEAD_COMMIT_MESSAGE:-${GITHUB_SHA:0:7}}"
+            echo "**Run:** [#${GITHUB_RUN_ID}](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})"
+            echo ""
+            echo '```'
+            echo "$DIAG"
+            echo '```'
+          } >> $GITHUB_STEP_SUMMARY
 
       - name: AI root-cause analysis (Claude)
         if: failure() && env.ANTHROPIC_API_KEY != ''

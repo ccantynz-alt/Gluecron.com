@@ -111,20 +111,21 @@ export const Layout: FC<
             <div class="footer-links">
               <div class="footer-col">
                 <div class="footer-col-title">Product</div>
+                <a href="/features">Features</a>
+                <a href="/pricing">Pricing</a>
                 <a href="/explore">Explore</a>
                 <a href="/marketplace">Marketplace</a>
-                <a href="/help">Quickstart</a>
-                <a href="/shortcuts">Shortcuts</a>
               </div>
               <div class="footer-col">
                 <div class="footer-col-title">Platform</div>
+                <a href="/help">Quickstart</a>
                 <a href="/status">Status</a>
                 <a href="/api/graphql">GraphQL</a>
                 <a href="/mcp">MCP server</a>
-                <a href="/sitemap.xml">Sitemap</a>
               </div>
               <div class="footer-col">
-                <div class="footer-col-title">Legal</div>
+                <div class="footer-col-title">Company</div>
+                <a href="/about">About</a>
                 <a href="/terms">Terms</a>
                 <a href="/privacy">Privacy</a>
                 <a href="/acceptable-use">Acceptable use</a>
@@ -1134,54 +1135,159 @@ const css = `
   .repo-header {
     display: flex;
     align-items: center;
-    gap: 8px;
-    margin-bottom: 18px;
-    font-size: var(--t-lg);
-    letter-spacing: -0.015em;
+    gap: 12px;
+    margin-bottom: 22px;
   }
-  .repo-header .owner { color: var(--text-link); font-weight: 500; }
-  .repo-header .separator { color: var(--text-faint); }
-  .repo-header .name { color: var(--text); font-weight: 700; }
+  .repo-header-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-family: var(--font-display);
+    font-size: 24px;
+    letter-spacing: -0.025em;
+    flex-wrap: wrap;
+  }
+  .repo-header .owner {
+    color: var(--text-muted);
+    font-weight: 500;
+    transition: color var(--t-fast) var(--ease);
+  }
+  .repo-header .owner:hover { color: var(--text-link); text-decoration: none; }
+  .repo-header .separator { color: var(--text-faint); font-weight: 300; }
+  .repo-header .name {
+    color: var(--text-strong);
+    font-weight: 700;
+    letter-spacing: -0.028em;
+  }
   .repo-header .name:hover { color: var(--text-link); text-decoration: none; }
+  .repo-header-fork {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 4px;
+    letter-spacing: 0.01em;
+  }
+  .repo-header-fork a { color: var(--text-muted); }
+  .repo-header-fork a:hover { color: var(--accent); }
+  .repo-header-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 10px;
+    border-radius: var(--r-full);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    line-height: 1.6;
+    vertical-align: 4px;
+  }
+  .repo-header-pill-archived {
+    background: rgba(251,191,36,0.10);
+    color: var(--yellow);
+    border: 1px solid rgba(251,191,36,0.30);
+  }
+  .repo-header-pill-template {
+    background: var(--accent-gradient-faint);
+    color: var(--accent);
+    border: 1px solid rgba(140,109,255,0.30);
+  }
   .repo-header-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
 
   .repo-nav {
     display: flex;
-    gap: 2px;
+    gap: 1px;
     border-bottom: 1px solid var(--border);
-    margin-bottom: 24px;
+    margin-bottom: 28px;
     overflow-x: auto;
     scrollbar-width: thin;
   }
   .repo-nav::-webkit-scrollbar { height: 0; }
   .repo-nav a {
-    padding: 10px 14px;
+    position: relative;
+    padding: 11px 14px;
     color: var(--text-muted);
     border-bottom: 2px solid transparent;
     font-size: var(--t-sm);
     font-weight: 500;
     margin-bottom: -1px;
-    transition: all var(--t-fast) var(--ease);
+    transition: color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
     white-space: nowrap;
   }
-  .repo-nav a:hover { text-decoration: none; color: var(--text); background: var(--bg-hover); }
+  .repo-nav a:hover { text-decoration: none; color: var(--text-strong); background: var(--bg-hover); }
   .repo-nav a.active {
-    color: var(--text);
-    border-bottom-color: var(--accent);
+    color: var(--text-strong);
+    font-weight: 600;
+  }
+  .repo-nav a.active::after {
+    content: '';
+    position: absolute;
+    left: 14px;
+    right: 14px;
+    bottom: -1px;
+    height: 2px;
+    background: var(--accent-gradient);
+    border-radius: 2px;
+  }
+  /* AI links in the right-side cluster — sparkle accent */
+  .repo-nav-ai {
+    color: var(--accent) !important;
+    font-weight: 500;
+  }
+  .repo-nav-ai:hover {
+    color: var(--accent-hover) !important;
+    background: var(--accent-gradient-faint) !important;
+  }
+  .repo-nav-ai.active {
+    color: var(--accent-hover) !important;
     font-weight: 600;
   }
 
   .breadcrumb {
     display: flex;
-    gap: 4px;
+    gap: 6px;
     align-items: center;
-    margin-bottom: 16px;
+    margin-bottom: 18px;
     color: var(--text-muted);
     font-size: var(--t-sm);
     font-family: var(--font-mono);
+    font-feature-settings: var(--mono-feat);
   }
   .breadcrumb a { color: var(--text-link); font-weight: 500; }
   .breadcrumb a:hover { color: var(--accent-hover); }
+  .breadcrumb strong {
+    color: var(--text-strong);
+    font-weight: 600;
+  }
+
+  /* Page header — eyebrow + title + optional actions row.
+     Use on dashboard, settings, admin, any "section landing" page. */
+  .page-header {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 28px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--border-subtle);
+    flex-wrap: wrap;
+  }
+  .page-header-text { flex: 1; min-width: 280px; }
+  .page-header .eyebrow { margin-bottom: var(--s-2); }
+  .page-header h1 {
+    font-family: var(--font-display);
+    font-size: clamp(24px, 3vw, 36px);
+    line-height: 1.1;
+    letter-spacing: -0.028em;
+    margin-bottom: 6px;
+  }
+  .page-header p {
+    color: var(--text-muted);
+    font-size: var(--t-sm);
+    line-height: 1.55;
+    max-width: 640px;
+  }
+  .page-header-actions { display: flex; gap: 8px; align-items: center; }
 
   /* ============================================================ */
   /* File browser table                                           */
@@ -1192,14 +1298,29 @@ const css = `
     border-radius: var(--r-md);
     overflow: hidden;
     background: var(--bg-elevated);
+    border-collapse: collapse;
   }
-  .file-table tr { border-bottom: 1px solid var(--border); }
+  .file-table tr { border-bottom: 1px solid var(--border-subtle); transition: background var(--t-fast) var(--ease); }
   .file-table tr:last-child { border-bottom: none; }
-  .file-table td { padding: 10px 16px; font-size: var(--t-sm); }
+  .file-table td {
+    padding: 9px 16px;
+    font-size: var(--t-sm);
+    font-family: var(--font-mono);
+    font-feature-settings: var(--mono-feat);
+  }
   .file-table tr:hover { background: var(--bg-hover); }
-  .file-icon { width: 22px; color: var(--text-faint); font-family: var(--font-mono); font-size: var(--t-sm); }
-  .file-name a { color: var(--text); font-weight: 500; }
-  .file-name a:hover { color: var(--text-link); text-decoration: none; }
+  .file-icon {
+    width: 22px;
+    color: var(--text-faint);
+    font-size: 13px;
+    text-align: center;
+  }
+  .file-name a {
+    color: var(--text);
+    font-weight: 500;
+    transition: color var(--t-fast) var(--ease);
+  }
+  .file-name a:hover { color: var(--accent); text-decoration: none; }
 
   /* ============================================================ */
   /* Blob view                                                    */
@@ -1253,26 +1374,45 @@ const css = `
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 14px 16px;
-    border-bottom: 1px solid var(--border);
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border-subtle);
     transition: background var(--t-fast) var(--ease);
   }
   .commit-item:last-child { border-bottom: none; }
   .commit-item:hover { background: var(--bg-hover); }
-  .commit-message { font-size: var(--t-sm); font-weight: 500; line-height: 1.45; }
-  .commit-meta { font-size: var(--t-xs); color: var(--text-muted); margin-top: 4px; }
+  .commit-message {
+    font-size: var(--t-sm);
+    font-weight: 500;
+    line-height: 1.45;
+    color: var(--text-strong);
+    letter-spacing: -0.005em;
+  }
+  .commit-meta {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 5px;
+    letter-spacing: 0.01em;
+  }
   .commit-sha {
     font-family: var(--font-mono);
-    font-size: var(--t-xs);
-    padding: 3px 8px;
+    font-feature-settings: var(--mono-feat);
+    font-size: 11px;
+    padding: 4px 9px;
     background: var(--bg-tertiary);
     border: 1px solid var(--border);
     border-radius: var(--r-sm);
-    color: var(--text-link);
-    font-weight: 500;
+    color: var(--accent);
+    font-weight: 600;
+    letter-spacing: 0.02em;
     transition: all var(--t-fast) var(--ease);
   }
-  .commit-sha:hover { border-color: var(--border-strong); color: var(--accent-hover); }
+  .commit-sha:hover {
+    border-color: rgba(140,109,255,0.40);
+    background: var(--accent-gradient-faint);
+    color: var(--accent-hover);
+    text-decoration: none;
+  }
 
   .diff-view { margin-top: 16px; }
   .diff-file {
@@ -1629,14 +1769,21 @@ const css = `
   .state-open { color: var(--green); }
   .state-closed { color: #b69dff; }
   .issue-title {
-    font-size: var(--t-base);
+    font-family: var(--font-display);
+    font-size: var(--t-md);
     font-weight: 600;
-    line-height: 1.4;
-    letter-spacing: -0.005em;
+    line-height: 1.35;
+    letter-spacing: -0.012em;
   }
-  .issue-title a { color: var(--text); }
-  .issue-title a:hover { color: var(--text-link); text-decoration: none; }
-  .issue-meta { font-size: var(--t-xs); color: var(--text-muted); margin-top: 4px; }
+  .issue-title a { color: var(--text-strong); transition: color var(--t-fast) var(--ease); }
+  .issue-title a:hover { color: var(--accent); text-decoration: none; }
+  .issue-meta {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 5px;
+    letter-spacing: 0.01em;
+  }
 
   .issue-badge {
     display: inline-flex;
@@ -1877,6 +2024,115 @@ const css = `
   .cmdk-item { transition: background var(--t-fast) var(--ease); }
   .cmdk-item:hover { background: var(--bg-hover) !important; }
   .cmdk-active { background: var(--accent-gradient-faint) !important; border-left: 2px solid var(--accent) !important; }
+
+  /* ============================================================ */
+  /* Error pages (404 / 500)                                      */
+  /* ============================================================ */
+  .error-page {
+    text-align: center;
+    padding: 96px 24px 80px;
+    max-width: 720px;
+    margin: 0 auto;
+    position: relative;
+  }
+  .error-page::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 50%;
+    transform: translateX(-50%);
+    width: 80%; height: 60%;
+    background: radial-gradient(ellipse at center, rgba(140,109,255,0.10), transparent 65%);
+    z-index: -1;
+    pointer-events: none;
+  }
+  .error-page-code {
+    font-family: var(--font-display);
+    font-size: clamp(80px, 14vw, 160px);
+    font-weight: 700;
+    line-height: 0.95;
+    letter-spacing: -0.05em;
+    background: linear-gradient(180deg, var(--text) 0%, var(--text-faint) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: var(--s-4);
+    opacity: 0.85;
+  }
+  .error-page-code-err {
+    background: linear-gradient(180deg, var(--red) 0%, rgba(248,113,113,0.4) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .error-page .eyebrow { justify-content: center; margin: 0 auto var(--s-3); }
+  .error-page-title {
+    font-size: clamp(28px, 4.5vw, 48px);
+    line-height: 1.05;
+    letter-spacing: -0.03em;
+    margin-bottom: var(--s-4);
+  }
+  .error-page-sub {
+    color: var(--text-muted);
+    font-size: var(--t-md);
+    line-height: 1.55;
+    max-width: 480px;
+    margin: 0 auto var(--s-8);
+  }
+  .error-page-actions {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-bottom: var(--s-7);
+  }
+  .error-page-meta {
+    color: var(--text-faint);
+    font-size: 11px;
+  }
+  .error-page-trace {
+    margin-top: var(--s-5);
+    padding: 16px 20px;
+    background: var(--bg-secondary);
+    border: 1px solid rgba(248,113,113,0.30);
+    border-radius: var(--r-md);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--red);
+    text-align: left;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+
+  /* Animated underline on inline content links inside markdown / prose */
+  .prose a, .markdown-body a {
+    position: relative;
+    transition: color var(--t-fast) var(--ease);
+  }
+  .prose a::after, .markdown-body a::after {
+    content: '';
+    position: absolute;
+    left: 0; right: 0; bottom: -1px;
+    height: 1px;
+    background: currentColor;
+    opacity: 0.35;
+    transform-origin: left;
+    transition: opacity var(--t-fast) var(--ease), transform var(--t-base) var(--ease);
+  }
+  .prose a:hover::after, .markdown-body a:hover::after {
+    opacity: 1;
+    transform: scaleX(1.02);
+  }
+
+  /* Print: keep it readable */
+  @media print {
+    body::before, body::after { display: none; }
+    header, footer, .prelaunch-banner, .repo-nav, .repo-header-actions,
+    .nav-search, .nav-right, .btn { display: none !important; }
+    body { background: #fff; color: #000; }
+    a { color: #000; text-decoration: underline; }
+    main { max-width: 100%; padding: 0; }
+  }
 
   /* Reduced motion preference */
   @media (prefers-reduced-motion: reduce) {

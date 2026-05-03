@@ -1,0 +1,183 @@
+name: Vultr Deploy (gluecron.com)
+
+# Triggered on every push to main and on manual dispatch.
+# Steps:
+#   1. Capture the current SHA on the box (for rollback)
+#   2. SSH in, git pull, run deploy-crontech.sh (which restarts systemd + reloads Caddy)
+#   3. Smoke-test https://gluecron.com/healthz with retries
+#   4. On smoke failure: roll back to the previous SHA and restart
+#   5. On any failure: have Claude read the last 100 journal lines and post a one-paragraph
+#      root-cause analysis to the workflow summary (and optionally a webhook)
+#
+# Secrets required:
+#   VULTR_HOST      — public IP/hostname of the box (e.g. 45.76.171.37)
+#   VULTR_USER      — ssh user (e.g. root)
+#   VULTR_SSH_KEY   — private deploy key (PEM/OpenSSH format)
+#
+# Optional:
+#   ANTHROPIC_API_KEY      — enables AI failure-diagnosis step
+#   DEPLOY_WEBHOOK_URL     — POSTed with JSON deploy status (Slack/Discord/anything)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: vultr-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy gluecron.com
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+
+      # ─── 1. Capture pre-deploy SHA so we can rollback ───────────────────
+      - name: Capture pre-deploy SHA
+        id: prev
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VULTR_HOST }}
+          username: ${{ secrets.VULTR_USER }}
+          key: ${{ secrets.VULTR_SSH_KEY }}
+          script_stop: true
+          script: |
+            cd /opt/gluecron
+            sha=$(git rev-parse HEAD)
+            echo "Previous SHA: $sha"
+            echo "$sha" > /tmp/gluecron_prev_sha
+            cat /tmp/gluecron_prev_sha
+
+      # ─── 2. Deploy: pull main, run the production script ────────────────
+      - name: Deploy
+        id: deploy
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VULTR_HOST }}
+          username: ${{ secrets.VULTR_USER }}
+          key: ${{ secrets.VULTR_SSH_KEY }}
+          command_timeout: 8m
+          script_stop: true
+          script: |
+            set -euo pipefail
+            cd /opt/gluecron
+            git fetch --prune origin main
+            git reset --hard origin/main
+            new_sha=$(git rev-parse HEAD)
+            echo "Deploying SHA: $new_sha"
+            bash scripts/deploy-crontech.sh
+
+      # ─── 3. Smoke-test the live URL ─────────────────────────────────────
+      - name: Smoke test (https://gluecron.com/healthz)
+        id: smoke
+        run: |
+          set +e
+          for i in 1 2 3 4 5 6 7 8; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" https://gluecron.com/healthz)
+            echo "Attempt $i: /healthz → $code"
+            if [ "$code" = "200" ]; then
+              echo "smoke_status=ok" >> $GITHUB_OUTPUT
+              echo "✓ gluecron.com is live and healthy."
+              exit 0
+            fi
+            sleep 8
+          done
+          echo "smoke_status=fail" >> $GITHUB_OUTPUT
+          echo "✗ /healthz did not return 200 after 64s. Triggering rollback."
+          exit 1
+
+      # ─── 4. Auto-rollback on smoke failure ──────────────────────────────
+      - name: Rollback on failure
+        if: failure() && steps.smoke.conclusion == 'failure'
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VULTR_HOST }}
+          username: ${{ secrets.VULTR_USER }}
+          key: ${{ secrets.VULTR_SSH_KEY }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+            cd /opt/gluecron
+            prev=$(cat /tmp/gluecron_prev_sha)
+            echo "Rolling back to $prev"
+            git reset --hard "$prev"
+            systemctl restart gluecron
+            sleep 5
+            systemctl status gluecron --no-pager | head -20
+
+      # ─── 5. AI failure diagnosis (only on failure, only if ANTHROPIC set) ─
+      - name: Capture failure context
+        if: failure()
+        id: ctx
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VULTR_HOST }}
+          username: ${{ secrets.VULTR_USER }}
+          key: ${{ secrets.VULTR_SSH_KEY }}
+          script_stop: false
+          script: |
+            echo "===== systemd status ====="
+            systemctl status gluecron --no-pager 2>&1 | head -30 || true
+            echo "===== last 100 journal lines ====="
+            journalctl -u gluecron -n 100 --no-pager 2>&1 || true
+            echo "===== caddy reload check ====="
+            caddy validate --config /etc/caddy/Caddyfile 2>&1 || true
+            echo "===== /healthz from box ====="
+            curl -s -w "HTTP %{http_code}\n" http://localhost:3000/healthz 2>&1 || true
+
+      - name: AI root-cause analysis (Claude)
+        if: failure() && env.ANTHROPIC_API_KEY != ''
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DEPLOY_LOGS: ${{ steps.ctx.outputs.stdout }}
+          COMMIT_SHA: ${{ github.sha }}
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+        run: |
+          set +e
+          # Build the prompt
+          cat > /tmp/prompt.json <<EOF
+          {
+            "model": "claude-haiku-4-5-20251001",
+            "max_tokens": 600,
+            "system": "You are a senior SRE diagnosing a failed deploy. Read the systemd status, journal, and curl output. In 1 short paragraph (under 100 words), identify the most likely root cause and the single fastest fix. Be direct, no preamble.",
+            "messages": [{
+              "role": "user",
+              "content": "Commit: $COMMIT_SHA\nMessage: $COMMIT_MSG\n\nDeploy logs:\n$DEPLOY_LOGS"
+            }]
+          }
+          EOF
+          response=$(curl -s https://api.anthropic.com/v1/messages \
+            -H "x-api-key: $ANTHROPIC_API_KEY" \
+            -H "anthropic-version: 2023-06-01" \
+            -H "content-type: application/json" \
+            --data @/tmp/prompt.json)
+          analysis=$(echo "$response" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('content',[{}])[0].get('text','(no analysis)'))" 2>/dev/null)
+          echo "## 🤖 AI Failure Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "$analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** \`${COMMIT_SHA:0:7}\` — $COMMIT_MSG" >> $GITHUB_STEP_SUMMARY
+
+      # ─── 6. Optional webhook notification ───────────────────────────────
+      - name: Notify webhook
+        if: always() && env.DEPLOY_WEBHOOK_URL != ''
+        env:
+          DEPLOY_WEBHOOK_URL: ${{ secrets.DEPLOY_WEBHOOK_URL }}
+          STATUS: ${{ job.status }}
+        run: |
+          curl -s -X POST "$DEPLOY_WEBHOOK_URL" \
+            -H "content-type: application/json" \
+            --data "{\"status\":\"$STATUS\",\"target\":\"gluecron.com\",\"sha\":\"${{ github.sha }}\",\"run\":\"${{ github.run_id }}\"}" || true
+
+      # ─── 7. Workflow summary on success ─────────────────────────────────
+      - name: Success summary
+        if: success()
+        run: |
+          echo "## ✅ Deploy succeeded" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Target:** https://gluecron.com" >> $GITHUB_STEP_SUMMARY
+          echo "- **SHA:** \`${GITHUB_SHA:0:7}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Health:** /healthz → 200" >> $GITHUB_STEP_SUMMARY

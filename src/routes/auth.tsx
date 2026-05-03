@@ -39,12 +39,13 @@ const auth = new Hono<AuthEnv>();
 
 auth.get("/register", (c) => {
   const error = c.req.query("error");
+  const csrf = c.get("csrfToken") as string | undefined;
   return c.html(
     <Layout title="Register">
       <div class="auth-container">
         <h2>Create account</h2>
         {error && <div class="auth-error">{decodeURIComponent(error)}</div>}
-        <Form method="post" action="/register">
+        <Form method="post" action="/register" csrfToken={csrf}>
           <FormGroup label="Username" htmlFor="username">
             <Input
               id="username"
@@ -185,6 +186,7 @@ auth.get("/login", async (c) => {
     !!ssoCfg.clientId &&
     !!ssoCfg.clientSecret;
   const ssoLabel = ssoCfg?.providerName || "SSO";
+  const csrf = c.get("csrfToken") as string | undefined;
   return c.html(
     <Layout title="Sign in">
       <div class="auth-container">
@@ -193,6 +195,7 @@ auth.get("/login", async (c) => {
         <Form
           method="post"
           action={`/login${redirect ? `?redirect=${encodeURIComponent(redirect)}` : ""}`}
+          csrfToken={csrf}
         >
           <FormGroup label="Username or email" htmlFor="username">
             <Input
@@ -382,6 +385,7 @@ auth.get("/login/2fa", async (c) => {
           method="post"
           action={`/login/2fa?redirect=${encodeURIComponent(redirect)}`}
         >
+          <input type="hidden" name="_csrf" value={(c.get("csrfToken") as string | undefined) || ""} />
           <div class="form-group">
             <label for="code">Code</label>
             <input

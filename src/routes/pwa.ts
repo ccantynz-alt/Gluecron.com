@@ -64,8 +64,8 @@ pwa.get("/icon.svg", (c) => {
  *   - other → pass-through (the static CSS is inlined into the HTML, so there's
  *             no cross-request asset worth caching for v1)
  */
-export const SERVICE_WORKER_SRC = `// gluecron service worker — v1
-const CACHE = 'gluecron-shell-v1';
+export const SERVICE_WORKER_SRC = `// gluecron service worker — v2 (post Editorial-Technical redesign)
+const CACHE = 'gluecron-shell-v2';
 const SHELL = ['/', '/manifest.webmanifest', '/icon.svg'];
 
 self.addEventListener('install', (e) => {

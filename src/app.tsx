@@ -31,6 +31,7 @@ import healthRoutes from "./routes/health-probe";
 import healthDashboardRoutes from "./routes/health";
 import statusRoutes from "./routes/status";
 import helpRoutes from "./routes/help";
+import marketingRoutes from "./routes/marketing";
 import seoRoutes from "./routes/seo";
 import { platformStatus } from "./routes/platform-status";
 import insightRoutes from "./routes/insights";
@@ -238,6 +239,9 @@ app.route("/", statusRoutes);
 // /help — quickstart + API cheatsheet
 app.route("/", helpRoutes);
 
+// /pricing, /features, /about — marketing surface
+app.route("/", marketingRoutes);
+
 // SEO: robots.txt + sitemap.xml
 app.route("/", seoRoutes);
 
@@ -321,12 +325,23 @@ app.route("/", webRoutes);
 app.notFound((c) => {
   return c.html(
     <Layout title="Not Found">
-      <div class="empty-state">
-        <h2>404</h2>
-        <p>Page not found.</p>
-        <a href="/" style="margin-top: 12px; display: inline-block">
-          Go home
-        </a>
+      <div class="error-page">
+        <div class="error-page-code">404</div>
+        <div class="eyebrow">Not found</div>
+        <h1 class="display error-page-title">
+          That page <span class="gradient-text">isn't here.</span>
+        </h1>
+        <p class="error-page-sub">
+          The URL might be wrong, the resource might have moved, or you
+          might not have permission to see it.
+        </p>
+        <div class="error-page-actions">
+          <a href="/" class="btn btn-primary btn-lg">Go home</a>
+          <a href="/explore" class="btn btn-ghost btn-lg">Explore repos</a>
+        </div>
+        <div class="error-page-meta">
+          <span class="meta-mono">{c.req.method} {c.req.path}</span>
+        </div>
       </div>
     </Layout>,
     404
@@ -340,15 +355,30 @@ app.onError((err, c) => {
     path: c.req.path,
     method: c.req.method,
   });
+  const requestId = c.get("requestId" as never) as string | undefined;
   return c.html(
     <Layout title="Error">
-      <div class="empty-state">
-        <h2>Something went wrong</h2>
-        <p>An unexpected error occurred.</p>
+      <div class="error-page">
+        <div class="error-page-code error-page-code-err">500</div>
+        <div class="eyebrow" style="color:var(--red)">Server error</div>
+        <h1 class="display error-page-title">
+          Something <span class="gradient-text">went wrong.</span>
+        </h1>
+        <p class="error-page-sub">
+          The error has been reported. Try again — if it persists, file
+          an issue with the request ID below.
+        </p>
+        <div class="error-page-actions">
+          <a href={c.req.path} class="btn btn-primary btn-lg">Retry</a>
+          <a href="/" class="btn btn-ghost btn-lg">Go home</a>
+        </div>
+        {requestId && (
+          <div class="error-page-meta">
+            <span class="meta-mono">request-id: {requestId}</span>
+          </div>
+        )}
         {process.env.NODE_ENV !== "production" && (
-          <pre style="margin-top: 16px; text-align: left; font-size: 12px; color: var(--red)">
-            {err.message}
-          </pre>
+          <pre class="error-page-trace">{err.message}</pre>
         )}
       </div>
     </Layout>,

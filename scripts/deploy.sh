@@ -9,7 +9,11 @@ set -euo pipefail
 APP_NAME="gluecron"
 APP_DIR="/opt/gluecron"
 REPO_URL="https://github.com/ccantynz-alt/Gluecron.com.git"
-BRANCH="claude/ship-fixes-and-tests-Jvz1c"
+BRANCH="${BRANCH:-main}"
+
+# NOTE: For the production Crontech bare-metal box (45.76.171.37 → gluecron.com),
+# prefer scripts/deploy-crontech.sh — it knows about Caddy, /etc/gluecron.env, and
+# the systemd unit. This deploy.sh is the generic single-server bootstrapper.
 
 echo "=========================================="
 echo "  Deploying $APP_NAME"

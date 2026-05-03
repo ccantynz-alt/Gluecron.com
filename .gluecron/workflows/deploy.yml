@@ -1,0 +1,39 @@
+name: Deploy gluecron to itself
+# This is gluecron's first self-hosted workflow. When pushed to gluecron.com's
+# git endpoint, gluecron's own workflow runner picks this up and runs it.
+# Replaces the GitHub Action `vultr-deploy.yml` step for step.
+#
+# Trigger: every push to main.
+# Effect: pulls latest, runs the production deploy script, smoke-tests.
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: self
+    steps:
+      - name: Pull latest main onto the box
+        run: |
+          cd /opt/gluecron
+          git fetch --prune origin main
+          git reset --hard origin/main
+          echo "Deploying SHA: $(git rev-parse HEAD)"
+
+      - name: Run production deploy script
+        run: bash /opt/gluecron/scripts/deploy-crontech.sh
+
+      - name: Smoke test
+        run: |
+          for i in 1 2 3 4 5 6 7 8; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3001/healthz)
+            echo "Attempt $i: /healthz -> $code"
+            if [ "$code" = "200" ]; then
+              echo "OK"
+              exit 0
+            fi
+            sleep 8
+          done
+          echo "Smoke failed"
+          exit 1

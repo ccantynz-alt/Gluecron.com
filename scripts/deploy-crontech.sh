@@ -82,7 +82,7 @@ GIT_REPOS_PATH=${BARE_REPOS}
 PORT=${PORT}
 DEMO_SEED_ON_BOOT=1
 EMAIL_PROVIDER=log
-EMAIL_FROM=gluecron <no-reply@${SITE_DOMAIN}>
+EMAIL_FROM="gluecron <no-reply@${SITE_DOMAIN}>"
 NODE_ENV=production
 EOF
 chmod 600 /etc/gluecron.env

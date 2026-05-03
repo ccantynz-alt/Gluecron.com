@@ -28,7 +28,7 @@ set -euo pipefail
 
 REPO_DIR=${REPO_DIR:-/opt/gluecron}
 BARE_REPOS=${BARE_REPOS:-/data/repos}
-PORT=${PORT:-3001}
+PORT=${PORT:-3010}
 SITE_DOMAIN=${SITE_DOMAIN:-gluecron.com}
 SITE_ADMIN_USERNAME=${SITE_ADMIN_USERNAME:-ccantynz-alt}
 

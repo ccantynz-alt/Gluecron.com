@@ -26,7 +26,7 @@ export const RepoHeader: FC<{
 }) => (
   <div class="repo-header">
     <div>
-      <div style="display: flex; align-items: center; gap: 8px; font-size: 20px">
+      <div class="repo-header-title">
         <a href={`/${owner}`} class="owner">
           {owner}
         </a>
@@ -36,8 +36,7 @@ export const RepoHeader: FC<{
         </a>
         {archived && (
           <span
-            class="badge"
-            style="background:var(--bg-secondary);color:var(--text-muted);font-size:11px;padding:2px 8px;border-radius:10px;text-transform:uppercase;letter-spacing:0.5px"
+            class="repo-header-pill repo-header-pill-archived"
             title="Read-only: pushes and new issues/PRs disabled"
           >
             Archived
@@ -45,8 +44,7 @@ export const RepoHeader: FC<{
         )}
         {isTemplate && (
           <span
-            class="badge"
-            style="background:var(--bg-secondary);color:var(--accent);font-size:11px;padding:2px 8px;border-radius:10px;text-transform:uppercase;letter-spacing:0.5px"
+            class="repo-header-pill repo-header-pill-template"
             title="This repository can be used as a template"
           >
             Template
@@ -54,7 +52,7 @@ export const RepoHeader: FC<{
         )}
       </div>
       {forkedFrom && (
-        <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px">
+        <div class="repo-header-fork">
           forked from <a href={`/${forkedFrom}`}>{forkedFrom}</a>
         </div>
       )}
@@ -166,24 +164,24 @@ export const RepoNav: FC<{
     </a>
     <a
       href={`/${owner}/${repo}/explain`}
-      class={active === "explain" ? "active" : ""}
-      style="margin-left: auto; color: #bc8cff"
+      class={`repo-nav-ai${active === "explain" ? " active" : ""}`}
+      style="margin-left: auto"
     >
       {"\u2728"} Explain
     </a>
-    <a href={`/${owner}/${repo}/ask`} style="color: #bc8cff">
+    <a href={`/${owner}/${repo}/ask`} class="repo-nav-ai">
       {"\u2728"} Ask AI
     </a>
     <a
       href={`/${owner}/${repo}/spec`}
-      style="color: #bc8cff"
+      class="repo-nav-ai"
       title="Spec to PR — paste a feature spec, AI opens a draft PR"
     >
       {"\u2728"} Spec
     </a>
     <a
       href={`/${owner}/${repo}/ai/tests`}
-      style="color: #bc8cff"
+      class="repo-nav-ai"
       title="AI Tests \u2014 generate failing test stubs from a source file"
     >
       {"\u2728"} Tests

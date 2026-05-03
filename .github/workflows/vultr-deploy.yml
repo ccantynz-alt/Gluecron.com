@@ -90,23 +90,27 @@ jobs:
           exit 1
 
       # ─── 4. Auto-rollback on smoke failure ──────────────────────────────
+      # Only rolls back if the workflow was triggered by a normal push.
+      # Manual workflow_dispatch runs SKIP rollback so the operator can
+      # diagnose the new code on the box before reverting. This stops the
+      # pathological case where rollback masks the real failure by reverting
+      # to an already-broken previous SHA.
       - name: Rollback on failure
-        if: failure() && steps.smoke.conclusion == 'failure'
+        if: failure() && steps.smoke.conclusion == 'failure' && github.event_name == 'push'
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.VULTR_HOST }}
           username: ${{ secrets.VULTR_USER }}
           key: ${{ secrets.VULTR_SSH_KEY }}
-          script_stop: true
+          script_stop: false
           script: |
-            set -euo pipefail
             cd /opt/gluecron
             prev=$(cat /tmp/gluecron_prev_sha)
             echo "Rolling back to $prev"
             git reset --hard "$prev"
             systemctl restart gluecron
             sleep 5
-            systemctl status gluecron --no-pager | head -20
+            systemctl status gluecron --no-pager | head -20 || true
 
       # ─── 5. Failure diagnostics — captured into a file for summary + AI ──
       - name: Capture failure context

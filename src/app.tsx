@@ -31,6 +31,7 @@ import healthRoutes from "./routes/health-probe";
 import healthDashboardRoutes from "./routes/health";
 import statusRoutes from "./routes/status";
 import helpRoutes from "./routes/help";
+import marketingRoutes from "./routes/marketing";
 import seoRoutes from "./routes/seo";
 import { platformStatus } from "./routes/platform-status";
 import insightRoutes from "./routes/insights";
@@ -237,6 +238,9 @@ app.route("/", statusRoutes);
 
 // /help — quickstart + API cheatsheet
 app.route("/", helpRoutes);
+
+// /pricing, /features, /about — marketing surface
+app.route("/", marketingRoutes);
 
 // SEO: robots.txt + sitemap.xml
 app.route("/", seoRoutes);

@@ -111,20 +111,21 @@ export const Layout: FC<
             <div class="footer-links">
               <div class="footer-col">
                 <div class="footer-col-title">Product</div>
+                <a href="/features">Features</a>
+                <a href="/pricing">Pricing</a>
                 <a href="/explore">Explore</a>
                 <a href="/marketplace">Marketplace</a>
-                <a href="/help">Quickstart</a>
-                <a href="/shortcuts">Shortcuts</a>
               </div>
               <div class="footer-col">
                 <div class="footer-col-title">Platform</div>
+                <a href="/help">Quickstart</a>
                 <a href="/status">Status</a>
                 <a href="/api/graphql">GraphQL</a>
                 <a href="/mcp">MCP server</a>
-                <a href="/sitemap.xml">Sitemap</a>
               </div>
               <div class="footer-col">
-                <div class="footer-col-title">Legal</div>
+                <div class="footer-col-title">Company</div>
+                <a href="/about">About</a>
                 <a href="/terms">Terms</a>
                 <a href="/privacy">Privacy</a>
                 <a href="/acceptable-use">Acceptable use</a>

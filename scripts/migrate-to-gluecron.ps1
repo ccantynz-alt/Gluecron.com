@@ -57,24 +57,44 @@ try {
 
 # ─── 3. Trigger import from GitHub ──────────────────────────────────────────
 Write-Host "[3/5] Importing $GH_OWNER/$GH_REPO from GitHub..."
-$importBody = @{
-  source = "github"
-  owner  = $GH_OWNER
-  repo   = $GH_REPO
-} | ConvertTo-Json
+$importForm = "repo_url=$([uri]::EscapeDataString("https://github.com/$GH_OWNER/$GH_REPO"))"
 try {
-  $imported = Invoke-RestMethod -Method POST -Uri "$GLUECRON/import/github/repo" `
+  $r = Invoke-WebRequest -Method POST -Uri "$GLUECRON/import/github/repo" `
     -Headers @{ Authorization = "Bearer $PAT" } `
-    -ContentType "application/json" `
-    -Body $importBody -TimeoutSec 120
-  Write-Host "  ✓ Repo mirrored to $GLUECRON/$GLUECRON_OWNER/$GH_REPO" -ForegroundColor Green
-} catch {
-  $resp = $_.Exception.Response
-  if ($resp -and $resp.StatusCode -eq 409) {
-    Write-Host "  ✓ Already imported (409 conflict is fine)" -ForegroundColor Yellow
+    -ContentType "application/x-www-form-urlencoded" `
+    -Body $importForm `
+    -MaximumRedirection 0 `
+    -ErrorAction SilentlyContinue
+  $loc = $r.Headers.Location
+  if ($loc -match "success") {
+    Write-Host "  ✓ Repo mirrored to $GLUECRON/$GLUECRON_OWNER/$GH_REPO" -ForegroundColor Green
+  } elseif ($loc -match "error=([^&]+)") {
+    $err = [uri]::UnescapeDataString($matches[1])
+    if ($err -match "already") {
+      Write-Host "  ✓ Already imported (existing mirror)" -ForegroundColor Yellow
+    } else {
+      Write-Host "  ✗ Import error: $err" -ForegroundColor Red
+      Write-Host "  Manual import: $GLUECRON/import" -ForegroundColor Yellow
+      exit 1
+    }
   } else {
-    Write-Host "  ✗ Import failed: $_" -ForegroundColor Red
-    Write-Host "  You can also import manually at $GLUECRON/import"
+    Write-Host "  ? Unexpected response (location: $loc)" -ForegroundColor Yellow
+  }
+} catch {
+  # Invoke-WebRequest treats 302 as terminating in some PowerShell versions
+  if ($_.Exception.Response -and $_.Exception.Response.StatusCode.value__ -eq 302) {
+    $loc = $_.Exception.Response.Headers.Location.OriginalString
+    if ($loc -match "success") {
+      Write-Host "  ✓ Repo mirrored to $GLUECRON/$GLUECRON_OWNER/$GH_REPO" -ForegroundColor Green
+    } elseif ($loc -match "already") {
+      Write-Host "  ✓ Already imported (existing mirror)" -ForegroundColor Yellow
+    } else {
+      Write-Host "  ✗ Import response: $loc" -ForegroundColor Red
+      Write-Host "  Manual import: $GLUECRON/import" -ForegroundColor Yellow
+    }
+  } else {
+    Write-Host "  ✗ Import call failed: $_" -ForegroundColor Red
+    Write-Host "  Manual import: $GLUECRON/import" -ForegroundColor Yellow
     exit 1
   }
 }

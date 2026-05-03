@@ -2025,6 +2025,115 @@ const css = `
   .cmdk-item:hover { background: var(--bg-hover) !important; }
   .cmdk-active { background: var(--accent-gradient-faint) !important; border-left: 2px solid var(--accent) !important; }
 
+  /* ============================================================ */
+  /* Error pages (404 / 500)                                      */
+  /* ============================================================ */
+  .error-page {
+    text-align: center;
+    padding: 96px 24px 80px;
+    max-width: 720px;
+    margin: 0 auto;
+    position: relative;
+  }
+  .error-page::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 50%;
+    transform: translateX(-50%);
+    width: 80%; height: 60%;
+    background: radial-gradient(ellipse at center, rgba(140,109,255,0.10), transparent 65%);
+    z-index: -1;
+    pointer-events: none;
+  }
+  .error-page-code {
+    font-family: var(--font-display);
+    font-size: clamp(80px, 14vw, 160px);
+    font-weight: 700;
+    line-height: 0.95;
+    letter-spacing: -0.05em;
+    background: linear-gradient(180deg, var(--text) 0%, var(--text-faint) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: var(--s-4);
+    opacity: 0.85;
+  }
+  .error-page-code-err {
+    background: linear-gradient(180deg, var(--red) 0%, rgba(248,113,113,0.4) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .error-page .eyebrow { justify-content: center; margin: 0 auto var(--s-3); }
+  .error-page-title {
+    font-size: clamp(28px, 4.5vw, 48px);
+    line-height: 1.05;
+    letter-spacing: -0.03em;
+    margin-bottom: var(--s-4);
+  }
+  .error-page-sub {
+    color: var(--text-muted);
+    font-size: var(--t-md);
+    line-height: 1.55;
+    max-width: 480px;
+    margin: 0 auto var(--s-8);
+  }
+  .error-page-actions {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-bottom: var(--s-7);
+  }
+  .error-page-meta {
+    color: var(--text-faint);
+    font-size: 11px;
+  }
+  .error-page-trace {
+    margin-top: var(--s-5);
+    padding: 16px 20px;
+    background: var(--bg-secondary);
+    border: 1px solid rgba(248,113,113,0.30);
+    border-radius: var(--r-md);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--red);
+    text-align: left;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+
+  /* Animated underline on inline content links inside markdown / prose */
+  .prose a, .markdown-body a {
+    position: relative;
+    transition: color var(--t-fast) var(--ease);
+  }
+  .prose a::after, .markdown-body a::after {
+    content: '';
+    position: absolute;
+    left: 0; right: 0; bottom: -1px;
+    height: 1px;
+    background: currentColor;
+    opacity: 0.35;
+    transform-origin: left;
+    transition: opacity var(--t-fast) var(--ease), transform var(--t-base) var(--ease);
+  }
+  .prose a:hover::after, .markdown-body a:hover::after {
+    opacity: 1;
+    transform: scaleX(1.02);
+  }
+
+  /* Print: keep it readable */
+  @media print {
+    body::before, body::after { display: none; }
+    header, footer, .prelaunch-banner, .repo-nav, .repo-header-actions,
+    .nav-search, .nav-right, .btn { display: none !important; }
+    body { background: #fff; color: #000; }
+    a { color: #000; text-decoration: underline; }
+    main { max-width: 100%; padding: 0; }
+  }
+
   /* Reduced motion preference */
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after {

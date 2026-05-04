@@ -59,61 +59,41 @@ pwa.get("/icon.svg", (c) => {
 });
 
 /**
- * Bare-bones service worker. Offline behaviour:
- *   - HTML  → network first, cached response on failure, fallback offline page
- *   - other → pass-through (the static CSS is inlined into the HTML, so there's
- *             no cross-request asset worth caching for v1)
+ * Bare-bones service worker — v4 NUKE EDITION.
+ *
+ * After repeated reports of stale HTML being served from old cache versions,
+ * this SW does ONE job: unregister itself and purge every cache. Browsers
+ * that previously installed v1/v2/v3 will load this v4, see the unregister
+ * call, and stop intercepting fetches. From now on EVERY page load goes
+ * straight to the network — no SW, no cache, instant fresh content on push.
+ *
+ * Once we trust the auto-deploy pipeline + want offline support back, ship
+ * a real SW with conservative network-first behaviour. Until then: instant
+ * deploys win.
  */
-export const SERVICE_WORKER_SRC = `// gluecron service worker — v3 (Visual Impact pass)
-const CACHE = 'gluecron-shell-v3';
-const SHELL = ['/', '/manifest.webmanifest', '/icon.svg'];
-
-self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).catch(() => {}));
-  self.skipWaiting();
-});
-
+export const SERVICE_WORKER_SRC = `// gluecron service worker — v4 (self-nuke)
+self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (e) => {
-  e.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))
-    )
-  );
-  self.clients.claim();
+  e.waitUntil((async () => {
+    // Purge every cache from any prior SW version
+    const keys = await caches.keys();
+    await Promise.all(keys.map((k) => caches.delete(k)));
+    // Tell every client we're done so they reload onto clean network state
+    const clients = await self.clients.matchAll({ type: 'window' });
+    for (const c of clients) c.navigate(c.url).catch(() => {});
+    // Then unregister this SW so future loads skip the SW layer entirely
+    await self.registration.unregister();
+  })());
 });
-
-self.addEventListener('fetch', (event) => {
-  const req = event.request;
-  if (req.method !== 'GET') return;
-  const url = new URL(req.url);
-  // Never intercept git, API, or auth endpoints — they must stay fresh.
-  if (
-    url.pathname.includes('.git/') ||
-    url.pathname.startsWith('/api/') ||
-    url.pathname.startsWith('/login') ||
-    url.pathname.startsWith('/logout') ||
-    url.pathname.startsWith('/register')
-  ) {
-    return;
-  }
-  const wantsHtml = req.headers.get('accept')?.includes('text/html');
-  if (wantsHtml) {
-    event.respondWith(
-      fetch(req)
-        .then((res) => {
-          const copy = res.clone();
-          caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});
-          return res;
-        })
-        .catch(() => caches.match(req).then((hit) => hit || caches.match('/')))
-    );
-  }
-});
+// No fetch handler — every request goes straight to the network.
 `;
 
 pwa.get("/sw.js", (c) => {
   c.header("content-type", "application/javascript");
-  c.header("cache-control", "public, max-age=60");
+  // No-cache: browser must check on every page load. Critical for the v4
+  // self-nuke SW to actually reach all returning visitors.
+  c.header("cache-control", "no-cache, no-store, must-revalidate");
+  c.header("pragma", "no-cache");
   // Service-Worker-Allowed required for root-scope SW served from root
   c.header("service-worker-allowed", "/");
   return c.body(SERVICE_WORKER_SRC);

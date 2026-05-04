@@ -42,20 +42,15 @@ describe("pwa — service worker", () => {
     expect(res.headers.get("service-worker-allowed")).toBe("/");
   });
 
-  it("service worker source contains install + fetch handlers", () => {
+  it("v4 self-nuke service worker installs + activates + unregisters", () => {
     expect(SERVICE_WORKER_SRC).toContain("addEventListener('install'");
-    expect(SERVICE_WORKER_SRC).toContain("addEventListener('fetch'");
     expect(SERVICE_WORKER_SRC).toContain("addEventListener('activate'");
+    expect(SERVICE_WORKER_SRC).toContain("self.registration.unregister");
+    expect(SERVICE_WORKER_SRC).toContain("caches.delete");
   });
 
-  it("service worker skips git + api + auth paths", () => {
-    expect(SERVICE_WORKER_SRC).toContain(".git/");
-    expect(SERVICE_WORKER_SRC).toContain("/api/");
-    expect(SERVICE_WORKER_SRC).toContain("/login");
-  });
-
-  it("service worker ignores non-GET requests", () => {
-    expect(SERVICE_WORKER_SRC).toContain("req.method !== 'GET'");
+  it("v4 service worker has no fetch handler — every request hits network", () => {
+    expect(SERVICE_WORKER_SRC).not.toContain("addEventListener('fetch'");
   });
 });
 

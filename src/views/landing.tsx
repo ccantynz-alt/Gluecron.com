@@ -102,94 +102,45 @@ export const LandingHero: FC<LandingPageProps> = ({ stats } = {}) => {
               </p>
             )}
           </div>
+        </section>
 
-          {/* ---------- Hero product visual: live AI PR review ---------- */}
-          <div class="landing-hero-visual" aria-hidden="true">
-            <div class="hero-pr-card">
-              <div class="hero-pr-header">
-                <span class="hero-pr-dot" />
-                <span class="hero-pr-title">
-                  <span class="hero-pr-num">#247</span>
-                  add: stripe checkout flow
-                </span>
-                <span class="hero-pr-status">
-                  <span class="hero-pr-status-pulse" />
-                  AI reviewing
-                </span>
-              </div>
-              <div class="hero-pr-body">
-                <div class="hero-pr-file">
-                  <span class="hero-pr-file-icon">{"●"}</span>
-                  <span class="hero-pr-file-name">src/billing/checkout.ts</span>
-                  <span class="hero-pr-file-stats">
-                    <span class="hero-pr-add">+12</span>
-                    <span class="hero-pr-del">{"−3"}</span>
-                  </span>
-                </div>
-                <div class="hero-pr-diff">
-                  <div class="hero-pr-hunk">@@ -42,6 +42,15 @@ export async function checkout(req)</div>
-                  <div class="hero-pr-line-add">+ const session = await stripe.checkout.sessions.create({"{"}</div>
-                  <div class="hero-pr-line-add">+   mode: 'subscription',</div>
-                  <div class="hero-pr-line-add">+   line_items: [{"{"} price: priceId, quantity: 1 {"}"}],</div>
-                  <div class="hero-pr-line-add">+   success_url: `${"$"}{"{"}{"BASE"}{"}"}/done`,</div>
-                  <div class="hero-pr-line-add">+ {"}"});</div>
-                </div>
-              </div>
-              <div class="hero-pr-comment">
-                <div class="hero-pr-bot-row">
-                  <span class="hero-pr-bot-avatar">{"✨"}</span>
-                  <span class="hero-pr-bot-name">claude-bot</span>
-                  <span class="hero-pr-bot-meta">commented · just now</span>
-                </div>
-                <p class="hero-pr-bot-text">
-                  Logic looks correct. One nit:{" "}
-                  <code>success_url</code> should validate session before
-                  redirecting — see{" "}
-                  <span class="hero-pr-bot-link">stripe-docs/refunds</span>.
-                </p>
-              </div>
-              <div class="hero-pr-gates">
-                <span class="hero-pr-gate hero-pr-gate-pass">
-                  {"✓"} GateTest
-                </span>
-                <span class="hero-pr-gate hero-pr-gate-pass">
-                  {"✓"} Secret scan
-                </span>
-                <span class="hero-pr-gate hero-pr-gate-pass">
-                  {"✓"} Tests · 1234 pass
-                </span>
-                <span class="hero-pr-gate hero-pr-gate-running">
-                  <span class="hero-pr-gate-spin" /> AI Review
-                </span>
-              </div>
-            </div>
-            {/* Floating accent badges to suggest depth */}
-            <div class="hero-float hero-float-1">
-              <span class="hero-float-icon">{"✨"}</span>
-              spec-to-PR
-            </div>
-            <div class="hero-float hero-float-2">
-              <span class="hero-float-icon">{"⚡"}</span>
-              auto-repair active
-            </div>
+        {/* ---------- Capability strip — uppercase tracked grid (crontech-style) ---------- */}
+        <section class="landing-caps">
+          <div class="landing-caps-grid">
+            <span class="landing-cap">Claude-powered AI</span>
+            <span class="landing-cap">Spec-to-PR</span>
+            <span class="landing-cap">Auto-repair</span>
+            <span class="landing-cap">Real-time gates</span>
+            <span class="landing-cap">MCP-native</span>
+            <span class="landing-cap">Workflow runner</span>
+            <span class="landing-cap">Self-hostable</span>
+            <span class="landing-cap">Branch protection</span>
+            <span class="landing-cap">Bun + Hono</span>
+            <span class="landing-cap">Drizzle + Postgres</span>
+            <span class="landing-cap">JSX server-rendered</span>
+            <span class="landing-cap">Type-safe end to end</span>
           </div>
         </section>
 
-        {/* ---------- Trust strip ---------- */}
-        <section class="landing-trust">
-          <p class="landing-trust-label">Built for the new shape of software</p>
-          <div class="landing-trust-row">
-            <span class="landing-trust-item">Spec-to-PR</span>
-            <span class="landing-trust-dot" aria-hidden="true" />
-            <span class="landing-trust-item">Auto-repair</span>
-            <span class="landing-trust-dot" aria-hidden="true" />
-            <span class="landing-trust-item">Live gates</span>
-            <span class="landing-trust-dot" aria-hidden="true" />
-            <span class="landing-trust-item">MCP-native</span>
-            <span class="landing-trust-dot" aria-hidden="true" />
-            <span class="landing-trust-item">Workflow runner</span>
-            <span class="landing-trust-dot" aria-hidden="true" />
-            <span class="landing-trust-item">Self-hosted</span>
+        {/* ---------- Big stat row (crontech-style hero closer) ---------- */}
+        <section class="landing-bigstats">
+          <div class="landing-bigstats-grid">
+            <div class="landing-bigstat">
+              <div class="landing-bigstat-num">Claude-powered</div>
+              <div class="landing-bigstat-label">The best AI, native</div>
+            </div>
+            <div class="landing-bigstat">
+              <div class="landing-bigstat-num">Self-hosted</div>
+              <div class="landing-bigstat-label">On your hardware</div>
+            </div>
+            <div class="landing-bigstat">
+              <div class="landing-bigstat-num">MCP-native</div>
+              <div class="landing-bigstat-label">Claude · Cursor · Code</div>
+            </div>
+            <div class="landing-bigstat">
+              <div class="landing-bigstat-num">Real-time</div>
+              <div class="landing-bigstat-label">SSE everywhere</div>
+            </div>
           </div>
         </section>
 
@@ -884,12 +835,19 @@ const landingCss = `
   }
 
   .landing-hero-title {
-    font-size: clamp(44px, 8vw, 92px);
-    line-height: 0.98;
-    letter-spacing: -0.04em;
-    font-weight: 600;
-    margin: 0 0 var(--s-6);
+    font-size: clamp(48px, 9.5vw, 124px);
+    line-height: 0.96;
+    letter-spacing: -0.045em;
+    font-weight: 700;
+    margin: 0 0 var(--s-7);
     color: var(--text-strong);
+  }
+  .landing-hero-title .gradient-text {
+    background-image: linear-gradient(135deg, #a48bff 0%, #8c6dff 50%, #6d4dff 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
   }
 
   .landing-hero-sub {
@@ -970,44 +928,74 @@ const landingCss = `
   }
   .landing-stats-sep { opacity: 0.4; }
 
-  /* ---------- Trust strip ---------- */
-  .landing-trust {
-    margin: var(--s-8) auto var(--s-16);
-    padding: var(--s-7) 0;
+  /* ---------- Capability grid (crontech-style uppercase tracked) ---------- */
+  .landing-caps {
+    margin: var(--s-12) auto var(--s-16);
+    max-width: 1080px;
+    padding: var(--s-7) var(--s-4);
     border-top: 1px solid var(--border-subtle);
     border-bottom: 1px solid var(--border-subtle);
+  }
+  .landing-caps-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 24px 16px;
     text-align: center;
   }
-  .landing-trust-label {
+  .landing-cap {
     font-family: var(--font-mono);
     font-size: 11px;
+    font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.18em;
-    color: var(--text-faint);
-    margin-bottom: var(--s-4);
-  }
-  .landing-trust-row {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 16px;
-    flex-wrap: wrap;
-  }
-  .landing-trust-item {
-    font-family: var(--font-display);
-    font-size: 17px;
-    font-weight: 500;
-    letter-spacing: -0.015em;
+    letter-spacing: 0.16em;
     color: var(--text-muted);
     transition: color var(--t-fast) var(--ease);
   }
-  .landing-trust-item:hover { color: var(--text-strong); }
-  .landing-trust-dot {
-    width: 4px;
-    height: 4px;
-    border-radius: 50%;
-    background: var(--text-faint);
-    opacity: 0.5;
+  .landing-cap:hover { color: var(--text-strong); }
+  @media (max-width: 800px) {
+    .landing-caps-grid { grid-template-columns: repeat(2, 1fr); gap: 18px 12px; }
+  }
+  @media (max-width: 480px) {
+    .landing-caps-grid { grid-template-columns: 1fr; }
+  }
+
+  /* ---------- Big stat row (crontech-style hero closer) ---------- */
+  .landing-bigstats {
+    margin: var(--s-10) auto var(--s-20);
+    max-width: 1180px;
+    padding: 0 var(--s-4);
+  }
+  .landing-bigstats-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 32px;
+    text-align: left;
+  }
+  .landing-bigstat {
+    padding: var(--s-2) 0;
+  }
+  .landing-bigstat-num {
+    font-family: var(--font-display);
+    font-size: clamp(28px, 3.5vw, 44px);
+    line-height: 1.05;
+    letter-spacing: -0.03em;
+    font-weight: 700;
+    color: var(--text-strong);
+    margin-bottom: var(--s-2);
+  }
+  .landing-bigstat-label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--text-faint);
+  }
+  @media (max-width: 800px) {
+    .landing-bigstats-grid { grid-template-columns: repeat(2, 1fr); gap: 28px 16px; }
+  }
+  @media (max-width: 480px) {
+    .landing-bigstats-grid { grid-template-columns: 1fr; gap: 24px; }
   }
 
   /* ---------- Section base ---------- */

@@ -33,6 +33,7 @@ import statusRoutes from "./routes/status";
 import helpRoutes from "./routes/help";
 import marketingRoutes from "./routes/marketing";
 import seoRoutes from "./routes/seo";
+import versionRoutes from "./routes/version";
 import { platformStatus } from "./routes/platform-status";
 import insightRoutes from "./routes/insights";
 import dashboardRoutes from "./routes/dashboard";
@@ -244,6 +245,10 @@ app.route("/", marketingRoutes);
 
 // SEO: robots.txt + sitemap.xml
 app.route("/", seoRoutes);
+
+// /api/version — live build SHA + uptime; client poller uses this to
+// surface 'New version available — reload' banners on deploy.
+app.route("/", versionRoutes);
 
 // Health dashboard (per-repo health page)
 app.route("/", healthDashboardRoutes);

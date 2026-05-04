@@ -116,6 +116,21 @@ app.use("*", async (c, next) => {
   return logger()(c, next);
 });
 app.use("/api/*", cors());
+
+// Force fresh HTML on every request — kills browser HTTP cache holding stale
+// pre-redesign markup. JSON / static assets keep their own cache rules; only
+// text/html responses get the no-cache stamp. Without this, every push to
+// main left users staring at cached 80s-looking pages from before the design
+// landed.
+app.use("*", async (c, next) => {
+  await next();
+  const ct = c.res.headers.get("content-type") || "";
+  if (ct.startsWith("text/html")) {
+    c.header("cache-control", "no-cache, no-store, must-revalidate");
+    c.header("pragma", "no-cache");
+    c.header("expires", "0");
+  }
+});
 // Rate-limit API + auth endpoints (generous default)
 app.use("/api/*", rateLimit(120, 60_000, "api"));
 app.use("/login", rateLimit(20, 60_000, "login"));

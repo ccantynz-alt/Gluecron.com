@@ -10,6 +10,7 @@ RUN bun install --frozen-lockfile --production
 
 # Copy source
 COPY src/ ./src/
+COPY drizzle/ ./drizzle/
 COPY tsconfig.json drizzle.config.ts ./
 COPY legal/ ./legal/
 COPY CLAUDE.md LICENSE ./

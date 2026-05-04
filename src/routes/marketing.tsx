@@ -31,7 +31,7 @@ marketing.get("/pricing", (c) => {
 
 const PricingPage: FC = () => (
   <>
-    <style>{pricingCss}</style>
+    <style dangerouslySetInnerHTML={{ __html: pricingCss }} />
     <div class="mkt-root">
       <header class="mkt-hero">
         <div class="eyebrow">Pricing</div>
@@ -253,7 +253,7 @@ marketing.get("/features", (c) => {
 
 const FeaturesPage: FC = () => (
   <>
-    <style>{featuresCss}</style>
+    <style dangerouslySetInnerHTML={{ __html: featuresCss }} />
     <div class="mkt-root">
       <header class="mkt-hero">
         <div class="eyebrow">Features</div>
@@ -503,7 +503,7 @@ marketing.get("/about", (c) => {
 
 const AboutPage: FC = () => (
   <>
-    <style>{aboutCss}</style>
+    <style dangerouslySetInnerHTML={{ __html: aboutCss }} />
     <div class="mkt-root">
       <header class="mkt-hero">
         <div class="eyebrow">About</div>

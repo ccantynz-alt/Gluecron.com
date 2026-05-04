@@ -26,7 +26,7 @@ export const LandingHero: FC<LandingPageProps> = ({ stats } = {}) => {
 
   return (
     <>
-      <style>{landingCss}</style>
+      <style dangerouslySetInnerHTML={{ __html: landingCss }} />
 
       <div class="landing-root">
         {/* ---------- Hero ---------- */}

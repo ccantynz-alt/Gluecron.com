@@ -22,12 +22,6 @@ export const Layout: FC<
         <meta name="theme-color" content="#0d1117" />
         <link rel="manifest" href="/manifest.webmanifest" />
         <link rel="icon" type="image/svg+xml" href="/icon.svg" />
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="" />
-        <link
-          rel="stylesheet"
-          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
-        />
         <title>{title ? `${title} — gluecron` : "gluecron"}</title>
         <script>{themeInitScript}</script>
         <style>{css}</style>
@@ -455,10 +449,12 @@ const css = `
     --amber:  #fbbf24;
     --blue:   #60a5fa;
 
-    /* Type — Inter Tight for sans (tighter metrics) */
-    --font-mono: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', 'Fira Code', ui-monospace, monospace;
-    --font-sans: 'Inter Tight', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-    --font-display: 'Inter Tight', 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    /* Type — system fonts FIRST so we never depend on Google Fonts loading.
+       Segoe UI (Win), -apple-system / SF (Mac), Roboto (Android), Inter as
+       optional upgrade if the user already has it. NEVER falls back to serif. */
+    --font-mono: ui-monospace, 'SF Mono', 'Cascadia Code', 'Cascadia Mono', Menlo, Consolas, 'Courier New', monospace;
+    --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI Variable', 'Segoe UI', system-ui, Roboto, 'Helvetica Neue', Arial, 'Inter', sans-serif;
+    --font-display: -apple-system, BlinkMacSystemFont, 'Segoe UI Variable', 'Segoe UI', system-ui, Roboto, 'Helvetica Neue', Arial, 'Inter Tight', 'Inter', sans-serif;
     --mono-feat: 'calt', 'liga', 'ss01';
 
     /* Radius — sharper than before */

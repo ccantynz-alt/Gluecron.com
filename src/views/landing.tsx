@@ -102,6 +102,77 @@ export const LandingHero: FC<LandingPageProps> = ({ stats } = {}) => {
               </p>
             )}
           </div>
+
+          {/* ---------- Hero product visual: live AI PR review ---------- */}
+          <div class="landing-hero-visual" aria-hidden="true">
+            <div class="hero-pr-card">
+              <div class="hero-pr-header">
+                <span class="hero-pr-dot" />
+                <span class="hero-pr-title">
+                  <span class="hero-pr-num">#247</span>
+                  add: stripe checkout flow
+                </span>
+                <span class="hero-pr-status">
+                  <span class="hero-pr-status-pulse" />
+                  AI reviewing
+                </span>
+              </div>
+              <div class="hero-pr-body">
+                <div class="hero-pr-file">
+                  <span class="hero-pr-file-icon">{"●"}</span>
+                  <span class="hero-pr-file-name">src/billing/checkout.ts</span>
+                  <span class="hero-pr-file-stats">
+                    <span class="hero-pr-add">+12</span>
+                    <span class="hero-pr-del">{"−3"}</span>
+                  </span>
+                </div>
+                <div class="hero-pr-diff">
+                  <div class="hero-pr-hunk">@@ -42,6 +42,15 @@ export async function checkout(req)</div>
+                  <div class="hero-pr-line-add">+ const session = await stripe.checkout.sessions.create({"{"}</div>
+                  <div class="hero-pr-line-add">+   mode: 'subscription',</div>
+                  <div class="hero-pr-line-add">+   line_items: [{"{"} price: priceId, quantity: 1 {"}"}],</div>
+                  <div class="hero-pr-line-add">+   success_url: `${"$"}{"{"}{"BASE"}{"}"}/done`,</div>
+                  <div class="hero-pr-line-add">+ {"}"});</div>
+                </div>
+              </div>
+              <div class="hero-pr-comment">
+                <div class="hero-pr-bot-row">
+                  <span class="hero-pr-bot-avatar">{"✨"}</span>
+                  <span class="hero-pr-bot-name">claude-bot</span>
+                  <span class="hero-pr-bot-meta">commented · just now</span>
+                </div>
+                <p class="hero-pr-bot-text">
+                  Logic looks correct. One nit:{" "}
+                  <code>success_url</code> should validate session before
+                  redirecting — see{" "}
+                  <span class="hero-pr-bot-link">stripe-docs/refunds</span>.
+                </p>
+              </div>
+              <div class="hero-pr-gates">
+                <span class="hero-pr-gate hero-pr-gate-pass">
+                  {"✓"} GateTest
+                </span>
+                <span class="hero-pr-gate hero-pr-gate-pass">
+                  {"✓"} Secret scan
+                </span>
+                <span class="hero-pr-gate hero-pr-gate-pass">
+                  {"✓"} Tests · 1234 pass
+                </span>
+                <span class="hero-pr-gate hero-pr-gate-running">
+                  <span class="hero-pr-gate-spin" /> AI Review
+                </span>
+              </div>
+            </div>
+            {/* Floating accent badges to suggest depth */}
+            <div class="hero-float hero-float-1">
+              <span class="hero-float-icon">{"✨"}</span>
+              spec-to-PR
+            </div>
+            <div class="hero-float hero-float-2">
+              <span class="hero-float-icon">{"⚡"}</span>
+              auto-repair active
+            </div>
+          </div>
         </section>
 
         {/* ---------- Trust strip ---------- */}
@@ -452,9 +523,297 @@ const landingCss = `
   /* ---------- Hero ---------- */
   .landing-hero {
     position: relative;
-    padding: var(--s-20) 0 var(--s-16);
+    padding: var(--s-16) 0 var(--s-20);
     text-align: center;
     overflow: hidden;
+  }
+  .landing-hero-blob-1 {
+    animation: hero-blob-drift-1 18s var(--ease, ease) infinite alternate;
+  }
+  .landing-hero-blob-2 {
+    animation: hero-blob-drift-2 22s var(--ease, ease) infinite alternate;
+  }
+  @keyframes hero-blob-drift-1 {
+    0%   { transform: translate(0, 0) scale(1); opacity: 0.55; }
+    100% { transform: translate(8%, 6%) scale(1.18); opacity: 0.75; }
+  }
+  @keyframes hero-blob-drift-2 {
+    0%   { transform: translate(0, 0) scale(1); opacity: 0.40; }
+    100% { transform: translate(-10%, -4%) scale(1.25); opacity: 0.60; }
+  }
+
+  /* ---------- Hero product visual: live AI PR review card ---------- */
+  .landing-hero-visual {
+    position: relative;
+    max-width: 760px;
+    margin: var(--s-12) auto 0;
+    padding: 0 16px;
+    perspective: 1400px;
+    z-index: 2;
+    opacity: 0;
+    animation: hero-visual-in 700ms var(--ease-out-expo, cubic-bezier(0.19, 1, 0.22, 1)) 400ms forwards;
+  }
+  @keyframes hero-visual-in {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .hero-pr-card {
+    position: relative;
+    background: linear-gradient(180deg, rgba(15,17,26,0.96) 0%, rgba(8,9,15,0.96) 100%);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-xl);
+    overflow: hidden;
+    text-align: left;
+    box-shadow:
+      0 30px 80px -20px rgba(0,0,0,0.65),
+      0 0 0 1px rgba(140,109,255,0.18),
+      0 0 60px -10px rgba(140,109,255,0.30);
+    transform: rotateX(2deg) rotateY(-2deg);
+    transition: transform 600ms var(--ease, ease);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+  .landing-hero-visual:hover .hero-pr-card {
+    transform: rotateX(0deg) rotateY(0deg);
+  }
+  .hero-pr-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(140,109,255,0.10), transparent 35%, transparent 65%, rgba(54,197,214,0.08));
+    pointer-events: none;
+  }
+  .hero-pr-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 18px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    background: rgba(255,255,255,0.025);
+    font-size: 13px;
+  }
+  .hero-pr-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 10px rgba(52,211,153,0.6);
+    flex-shrink: 0;
+  }
+  .hero-pr-title {
+    color: var(--text-strong);
+    font-weight: 600;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .hero-pr-num {
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-weight: 500;
+    margin-right: 8px;
+  }
+  .hero-pr-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 10px;
+    border-radius: var(--r-full);
+    background: var(--accent-gradient-faint);
+    border: 1px solid rgba(140,109,255,0.30);
+    color: var(--accent);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    flex-shrink: 0;
+  }
+  .hero-pr-status-pulse {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 0 0 rgba(140,109,255,0.6);
+    animation: hero-pulse 1.6s ease-out infinite;
+  }
+  @keyframes hero-pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(140,109,255,0.55); }
+    70%  { box-shadow: 0 0 0 8px rgba(140,109,255,0); }
+    100% { box-shadow: 0 0 0 0 rgba(140,109,255,0); }
+  }
+
+  .hero-pr-body {
+    padding: 0;
+  }
+  .hero-pr-file {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 18px;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    background: rgba(255,255,255,0.012);
+  }
+  .hero-pr-file-icon { color: var(--accent-2); }
+  .hero-pr-file-name { color: var(--text); flex: 1; }
+  .hero-pr-file-stats { display: inline-flex; gap: 8px; }
+  .hero-pr-add { color: var(--green); font-weight: 600; }
+  .hero-pr-del { color: var(--red); font-weight: 600; }
+
+  .hero-pr-diff {
+    padding: 12px 18px;
+    font-family: var(--font-mono);
+    font-feature-settings: var(--mono-feat, 'calt');
+    font-size: 12.5px;
+    line-height: 1.7;
+    color: rgba(237,237,242,0.85);
+    overflow-x: auto;
+  }
+  .hero-pr-hunk {
+    color: rgba(140,109,255,0.85);
+    background: rgba(140,109,255,0.06);
+    padding: 2px 8px;
+    margin: 0 -8px 4px;
+    border-radius: 4px;
+  }
+  .hero-pr-line-add {
+    background: rgba(52,211,153,0.08);
+    color: rgba(167,243,208,0.95);
+    padding: 0 8px;
+    margin: 0 -8px;
+    border-left: 2px solid var(--green);
+    padding-left: 8px;
+  }
+
+  .hero-pr-comment {
+    margin: 14px 18px;
+    padding: 14px 16px;
+    background: linear-gradient(135deg, rgba(140,109,255,0.08), rgba(54,197,214,0.05));
+    border: 1px solid rgba(140,109,255,0.25);
+    border-radius: var(--r-md);
+  }
+  .hero-pr-bot-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+    font-size: 12px;
+  }
+  .hero-pr-bot-avatar {
+    width: 22px; height: 22px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: var(--accent-gradient);
+    font-size: 11px;
+    box-shadow: 0 0 12px rgba(140,109,255,0.40);
+  }
+  .hero-pr-bot-name {
+    color: var(--text-strong);
+    font-weight: 600;
+  }
+  .hero-pr-bot-meta {
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+  }
+  .hero-pr-bot-text {
+    color: var(--text);
+    font-size: 13px;
+    line-height: 1.55;
+    margin: 0;
+  }
+  .hero-pr-bot-text code {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.10);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 11.5px;
+    color: var(--accent);
+  }
+  .hero-pr-bot-link { color: var(--accent-2); text-decoration: underline; text-decoration-style: dotted; }
+
+  .hero-pr-gates {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 12px 18px 16px;
+    border-top: 1px solid rgba(255,255,255,0.06);
+    background: rgba(255,255,255,0.012);
+  }
+  .hero-pr-gate {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: var(--r-full);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    border: 1px solid;
+  }
+  .hero-pr-gate-pass {
+    color: var(--green);
+    background: rgba(52,211,153,0.08);
+    border-color: rgba(52,211,153,0.30);
+  }
+  .hero-pr-gate-running {
+    color: var(--accent);
+    background: var(--accent-gradient-faint);
+    border-color: rgba(140,109,255,0.40);
+  }
+  .hero-pr-gate-spin {
+    width: 9px; height: 9px;
+    border: 1.5px solid rgba(140,109,255,0.30);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: hero-spin 800ms linear infinite;
+  }
+  @keyframes hero-spin {
+    to { transform: rotate(360deg); }
+  }
+
+  /* Floating accent badges around the card */
+  .hero-float {
+    position: absolute;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: rgba(15,17,26,0.92);
+    border: 1px solid rgba(140,109,255,0.35);
+    border-radius: var(--r-full);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text);
+    box-shadow: 0 12px 24px -8px rgba(0,0,0,0.5), 0 0 18px -4px rgba(140,109,255,0.30);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+  .hero-float-icon { color: var(--accent); }
+  .hero-float-1 {
+    top: -14px;
+    left: -8px;
+    animation: hero-float-bob-1 5s var(--ease, ease) infinite alternate;
+  }
+  .hero-float-2 {
+    bottom: -14px;
+    right: -8px;
+    animation: hero-float-bob-2 6s var(--ease, ease) infinite alternate;
+  }
+  @keyframes hero-float-bob-1 {
+    from { transform: translate(0, 0); }
+    to { transform: translate(-8px, -10px); }
+  }
+  @keyframes hero-float-bob-2 {
+    from { transform: translate(0, 0); }
+    to { transform: translate(8px, 8px); }
+  }
+
+  @media (max-width: 720px) {
+    .landing-hero-visual { padding: 0 8px; }
+    .hero-pr-card { transform: none; }
+    .hero-pr-title { font-size: 12px; }
+    .hero-pr-diff { font-size: 11px; line-height: 1.6; }
+    .hero-float { display: none; }
   }
   .landing-hero-bg {
     position: absolute;

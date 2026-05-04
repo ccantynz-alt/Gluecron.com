@@ -2,6 +2,7 @@ import type { FC, PropsWithChildren } from "hono/jsx";
 import type { User } from "../db/schema";
 import { hljsThemeCss } from "../lib/highlight";
 import { clientJs } from "./client-js";
+import { getBuildInfo } from "../lib/build-info";
 
 export const Layout: FC<
   PropsWithChildren<{
@@ -12,6 +13,7 @@ export const Layout: FC<
   }>
 > = ({ children, title, user, notificationCount, theme }) => {
   const initialTheme = theme === "light" ? "light" : "dark";
+  const build = getBuildInfo();
   return (
     <html lang="en" data-theme={initialTheme}>
       <head>
@@ -134,9 +136,32 @@ export const Layout: FC<
           </div>
           <div class="footer-bottom">
             <span>&copy; {new Date().getFullYear()} gluecron</span>
-            <span>shipped with intent · v1</span>
+            <span class="footer-build" title={`commit ${build.shaFull}\nbuilt ${build.builtAt}`}>
+              <span class="footer-build-dot" aria-hidden="true" />
+              {build.sha} · {build.branch}
+            </span>
           </div>
         </footer>
+        {/* Live update poller — checks /api/version every 15s, prompts
+            reload when the running sha changes. Pure progressive-
+            enhancement; degrades to nothing if JS is off. */}
+        <div
+          id="version-banner"
+          style="display:none;position:fixed;bottom:18px;left:50%;transform:translateX(-50%);z-index:9999;background:var(--bg-elevated);border:1px solid rgba(140,109,255,0.45);border-radius:9999px;padding:8px 14px 8px 14px;font-size:13px;color:var(--text-strong);box-shadow:0 12px 28px -8px rgba(0,0,0,0.55),0 0 24px -6px rgba(140,109,255,0.40);font-family:var(--font-sans);align-items:center;gap:10px"
+        >
+          <span style="display:inline-flex;align-items:center;gap:8px">
+            <span style="width:8px;height:8px;border-radius:50%;background:#34d399;box-shadow:0 0 10px rgba(52,211,153,0.6)" />
+            <span>New version available</span>
+          </span>
+          <button
+            type="button"
+            id="version-banner-reload"
+            style="background:linear-gradient(135deg,#8c6dff 0%,#36c5d6 100%);color:#fff;border:0;border-radius:9999px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit"
+          >
+            Reload
+          </button>
+        </div>
+        <script>{versionPollerScript}</script>
         {/* Block I4 — Command palette shell (hidden by default) */}
         <div
           id="cmdk-backdrop"
@@ -162,6 +187,40 @@ export const Layout: FC<
     </html>
   );
 };
+
+// Live version poller. Checks /api/version every 15s; if the sha differs
+// from the one we booted with, reveal the floating 'New version' pill so
+// the user can reload onto the new code without manually refreshing.
+const versionPollerScript = `
+  (function(){
+    var loadedSha = null;
+    var banner, btn;
+    function poll(){
+      fetch('/api/version', { cache: 'no-store' })
+        .then(function(r){ return r.ok ? r.json() : null; })
+        .then(function(j){
+          if (!j || !j.sha) return;
+          if (loadedSha === null) { loadedSha = j.sha; return; }
+          if (j.sha !== loadedSha && banner) {
+            banner.style.display = 'inline-flex';
+          }
+        })
+        .catch(function(){});
+    }
+    function init(){
+      banner = document.getElementById('version-banner');
+      btn = document.getElementById('version-banner-reload');
+      if (btn) btn.addEventListener('click', function(){ window.location.reload(); });
+      poll();
+      setInterval(poll, 15000);
+    }
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', init);
+    } else {
+      init();
+    }
+  })();
+`;
 
 // Runs before paint — reads the theme cookie and flips data-theme so there's
 // no dark-to-light flash on load. SSR default is dark.
@@ -878,6 +937,26 @@ const css = `
   }
   footer .footer-bottom a { color: var(--text-faint); }
   footer .footer-bottom a:hover { color: var(--text-muted); text-decoration: none; }
+  footer .footer-build {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    cursor: help;
+  }
+  footer .footer-build-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 6px rgba(52,211,153,0.55);
+    animation: footer-build-pulse 2.4s ease-in-out infinite;
+  }
+  @keyframes footer-build-pulse {
+    0%, 100% { opacity: 0.6; }
+    50% { opacity: 1; }
+  }
   @media (max-width: 768px) {
     footer .footer-inner { grid-template-columns: 1fr; gap: 32px; }
     footer .footer-links { grid-template-columns: repeat(2, 1fr); gap: 24px 32px; }

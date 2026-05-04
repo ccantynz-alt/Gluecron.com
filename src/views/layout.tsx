@@ -23,9 +23,9 @@ export const Layout: FC<
         <link rel="manifest" href="/manifest.webmanifest" />
         <link rel="icon" type="image/svg+xml" href="/icon.svg" />
         <title>{title ? `${title} — gluecron` : "gluecron"}</title>
-        <script>{themeInitScript}</script>
-        <style>{css}</style>
-        <style>{hljsThemeCss}</style>
+        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+        <style dangerouslySetInnerHTML={{ __html: css }} />
+        <style dangerouslySetInnerHTML={{ __html: hljsThemeCss }} />
       </head>
       <body>
         <div class="prelaunch-banner" role="status" aria-live="polite">
@@ -155,7 +155,7 @@ export const Layout: FC<
             Reload
           </button>
         </div>
-        <script>{versionPollerScript}</script>
+        <script dangerouslySetInnerHTML={{ __html: versionPollerScript }} />
         {/* Block I4 — Command palette shell (hidden by default) */}
         <div
           id="cmdk-backdrop"
@@ -174,9 +174,9 @@ export const Layout: FC<
           />
           <div id="cmdk-list" style="max-height:60vh;overflow-y:auto" />
         </div>
-        <script>{clientJs}</script>
-        <script>{pwaRegisterScript}</script>
-        <script>{navScript}</script>
+        <script dangerouslySetInnerHTML={{ __html: clientJs }} />
+        <script dangerouslySetInnerHTML={{ __html: pwaRegisterScript }} />
+        <script dangerouslySetInnerHTML={{ __html: navScript }} />
       </body>
     </html>
   );

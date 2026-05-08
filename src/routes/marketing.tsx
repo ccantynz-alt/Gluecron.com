@@ -1161,4 +1161,489 @@ const aboutCss = sharedMktCss + `
   }
 `;
 
+// ============================================================
+// /vs-github
+// ============================================================
+
+marketing.get("/vs-github", (c) => {
+  const user = c.get("user");
+  return c.html(
+    <Layout title="vs GitHub — gluecron" user={user}>
+      <VsGithubPage />
+    </Layout>,
+  );
+});
+
+const VsGithubPage: FC = () => (
+  <>
+    <style dangerouslySetInnerHTML={{ __html: vsGithubCss }} />
+    <div class="mkt-root">
+      <header class="mkt-hero vs-hero">
+        <div class="eyebrow vs-eyebrow">
+          <span class="vs-eyebrow-dot" />
+          The honest comparison
+        </div>
+        <h1 class="display vs-hero-title">
+          GitHub,{" "}
+          <span class="gradient-text">but kind.</span>
+        </h1>
+        <p class="mkt-hero-sub">
+          GitHub treats AI as a paid sidebar. Failures are your problem.
+          Every feature you actually need is gated behind Enterprise.
+          We rebuilt the platform around a simple idea:{" "}
+          <strong>your tools should work for you, not against you.</strong>
+        </p>
+        <div class="vs-hero-stats">
+          <div class="vs-hero-stat">
+            <div class="vs-hero-stat-num gradient-text">100%</div>
+            <div class="vs-hero-stat-lbl">PRs reviewed by AI<br/>(free, every tier)</div>
+          </div>
+          <div class="vs-hero-stat">
+            <div class="vs-hero-stat-num gradient-text">~70%</div>
+            <div class="vs-hero-stat-lbl">CI failures auto-repaired<br/>before you see them</div>
+          </div>
+          <div class="vs-hero-stat">
+            <div class="vs-hero-stat-num gradient-text">$0</div>
+            <div class="vs-hero-stat-lbl">Self-host forever<br/>vs $21/user/mo GHE</div>
+          </div>
+          <div class="vs-hero-stat">
+            <div class="vs-hero-stat-num gradient-text">∞</div>
+            <div class="vs-hero-stat-lbl">CI minutes<br/>vs GitHub's metered tax</div>
+          </div>
+        </div>
+      </header>
+
+      {/* ───────── The kill shot ───────── */}
+      <section class="mkt-section vs-killshot">
+        <div class="vs-killshot-card">
+          <div class="vs-killshot-row">
+            <div class="vs-killshot-col vs-them">
+              <div class="vs-killshot-label">GitHub</div>
+              <p class="vs-killshot-quote">
+                "Push code. Hope it doesn't break. If it breaks,
+                you deal with it. Want AI? Pay $19/mo. Want SSO?
+                $21/user/mo. Want decent rulesets? Enterprise tier."
+              </p>
+            </div>
+            <div class="vs-killshot-vs">VS</div>
+            <div class="vs-killshot-col vs-us">
+              <div class="vs-killshot-label">Gluecron</div>
+              <p class="vs-killshot-quote">
+                "Push code. AI reviews it. AI fixes it.
+                AI ships it. We tell you about it after.
+                Self-host free. No seat tax."
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ───────── Side-by-side feature table ───────── */}
+      <section class="mkt-section">
+        <div class="section-header">
+          <div class="eyebrow">Feature-for-feature</div>
+          <h2>Everything they have. Plus the parts they didn't build.</h2>
+        </div>
+        <div class="vs-table">
+          <VsRow feat="Smart-HTTP git clone + push" them="✓" us="✓" />
+          <VsRow feat="Pull requests + review + merge" them="✓" us="✓" />
+          <VsRow feat="Issues + projects + wiki + gists" them="✓" us="✓" />
+          <VsRow feat="GitHub Actions equivalent" them="paid minutes" us="self-hosted, unmetered" win />
+          <VsRow feat="AI code review on every PR" them="Copilot subscription" us="built-in, free" win />
+          <VsRow feat="Auto-repair of failed CI" them="—" us="✓" win />
+          <VsRow feat="Spec-to-PR (NL → draft PR)" them="—" us="✓" win />
+          <VsRow feat="Real-time SSE for logs / comments" them="polling" us="streaming" win />
+          <VsRow feat="MCP server (Claude / Cursor)" them="—" us="✓ native" win />
+          <VsRow feat="Required status checks" them="Enterprise tier" us="free, all tiers" win />
+          <VsRow feat="Repository rulesets" them="Enterprise tier" us="free, all tiers" win />
+          <VsRow feat="Merge queue" them="Enterprise tier" us="free, all tiers" win />
+          <VsRow feat="Audit log (per-user + per-repo)" them="Enterprise tier" us="free, all tiers" win />
+          <VsRow feat="SSO (OIDC)" them="Enterprise tier" us="all tiers" win />
+          <VsRow feat="Self-host on your hardware" them="$21/user/mo" us="free forever" win />
+          <VsRow feat="Pre-receive policy enforcement" them="Enterprise rulesets" us="✓" />
+          <VsRow feat="Branch protection + 2FA + Passkeys" them="✓" us="✓" />
+          <VsRow feat="Webhooks (HMAC signed)" them="✓" us="✓" />
+          <VsRow feat="Pages / static hosting" them="✓" us="✓" />
+          <VsRow feat="Packages registry (npm)" them="✓" us="✓" />
+          <VsRow feat="Native mobile apps" them="✓" us="PWA only" lose />
+          <VsRow feat="Marketplace of pre-built actions" them="huge ecosystem" us="building" lose />
+          <VsRow feat="Public Sponsors w/ payments" them="✓" us="post-launch" lose />
+        </div>
+        <p class="vs-table-foot">
+          We're behind on three things and ahead on twelve. Three of those
+          twelve are genuinely new categories no one has built before.
+        </p>
+      </section>
+
+      {/* ───────── The pricing knife ───────── */}
+      <section class="mkt-section">
+        <div class="section-header">
+          <div class="eyebrow">Pricing philosophy</div>
+          <h2>Stop taxing seats. Start pricing what costs us money.</h2>
+          <p>
+            GitHub charges $4-21 per user per month, plus minutes, plus
+            features. We don't tax seats. We price the AI calls — the
+            actual cost we incur. Static self-hosters pay nothing.
+          </p>
+        </div>
+        <div class="vs-pricing-grid">
+          <div class="vs-pricing-them">
+            <div class="vs-pricing-label">GitHub</div>
+            <ul class="vs-pricing-list">
+              <li><span class="vs-pricing-x">✗</span> Free: limited private repos, paid minutes</li>
+              <li><span class="vs-pricing-x">✗</span> Pro: <strong>$4/user/mo</strong> + paid minutes</li>
+              <li><span class="vs-pricing-x">✗</span> Team: <strong>$4/user/mo</strong> + everything metered</li>
+              <li><span class="vs-pricing-x">✗</span> Enterprise: <strong>$21/user/mo</strong> + extras</li>
+              <li><span class="vs-pricing-x">✗</span> Copilot: <strong>$19/user/mo</strong> on top</li>
+              <li><span class="vs-pricing-x">✗</span> Self-host: only at Enterprise tier</li>
+            </ul>
+          </div>
+          <div class="vs-pricing-us">
+            <div class="vs-pricing-label">Gluecron</div>
+            <ul class="vs-pricing-list">
+              <li><span class="vs-pricing-check">✓</span> Free: unlimited public, 3 private, AI included</li>
+              <li><span class="vs-pricing-check">✓</span> Pro: <strong>$12/user/mo</strong> all-in (AI included)</li>
+              <li><span class="vs-pricing-check">✓</span> Team: <strong>$29/user/mo</strong> unlimited AI + SSO + audit</li>
+              <li><span class="vs-pricing-check">✓</span> Enterprise: custom + on-prem + DPA</li>
+              <li><span class="vs-pricing-check">✓</span> CI minutes: <strong>unmetered</strong>, hosted or self</li>
+              <li><span class="vs-pricing-check">✓</span> Self-host: <strong>$0 forever</strong>, all tiers</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      {/* ───────── Why we exist ───────── */}
+      <section class="mkt-section">
+        <div class="section-header">
+          <div class="eyebrow">Why this exists</div>
+          <h2>Most code in 2026 is written by AI. Most platforms aren't built for that.</h2>
+        </div>
+        <div class="vs-rationale">
+          <p>
+            GitHub was designed in 2008 for a world where one human
+            engineer wrote every commit. The platform's defaults assume
+            <em> you're the bottleneck</em>. Red X's demand your attention.
+            Failed checks page you at 3am. Every AI feature is a
+            $19/user upsell because, for them, AI is a bolt-on.
+          </p>
+          <p>
+            For us, AI is the<strong> default teammate</strong>. It commits
+            with its own bot identity. It opens PRs. It reviews diffs.
+            It fixes regressions before you wake up. It tells you what
+            broke and why. <strong>The platform works for you, not the
+            other way around.</strong>
+          </p>
+          <p>
+            We're not anti-GitHub. We use it. We came from there. But
+            after watching engineers spend 30% of their week dealing with
+            CI failures, infrastructure pain, and Copilot subscriptions
+            that don't actually help, we got tired of the cruelty —
+            so we rebuilt the parts that mattered.
+          </p>
+        </div>
+      </section>
+
+      {/* ───────── The closing ask ───────── */}
+      <section class="mkt-cta">
+        <div class="mkt-cta-card">
+          <div class="mkt-cta-bg" aria-hidden="true" />
+          <div class="eyebrow">Try it</div>
+          <h2 class="mkt-cta-title">
+            Migrate from GitHub in 60 seconds.<br />
+            <span class="gradient-text">Stay because it's actually better.</span>
+          </h2>
+          <p class="mkt-hero-sub" style="max-width:600px;margin:0 auto var(--s-7)">
+            Paste a GitHub token, mirror your whole org. Your existing
+            workflows just work. Your team keeps shipping. Nothing
+            breaks. Everything gets kinder.
+          </p>
+          <div class="mkt-cta-buttons">
+            <a href="/register" class="btn btn-primary btn-xl">
+              Start free
+              <span aria-hidden="true">{"→"}</span>
+            </a>
+            <a href="/import" class="btn btn-ghost btn-xl">
+              Migrate from GitHub
+            </a>
+          </div>
+        </div>
+      </section>
+    </div>
+  </>
+);
+
+const VsRow: FC<{
+  feat: string;
+  them: string;
+  us: string;
+  win?: boolean;
+  lose?: boolean;
+}> = ({ feat, them, us, win, lose }) => (
+  <div
+    class={`vs-row${win ? " vs-row-win" : ""}${lose ? " vs-row-lose" : ""}`}
+  >
+    <div class="vs-row-feat">{feat}</div>
+    <div class="vs-row-them">{them}</div>
+    <div class="vs-row-us">{us}</div>
+  </div>
+);
+
+const vsGithubCss = sharedMktCss + `
+  /* Hero with even bigger drama */
+  .vs-hero { padding-bottom: var(--s-8); }
+  .vs-eyebrow { color: var(--accent); }
+  .vs-eyebrow-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 0 0 rgba(140,109,255,0.55);
+    animation: vs-pulse 1.8s ease-out infinite;
+  }
+  @keyframes vs-pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(140,109,255,0.55); }
+    70%  { box-shadow: 0 0 0 10px rgba(140,109,255,0); }
+    100% { box-shadow: 0 0 0 0 rgba(140,109,255,0); }
+  }
+  .vs-hero-title {
+    font-size: clamp(40px, 8vw, 100px);
+    line-height: 0.98;
+    letter-spacing: -0.04em;
+    font-weight: 700;
+    margin: 0 0 var(--s-5);
+  }
+  .vs-hero-stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: var(--s-6);
+    max-width: 880px;
+    margin: var(--s-10) auto 0;
+    text-align: center;
+  }
+  .vs-hero-stat-num {
+    font-family: var(--font-display);
+    font-size: clamp(36px, 4.5vw, 56px);
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: -0.03em;
+    margin-bottom: var(--s-2);
+  }
+  .vs-hero-stat-lbl {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-faint);
+    line-height: 1.5;
+  }
+  @media (max-width: 720px) {
+    .vs-hero-stats { grid-template-columns: repeat(2, 1fr); gap: var(--s-5); }
+  }
+
+  /* The kill-shot card */
+  .vs-killshot { margin-top: var(--s-4); }
+  .vs-killshot-card {
+    max-width: 980px;
+    margin: 0 auto;
+    padding: var(--s-10) var(--s-7);
+    background:
+      linear-gradient(135deg, rgba(140,109,255,0.06), transparent 50%, rgba(54,197,214,0.04)),
+      var(--bg-elevated);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-2xl);
+    box-shadow: var(--elev-2);
+  }
+  .vs-killshot-row {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: var(--s-7);
+    align-items: center;
+  }
+  .vs-killshot-col { padding: var(--s-4); }
+  .vs-killshot-label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    margin-bottom: var(--s-3);
+  }
+  .vs-them .vs-killshot-label { color: var(--red); }
+  .vs-us .vs-killshot-label { color: var(--green); }
+  .vs-killshot-quote {
+    font-size: 17px;
+    line-height: 1.55;
+    margin: 0;
+    color: var(--text);
+    font-style: italic;
+  }
+  .vs-them .vs-killshot-quote { color: var(--text-muted); }
+  .vs-killshot-vs {
+    font-family: var(--font-display);
+    font-size: 36px;
+    font-weight: 700;
+    color: var(--text-faint);
+    letter-spacing: -0.02em;
+  }
+  @media (max-width: 720px) {
+    .vs-killshot-row { grid-template-columns: 1fr; gap: var(--s-3); text-align: left; }
+    .vs-killshot-vs { text-align: center; }
+  }
+
+  /* Comparison table */
+  .vs-table {
+    max-width: 1080px;
+    margin: 0 auto;
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    overflow: hidden;
+    background: var(--bg-elevated);
+  }
+  .vs-row {
+    display: grid;
+    grid-template-columns: 1.6fr 1fr 1fr;
+    align-items: center;
+    padding: 14px 22px;
+    border-bottom: 1px solid var(--border-subtle);
+    font-size: var(--t-sm);
+    transition: background var(--t-fast) var(--ease);
+  }
+  .vs-row:last-child { border-bottom: none; }
+  .vs-row:hover { background: var(--bg-hover); }
+  .vs-row-feat { color: var(--text-strong); font-weight: 500; }
+  .vs-row-them, .vs-row-us {
+    text-align: center;
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+  .vs-row-them { color: var(--text-muted); }
+  .vs-row-us { color: var(--text); }
+  .vs-row-win .vs-row-us {
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .vs-row-win .vs-row-feat::after {
+    content: 'WIN';
+    margin-left: 10px;
+    padding: 2px 7px;
+    border-radius: 4px;
+    background: var(--accent-gradient-faint);
+    border: 1px solid rgba(140,109,255,0.30);
+    color: var(--accent);
+    font-family: var(--font-mono);
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    font-weight: 700;
+    vertical-align: 1px;
+  }
+  .vs-row-lose .vs-row-us {
+    color: var(--text-faint);
+  }
+  .vs-row-lose .vs-row-feat::after {
+    content: 'GAP';
+    margin-left: 10px;
+    padding: 2px 7px;
+    border-radius: 4px;
+    background: rgba(251,191,36,0.10);
+    border: 1px solid rgba(251,191,36,0.30);
+    color: var(--yellow);
+    font-family: var(--font-mono);
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    font-weight: 700;
+    vertical-align: 1px;
+  }
+  .vs-table-foot {
+    text-align: center;
+    color: var(--text-muted);
+    font-size: var(--t-sm);
+    margin-top: var(--s-5);
+    max-width: 720px;
+    margin-left: auto;
+    margin-right: auto;
+    line-height: 1.55;
+  }
+  @media (max-width: 720px) {
+    .vs-row { grid-template-columns: 1fr 90px 90px; padding: 12px 14px; }
+    .vs-row-win .vs-row-feat::after,
+    .vs-row-lose .vs-row-feat::after { display: none; }
+  }
+
+  /* Pricing knife */
+  .vs-pricing-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--s-5);
+    max-width: 980px;
+    margin: 0 auto;
+  }
+  .vs-pricing-them, .vs-pricing-us {
+    padding: var(--s-7);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    background: var(--bg-elevated);
+  }
+  .vs-pricing-them {
+    border-color: rgba(248,113,113,0.20);
+  }
+  .vs-pricing-us {
+    border-color: rgba(140,109,255,0.30);
+    box-shadow: 0 0 0 1px rgba(140,109,255,0.20), var(--elev-2);
+    background:
+      linear-gradient(180deg, rgba(140,109,255,0.04), transparent 60%),
+      var(--bg-elevated);
+  }
+  .vs-pricing-label {
+    font-family: var(--font-display);
+    font-size: 22px;
+    font-weight: 700;
+    margin-bottom: var(--s-5);
+    letter-spacing: -0.02em;
+  }
+  .vs-pricing-them .vs-pricing-label { color: var(--text-muted); }
+  .vs-pricing-us .vs-pricing-label { color: var(--accent); }
+  .vs-pricing-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    font-size: var(--t-sm);
+    line-height: 1.55;
+  }
+  .vs-pricing-list li {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+  }
+  .vs-pricing-x {
+    color: var(--red);
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+  .vs-pricing-check {
+    color: var(--green);
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+  .vs-pricing-them li { color: var(--text-muted); }
+  .vs-pricing-us li { color: var(--text); }
+  @media (max-width: 720px) {
+    .vs-pricing-grid { grid-template-columns: 1fr; }
+  }
+
+  /* Rationale prose */
+  .vs-rationale {
+    max-width: 720px;
+    margin: 0 auto;
+  }
+  .vs-rationale p {
+    color: var(--text);
+    font-size: var(--t-md);
+    line-height: 1.7;
+    margin: 0 0 var(--s-4);
+  }
+  .vs-rationale strong { color: var(--text-strong); font-weight: 600; }
+  .vs-rationale em { color: var(--text-strong); font-style: italic; }
+`;
+
 export default marketing;

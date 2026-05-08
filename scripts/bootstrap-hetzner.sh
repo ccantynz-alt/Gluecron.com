@@ -78,7 +78,7 @@ say "[3/11] Ensuring git, curl, postgresql, caddy, bun are installed"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 
-for pkg in git curl ca-certificates gnupg debian-keyring debian-archive-keyring apt-transport-https openssl; do
+for pkg in git curl ca-certificates gnupg debian-keyring debian-archive-keyring apt-transport-https openssl unzip xz-utils tar; do
   dpkg -l | grep -qw "$pkg" || apt-get install -y -qq "$pkg"
 done
 ok "base packages installed"

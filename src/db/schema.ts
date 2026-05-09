@@ -2586,3 +2586,54 @@ export type WorkflowRunnerPoolEntry =
   typeof workflowRunnerPool.$inferSelect;
 export type NewWorkflowRunnerPoolEntry =
   typeof workflowRunnerPool.$inferInsert;
+
+
+/**
+ * Repair Flywheel — every auto-repair attempt is recorded here so future
+ * failures with the same signature can short-circuit straight to the cached
+ * patch (Tier 0). After ~5000 entries the cache dominates and AI calls drop.
+ * Migration: 0039_repair_flywheel.sql
+ */
+export const repairFlywheel = pgTable(
+  "repair_flywheel",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id").references(() => repositories.id, {
+      onDelete: "cascade",
+    }),
+    // Fingerprint of the normalised failure text (variables/paths stripped).
+    failureSignature: text("failure_signature").notNull(),
+    // Original failure text (capped at write-site, ~4KB).
+    failureText: text("failure_text").notNull(),
+    // Mechanical classification or NULL if AI/human-driven.
+    failureClassification: text("failure_classification"),
+    // 'cached' | 'mechanical' | 'ai-sonnet' | 'human'
+    repairTier: text("repair_tier").notNull(),
+    patchSummary: text("patch_summary").notNull(),
+    filesChanged: jsonb("files_changed").notNull().default([]),
+    commitSha: text("commit_sha"),
+    // 'pending' | 'success' | 'failed' | 'reverted'
+    outcome: text("outcome").notNull().default("pending"),
+    appliedAt: timestamp("applied_at").defaultNow().notNull(),
+    outcomeAt: timestamp("outcome_at"),
+    parentPatternId: uuid("parent_pattern_id"),
+    cacheHitCount: integer("cache_hit_count").default(0).notNull(),
+    isPublicPattern: boolean("is_public_pattern").default(false).notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("repair_flywheel_signature_idx").on(table.failureSignature),
+    index("repair_flywheel_repo_idx").on(table.repositoryId),
+    index("repair_flywheel_outcome_idx").on(table.outcome),
+    index("repair_flywheel_classification_idx").on(table.failureClassification),
+    index("repair_flywheel_lookup_idx").on(
+      table.repositoryId,
+      table.failureSignature,
+      table.outcome
+    ),
+  ]
+);
+
+export type RepairFlywheelEntry = typeof repairFlywheel.$inferSelect;
+export type NewRepairFlywheelEntry = typeof repairFlywheel.$inferInsert;
+

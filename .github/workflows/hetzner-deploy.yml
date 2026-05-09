@@ -1,4 +1,4 @@
-name: Vultr Deploy (gluecron.com)
+name: Hetzner Deploy (gluecron.com)
 
 # Triggered on every push to main and on manual dispatch.
 # Steps:
@@ -10,9 +10,9 @@ name: Vultr Deploy (gluecron.com)
 #      root-cause analysis to the workflow summary (and optionally a webhook)
 #
 # Secrets required:
-#   VULTR_HOST      — public IP/hostname of the box (e.g. 45.76.171.37)
-#   VULTR_USER      — ssh user (e.g. root)
-#   VULTR_SSH_KEY   — private deploy key (PEM/OpenSSH format)
+#   HETZNER_HOST      — public IP/hostname of the box (e.g. 178.104.208.252)
+#   HETZNER_USER      — ssh user (e.g. root)
+#   HETZNER_SSH_KEY   — private deploy key (PEM/OpenSSH format)
 #
 # Optional:
 #   ANTHROPIC_API_KEY      — enables AI failure-diagnosis step
@@ -24,7 +24,7 @@ on:
   workflow_dispatch: {}
 
 concurrency:
-  group: vultr-deploy
+  group: hetzner-deploy
   cancel-in-progress: false
 
 jobs:
@@ -40,9 +40,9 @@ jobs:
         id: prev
         uses: appleboy/ssh-action@v1.2.0
         with:
-          host: ${{ secrets.VULTR_HOST }}
-          username: ${{ secrets.VULTR_USER }}
-          key: ${{ secrets.VULTR_SSH_KEY }}
+          host: ${{ secrets.HETZNER_HOST }}
+          username: ${{ secrets.HETZNER_USER }}
+          key: ${{ secrets.HETZNER_SSH_KEY }}
           script_stop: true
           script: |
             cd /opt/gluecron
@@ -56,9 +56,9 @@ jobs:
         id: deploy
         uses: appleboy/ssh-action@v1.2.0
         with:
-          host: ${{ secrets.VULTR_HOST }}
-          username: ${{ secrets.VULTR_USER }}
-          key: ${{ secrets.VULTR_SSH_KEY }}
+          host: ${{ secrets.HETZNER_HOST }}
+          username: ${{ secrets.HETZNER_USER }}
+          key: ${{ secrets.HETZNER_SSH_KEY }}
           command_timeout: 8m
           script_stop: true
           script: |
@@ -99,9 +99,9 @@ jobs:
         if: failure() && steps.smoke.conclusion == 'failure' && github.event_name == 'push'
         uses: appleboy/ssh-action@v1.2.0
         with:
-          host: ${{ secrets.VULTR_HOST }}
-          username: ${{ secrets.VULTR_USER }}
-          key: ${{ secrets.VULTR_SSH_KEY }}
+          host: ${{ secrets.HETZNER_HOST }}
+          username: ${{ secrets.HETZNER_USER }}
+          key: ${{ secrets.HETZNER_SSH_KEY }}
           script_stop: false
           script: |
             cd /opt/gluecron
@@ -118,9 +118,9 @@ jobs:
         id: ctx
         uses: appleboy/ssh-action@v1.2.0
         with:
-          host: ${{ secrets.VULTR_HOST }}
-          username: ${{ secrets.VULTR_USER }}
-          key: ${{ secrets.VULTR_SSH_KEY }}
+          host: ${{ secrets.HETZNER_HOST }}
+          username: ${{ secrets.HETZNER_USER }}
+          key: ${{ secrets.HETZNER_SSH_KEY }}
           script_stop: false
           script: |
             echo "===== systemd status ====="

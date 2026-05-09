@@ -19,7 +19,20 @@ import { join } from "path";
 import { getAnthropic, MODEL_SONNET, extractText, parseJsonResponse, isAiAvailable } from "./ai-client";
 import { getRepoPath } from "../git/repository";
 import { tryMechanicalRepair } from "./auto-repair-mechanical";
+import { recordRepair } from "./repair-flywheel";
 import type { SecurityFinding, SecretFinding } from "./security-scan";
+
+// Best-effort classification of a mechanical repair summary so the flywheel
+// stats can group by failure type. The mechanical tier writes summaries like
+// "regenerated bun.lock" / "reformatted N file(s) with biome" / "organised
+// imports in N file(s)" — this turns those into a one-word tag.
+function classifyMechanical(summary: string): string | null {
+  const s = summary.toLowerCase();
+  if (s.includes("lockfile") || s.includes("regenerated") && s.includes(".lock")) return "lockfile";
+  if (s.includes("reformatted") || s.includes("formatted")) return "formatting";
+  if (s.includes("imports")) return "imports";
+  return null;
+}
 
 export interface RepairResult {
   attempted: boolean;
@@ -392,6 +405,19 @@ export async function repairGateFailure(
   // Sonnet round-trip AND get a more reliable patch.
   const mech = await tryMechanicalRepair(owner, repo, branch, failureDetails);
   if (mech.attempted && mech.success && mech.commitSha) {
+    // Record the win in the flywheel — every successful repair grows the
+    // dataset that makes future repairs faster and cheaper. Fire-and-forget;
+    // recording failures must never block the actual fix from being returned.
+    void recordRepair({
+      repositoryId: null,
+      failureText: failureDetails,
+      classification: classifyMechanical(mech.summary),
+      tier: "mechanical",
+      patchSummary: mech.summary,
+      filesChanged: mech.filesChanged,
+      commitSha: mech.commitSha,
+      outcome: "success",
+    }).catch(() => {});
     return {
       attempted: true,
       success: true,
@@ -399,6 +425,20 @@ export async function repairGateFailure(
       filesChanged: mech.filesChanged,
       summary: `[mechanical] ${mech.summary}`,
     };
+  }
+  if (mech.attempted && !mech.success) {
+    // Mechanical handler triggered but didn't fix it. Log the miss so we can
+    // see classifier false-positives in the admin dashboard.
+    void recordRepair({
+      repositoryId: null,
+      failureText: failureDetails,
+      classification: classifyMechanical(mech.summary),
+      tier: "mechanical",
+      patchSummary: mech.summary,
+      filesChanged: mech.filesChanged,
+      commitSha: null,
+      outcome: "failed",
+    }).catch(() => {});
   }
 
   // ── Tier 2: AI-powered repair via Claude Sonnet
@@ -468,6 +508,16 @@ ${parsed.patches.map((p) => `- ${p.path}: ${p.reason}`).join("\n")}
 
     const result = await applyAndCommit(repoDir, wt.path, branch, parsed.patches, msg);
     if (!result.ok) {
+      void recordRepair({
+        repositoryId: null,
+        failureText: failureDetails,
+        classification: null,
+        tier: "ai-sonnet",
+        patchSummary: parsed.summary,
+        filesChanged: result.filesChanged,
+        commitSha: null,
+        outcome: "failed",
+      }).catch(() => {});
       return {
         attempted: true,
         success: false,
@@ -476,6 +526,16 @@ ${parsed.patches.map((p) => `- ${p.path}: ${p.reason}`).join("\n")}
         error: result.error,
       };
     }
+    void recordRepair({
+      repositoryId: null,
+      failureText: failureDetails,
+      classification: null,
+      tier: "ai-sonnet",
+      patchSummary: parsed.summary,
+      filesChanged: result.filesChanged,
+      commitSha: result.sha,
+      outcome: "success",
+    }).catch(() => {});
     return {
       attempted: true,
       success: true,

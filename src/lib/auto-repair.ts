@@ -18,6 +18,7 @@ import { mkdir, rm, readFile, writeFile } from "fs/promises";
 import { join } from "path";
 import { getAnthropic, MODEL_SONNET, extractText, parseJsonResponse, isAiAvailable } from "./ai-client";
 import { getRepoPath } from "../git/repository";
+import { tryMechanicalRepair } from "./auto-repair-mechanical";
 import type { SecurityFinding, SecretFinding } from "./security-scan";
 
 export interface RepairResult {
@@ -385,6 +386,22 @@ export async function repairGateFailure(
   failureDetails: string,
   context: { file: string; content: string }[]
 ): Promise<RepairResult> {
+  // ── Tier 1: try a mechanical repair first (no AI call needed)
+  // Lockfile drift, formatting drift, import-order issues — these have
+  // deterministic fixes. If one matches we save the cost + latency of a
+  // Sonnet round-trip AND get a more reliable patch.
+  const mech = await tryMechanicalRepair(owner, repo, branch, failureDetails);
+  if (mech.attempted && mech.success && mech.commitSha) {
+    return {
+      attempted: true,
+      success: true,
+      commitSha: mech.commitSha,
+      filesChanged: mech.filesChanged,
+      summary: `[mechanical] ${mech.summary}`,
+    };
+  }
+
+  // ── Tier 2: AI-powered repair via Claude Sonnet
   if (!isAiAvailable()) {
     return { attempted: false, success: false, filesChanged: [], summary: "AI not configured" };
   }

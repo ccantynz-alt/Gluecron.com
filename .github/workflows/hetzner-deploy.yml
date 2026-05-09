@@ -70,24 +70,40 @@ jobs:
             echo "Deploying SHA: $new_sha"
             bash scripts/deploy-crontech.sh
 
-      # ─── 3. Smoke-test the live URL ─────────────────────────────────────
-      - name: Smoke test (https://gluecron.com/healthz)
+      # ─── 3. Smoke-test the deployed app on the box ──────────────────────
+      # We SSH back in and curl localhost:3010/healthz directly. This tests
+      # the EXACT instance we just deployed, independent of:
+      #   - DNS state (gluecron.com may still point at an old box during a
+      #     migration)
+      #   - Caddy TLS state (cert may not be issued yet for a new domain)
+      #   - external network reachability from GH runners
+      # If you ALSO want a public-DNS smoke check, add a second step that
+      # hits https://gluecron.com after this one succeeds.
+      - name: Smoke test (localhost on the box)
         id: smoke
-        run: |
-          set +e
-          for i in 1 2 3 4 5 6 7 8; do
-            code=$(curl -s -o /dev/null -w "%{http_code}" https://gluecron.com/healthz)
-            echo "Attempt $i: /healthz → $code"
-            if [ "$code" = "200" ]; then
-              echo "smoke_status=ok" >> $GITHUB_OUTPUT
-              echo "✓ gluecron.com is live and healthy."
-              exit 0
-            fi
-            sleep 8
-          done
-          echo "smoke_status=fail" >> $GITHUB_OUTPUT
-          echo "✗ /healthz did not return 200 after 64s. Triggering rollback."
-          exit 1
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.HETZNER_HOST }}
+          username: ${{ secrets.HETZNER_USER }}
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          script_stop: true
+          script: |
+            set +e
+            for i in 1 2 3 4 5 6 7 8; do
+              code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3010/healthz)
+              echo "Attempt $i: /healthz -> $code"
+              if [ "$code" = "200" ]; then
+                echo "OK: gluecron is healthy on localhost:3010"
+                # Also print the sha so the deploy log shows what's running
+                curl -s http://localhost:3010/api/version || true
+                exit 0
+              fi
+              sleep 6
+            done
+            echo "FAIL: /healthz did not return 200 after 48s"
+            systemctl status gluecron --no-pager | head -10 || true
+            journalctl -u gluecron -n 30 --no-pager || true
+            exit 1
 
       # ─── 4. Auto-rollback on smoke failure ──────────────────────────────
       # Only rolls back if the workflow was triggered by a normal push.

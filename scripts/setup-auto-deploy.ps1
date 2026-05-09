@@ -12,7 +12,7 @@
 # What it does:
 #   1. Verifies gh CLI is installed + authed
 #   2. Generates a dedicated SSH deploy key (~/.ssh/gluecron_deploy_key)
-#   3. Uploads the public key to root@45.76.171.37 via your existing SSH access
+#   3. Uploads the public key to root@178.104.208.252 via your existing SSH access
 #   4. Sets the three GitHub secrets the workflow needs
 #   5. Triggers a test deploy + watches the run
 # =============================================================================
@@ -20,7 +20,7 @@
 $ErrorActionPreference = "Stop"
 
 $REPO   = "ccantynz-alt/Gluecron.com"
-$HOST_  = "45.76.171.37"
+$HOST_  = "178.104.208.252"
 $USER_  = "root"
 $KEYDIR = Join-Path $HOME ".ssh"
 $KEY    = Join-Path $KEYDIR "gluecron_deploy_key"
@@ -55,7 +55,7 @@ if (Test-Path $KEY) {
   Write-Host "  ✓ generated new key at $KEY" -ForegroundColor Green
 }
 
-# ─── 3. Authorize key on the Vultr box ──────────────────────────────────────
+# ─── 3. Authorize key on the Hetzner box ──────────────────────────────────────
 Write-Host "[3/5] Authorizing key on $HOST_..."
 $pubKey = Get-Content "$KEY.pub" -Raw
 $pubKey = $pubKey.Trim()
@@ -71,16 +71,16 @@ Write-Host "  ✓ deploy key authorized on $HOST_" -ForegroundColor Green
 
 # ─── 4. Set GitHub secrets ──────────────────────────────────────────────────
 Write-Host "[4/5] Setting GitHub Actions secrets on $REPO..."
-$HOST_ | gh secret set VULTR_HOST --repo $REPO
-$USER_ | gh secret set VULTR_USER --repo $REPO
-Get-Content $KEY -Raw | gh secret set VULTR_SSH_KEY --repo $REPO
-Write-Host "  ✓ VULTR_HOST, VULTR_USER, VULTR_SSH_KEY set" -ForegroundColor Green
+$HOST_ | gh secret set HETZNER_HOST --repo $REPO
+$USER_ | gh secret set HETZNER_USER --repo $REPO
+Get-Content $KEY -Raw | gh secret set HETZNER_SSH_KEY --repo $REPO
+Write-Host "  ✓ HETZNER_HOST, HETZNER_USER, HETZNER_SSH_KEY set" -ForegroundColor Green
 
 # ─── 5. Trigger first deploy + watch ────────────────────────────────────────
 Write-Host "[5/5] Triggering test deploy..."
-gh workflow run vultr-deploy.yml --repo $REPO --ref main
+gh workflow run hetzner-deploy.yml --repo $REPO --ref main
 Start-Sleep -Seconds 3
-$run = (gh run list --repo $REPO --workflow=vultr-deploy.yml --limit 1 --json databaseId | ConvertFrom-Json)[0]
+$run = (gh run list --repo $REPO --workflow=hetzner-deploy.yml --limit 1 --json databaseId | ConvertFrom-Json)[0]
 Write-Host "  ✓ Run #$($run.databaseId) started. Watching..." -ForegroundColor Green
 Write-Host ""
 gh run watch $run.databaseId --repo $REPO --exit-status
@@ -96,5 +96,5 @@ if ($LASTEXITCODE -eq 0) {
 } else {
   Write-Host ""
   Write-Host "==> Run failed — check the Actions tab:" -ForegroundColor Red
-  Write-Host "   https://github.com/$REPO/actions/workflows/vultr-deploy.yml"
+  Write-Host "   https://github.com/$REPO/actions/workflows/hetzner-deploy.yml"
 }

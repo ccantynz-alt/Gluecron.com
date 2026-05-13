@@ -2,72 +2,85 @@
 
 One page. Five steps. Copy-paste in order.
 
-## 1. SSH to the metal box
+Prod box: **Hetzner Gluecron-1 at `178.104.208.252`** (Falkenstein, eu-central).
+DNS target: `gluecron.com` + `www.gluecron.com` A-records → `178.104.208.252`,
+proxy status DNS only.
+
+## 1. SSH to the Hetzner box
 
 ```sh
-ssh root@45.76.171.37
+ssh root@178.104.208.252
 ```
 
-If SSH key-only is enabled and your key isn't loaded, use Vultr's vSerial
-console from the dashboard — it accepts the root password from server
-Overview → "Show Password".
+If SSH key isn't loaded, use the Hetzner Console's **"Open Console"**
+button on the server detail page — it gives a browser-based root shell.
 
-## 2. Clone + configure (first-time only)
+## 2. Install Docker (first-time only)
+
+```sh
+command -v docker >/dev/null || curl -fsSL https://get.docker.com | sh
+```
+
+## 3. Clone + configure (first-time only)
 
 ```sh
 git clone https://github.com/ccantynz-alt/Gluecron.com.git /opt/gluecron
 cd /opt/gluecron
-git checkout claude/new-session-xk1l7   # the deploy + admin scripts live here
+git checkout claude/new-session-xk1l7
 cp .env.example .env
-vim .env   # set DATABASE_URL at minimum (Neon connection string)
+nano .env   # set DATABASE_URL (Neon connection string) — required
 ```
 
-Redeploy on later visits:
+Later redeploy:
 
 ```sh
 cd /opt/gluecron && git pull && docker compose up -d --build
 ```
 
-## 3. Bring up the stack
+## 4. Bring up the stack
 
 ```sh
 docker compose up -d --build
 docker compose logs -f caddy   # ctrl-c once you see "certificate obtained"
-```
-
-Then run migrations:
-
-```sh
 docker compose exec gluecron bun run db:migrate
 ```
 
-## 4. Register your account
+If the cert handshake fails: confirm DNS resolves correctly
+(`dig +short gluecron.com` should print `178.104.208.252`), and that
+Cloudflare proxy is OFF (grey cloud) so Let's Encrypt can hit port 80
+directly.
 
-- Open https://gluecron.com/register in a browser
-- Email + password. Use the same email you want to be admin under.
-- First registered user auto-promotes per bootstrap rule — but to be safe:
+## 5. Register your account
 
-## 5. Confirm + promote yourself to admin
+- Open https://gluecron.com/register
+- Email + password. Use the email you want to be admin under.
+
+## 6. Confirm + promote yourself to admin
 
 ```sh
 docker compose exec gluecron bun run scripts/check-admin.ts you@example.com
 ```
 
-If it says "NOT admin":
+If it says NOT admin:
 
 ```sh
 docker compose exec gluecron bun run scripts/promote-admin.ts you@example.com
 ```
 
-Log out, log back in, visit https://gluecron.com/admin — should render.
+Log out, log back in, visit https://gluecron.com/admin.
 
-## 6. Verify (optional but quick)
+## 7. Verify (optional but quick)
 
 ```sh
 bash scripts/verify-deploy.sh https://gluecron.com
 ```
 
-All lines should show OK. If any FAIL, look at the line and debug just that.
+## 8. Decommission the obsolete box
+
+Once DNS resolves correctly to `178.104.208.252` and gluecron.com works
+from multiple networks (your phone on 4G is a good cache-bust), the old
+Vultr box at `45.76.171.37` can be destroyed via the Vultr dashboard.
+Don't rush this — give DNS 1–2 hours after the change.
 
 ---
 
@@ -75,7 +88,7 @@ All lines should show OK. If any FAIL, look at the line and debug just that.
 
 **Caddy logs say "acme: error issuing certificate":** DNS is wrong or
 Cloudflare proxy is on. Check `dig +short gluecron.com` returns
-`45.76.171.37` and that the orange cloud is grey in Cloudflare.
+`178.104.208.252` and that the orange cloud is grey in Cloudflare.
 
 **`docker compose exec` says "service is not running":** check
 `docker compose ps`. If gluecron is restarting, `docker compose logs gluecron`.
@@ -84,7 +97,6 @@ Most common cause: `DATABASE_URL` wrong or Neon project paused.
 **`/register` returns 500:** DB migrations probably weren't run. Re-run
 `docker compose exec gluecron bun run db:migrate`.
 
-**"Cannot find module 'src/db/client'":** the scripts assume the working
-directory is the repo root inside the container, which is the default for
-`docker compose exec`. If you're running them on the host, prefix with
-`bun --cwd /opt/gluecron run scripts/...`.
+**Site still shows old content after DNS flip:** Cloudflare or local DNS
+cache. Check from a phone on cellular (`https://gluecron.com`) to
+bypass home/office caches.

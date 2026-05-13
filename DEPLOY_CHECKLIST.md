@@ -1,11 +1,14 @@
 # Deploy checklist
 
-Scannable go-live runbook for the metal-box deploy at `45.76.171.37`.
-For the compose + Caddy setup, see `DEPLOY_METAL.md`. For the (deferred)
-Fly.io path, see `DEPLOY.md`.
+Scannable go-live runbook for the metal-box deploy at **Hetzner
+Gluecron-1, `178.104.208.252`**. For the bundled compose + Caddy setup,
+see `DEPLOY_METAL.md`. For the (deferred) Fly.io path, see `DEPLOY.md`.
 
 ## Pre-deploy
 
+- [ ] DNS confirmed: `gluecron.com` + `www.gluecron.com` A-records point
+      at `178.104.208.252` (NOT the obsolete `45.76.171.37`), proxy
+      status "DNS only" in Cloudflare
 - [ ] `DATABASE_URL` set to a live Neon PostgreSQL connection string (hard-required)
 - [ ] `.env` populated on the box from `.env.example`; optional keys
       (`ANTHROPIC_API_KEY`, `RESEND_API_KEY`, `GATETEST_API_KEY`, `VOYAGE_API_KEY`)
@@ -17,16 +20,15 @@ Fly.io path, see `DEPLOY.md`.
 - [ ] Local: `bun run preflight` green
 - [ ] Local: `bun test` clean on the deploy commit
 - [ ] `CHANGELOG.md` has an `[Unreleased]` entry for this deploy
-- [ ] Cloudflare DNS confirmed: `gluecron.com` + `www.gluecron.com`
-      A-records point at `45.76.171.37`, proxy status "DNS only"
 
-## Deploy (metal box, `45.76.171.37`)
+## Deploy (Hetzner Gluecron-1, `178.104.208.252`)
 
 ```sh
-ssh root@45.76.171.37
+ssh root@178.104.208.252
+command -v docker >/dev/null || curl -fsSL https://get.docker.com | sh
 git clone https://github.com/ccantynz-alt/Gluecron.com.git /opt/gluecron  # first time
 cd /opt/gluecron && git pull
-cp .env.example .env && vim .env   # first time only
+cp .env.example .env && nano .env   # first time only
 docker compose up -d --build
 docker compose logs -f caddy        # watch for cert issuance
 ```
@@ -82,11 +84,12 @@ Or tick manually:
 - [ ] Point Alertmanager at `infra/alerts/gluecron.rules.yml` (see `infra/alerts/README.md`)
 - [ ] Dated entry added to `CHANGELOG.md`; tag a release
 - [ ] Monitor `/metrics`, `/healthz`, and the error sink for the first hour
+- [ ] Decommission the obsolete Vultr box at `45.76.171.37` via the Vultr dashboard (only after DNS has fully propagated)
 
 ## Redeploy
 
 ```sh
-ssh root@45.76.171.37
+ssh root@178.104.208.252
 cd /opt/gluecron && git pull && docker compose up -d --build
 docker compose exec gluecron bun run db:migrate   # if migrations changed
 bash scripts/verify-deploy.sh https://gluecron.com
@@ -95,12 +98,12 @@ bash scripts/verify-deploy.sh https://gluecron.com
 ## Rollback
 
 ```sh
-ssh root@45.76.171.37
+ssh root@178.104.208.252
 cd /opt/gluecron
 git log --oneline -10                  # find last known-good sha
 git checkout <prev-sha>
 docker compose up -d --build
 ```
 
-DNS is unchanged, so rollback = ~60s of rebuild time with no
-Cloudflare/registrar changes required.
+DNS is unchanged on rollback, so the failover is ~60s of rebuild time
+with no Cloudflare/registrar changes required.

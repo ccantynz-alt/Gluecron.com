@@ -148,6 +148,10 @@ export const branchProtection = pgTable(
     allowForcePush: boolean("allow_force_push").default(false).notNull(),
     allowDeletion: boolean("allow_deletion").default(false).notNull(),
     dismissStaleReviews: boolean("dismiss_stale_reviews").default(true).notNull(),
+    // K2 — Auto-merge opt-in. When true, the autopilot ticker may auto-merge
+    // a PR whose base branch matches this rule, provided every gate the
+    // manual-merge path enforces is green. Default-deny.
+    enableAutoMerge: boolean("enable_auto_merge").default(false).notNull(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },

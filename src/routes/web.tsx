@@ -90,7 +90,16 @@ web.get("/", async (c) => {
   }
 
   return c.html(
-    <Layout user={null}>
+    <Layout
+      user={null}
+      // Block L10 — SEO + Open Graph for the public landing.
+      fullTitle="Gluecron — The git host built around Claude"
+      description="Label an issue. Walk away. Wake up to a merged PR. Gluecron is the AI-native git host with built-in code review, auto-merge, and a Claude-first toolchain."
+      ogTitle="Gluecron — The git host built around Claude"
+      ogDescription="Label an issue. Walk away. Wake up to a merged PR. Gluecron is the AI-native git host with built-in code review, auto-merge, and a Claude-first toolchain."
+      ogType="website"
+      twitterCard="summary_large_image"
+    >
       <LandingPage stats={stats} publicStats={publicStats} />
     </Layout>
   );

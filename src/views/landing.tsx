@@ -5,6 +5,17 @@
  * Hero · trust strip · feature grid · workflow walkthrough ·
  * comparison · terminal · pricing teaser · closing CTA.
  *
+ * Block L10 — hero rewrite. The hero now lands the Block L positioning
+ * ("the git host built around Claude"): gradient headline, one-line
+ * install snippet w/ copy button, three CTAs (Sign up / Demo / vs-GitHub),
+ * and a four-line "what just happened" rail driven off the L4 publicStats
+ * payload. The L4 counters tile section and L5 vs-GitHub CTA are both
+ * preserved — additive only.
+ *
+ * Also adds two new editorial sections below the L4 counters:
+ *   - "Three reasons to switch" (Sleep Mode / Migrate / Demo)
+ *   - "How is this different from GitHub?" pull-quote → /vs-github
+ *
  * Pure presentational. Drops into <Layout user={null}>.
  * All styles scoped under `.landing-` so they don't bleed into app views.
  */
@@ -58,29 +69,79 @@ export const LandingHero: FC<LandingPageProps> = ({ stats, publicStats } = {}) =
             </div>
 
             <h1 class="landing-hero-title display">
-              Where software{" "}
-              <span class="gradient-text">writes itself.</span>
+              <span class="gradient-text">The git host built around Claude.</span>
             </h1>
 
             <p class="landing-hero-sub">
-              Gluecron is the operator-tier replacement for GitHub. Push code,
-              and the platform reviews it, fixes it, ships it. Spec-to-PR. Auto-repair.
-              Real-time gates. Built for the era when most code is written by AI
-              and most reviews are too.
+              Label an issue. Walk away. Wake up to a merged PR.
             </p>
+
+            {/* L10 — one-line install snippet with copy button. */}
+            <div class="landing-hero-install" aria-label="One-line install">
+              <code class="landing-hero-install-code">
+                <span class="landing-hero-install-prompt" aria-hidden="true">$</span>
+                <span id="landing-install-text">curl -sSL gluecron.com/install | bash</span>
+              </code>
+              <button
+                type="button"
+                class="landing-hero-install-copy"
+                data-copy-target="landing-install-text"
+                aria-label="Copy install command"
+              >
+                Copy
+              </button>
+            </div>
 
             <div class="landing-hero-ctas">
               <a href="/register" class="btn btn-primary btn-xl landing-cta-primary">
-                Start shipping
+                Sign up free
                 <span class="landing-cta-arrow" aria-hidden="true">{"→"}</span>
               </a>
-              <a href="/explore" class="btn btn-secondary btn-xl">
-                Explore repos
+              <a href="/demo" class="btn btn-secondary btn-xl">
+                Try the live demo
+                <span class="landing-cta-arrow" aria-hidden="true">{"→"}</span>
               </a>
               <a href="/vs-github" class="btn btn-ghost btn-xl">
                 Compare to GitHub
+                <span class="landing-cta-arrow" aria-hidden="true">{"→"}</span>
               </a>
             </div>
+
+            {/* L10 — "what just happened" rail. Mini, secondary,
+                separate from the BIG L4 counters tile section below. */}
+            {publicStats && (
+              <ul class="landing-hero-rail" aria-label="What just happened on Gluecron">
+                <li>
+                  <span class="landing-hero-rail-check" aria-hidden="true">{"✓"}</span>
+                  <strong>{publicStats.weeklyPrsAutoMerged.toLocaleString()}</strong>
+                  {" PRs auto-merged this week"}
+                </li>
+                <li>
+                  <span class="landing-hero-rail-check" aria-hidden="true">{"✓"}</span>
+                  <strong>{publicStats.weeklyIssuesBuiltByAi.toLocaleString()}</strong>
+                  {" issues built by AI"}
+                </li>
+                <li>
+                  <span class="landing-hero-rail-check" aria-hidden="true">{"✓"}</span>
+                  <strong>{publicStats.weeklyDeploysShipped.toLocaleString()}</strong>
+                  {" deploys shipped overnight"}
+                </li>
+                <li>
+                  <span class="landing-hero-rail-check" aria-hidden="true">{"✓"}</span>
+                  {"~"}
+                  <strong>{Math.round(publicStats.weeklyHoursSaved).toLocaleString()}</strong>
+                  {" hours saved by AI"}
+                </li>
+              </ul>
+            )}
+
+            {/* L8 — free-tier reassurance link. Keeps anxiety low for the AI-curious. */}
+            <p class="landing-hero-freenote">
+              Free forever for the AI-curious.{" "}
+              <a href="/pricing" class="landing-hero-freenote-link">
+                See pricing &rarr;
+              </a>
+            </p>
 
             <p class="landing-hero-caption">
               Already have a repo?
@@ -144,6 +205,50 @@ export const LandingHero: FC<LandingPageProps> = ({ stats, publicStats } = {}) =
             <script dangerouslySetInnerHTML={{ __html: landingCountersJs }} />
           </section>
         )}
+
+        {/* ---------- L10 — Three reasons to switch ---------- */}
+        <section class="landing-section landing-reasons" aria-label="Three reasons to switch">
+          <div class="section-header">
+            <div class="eyebrow">Three reasons to switch</div>
+            <h2>Built so Claude can do the work.</h2>
+          </div>
+          <div class="landing-reasons-grid">
+            <ReasonCard
+              icon={
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />
+                </svg>
+              }
+              title="Toggle Sleep Mode"
+              body="Claude does the work overnight. You get a 9 AM digest of what shipped — PRs merged, deploys live, incidents triaged."
+              link={{ href: "/sleep-mode", label: "Turn on Sleep Mode" }}
+            />
+            <ReasonCard
+              icon={
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <polyline points="4 17 10 11 4 5" />
+                  <line x1="12" y1="19" x2="20" y2="19" />
+                </svg>
+              }
+              title="One command to migrate"
+              body="Drop a single curl into your shell. Gluecron rehosts your repo, your issues, your branches — no SaaS rip-and-replace project required."
+              extra={
+                <code class="landing-reasons-code">curl -sSL gluecron.com/install | bash</code>
+              }
+              link={{ href: "/import", label: "Or import from GitHub" }}
+            />
+            <ReasonCard
+              icon={
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <polygon points="5 3 19 12 5 21 5 3" />
+                </svg>
+              }
+              title="Open the demo, watch it work"
+              body="The demo repo is real. Label an issue, hit refresh, see Claude open the PR. Inspect the diff. Approve the merge. Zero setup, zero credit card."
+              link={{ href: "/demo", label: "Open the live demo" }}
+            />
+          </div>
+        </section>
 
         {/* ---------- Capability strip — uppercase tracked grid (crontech-style) ---------- */}
         <section class="landing-caps">
@@ -390,6 +495,22 @@ export const LandingHero: FC<LandingPageProps> = ({ stats, publicStats } = {}) =
           </div>
         </section>
 
+        {/* ---------- L10 — "How is this different?" pull-quote ---------- */}
+        <section class="landing-pullquote-section" aria-label="How is this different from GitHub?">
+          <figure class="landing-pullquote">
+            <div class="landing-pullquote-eyebrow">How is this different from GitHub?</div>
+            <blockquote class="landing-pullquote-text">
+              Every other host bolts AI on as a sidecar. Gluecron is the first
+              git host where Claude is a first-class developer. Built to be
+              operated by AI agents, not just augmented by them.
+            </blockquote>
+            <a href="/vs-github" class="landing-pullquote-link">
+              See the full comparison
+              <span class="landing-cta-arrow" aria-hidden="true">{"→"}</span>
+            </a>
+          </figure>
+        </section>
+
         {/* ---------- Closing CTA ---------- */}
         <section class="landing-cta-section">
           <div class="landing-cta-card">
@@ -414,6 +535,9 @@ export const LandingHero: FC<LandingPageProps> = ({ stats, publicStats } = {}) =
             </div>
           </div>
         </section>
+
+        {/* L10 — clipboard copy script for the hero install snippet. */}
+        <script dangerouslySetInnerHTML={{ __html: landingCopyJs }} />
       </div>
     </>
   );
@@ -430,6 +554,28 @@ const FeatureCard: FC<{ icon: any; title: string; desc: string }> = ({
     </div>
     <h3 class="landing-feature-title">{title}</h3>
     <p class="landing-feature-desc">{desc}</p>
+  </div>
+);
+
+// Block L10 — "Three reasons to switch" column.
+const ReasonCard: FC<{
+  icon: any;
+  title: string;
+  body: string;
+  link: { href: string; label: string };
+  extra?: any;
+}> = ({ icon, title, body, link, extra }) => (
+  <div class="landing-reason">
+    <div class="landing-reason-icon" aria-hidden="true">
+      {icon}
+    </div>
+    <h3 class="landing-reason-title">{title}</h3>
+    <p class="landing-reason-body">{body}</p>
+    {extra}
+    <a href={link.href} class="landing-reason-link">
+      {link.label}
+      <span class="landing-cta-arrow" aria-hidden="true">{"→"}</span>
+    </a>
   </div>
 );
 
@@ -957,6 +1103,25 @@ const landingCss = `
   .btn:hover .landing-cta-arrow,
   .landing-cta-primary:hover .landing-cta-arrow {
     transform: translateX(4px);
+  }
+
+  /* L8 — free-tier reassurance link beneath the CTA row. */
+  .landing-hero-freenote {
+    margin-top: var(--s-5);
+    font-size: var(--t-sm);
+    color: var(--text-muted);
+    text-align: center;
+  }
+  .landing-hero-freenote-link {
+    color: var(--accent);
+    text-decoration: none;
+    font-weight: 500;
+    border-bottom: 1px dotted rgba(140,109,255,0.4);
+    transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+  }
+  .landing-hero-freenote-link:hover {
+    color: var(--text-strong);
+    border-bottom-color: var(--accent);
   }
 
   .landing-hero-caption {
@@ -1543,6 +1708,222 @@ const landingCss = `
   @media (max-width: 540px) {
     .landing-counters-grid { grid-template-columns: repeat(2, 1fr); gap: 18px 12px; }
   }
+
+  /* ---------- L10 hero install snippet ---------- */
+  .landing-hero-install {
+    display: inline-flex;
+    align-items: stretch;
+    gap: 0;
+    margin: var(--s-8) auto 0;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r);
+    box-shadow: var(--elev-1);
+    overflow: hidden;
+    max-width: 100%;
+    font-family: var(--font-mono);
+  }
+  .landing-hero-install-code {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    font-size: 13.5px;
+    color: var(--text-strong);
+    background: transparent;
+    border: 0;
+    white-space: nowrap;
+    overflow-x: auto;
+  }
+  .landing-hero-install-prompt {
+    color: var(--accent);
+    user-select: none;
+  }
+  .landing-hero-install-copy {
+    appearance: none;
+    border: 0;
+    border-left: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 0 16px;
+    cursor: pointer;
+    transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+  }
+  .landing-hero-install-copy:hover {
+    background: var(--accent-gradient-faint);
+    color: var(--accent);
+  }
+  .landing-hero-install-copy[data-copied="1"] {
+    color: var(--green, #34d399);
+  }
+
+  /* ---------- L10 hero "what just happened" rail ---------- */
+  .landing-hero-rail {
+    list-style: none;
+    padding: 0;
+    margin: var(--s-7) auto 0;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px 22px;
+    font-family: var(--font-sans);
+    font-size: var(--t-sm);
+    color: var(--text-muted);
+    max-width: 760px;
+  }
+  .landing-hero-rail li {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    line-height: 1.4;
+  }
+  .landing-hero-rail strong {
+    color: var(--text-strong);
+    font-weight: 600;
+    font-feature-settings: 'tnum';
+  }
+  .landing-hero-rail-check {
+    color: var(--accent);
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+
+  /* ---------- L10 three-reasons section ---------- */
+  .landing-reasons { margin-top: var(--s-12); }
+  .landing-reasons-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+  }
+  .landing-reason {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    padding: var(--s-7);
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-3);
+    transition: border-color var(--t-base) var(--ease), transform var(--t-base) var(--ease);
+  }
+  .landing-reason:hover {
+    border-color: var(--border-strong);
+    transform: translateY(-2px);
+  }
+  .landing-reason-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border-radius: var(--r);
+    background: var(--accent-gradient-soft);
+    color: var(--accent);
+    border: 1px solid rgba(140,109,255,0.20);
+  }
+  .landing-reason-title {
+    font-family: var(--font-display);
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    margin: 0;
+    color: var(--text-strong);
+  }
+  .landing-reason-body {
+    font-size: var(--t-sm);
+    color: var(--text-muted);
+    line-height: 1.55;
+    margin: 0;
+  }
+  .landing-reasons-code {
+    display: block;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-strong);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    padding: 8px 12px;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+  .landing-reason-link {
+    margin-top: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--accent);
+    font-size: var(--t-sm);
+    font-weight: 500;
+    text-decoration: none;
+  }
+  .landing-reason-link:hover { text-decoration: underline; }
+  @media (max-width: 960px) {
+    .landing-reasons-grid { grid-template-columns: 1fr; max-width: 520px; margin: 0 auto; }
+  }
+
+  /* ---------- L10 "How is this different" pull-quote ---------- */
+  .landing-pullquote-section {
+    margin: var(--s-20) auto var(--s-12);
+    max-width: 920px;
+    padding: 0 var(--s-4);
+    text-align: center;
+  }
+  .landing-pullquote {
+    margin: 0;
+    padding: var(--s-10) var(--s-7);
+    background:
+      radial-gradient(80% 100% at 50% 0%, rgba(140,109,255,0.10), transparent 65%),
+      var(--bg-elevated);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-xl);
+    position: relative;
+    overflow: hidden;
+  }
+  .landing-pullquote-eyebrow {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: var(--s-4);
+  }
+  .landing-pullquote-text {
+    font-family: var(--font-display);
+    font-size: clamp(20px, 2.4vw, 28px);
+    line-height: 1.4;
+    letter-spacing: -0.018em;
+    color: var(--text-strong);
+    margin: 0 auto;
+    max-width: 760px;
+    quotes: "\\201C" "\\201D";
+  }
+  .landing-pullquote-text::before { content: open-quote; color: var(--accent); margin-right: 4px; }
+  .landing-pullquote-text::after { content: close-quote; color: var(--accent); margin-left: 4px; }
+  .landing-pullquote-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: var(--s-6);
+    color: var(--accent);
+    font-size: var(--t-sm);
+    font-weight: 500;
+    text-decoration: none;
+  }
+  .landing-pullquote-link:hover { text-decoration: underline; }
+
+  /* ---------- L10 hero responsive overrides ---------- */
+  @media (max-width: 640px) {
+    .landing-hero-install { width: 100%; }
+    .landing-hero-install-code { flex: 1; font-size: 12px; }
+    .landing-hero-rail { flex-direction: column; align-items: flex-start; gap: 6px; padding: 0 var(--s-3); }
+    .landing-hero-rail li { width: 100%; }
+  }
 `;
 
 /**
@@ -1597,5 +1978,54 @@ const landingCountersJs = `
     }, { threshold: 0.4 });
     els.forEach(function(el){ io.observe(el); });
   } catch (_) { /* swallow — static numbers remain */ }
+})();
+`;
+
+/**
+ * Block L10 — clipboard copy for the hero install snippet.
+ *
+ * Pure progressive enhancement. Without JS the user can still
+ * triple-click + Cmd/Ctrl-C the snippet — the button is the
+ * speed-bump, not the only path.
+ */
+const landingCopyJs = `
+(function(){
+  try {
+    var btns = document.querySelectorAll('[data-copy-target]');
+    if (!btns.length) return;
+    btns.forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var id = btn.getAttribute('data-copy-target') || '';
+        var src = document.getElementById(id);
+        if (!src) return;
+        var text = src.textContent || '';
+        var done = function(){
+          var prev = btn.textContent;
+          btn.textContent = 'Copied';
+          btn.setAttribute('data-copied', '1');
+          setTimeout(function(){
+            btn.textContent = prev || 'Copy';
+            btn.removeAttribute('data-copied');
+          }, 1500);
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(done, function(){ done(); });
+        } else {
+          // Legacy fallback — temp textarea + execCommand.
+          try {
+            var ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.position = 'fixed';
+            ta.style.opacity = '0';
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+            done();
+          } catch (_) {}
+        }
+      });
+    });
+  } catch (_) { /* swallow */ }
 })();
 `;

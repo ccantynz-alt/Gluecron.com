@@ -32,6 +32,7 @@ import healthDashboardRoutes from "./routes/health";
 import statusRoutes from "./routes/status";
 import helpRoutes from "./routes/help";
 import marketingRoutes from "./routes/marketing";
+import pricingRoutes from "./routes/pricing";
 import seoRoutes from "./routes/seo";
 import versionRoutes from "./routes/version";
 import { platformStatus } from "./routes/platform-status";
@@ -274,6 +275,11 @@ app.route("/", statusRoutes);
 
 // /help — quickstart + API cheatsheet
 app.route("/", helpRoutes);
+
+// L8 — public /pricing page (free-tier polish). Mounted BEFORE marketing
+// so the new editorial pricing layout wins the route; the legacy marketing
+// pricing remains as a safety net but is shadowed at the router.
+app.route("/", pricingRoutes);
 
 // /pricing, /features, /about — marketing surface
 app.route("/", marketingRoutes);

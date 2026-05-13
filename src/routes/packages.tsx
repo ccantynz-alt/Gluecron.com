@@ -163,7 +163,7 @@ ui.get("/:owner/:repo/packages", async (c) => {
                 </li>
                 <li>
                   Add to your <code>.npmrc</code>:
-                  <pre style="background: #0b0d0f; color: #c7ccd1; padding: 8px 12px; border-radius: 4px; font-size: 12px; margin: 6px 0">
+                  <pre style="background: var(--bg-tertiary); color: var(--text); padding: 8px 12px; border-radius: 4px; font-size: 12px; margin: 6px 0">
                     registry={registryUrl}
                     {"\n"}
                     //{host}/npm/:_authToken=YOUR_PAT
@@ -315,7 +315,7 @@ ui.get("/:owner/:repo/packages/:pkgName{.+}", async (c) => {
             <h3 style="font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); margin: 0 0 8px 0">
               Install
             </h3>
-            <pre style="background: #0b0d0f; color: #c7ccd1; padding: 10px 14px; border-radius: 6px; font-size: 13px; overflow-x: auto">
+            <pre style="background: var(--bg-tertiary); color: var(--text); padding: 10px 14px; border-radius: 6px; font-size: 13px; overflow-x: auto">
               npm install {fullName}
               {latestVersion ? `@${latestVersion.version}` : ""}
             </pre>

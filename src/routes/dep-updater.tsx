@@ -13,6 +13,7 @@ import { db } from "../db";
 import { depUpdateRuns, repositories, users } from "../db/schema";
 import { Layout } from "../views/layout";
 import { RepoHeader } from "../views/components";
+import { formatRelative } from "../views/ui";
 import { IssueNav } from "./issues";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
@@ -170,7 +171,7 @@ depUpdater.get(
                 const applied = safeParseBumps(r.appliedBumps);
                 const attempted = safeParseBumps(r.attemptedBumps);
                 const bumps = applied.length > 0 ? applied : attempted;
-                const when = new Date(r.createdAt).toLocaleString();
+                const when = formatRelative(r.createdAt as unknown as string);
                 return (
                   <div
                     class="issue-row"

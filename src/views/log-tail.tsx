@@ -40,7 +40,7 @@ export function LogTail(props: {
       </div>
       <pre
         id={elementId}
-        style={`margin: 0; padding: 12px 14px; background: #0b0d0f; color: #c7ccd1; font-size: 12px; line-height: 1.45; overflow: auto; max-height: ${props.height || "480px"}; border-bottom-left-radius: 6px; border-bottom-right-radius: 6px`}
+        style={`margin: 0; padding: 12px 14px; background: var(--bg-tertiary); color: var(--text); font-size: 12px; line-height: 1.45; overflow: auto; max-height: ${props.height || "480px"}; border-bottom-left-radius: 6px; border-bottom-right-radius: 6px`}
       >
         {props.fallbackLogs || ""}
       </pre>

@@ -1,0 +1,26 @@
+# Caddy reverse proxy for the metal-box deploy (45.76.171.37).
+# Automatic HTTPS via Let's Encrypt — DNS already points here so HTTP-01 works.
+# Swap ACME_EMAIL when a real ops mailbox exists.
+
+{
+	email ops@gluecron.com
+}
+
+gluecron.com, www.gluecron.com {
+	encode gzip zstd
+	reverse_proxy gluecron:3000
+
+	log {
+		output file /var/log/caddy/gluecron.log {
+			roll_size 50mb
+			roll_keep 7
+		}
+		format json
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+	}
+}

@@ -1,23 +1,52 @@
 services:
   gluecron:
     build: .
-    ports:
-      - "3000:3000"
+    expose:
+      - "3000"
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - GIT_REPOS_PATH=/data/repos
       - PORT=3000
       - NODE_ENV=production
-      - GATETEST_URL=https://gatetest.ai/api/events/push
-      - CRONTECH_DEPLOY_URL=https://crontech.ai/api/trpc/tenant.deploy
+      - GATETEST_URL=${GATETEST_URL:-https://gatetest.ai/api/events/push}
+      - CRONTECH_DEPLOY_URL=${CRONTECH_DEPLOY_URL:-https://crontech.ai/api/trpc/tenant.deploy}
+      - APP_BASE_URL=${APP_BASE_URL:-https://gluecron.com}
+      - GATETEST_API_KEY=${GATETEST_API_KEY}
+      - GATETEST_CALLBACK_SECRET=${GATETEST_CALLBACK_SECRET}
+      - GATETEST_HMAC_SECRET=${GATETEST_HMAC_SECRET}
+      - GLUECRON_WEBHOOK_SECRET=${GLUECRON_WEBHOOK_SECRET}
+      - CRONTECH_EVENT_TOKEN=${CRONTECH_EVENT_TOKEN}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - EMAIL_PROVIDER=${EMAIL_PROVIDER:-log}
+      - EMAIL_FROM=${EMAIL_FROM}
+      - RESEND_API_KEY=${RESEND_API_KEY}
+      - ERROR_WEBHOOK_URL=${ERROR_WEBHOOK_URL}
+      - SENTRY_DSN=${SENTRY_DSN}
     volumes:
       - git-repos:/data/repos
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/healthz"]
       interval: 30s
       timeout: 10s
       retries: 3
 
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+      - caddy-logs:/var/log/caddy
+    depends_on:
+      - gluecron
+
 volumes:
   git-repos:
+  caddy-data:
+  caddy-config:
+  caddy-logs:

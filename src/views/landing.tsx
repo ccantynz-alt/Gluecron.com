@@ -10,19 +10,33 @@
  */
 
 import type { FC } from "hono/jsx";
+import type { PublicStats } from "../lib/public-stats";
 
 export interface LandingPageProps {
   stats?: {
     publicRepos?: number;
     users?: number;
   };
+  /**
+   * Block L4 — full public-stats payload (lifetime + trailing-7-day
+   * AI-highlight counters). When present, the hero renders an animated
+   * six-tile social-proof row beneath the eyebrow.
+   */
+  publicStats?: PublicStats | null;
 }
 
-export const LandingHero: FC<LandingPageProps> = ({ stats } = {}) => {
+export const LandingHero: FC<LandingPageProps> = ({ stats, publicStats } = {}) => {
   const hasStats =
     stats &&
     ((stats.publicRepos !== undefined && stats.publicRepos > 0) ||
       (stats.users !== undefined && stats.users > 0));
+
+  // Block L4 — six-tile social proof row. Rendered only when the
+  // cached public-stats payload is available; absent → fall back to
+  // the small text-only `landing-stats` row.
+  const tiles = publicStats
+    ? buildSocialProofTiles(publicStats)
+    : null;
 
   return (
     <>
@@ -62,6 +76,9 @@ export const LandingHero: FC<LandingPageProps> = ({ stats } = {}) => {
               </a>
               <a href="/explore" class="btn btn-secondary btn-xl">
                 Explore repos
+              </a>
+              <a href="/vs-github" class="btn btn-ghost btn-xl">
+                Compare to GitHub
               </a>
             </div>
 
@@ -103,6 +120,30 @@ export const LandingHero: FC<LandingPageProps> = ({ stats } = {}) => {
             )}
           </div>
         </section>
+
+        {/* ---------- L4 social-proof counters (animated count-up) ---------- */}
+        {tiles && (
+          <section class="landing-counters" aria-label="Gluecron live counters">
+            <div class="landing-counters-grid">
+              {tiles.map((t) => (
+                <div class="landing-counter">
+                  <div
+                    class="landing-counter-num"
+                    data-counter-target={String(t.value)}
+                    data-counter-suffix={t.suffix ?? ""}
+                    data-counter-prefix={t.prefix ?? ""}
+                  >
+                    {t.prefix ?? ""}
+                    {t.value.toLocaleString()}
+                    {t.suffix ?? ""}
+                  </div>
+                  <div class="landing-counter-label">{t.label}</div>
+                </div>
+              ))}
+            </div>
+            <script dangerouslySetInnerHTML={{ __html: landingCountersJs }} />
+          </section>
+        )}
 
         {/* ---------- Capability strip — uppercase tracked grid (crontech-style) ---------- */}
         <section class="landing-caps">
@@ -451,6 +492,49 @@ const PricingCard: FC<{
     </a>
   </div>
 );
+
+// ─────────────────────────────────────────────────────────────────
+// Block L4 — social-proof tile builder.
+//
+// Pure: takes the cached PublicStats payload and emits the six
+// landing-page tiles in render order. Exported so tests / future
+// surfaces (dashboard, /about, …) can share the exact same copy.
+// ─────────────────────────────────────────────────────────────────
+
+export interface SocialProofTile {
+  label: string;
+  value: number;
+  prefix?: string;
+  suffix?: string;
+}
+
+export function buildSocialProofTiles(s: PublicStats): SocialProofTile[] {
+  return [
+    { label: "Public repos", value: s.totalPublicRepos },
+    { label: "Developers", value: s.totalUsers },
+    {
+      label: "PRs auto-merged this week",
+      value: s.weeklyPrsAutoMerged,
+    },
+    {
+      label: "Issues built by AI this week",
+      value: s.weeklyIssuesBuiltByAi,
+    },
+    {
+      label: "Deploys shipped this week",
+      value: s.weeklyDeploysShipped,
+    },
+    {
+      label: "Hours saved this week",
+      // Round to whole hours for the tile — the precise 0.1 figure
+      // lives on the dashboard widget; the marketing surface keeps
+      // the number scannable.
+      value: Math.round(s.weeklyHoursSaved),
+      prefix: "~",
+      suffix: "h",
+    },
+  ];
+}
 
 // Backwards-compatible default — web.tsx imports `LandingPage`.
 export const LandingPage: FC<LandingPageProps> = (props) => (
@@ -1413,4 +1497,105 @@ const landingCss = `
     .landing-cta-card { padding: var(--s-10) var(--s-5); }
     .landing-cta-buttons .btn { width: 100%; justify-content: center; }
   }
+
+  /* ---------- L4 social-proof counters ---------- */
+  .landing-counters {
+    margin: var(--s-10) auto var(--s-12);
+    max-width: 1180px;
+    padding: 0 var(--s-4);
+  }
+  .landing-counters-grid {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 20px;
+    text-align: left;
+  }
+  .landing-counter {
+    padding: var(--s-3) 0;
+    border-top: 1px solid var(--border-subtle);
+  }
+  .landing-counter-num {
+    font-family: var(--font-display);
+    font-size: clamp(24px, 3vw, 38px);
+    line-height: 1.05;
+    letter-spacing: -0.03em;
+    font-weight: 700;
+    margin-bottom: 6px;
+    font-feature-settings: 'tnum';
+    background-image: var(--accent-gradient);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+  }
+  .landing-counter-label {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-faint);
+    line-height: 1.4;
+  }
+  @media (max-width: 960px) {
+    .landing-counters-grid { grid-template-columns: repeat(3, 1fr); gap: 20px 16px; }
+  }
+  @media (max-width: 540px) {
+    .landing-counters-grid { grid-template-columns: repeat(2, 1fr); gap: 18px 12px; }
+  }
+`;
+
+/**
+ * Block L4 — count-up animation.
+ *
+ * Reads each `[data-counter-target]` and animates the in-DOM text from
+ * 0 → target over ~1.2s when the element first scrolls into view.
+ *
+ * Render-once semantics: each tile already contains the final value as
+ * HTML, so visitors with JS disabled — or anyone before the script
+ * loads — sees the correct number. The script just animates the text.
+ *
+ * Falls back to the static value (no animation) when IntersectionObserver
+ * isn't available, or when the user prefers reduced motion.
+ */
+const landingCountersJs = `
+(function(){
+  try {
+    var els = document.querySelectorAll('[data-counter-target]');
+    if (!els.length) return;
+    var reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduced || typeof IntersectionObserver !== 'function') return;
+
+    function animate(el) {
+      var target = parseInt(el.getAttribute('data-counter-target') || '0', 10);
+      if (!isFinite(target) || target <= 0) return;
+      var prefix = el.getAttribute('data-counter-prefix') || '';
+      var suffix = el.getAttribute('data-counter-suffix') || '';
+      var duration = 1200;
+      var start = performance.now();
+      function frame(now) {
+        var t = Math.min(1, (now - start) / duration);
+        // ease-out cubic
+        var eased = 1 - Math.pow(1 - t, 3);
+        var v = Math.floor(eased * target);
+        el.textContent = prefix + v.toLocaleString() + suffix;
+        if (t < 1) requestAnimationFrame(frame);
+        else el.textContent = prefix + target.toLocaleString() + suffix;
+      }
+      // Reset to zero before animating in.
+      el.textContent = prefix + '0' + suffix;
+      requestAnimationFrame(frame);
+    }
+
+    var io = new IntersectionObserver(function(entries) {
+      entries.forEach(function(entry){
+        if (entry.isIntersecting) {
+          animate(entry.target);
+          io.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.4 });
+    els.forEach(function(el){ io.observe(el); });
+  } catch (_) { /* swallow — static numbers remain */ }
+})();
 `;

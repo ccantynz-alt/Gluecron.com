@@ -49,6 +49,7 @@ import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
 import { trackByName } from "../lib/traffic";
 import { LandingPage } from "../views/landing";
+import { computePublicStats, type PublicStats } from "../lib/public-stats";
 
 const web = new Hono<AuthEnv>();
 
@@ -64,6 +65,7 @@ web.get("/", async (c) => {
   }
 
   let stats: { publicRepos?: number; users?: number } | undefined;
+  let publicStats: PublicStats | null = null;
   try {
     const [repoRow] = await db
       .select({ n: sql<number>`count(*)::int` })
@@ -80,9 +82,16 @@ web.get("/", async (c) => {
     stats = undefined;
   }
 
+  // Block L4 — public stats counters (5-min in-memory cache; never throws).
+  try {
+    publicStats = await computePublicStats();
+  } catch {
+    publicStats = null;
+  }
+
   return c.html(
     <Layout user={null}>
-      <LandingPage stats={stats} />
+      <LandingPage stats={stats} publicStats={publicStats} />
     </Layout>
   );
 });

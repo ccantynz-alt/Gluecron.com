@@ -4,6 +4,7 @@ import { config } from "./lib/config";
 import { startWorker } from "./lib/workflow-runner";
 import { startAutopilot } from "./lib/autopilot";
 import { ensureDemoContent } from "./lib/demo-seed";
+import { ensureDemoActivity } from "./lib/demo-activity-seed";
 import { ensureEnvSiteAdmin } from "./lib/admin-bootstrap";
 
 // Ensure repos directory exists
@@ -23,9 +24,18 @@ startAutopilot();
 void ensureEnvSiteAdmin().catch(() => {});
 
 // Opt-in demo content seed on boot (DEMO_SEED_ON_BOOT=1). Idempotent, never
-// throws — safe to run on every start.
+// throws — safe to run on every start. Block L3 layers extra activity (more
+// issues, an open + merged PR on todo-api, AI-review comment, auto-merge
+// audit row) so the live /demo page has content out of the box.
 if (process.env.DEMO_SEED_ON_BOOT === "1") {
-  void ensureDemoContent().catch(() => {});
+  void (async () => {
+    try {
+      await ensureDemoContent();
+      await ensureDemoActivity();
+    } catch {
+      /* never throw out of boot */
+    }
+  })();
 }
 
 console.log(`

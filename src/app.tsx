@@ -35,6 +35,8 @@ import marketingRoutes from "./routes/marketing";
 import seoRoutes from "./routes/seo";
 import versionRoutes from "./routes/version";
 import { platformStatus } from "./routes/platform-status";
+import publicStatsRoutes from "./routes/public-stats";
+import demoRoutes from "./routes/demo";
 import insightRoutes from "./routes/insights";
 import dashboardRoutes from "./routes/dashboard";
 import legalRoutes from "./routes/legal";
@@ -104,6 +106,7 @@ import workflowsRoutes from "./routes/workflows";
 import workflowArtifactsRoutes from "./routes/workflow-artifacts";
 import workflowSecretsRoutes from "./routes/workflow-secrets";
 import sleepModeRoutes from "./routes/sleep-mode";
+import vsGithubRoutes from "./routes/vs-github";
 import { authRateLimit, gitRateLimit, searchRateLimit } from "./middleware/rate-limit";
 import { csrfToken, csrfProtect } from "./middleware/csrf";
 
@@ -161,6 +164,12 @@ app.route("/", gitRoutes);
 
 // REST API v1 (legacy)
 app.route("/", apiRoutes);
+
+// Block L3 — /demo + /api/v2/demo/* live demo endpoints. Mounted BEFORE
+// apiV2Routes so the /api/v2/demo/* JSON endpoints win over the v2 base
+// router's catch-shape, and BEFORE adminRoutes so the live /demo page
+// wins over the legacy /demo redirect in src/routes/admin.tsx.
+app.route("/", demoRoutes);
 
 // REST API v2 (basePath /api/v2)
 app.route("/", apiV2Routes);
@@ -254,6 +263,12 @@ app.route("/", healthRoutes);
 // Cross-product platform status (public, CORS-open — see docs/PLATFORM_STATUS.md)
 app.route("/api/platform-status", platformStatus);
 
+// Block L4 — Public stats counters (powers landing-page social proof)
+app.route("/", publicStatsRoutes);
+
+// Block L3 — Live /demo page + /api/v2/demo/* endpoints
+app.route("/", demoRoutes);
+
 // Public /status — human-readable platform health page
 app.route("/", statusRoutes);
 
@@ -345,6 +360,7 @@ app.route("/", workflowsRoutes);
 app.route("/", workflowArtifactsRoutes);
 app.route("/", workflowSecretsRoutes);
 app.route("/", sleepModeRoutes);
+app.route("/", vsGithubRoutes);
 
 // Web UI (catch-all, must be last)
 app.route("/", webRoutes);

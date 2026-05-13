@@ -61,13 +61,25 @@ describe("git repository management", () => {
 
   describe("with commits", () => {
     beforeAll(async () => {
+      // Re-pin env here: other test files mutate GIT_REPOS_PATH at module top level
+      // (e.g. import-verify.test.ts), so the env value at this point in the run
+      // is non-deterministic. Resolve to TEST_REPOS for this describe block.
+      process.env.GIT_REPOS_PATH = TEST_REPOS;
       const cloneDir = join(TEST_REPOS, "_clone_tmp");
       await mkdir(cloneDir, { recursive: true });
       const repoPath = getRepoPath(owner, repo);
 
       const run = async (cmd: string[], cwd: string) => {
         const proc = Bun.spawn(cmd, { cwd, stdout: "pipe", stderr: "pipe" });
-        await proc.exited;
+        const [exitCode, stderr] = await Promise.all([
+          proc.exited,
+          new Response(proc.stderr).text(),
+        ]);
+        if (exitCode !== 0) {
+          throw new Error(
+            `git command failed (${exitCode}): ${cmd.join(" ")}\nstderr: ${stderr}`
+          );
+        }
       };
 
       const workDir = join(cloneDir, "work");

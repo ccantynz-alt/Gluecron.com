@@ -184,10 +184,95 @@ settings.get("/settings", (c) => {
             />
             <a href="/settings/sleep-mode/preview">Preview digest now</a>
           </label>
+          <h3 style="margin-top: 32px; font-size: 16px">Mobile push notifications</h3>
+          <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 12px">
+            Install Gluecron as a PWA (look for the install banner at the
+            bottom of the page after a few visits) to get push notifications
+            when something needs your attention. Per-event filters below
+            control which notification kinds trigger a push.
+          </p>
+          <label
+            style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px; font-size: 14px"
+          >
+            <input
+              type="checkbox"
+              name="notify_push_on_mention"
+              value="1"
+              checked={user.notifyPushOnMention}
+              aria-label="Someone @mentions me"
+            />
+            <span>
+              Someone <code>@mentions</code> me
+            </span>
+          </label>
+          <label
+            style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px; font-size: 14px"
+          >
+            <input
+              type="checkbox"
+              name="notify_push_on_assign"
+              value="1"
+              checked={user.notifyPushOnAssign}
+              aria-label="I am assigned to an issue or PR"
+            />
+            <span>I am assigned to an issue or PR</span>
+          </label>
+          <label
+            style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px; font-size: 14px"
+          >
+            <input
+              type="checkbox"
+              name="notify_push_on_review_request"
+              value="1"
+              checked={user.notifyPushOnReviewRequest}
+              aria-label="Someone requests a review from me"
+            />
+            <span>Someone requests a review from me</span>
+          </label>
+          <label
+            style="display: flex; gap: 8px; align-items: center; margin-bottom: 12px; font-size: 14px"
+          >
+            <input
+              type="checkbox"
+              name="notify_push_on_deploy_failed"
+              value="1"
+              checked={user.notifyPushOnDeployFailed}
+              aria-label="A deploy fails"
+            />
+            <span>A deploy fails on one of my repositories</span>
+          </label>
           <button type="submit" class="btn btn-primary">
             Save preferences
           </button>
         </form>
+        <div
+          id="gc-push-device"
+          style="margin-top:16px;padding:12px;border:1px solid var(--border);border-radius:6px;background:var(--bg-elevated,transparent)"
+        >
+          <div
+            id="gc-push-status"
+            style="font-size:13px;color:var(--text-muted)"
+          >
+            Push status: checking…
+          </div>
+          <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+            <button type="button" id="gc-push-subscribe" class="btn btn-sm btn-primary">
+              Subscribe on this device
+            </button>
+            <button type="button" id="gc-push-unsubscribe" class="btn btn-sm">
+              Unsubscribe
+            </button>
+            <button type="button" id="gc-push-test" class="btn btn-sm">
+              Send test notification
+            </button>
+          </div>
+          <div
+            id="gc-push-msg"
+            role="status"
+            style="margin-top:8px;font-size:12px;color:var(--text-muted);min-height:1em"
+          />
+        </div>
+        <script dangerouslySetInnerHTML={{ __html: pushDeviceScript }} />
       </div>
     </Layout>
   );
@@ -288,11 +373,116 @@ settings.post("/settings/notifications", async (c) => {
         String(body.notify_email_digest_weekly || "") === "1",
       sleepModeEnabled: String(body.sleep_mode_enabled || "") === "1",
       sleepModeDigestHourUtc: hour,
+      // Block M2 — per-event push preferences.
+      notifyPushOnMention:
+        String(body.notify_push_on_mention || "") === "1",
+      notifyPushOnAssign:
+        String(body.notify_push_on_assign || "") === "1",
+      notifyPushOnReviewRequest:
+        String(body.notify_push_on_review_request || "") === "1",
+      notifyPushOnDeployFailed:
+        String(body.notify_push_on_deploy_failed || "") === "1",
       updatedAt: new Date(),
     })
     .where(eq(users.id, user.id));
-  return c.redirect("/settings?success=Email+preferences+updated");
+  return c.redirect("/settings?success=Notification+preferences+updated");
 });
+
+// Block M2 — client-side device subscribe/unsubscribe/test helpers. Plain
+// JS, no framework; reads/writes via the /pwa/* endpoints.
+const pushDeviceScript = `
+(function(){
+  var statusEl = document.getElementById('gc-push-status');
+  var msgEl    = document.getElementById('gc-push-msg');
+  var subBtn   = document.getElementById('gc-push-subscribe');
+  var unsubBtn = document.getElementById('gc-push-unsubscribe');
+  var testBtn  = document.getElementById('gc-push-test');
+  function setStatus(s){ if (statusEl) statusEl.textContent = 'Push status: ' + s; }
+  function setMsg(s){ if (msgEl) msgEl.textContent = s; }
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    setStatus("Browser doesn't support push");
+    if (subBtn) subBtn.disabled = true;
+    if (unsubBtn) unsubBtn.disabled = true;
+    if (testBtn) testBtn.disabled = true;
+    return;
+  }
+  function b64uToU8(s){
+    var pad = '='.repeat((4 - s.length % 4) % 4);
+    var b64 = (s + pad).replace(/-/g, '+').replace(/_/g, '/');
+    var bin = atob(b64);
+    var out = new Uint8Array(bin.length);
+    for (var i=0; i<bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+  function getReg(){
+    return navigator.serviceWorker.getRegistration('/').then(function(r){
+      return r || navigator.serviceWorker.register('/sw-push.js', { scope: '/' });
+    });
+  }
+  function refresh(){
+    getReg().then(function(reg){
+      return reg.pushManager.getSubscription();
+    }).then(function(sub){
+      if (sub) {
+        setStatus('Enabled on this device');
+        if (subBtn) subBtn.disabled = true;
+        if (unsubBtn) unsubBtn.disabled = false;
+        if (testBtn) testBtn.disabled = false;
+      } else {
+        setStatus('Not subscribed on this device');
+        if (subBtn) subBtn.disabled = false;
+        if (unsubBtn) unsubBtn.disabled = true;
+        if (testBtn) testBtn.disabled = true;
+      }
+    }).catch(function(){ setStatus('unavailable'); });
+  }
+  if (subBtn) subBtn.addEventListener('click', function(){
+    setMsg('Requesting permission…');
+    Notification.requestPermission().then(function(perm){
+      if (perm !== 'granted') { setMsg('Permission denied.'); return; }
+      return fetch('/pwa/vapid-public-key').then(function(r){ return r.json(); }).then(function(j){
+        if (!j || !j.key) throw new Error('no vapid key');
+        return getReg().then(function(reg){
+          return reg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: b64uToU8(j.key),
+          });
+        });
+      }).then(function(sub){
+        var json = sub.toJSON();
+        return fetch('/pwa/subscribe', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ endpoint: json.endpoint, keys: json.keys }),
+        });
+      }).then(function(){ setMsg('Subscribed.'); refresh(); });
+    }).catch(function(err){ setMsg('Failed: ' + (err && err.message || err)); });
+  });
+  if (unsubBtn) unsubBtn.addEventListener('click', function(){
+    getReg().then(function(reg){
+      return reg.pushManager.getSubscription();
+    }).then(function(sub){
+      if (!sub) return;
+      var endpoint = sub.endpoint;
+      return sub.unsubscribe().then(function(){
+        return fetch('/pwa/unsubscribe', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ endpoint: endpoint }),
+        });
+      });
+    }).then(function(){ setMsg('Unsubscribed.'); refresh(); })
+      .catch(function(err){ setMsg('Failed: ' + (err && err.message || err)); });
+  });
+  if (testBtn) testBtn.addEventListener('click', function(){
+    fetch('/pwa/test', { method: 'POST' }).then(function(r){ return r.json(); })
+      .then(function(j){
+        setMsg('Sent ' + (j.sent || 0) + ', failed ' + (j.failed || 0) + '.');
+      }).catch(function(err){ setMsg('Failed: ' + (err && err.message || err)); });
+  });
+  refresh();
+})();
+`;
 
 settings.post("/settings/profile", async (c) => {
   const user = c.get("user")!;

@@ -86,6 +86,15 @@ Full reference is in [`.env.example`](./.env.example); cross-reference BUILD_BIB
 | `AUTOPILOT_DISABLED=1` | Opt out of the 5-minute autopilot ticker (mirror sync, merge-queue processing, weekly digests, advisory rescans). Default: enabled. |
 | `DEMO_SEED_ON_BOOT=1` | Idempotently create a `demo` user plus three public sample repos (`hello-python`, `todo-api`, `design-docs`) on server start. Safe to leave enabled — a second run is a near-instant no-op. Site admins can also trigger a reseed manually from `/admin`. |
 
+### Web Push / PWA (Block M2)
+| Variable | Purpose |
+|---|---|
+| `VAPID_PUBLIC_KEY` | Base64url-encoded uncompressed P-256 public key (65 bytes). Sent to browsers as the `applicationServerKey` for `pushManager.subscribe()`. **If unset, a fresh keypair is generated in-memory at first use and every restart invalidates all existing subscriptions — production must set this.** |
+| `VAPID_PRIVATE_KEY` | Base64url-encoded raw 32-byte private scalar paired with `VAPID_PUBLIC_KEY`. Used to ES256-sign the per-delivery JWT. Treat as a secret. |
+| `VAPID_SUBJECT` | `mailto:` or `https:` URL identifying the app, included in every VAPID JWT. Defaults to `mailto:ops@gluecron.com`. |
+
+To generate a fresh pair locally, run a one-off Bun snippet using Web Crypto's `subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])` and base64url-encode the raw public key + the JWK private scalar (`d`). The boot log emits the generated public key on first push send when env vars are absent.
+
 ---
 
 ## 4. Database migrations

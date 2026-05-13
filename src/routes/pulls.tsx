@@ -27,6 +27,11 @@ import { isAiReviewEnabled, triggerAiReview } from "../lib/ai-review";
 import { triggerPrTriage } from "../lib/pr-triage";
 import { generatePrSummary } from "../lib/ai-generators";
 import { isAiAvailable } from "../lib/ai-client";
+import {
+  computePrRiskForPullRequest,
+  getCachedPrRisk,
+  type PrRiskScore,
+} from "../lib/pr-risk";
 import { runAllGateChecks } from "../lib/gate";
 import type { GateCheckResult } from "../lib/gate";
 import {
@@ -147,6 +152,135 @@ const PrNav = ({
     ]}
   />
 );
+
+/**
+ * Block M3 — pre-merge risk score card. Pure presentational helper.
+ * Rendered in the conversation tab above the gate checks block. Hidden
+ * entirely when the PR is closed/merged or there is nothing cached and
+ * nothing in-flight.
+ */
+function PrRiskCard({
+  risk,
+  calculating,
+}: {
+  risk: PrRiskScore | null;
+  calculating: boolean;
+}) {
+  if (!risk) {
+    return (
+      <div
+        style={`margin-top: 20px; padding: 14px 16px; background: var(--bg-secondary); border: 1px dashed var(--border); border-radius: var(--radius); color: var(--text-muted)`}
+      >
+        <strong style="font-size: 13px; color: var(--text)">
+          Risk score: calculating…
+        </strong>
+        <div style="font-size: 12px; margin-top: 4px">
+          Refresh in a moment to see the pre-merge risk score for this PR.
+        </div>
+      </div>
+    );
+  }
+
+  const palette = riskBandPalette(risk.band);
+  const label = riskBandLabel(risk.band);
+
+  return (
+    <div
+      style={`margin-top: 20px; padding: 14px 16px; background: var(--bg-secondary); border: 2px solid ${palette.border}; border-radius: var(--radius)`}
+    >
+      <div style="display:flex;align-items:center;gap:8px;font-size:14px">
+        <strong>Risk score:</strong>
+        <span style={`color:${palette.border};font-weight:600`}>
+          {palette.icon} {label} ({risk.score}/10)
+        </span>
+        <span style="margin-left:auto;font-size:11px;color:var(--text-muted)">
+          {risk.commitSha.slice(0, 7)}
+        </span>
+      </div>
+      {risk.aiSummary && (
+        <div style="font-size:13px;color:var(--text);margin-top:8px;line-height:1.5">
+          {risk.aiSummary}
+        </div>
+      )}
+      <details style="margin-top:10px">
+        <summary style="cursor:pointer;font-size:12px;color:var(--text-muted)">
+          See full signal breakdown
+        </summary>
+        <ul style="font-size:12px;margin:8px 0 0 0;padding-left:18px;color:var(--text)">
+          <li>files changed: {risk.signals.filesChanged}</li>
+          <li>
+            lines added/removed: {risk.signals.linesAdded} /{" "}
+            {risk.signals.linesRemoved}
+          </li>
+          <li>distinct owners touched: {risk.signals.teamsAffected}</li>
+          <li>
+            schema migration touched:{" "}
+            {risk.signals.schemaMigrationTouched ? "yes" : "no"}
+          </li>
+          <li>
+            locked / sensitive path touched:{" "}
+            {risk.signals.lockedPathTouched ? "yes" : "no"}
+          </li>
+          <li>
+            adds new dependency:{" "}
+            {risk.signals.addsNewDependency ? "yes" : "no"}
+          </li>
+          <li>
+            bumps major dependency:{" "}
+            {risk.signals.bumpsMajorDependency ? "yes" : "no"}
+          </li>
+          <li>
+            tests added for new code:{" "}
+            {risk.signals.testsAddedForNewCode ? "yes" : "no"}
+          </li>
+          <li>
+            diff-minus-test ratio:{" "}
+            {risk.signals.diffMinusTestRatio.toFixed(2)}
+          </li>
+        </ul>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:6px">
+          How is this calculated? The score is a transparent sum of
+          weighted signals — see <code>src/lib/pr-risk.ts</code>
+          {" "}<code>computePrRiskScore</code>.
+        </div>
+      </details>
+      {calculating && (
+        <div style="font-size:11px;color:var(--text-muted);margin-top:6px">
+          (recomputing for the latest commit — refresh to update)
+        </div>
+      )}
+    </div>
+  );
+}
+
+function riskBandPalette(band: PrRiskScore["band"]): {
+  border: string;
+  icon: string;
+} {
+  switch (band) {
+    case "low":
+      return { border: "var(--green)", icon: "" };
+    case "medium":
+      return { border: "var(--yellow, #d29922)", icon: "ℹ" };
+    case "high":
+      return { border: "var(--orange, #db6d28)", icon: "⚠" };
+    case "critical":
+      return { border: "var(--red)", icon: "\u{1F6D1}" };
+  }
+}
+
+function riskBandLabel(band: PrRiskScore["band"]): string {
+  switch (band) {
+    case "low":
+      return "LOW";
+    case "medium":
+      return "MEDIUM";
+    case "high":
+      return "HIGH";
+    case "critical":
+      return "CRITICAL";
+  }
+}
 
 // List PRs
 pulls.get("/:owner/:repo/pulls", softAuth, requireRepoAccess("read"), async (c) => {
@@ -538,6 +672,19 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
     }
   }
 
+  // Block M3 — pre-merge risk score. Cache-only on the request path so
+  // the page never waits on Haiku. On a cache miss for an open PR we
+  // kick off the computation fire-and-forget; the next refresh shows it.
+  let prRisk: PrRiskScore | null = null;
+  let prRiskCalculating = false;
+  if (pr.state === "open") {
+    prRisk = await getCachedPrRisk(pr.id).catch(() => null);
+    if (!prRisk) {
+      prRiskCalculating = true;
+      void computePrRiskForPullRequest(pr.id).catch(() => {});
+    }
+  }
+
   // Get diff for "Files changed" tab
   let diffRaw = "";
   let diffFiles: GitDiffFile[] = [];
@@ -688,6 +835,10 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
               <div style="margin-top: 16px; padding: 12px; background: rgba(56, 139, 253, 0.1); border: 1px solid var(--accent); border-radius: var(--radius); color: var(--text)">
                 {decodeURIComponent(info)}
               </div>
+            )}
+
+            {pr.state === "open" && (prRisk || prRiskCalculating) && (
+              <PrRiskCard risk={prRisk} calculating={prRiskCalculating} />
             )}
 
             {pr.state === "open" && gateChecks.length > 0 && (

@@ -43,6 +43,7 @@ import {
 import { AI_REVIEW_MARKER } from "./ai-review";
 import { audit } from "./notify";
 import { getRepoPath } from "../git/repository";
+import { getLatestCachedPrRisk } from "./pr-risk";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -86,6 +87,10 @@ export interface AutoMergeOptions {
 /**
  * Internal pure decision helper. All DB-derived facts are passed in as
  * arguments so tests can drive every branch without a real database.
+ *
+ * Block M3 — when `risk` is provided AND its band is `critical`, the
+ * auto-merge is blocked with a clear reason. Lower bands never block
+ * auto-merge; the score is informational on the manual path only.
  */
 export function decideAutoMerge(args: {
   rule: BranchProtection | null;
@@ -97,6 +102,7 @@ export function decideAutoMerge(args: {
   requiredCheckNames: string[];
   diffStats?: { files: number; lines: number } | null;
   caps?: { maxChangedFiles?: number; maxChangedLines?: number };
+  risk?: { score: number; band: "low" | "medium" | "high" | "critical" } | null;
 }): AutoMergeDecision {
   const blocking: string[] = [];
 
@@ -139,6 +145,12 @@ export function decideAutoMerge(args: {
   // requireAiApproval=true. We do NOT double-add the same reason here; the
   // caller is responsible for sourcing `aiApproved` from a marker-bearing
   // AI comment that survives `aiCommentLooksApproved`.
+
+  // M3. Pre-merge risk score — `critical` blocks auto-merge regardless
+  // of every other gate being green. Lower bands are informational only.
+  if (args.risk && args.risk.band === "critical") {
+    blocking.push(`PR risk score is critical (${args.risk.score}/10)`);
+  }
 
   // 5. Optional size cap.
   if (args.caps && args.diffStats) {
@@ -341,6 +353,20 @@ export async function evaluateAutoMerge(
     );
   }
 
+  // M3 — best-effort cached risk lookup. Never throws; missing risk
+  // simply means the decision falls through to the existing gates.
+  let riskForDecision:
+    | { score: number; band: "low" | "medium" | "high" | "critical" }
+    | null = null;
+  try {
+    const cached = await getLatestCachedPrRisk(ctx.pullRequestId);
+    if (cached) {
+      riskForDecision = { score: cached.score, band: cached.band };
+    }
+  } catch {
+    riskForDecision = null;
+  }
+
   return decideAutoMerge({
     rule,
     isDraft: ctx.isDraft,
@@ -356,6 +382,7 @@ export async function evaluateAutoMerge(
           maxChangedLines: opts.maxChangedLines,
         }
       : undefined,
+    risk: riskForDecision,
   });
 }
 

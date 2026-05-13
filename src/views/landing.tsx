@@ -22,6 +22,50 @@
 
 import type { FC } from "hono/jsx";
 import type { PublicStats } from "../lib/public-stats";
+import { DEMO_USERNAME } from "../lib/demo-seed";
+
+export interface LandingLiveFeedQueued {
+  repo: string;
+  number: number;
+  title: string;
+  createdAt: string | Date;
+}
+
+export interface LandingLiveFeedMerge {
+  repo: string;
+  number: number;
+  title: string;
+  mergedAt: string | Date;
+}
+
+export interface LandingLiveFeedReview {
+  repo: string;
+  prNumber: number;
+  commentSnippet: string;
+  createdAt: string | Date;
+}
+
+export interface LandingLiveFeedEntry {
+  kind: "auto_merge.merged" | "ai_build.dispatched" | "ai_review.posted";
+  repo: string;
+  ref: { type: "issue" | "pr"; number: number };
+  at: string | Date;
+}
+
+/**
+ * Block M1 — server-rendered snapshot of the live-now feed. The same
+ * fields are also fetched client-side every 30s from
+ * `/api/v2/demo/{queued,merges,reviews,activity}`. Optional so existing
+ * call-sites (and tests that don't care about the live block) keep
+ * compiling.
+ */
+export interface LandingLiveFeed {
+  queued: LandingLiveFeedQueued[];
+  merges: LandingLiveFeedMerge[];
+  reviews: LandingLiveFeedReview[];
+  reviewCount: number;
+  feed: LandingLiveFeedEntry[];
+}
 
 export interface LandingPageProps {
   stats?: {
@@ -34,9 +78,20 @@ export interface LandingPageProps {
    * six-tile social-proof row beneath the eyebrow.
    */
   publicStats?: PublicStats | null;
+  /**
+   * Block M1 — initial SSR snapshot for the live-now feed block.
+   * The same endpoints poll client-side every 30s. When undefined the
+   * section still renders, but with empty-state copy until the first
+   * client poll lands.
+   */
+  liveFeed?: LandingLiveFeed | null;
 }
 
-export const LandingHero: FC<LandingPageProps> = ({ stats, publicStats } = {}) => {
+export const LandingHero: FC<LandingPageProps> = ({
+  stats,
+  publicStats,
+  liveFeed,
+} = {}) => {
   const hasStats =
     stats &&
     ((stats.publicRepos !== undefined && stats.publicRepos > 0) ||
@@ -48,6 +103,15 @@ export const LandingHero: FC<LandingPageProps> = ({ stats, publicStats } = {}) =
   const tiles = publicStats
     ? buildSocialProofTiles(publicStats)
     : null;
+
+  // Block M1 — SSR-friendly fallbacks so the no-JS path still renders
+  // a populated block. The client-side poller will overwrite these
+  // every 30s anyway.
+  const liveQueued = liveFeed?.queued ?? [];
+  const liveMerges = liveFeed?.merges ?? [];
+  const liveReviews = liveFeed?.reviews ?? [];
+  const liveReviewCount = liveFeed?.reviewCount ?? 0;
+  const liveEntries = liveFeed?.feed ?? [];
 
   return (
     <>
@@ -181,6 +245,15 @@ export const LandingHero: FC<LandingPageProps> = ({ stats, publicStats } = {}) =
             )}
           </div>
         </section>
+
+        {/* ---------- Block M1 — Live-now demo feed ---------- */}
+        <LiveNowSection
+          queued={liveQueued}
+          merges={liveMerges}
+          reviews={liveReviews}
+          reviewCount={liveReviewCount}
+          feed={liveEntries}
+        />
 
         {/* ---------- L4 social-proof counters (animated count-up) ---------- */}
         {tiles && (
@@ -681,6 +754,451 @@ export function buildSocialProofTiles(s: PublicStats): SocialProofTile[] {
     },
   ];
 }
+
+// ─────────────────────────────────────────────────────────────────
+// Block M1 — Live-now demo feed.
+//
+// A 4-tile row inserted between the hero and the L4 counters tile
+// section, surfacing real autopilot activity from the seeded `demo`
+// owner's repos:
+//   1. Issues queued for AI build (ai:build label, open)
+//   2. PRs auto-merged in the last 24h
+//   3. AI reviews posted today (count + latest 3)
+//   4. Combined activity feed (last 10)
+//
+// SSR-renders an initial snapshot, then re-fetches every 30s via the
+// L3 JSON endpoints so the page feels alive without a websocket.
+// Pure presentational; the route layer owns the DB reads.
+// ─────────────────────────────────────────────────────────────────
+
+/**
+ * Render an ISO timestamp (or Date) as a coarse "about N units ago"
+ * string. Tolerates strings, Dates, NaN, and future timestamps.
+ *
+ * Exported for unit testing.
+ */
+export function relativeTimeFromNow(
+  value: string | Date | number | null | undefined,
+  now: number = Date.now()
+): string {
+  if (value === null || value === undefined) return "just now";
+  let t: number;
+  if (value instanceof Date) {
+    t = value.getTime();
+  } else if (typeof value === "number") {
+    t = value;
+  } else {
+    t = new Date(value).getTime();
+  }
+  if (!Number.isFinite(t)) return "just now";
+  const delta = now - t;
+  // Future timestamps (clock skew) — treat as "just now" rather than
+  // surfacing a confusing negative.
+  if (delta < 0) return "just now";
+  const s = Math.floor(delta / 1000);
+  if (s < 60) return "just now";
+  const m = Math.floor(s / 60);
+  if (m < 60) return `about ${m} minute${m === 1 ? "" : "s"} ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `about ${h} hour${h === 1 ? "" : "s"} ago`;
+  const d = Math.floor(h / 24);
+  return `about ${d} day${d === 1 ? "" : "s"} ago`;
+}
+
+function feedEntryId(e: LandingLiveFeedEntry): string {
+  const at = e.at instanceof Date ? e.at.toISOString() : String(e.at);
+  return `${e.kind}|${e.repo}|${e.ref.type}|${e.ref.number}|${at}`;
+}
+
+function feedEntryLabel(kind: LandingLiveFeedEntry["kind"]): string {
+  switch (kind) {
+    case "auto_merge.merged":
+      return "auto-merged";
+    case "ai_build.dispatched":
+      return "AI-build queued";
+    case "ai_review.posted":
+      return "AI review posted";
+  }
+}
+
+interface LiveNowSectionProps {
+  queued: LandingLiveFeedQueued[];
+  merges: LandingLiveFeedMerge[];
+  reviews: LandingLiveFeedReview[];
+  reviewCount: number;
+  feed: LandingLiveFeedEntry[];
+}
+
+const LiveNowSection: FC<LiveNowSectionProps> = ({
+  queued,
+  merges,
+  reviews,
+  reviewCount,
+  feed,
+}) => {
+  return (
+    <section class="landing-livenow" aria-labelledby="landing-livenow-h">
+      <div class="landing-livenow-head">
+        <div class="landing-livenow-eyebrow">
+          <span class="landing-livenow-pulse" aria-hidden="true" />
+          Live now
+        </div>
+        <h2 id="landing-livenow-h" class="landing-livenow-title">
+          Claude is working on demo repos as you read this.
+        </h2>
+        <p class="landing-livenow-sub">
+          Every card below is real data from the public{" "}
+          <code>{DEMO_USERNAME}/*</code> repos. Refreshes every 30 seconds.
+        </p>
+      </div>
+
+      <div class="landing-livenow-grid" data-livenow-grid>
+        {/* Card 1 — queued issues */}
+        <article class="landing-livecard" aria-labelledby="lc-queued-h">
+          <header class="landing-livecard-head">
+            <span class="landing-livecard-dot" aria-hidden="true" />
+            <h3 id="lc-queued-h" class="landing-livecard-title">
+              Issues queued for AI
+            </h3>
+          </header>
+          <ul class="landing-livecard-list" data-livecard="queued">
+            {queued.length === 0 ? (
+              <li class="landing-livecard-empty">
+                No queued AI builds — quiet right now.
+              </li>
+            ) : (
+              queued.slice(0, 3).map((i) => (
+                <li
+                  class="landing-livecard-row"
+                  data-row-id={`queued|${i.repo}|${i.number}`}
+                >
+                  <a
+                    class="landing-livecard-link"
+                    href={`/${DEMO_USERNAME}/${i.repo}/issues/${i.number}`}
+                  >
+                    <span class="landing-livecard-num">#{i.number}</span>{" "}
+                    <span class="landing-livecard-title-text">{i.title}</span>
+                  </a>
+                  <div class="landing-livecard-meta">
+                    <span class="landing-livecard-repo">{i.repo}</span>
+                  </div>
+                </li>
+              ))
+            )}
+          </ul>
+        </article>
+
+        {/* Card 2 — recently merged */}
+        <article class="landing-livecard" aria-labelledby="lc-merges-h">
+          <header class="landing-livecard-head">
+            <span class="landing-livecard-dot" aria-hidden="true" />
+            <h3 id="lc-merges-h" class="landing-livecard-title">
+              Recently merged by AI
+            </h3>
+          </header>
+          <ul class="landing-livecard-list" data-livecard="merges">
+            {merges.length === 0 ? (
+              <li class="landing-livecard-empty">
+                No auto-merges in the last 24h.
+              </li>
+            ) : (
+              merges.slice(0, 3).map((m) => (
+                <li
+                  class="landing-livecard-row"
+                  data-row-id={`merges|${m.repo}|${m.number}`}
+                >
+                  <a
+                    class="landing-livecard-link"
+                    href={`/${DEMO_USERNAME}/${m.repo}/pulls/${m.number}`}
+                  >
+                    <span class="landing-livecard-num">#{m.number}</span>{" "}
+                    <span class="landing-livecard-title-text">{m.title}</span>
+                  </a>
+                  <div class="landing-livecard-meta">
+                    AI merged in{" "}
+                    <span class="landing-livecard-repo">{m.repo}</span>{" "}
+                    <span
+                      class="landing-livecard-rel"
+                      data-rel={
+                        m.mergedAt instanceof Date
+                          ? m.mergedAt.toISOString()
+                          : String(m.mergedAt)
+                      }
+                    >
+                      {relativeTimeFromNow(m.mergedAt)}
+                    </span>
+                  </div>
+                </li>
+              ))
+            )}
+          </ul>
+        </article>
+
+        {/* Card 3 — AI reviews */}
+        <article class="landing-livecard" aria-labelledby="lc-reviews-h">
+          <header class="landing-livecard-head">
+            <span class="landing-livecard-dot" aria-hidden="true" />
+            <h3 id="lc-reviews-h" class="landing-livecard-title">
+              AI reviews posted
+            </h3>
+          </header>
+          <div class="landing-livecard-bignum">
+            <span
+              class="landing-livecard-bignum-n"
+              data-livecard-count="reviews"
+              data-tick-target={String(reviewCount)}
+            >
+              {reviewCount.toLocaleString()}
+            </span>
+            <span class="landing-livecard-bignum-label">reviews today</span>
+          </div>
+          <ul class="landing-livecard-list" data-livecard="reviews">
+            {reviews.length === 0 ? (
+              <li class="landing-livecard-empty">
+                No AI reviews in the last 24h.
+              </li>
+            ) : (
+              reviews.slice(0, 3).map((r) => (
+                <li
+                  class="landing-livecard-row"
+                  data-row-id={`reviews|${r.repo}|${r.prNumber}`}
+                >
+                  <a
+                    class="landing-livecard-link"
+                    href={`/${DEMO_USERNAME}/${r.repo}/pulls/${r.prNumber}`}
+                  >
+                    <span class="landing-livecard-num">#{r.prNumber}</span>{" "}
+                    <span class="landing-livecard-snippet">
+                      {r.commentSnippet}
+                    </span>
+                  </a>
+                  <div class="landing-livecard-meta">
+                    <span class="landing-livecard-repo">{r.repo}</span>
+                  </div>
+                </li>
+              ))
+            )}
+          </ul>
+        </article>
+
+        {/* Card 4 — activity feed */}
+        <article class="landing-livecard" aria-labelledby="lc-feed-h">
+          <header class="landing-livecard-head">
+            <span class="landing-livecard-dot" aria-hidden="true" />
+            <h3 id="lc-feed-h" class="landing-livecard-title">
+              Activity feed
+            </h3>
+          </header>
+          <ul class="landing-livecard-list landing-livecard-feed" data-livecard="feed">
+            {feed.length === 0 ? (
+              <li class="landing-livecard-empty">
+                Quiet right now — check back in a minute.
+              </li>
+            ) : (
+              feed.slice(0, 10).map((e) => {
+                const path = e.ref.type === "pr" ? "pulls" : "issues";
+                const id = feedEntryId(e);
+                return (
+                  <li class="landing-livecard-feedrow" data-row-id={id}>
+                    <span
+                      class={`landing-livecard-kind landing-livecard-kind-${e.kind.replace(/\./g, "-")}`}
+                    >
+                      {feedEntryLabel(e.kind)}
+                    </span>{" "}
+                    <a
+                      class="landing-livecard-link"
+                      href={`/${DEMO_USERNAME}/${e.repo}/${path}/${e.ref.number}`}
+                    >
+                      {e.repo} #{e.ref.number}
+                    </a>{" "}
+                    <span
+                      class="landing-livecard-rel"
+                      data-rel={
+                        e.at instanceof Date ? e.at.toISOString() : String(e.at)
+                      }
+                    >
+                      {relativeTimeFromNow(e.at)}
+                    </span>
+                  </li>
+                );
+              })
+            )}
+          </ul>
+        </article>
+      </div>
+
+      <div class="landing-livenow-cta">
+        <span class="landing-livenow-cta-text">
+          Want this for your repos?
+        </span>
+        <a class="landing-livenow-cta-link" href="/register">
+          Sign up free
+          <span class="landing-cta-arrow" aria-hidden="true">{"→"}</span>
+        </a>
+        <span class="landing-livenow-cta-sep" aria-hidden="true">·</span>
+        <a class="landing-livenow-cta-link" href="/demo">
+          Try the live demo
+          <span class="landing-cta-arrow" aria-hidden="true">{"→"}</span>
+        </a>
+      </div>
+
+      <script dangerouslySetInnerHTML={{ __html: liveNowJs }} />
+    </section>
+  );
+};
+
+// Inline poller. Plain JS so we don't ship a separate bundle. Hits the
+// four L3 JSON endpoints every 30s, re-renders the four cards, ticks
+// the big number, refreshes relative timestamps, flashes new rows.
+const liveNowJs = `
+(function(){
+try{
+  var DEMO=${JSON.stringify(DEMO_USERNAME)};
+  var INTERVAL=30000;
+  function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+  function rel(v){
+    if(v==null) return 'just now';
+    var t=(v instanceof Date)?v.getTime():(typeof v==='number'?v:new Date(v).getTime());
+    if(!isFinite(t)) return 'just now';
+    var d=Date.now()-t;
+    if(d<0) return 'just now';
+    var s=Math.floor(d/1000);
+    if(s<60) return 'just now';
+    var m=Math.floor(s/60);
+    if(m<60) return 'about '+m+' minute'+(m===1?'':'s')+' ago';
+    var h=Math.floor(m/60);
+    if(h<24) return 'about '+h+' hour'+(h===1?'':'s')+' ago';
+    var dd=Math.floor(h/24);
+    return 'about '+dd+' day'+(dd===1?'':'s')+' ago';
+  }
+  function tickNumber(el,target){
+    if(!el) return;
+    var start=parseInt(el.getAttribute('data-tick-current')||'0',10)||0;
+    if(start===target){el.textContent=target.toLocaleString();el.setAttribute('data-tick-current',String(target));return;}
+    var dur=800,t0=performance.now();
+    function step(now){
+      var p=Math.min(1,(now-t0)/dur);
+      var eased=1-Math.pow(1-p,3);
+      var v=Math.round(start+(target-start)*eased);
+      el.textContent=v.toLocaleString();
+      if(p<1) requestAnimationFrame(step); else el.setAttribute('data-tick-current',String(target));
+    }
+    requestAnimationFrame(step);
+  }
+  function flashRow(li){
+    if(!li) return;
+    li.classList.add('landing-livecard-flash');
+    setTimeout(function(){li.classList.remove('landing-livecard-flash');},1100);
+  }
+  function diffMount(ul,newHtml,newIds){
+    if(!ul) return;
+    var prev={};
+    var nodes=ul.querySelectorAll('[data-row-id]');
+    for(var i=0;i<nodes.length;i++){prev[nodes[i].getAttribute('data-row-id')]=true;}
+    ul.innerHTML=newHtml;
+    var fresh=ul.querySelectorAll('[data-row-id]');
+    for(var j=0;j<fresh.length;j++){
+      var id=fresh[j].getAttribute('data-row-id');
+      if(id && !prev[id]) flashRow(fresh[j]);
+    }
+  }
+  function pollQueued(){
+    return fetch('/api/v2/demo/queued',{credentials:'omit'}).then(function(r){return r.json();}).then(function(d){
+      var ul=document.querySelector('[data-livecard="queued"]');if(!ul) return;
+      var items=(d&&d.items)||[];
+      if(items.length===0){ul.innerHTML='<li class="landing-livecard-empty">No queued AI builds — quiet right now.</li>';return;}
+      var ids=[];
+      var html=items.slice(0,3).map(function(i){
+        var id='queued|'+i.repo+'|'+i.number;ids.push(id);
+        return '<li class="landing-livecard-row" data-row-id="'+esc(id)+'">'+
+               '<a class="landing-livecard-link" href="/'+esc(DEMO)+'/'+esc(i.repo)+'/issues/'+i.number+'">'+
+               '<span class="landing-livecard-num">#'+i.number+'</span> '+
+               '<span class="landing-livecard-title-text">'+esc(i.title)+'</span></a>'+
+               '<div class="landing-livecard-meta"><span class="landing-livecard-repo">'+esc(i.repo)+'</span></div></li>';
+      }).join('');
+      diffMount(ul,html,ids);
+    }).catch(function(){});
+  }
+  function pollMerges(){
+    return fetch('/api/v2/demo/merges',{credentials:'omit'}).then(function(r){return r.json();}).then(function(d){
+      var ul=document.querySelector('[data-livecard="merges"]');if(!ul) return;
+      var items=(d&&d.items)||[];
+      if(items.length===0){ul.innerHTML='<li class="landing-livecard-empty">No auto-merges in the last 24h.</li>';return;}
+      var ids=[];
+      var html=items.slice(0,3).map(function(m){
+        var id='merges|'+m.repo+'|'+m.number;ids.push(id);
+        return '<li class="landing-livecard-row" data-row-id="'+esc(id)+'">'+
+               '<a class="landing-livecard-link" href="/'+esc(DEMO)+'/'+esc(m.repo)+'/pulls/'+m.number+'">'+
+               '<span class="landing-livecard-num">#'+m.number+'</span> '+
+               '<span class="landing-livecard-title-text">'+esc(m.title)+'</span></a>'+
+               '<div class="landing-livecard-meta">AI merged in <span class="landing-livecard-repo">'+esc(m.repo)+'</span> '+
+               '<span class="landing-livecard-rel" data-rel="'+esc(m.mergedAt)+'">'+esc(rel(m.mergedAt))+'</span></div></li>';
+      }).join('');
+      diffMount(ul,html,ids);
+    }).catch(function(){});
+  }
+  function pollReviews(){
+    return fetch('/api/v2/demo/reviews',{credentials:'omit'}).then(function(r){return r.json();}).then(function(d){
+      var ul=document.querySelector('[data-livecard="reviews"]');if(!ul) return;
+      var bigEl=document.querySelector('[data-livecard-count="reviews"]');
+      var n=(d&&typeof d.count==='number')?d.count:0;
+      if(bigEl) tickNumber(bigEl,n);
+      var items=(d&&d.items)||[];
+      if(items.length===0){ul.innerHTML='<li class="landing-livecard-empty">No AI reviews in the last 24h.</li>';return;}
+      var ids=[];
+      var html=items.slice(0,3).map(function(r){
+        var id='reviews|'+r.repo+'|'+r.prNumber;ids.push(id);
+        return '<li class="landing-livecard-row" data-row-id="'+esc(id)+'">'+
+               '<a class="landing-livecard-link" href="/'+esc(DEMO)+'/'+esc(r.repo)+'/pulls/'+r.prNumber+'">'+
+               '<span class="landing-livecard-num">#'+r.prNumber+'</span> '+
+               '<span class="landing-livecard-snippet">'+esc(r.commentSnippet)+'</span></a>'+
+               '<div class="landing-livecard-meta"><span class="landing-livecard-repo">'+esc(r.repo)+'</span></div></li>';
+      }).join('');
+      diffMount(ul,html,ids);
+    }).catch(function(){});
+  }
+  function pollFeed(){
+    return fetch('/api/v2/demo/activity',{credentials:'omit'}).then(function(r){return r.json();}).then(function(d){
+      var ul=document.querySelector('[data-livecard="feed"]');if(!ul) return;
+      var entries=(d&&d.entries)||[];
+      if(entries.length===0){ul.innerHTML='<li class="landing-livecard-empty">Quiet right now — check back in a minute.</li>';return;}
+      var ids=[];
+      var html=entries.slice(0,10).map(function(e){
+        var path=(e.ref&&e.ref.type==='pr')?'pulls':'issues';
+        var num=(e.ref&&e.ref.number)||0;
+        var label=e.kind==='auto_merge.merged'?'auto-merged':(e.kind==='ai_build.dispatched'?'AI-build queued':'AI review posted');
+        var kindCls=String(e.kind||'').replace(/\\./g,'-');
+        var id=e.kind+'|'+e.repo+'|'+(e.ref&&e.ref.type)+'|'+num+'|'+e.at;ids.push(id);
+        return '<li class="landing-livecard-feedrow" data-row-id="'+esc(id)+'">'+
+               '<span class="landing-livecard-kind landing-livecard-kind-'+esc(kindCls)+'">'+esc(label)+'</span> '+
+               '<a class="landing-livecard-link" href="/'+esc(DEMO)+'/'+esc(e.repo)+'/'+path+'/'+num+'">'+esc(e.repo)+' #'+num+'</a> '+
+               '<span class="landing-livecard-rel" data-rel="'+esc(e.at)+'">'+esc(rel(e.at))+'</span></li>';
+      }).join('');
+      diffMount(ul,html,ids);
+    }).catch(function(){});
+  }
+  function refreshRel(){
+    var spans=document.querySelectorAll('.landing-livecard-rel[data-rel]');
+    for(var i=0;i<spans.length;i++){
+      spans[i].textContent=rel(spans[i].getAttribute('data-rel'));
+    }
+  }
+  function tickAll(){pollQueued();pollMerges();pollReviews();pollFeed();}
+  // Initial counter tick (count-up from 0) on first paint.
+  var bigEl0=document.querySelector('[data-livecard-count="reviews"]');
+  if(bigEl0){
+    var target=parseInt(bigEl0.getAttribute('data-tick-target')||'0',10)||0;
+    bigEl0.textContent='0';
+    tickNumber(bigEl0,target);
+  }
+  refreshRel();
+  setInterval(tickAll,INTERVAL);
+  setInterval(refreshRel,INTERVAL);
+  document.addEventListener('visibilitychange',function(){
+    if(document.visibilityState==='visible'){tickAll();refreshRel();}
+  });
+}catch(_){}})();
+`.trim();
 
 // Backwards-compatible default — web.tsx imports `LandingPage`.
 export const LandingPage: FC<LandingPageProps> = (props) => (
@@ -1923,6 +2441,272 @@ const landingCss = `
     .landing-hero-install-code { flex: 1; font-size: 12px; }
     .landing-hero-rail { flex-direction: column; align-items: flex-start; gap: 6px; padding: 0 var(--s-3); }
     .landing-hero-rail li { width: 100%; }
+  }
+
+  /* ============================================================ */
+  /* Block M1 — Live-now demo feed                                */
+  /* ============================================================ */
+  .landing-livenow {
+    margin: var(--s-8) 0 var(--s-6);
+    padding: var(--s-6) 0 var(--s-4);
+  }
+  .landing-livenow-head {
+    text-align: center;
+    margin-bottom: var(--s-6);
+  }
+  .landing-livenow-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 12px;
+    border-radius: var(--r-full);
+    background: rgba(52,211,153,0.08);
+    border: 1px solid rgba(52,211,153,0.25);
+    color: var(--green);
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin-bottom: var(--s-3);
+  }
+  .landing-livenow-pulse {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 0 0 rgba(52,211,153,0.6);
+    animation: landing-livenow-pulse 1.6s ease-out infinite;
+  }
+  @keyframes landing-livenow-pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(52,211,153,0.55); transform: scale(1); }
+    70%  { box-shadow: 0 0 0 10px rgba(52,211,153,0); transform: scale(1.05); }
+    100% { box-shadow: 0 0 0 0 rgba(52,211,153,0); transform: scale(1); }
+  }
+  .landing-livenow-title {
+    font-size: 22px;
+    line-height: 1.25;
+    margin: 0 auto;
+    max-width: 720px;
+    color: var(--text-strong);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  .landing-livenow-sub {
+    margin: var(--s-2) auto 0;
+    color: var(--text-muted);
+    font-size: 13px;
+    max-width: 560px;
+  }
+  .landing-livenow-sub code {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid var(--border);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 12px;
+    color: var(--accent);
+  }
+
+  .landing-livenow-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--s-3);
+  }
+  @media (min-width: 980px) {
+    .landing-livenow-grid {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+  }
+
+  .landing-livecard {
+    background: linear-gradient(180deg, rgba(255,255,255,0.025), rgba(255,255,255,0.005));
+    border: 1px solid var(--border);
+    border-radius: var(--r-md, 10px);
+    padding: 14px 14px 12px;
+    display: flex;
+    flex-direction: column;
+    min-height: 180px;
+    position: relative;
+    overflow: hidden;
+  }
+  .landing-livecard::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: var(--accent-gradient-faint);
+    opacity: 0;
+    transition: opacity 200ms var(--ease, ease);
+    pointer-events: none;
+  }
+  .landing-livecard:hover::before { opacity: 1; }
+
+  .landing-livecard-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .landing-livecard-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 8px rgba(52,211,153,0.55);
+    animation: landing-livenow-pulse 1.8s ease-out infinite;
+    flex-shrink: 0;
+  }
+  .landing-livecard-title {
+    margin: 0;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+  }
+
+  .landing-livecard-bignum {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin: 4px 0 10px;
+  }
+  .landing-livecard-bignum-n {
+    font-size: 30px;
+    font-weight: 700;
+    color: var(--text-strong);
+    font-variant-numeric: tabular-nums;
+    background: var(--accent-gradient);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+  }
+  .landing-livecard-bignum-label {
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  .landing-livecard-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    font-size: 13px;
+    line-height: 1.45;
+    flex: 1;
+  }
+  .landing-livecard-row, .landing-livecard-feedrow {
+    padding: 6px 0;
+    border-bottom: 1px dashed rgba(255,255,255,0.05);
+    transition: background-color 1s var(--ease, ease);
+    border-radius: 4px;
+    margin: 0 -4px;
+    padding-left: 4px;
+    padding-right: 4px;
+  }
+  .landing-livecard-row:last-child,
+  .landing-livecard-feedrow:last-child { border-bottom: 0; }
+  .landing-livecard-feedrow { padding: 4px; font-size: 12.5px; }
+
+  .landing-livecard-flash {
+    background-color: rgba(52,211,153,0.18) !important;
+    animation: landing-livecard-flash-fade 1.1s ease-out forwards;
+  }
+  @keyframes landing-livecard-flash-fade {
+    0%   { background-color: rgba(52,211,153,0.22); }
+    100% { background-color: rgba(52,211,153,0); }
+  }
+
+  .landing-livecard-link {
+    color: var(--text-strong);
+    text-decoration: none;
+    display: inline-block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .landing-livecard-link:hover { color: var(--accent); }
+  .landing-livecard-num {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    color: var(--text-faint);
+    font-weight: 500;
+    font-size: 12px;
+  }
+  .landing-livecard-title-text { color: var(--text-strong); }
+  .landing-livecard-snippet {
+    color: var(--text-muted);
+    font-style: italic;
+    font-size: 12px;
+  }
+  .landing-livecard-meta {
+    font-size: 11px;
+    color: var(--text-faint);
+    margin-top: 2px;
+    font-family: var(--font-mono, ui-monospace, monospace);
+  }
+  .landing-livecard-repo {
+    color: var(--accent-2);
+  }
+  .landing-livecard-rel {
+    color: var(--text-muted);
+  }
+  .landing-livecard-empty {
+    color: var(--text-faint);
+    font-size: 12px;
+    font-style: italic;
+    padding: 8px 0;
+  }
+  .landing-livecard-kind {
+    display: inline-block;
+    padding: 1px 7px;
+    border-radius: var(--r-full);
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    font-weight: 600;
+  }
+  .landing-livecard-kind-auto_merge-merged,
+  .landing-livecard-kind-auto-merge-merged {
+    background: rgba(52,211,153,0.12);
+    color: var(--green);
+    border: 1px solid rgba(52,211,153,0.25);
+  }
+  .landing-livecard-kind-ai_build-dispatched,
+  .landing-livecard-kind-ai-build-dispatched {
+    background: rgba(140,109,255,0.12);
+    color: var(--accent);
+    border: 1px solid rgba(140,109,255,0.30);
+  }
+  .landing-livecard-kind-ai_review-posted,
+  .landing-livecard-kind-ai-review-posted {
+    background: rgba(54,197,214,0.12);
+    color: var(--accent-2);
+    border: 1px solid rgba(54,197,214,0.30);
+  }
+
+  .landing-livenow-cta {
+    margin-top: var(--s-5);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+  .landing-livenow-cta-link {
+    color: var(--accent);
+    text-decoration: none;
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .landing-livenow-cta-link:hover { color: var(--accent-hover); }
+  .landing-livenow-cta-sep { color: var(--text-faint); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .landing-livenow-pulse,
+    .landing-livecard-dot { animation: none; }
+    .landing-livecard-flash { animation: none; background-color: transparent !important; }
   }
 `;
 

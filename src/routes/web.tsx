@@ -48,8 +48,15 @@ import { highlightCode } from "../lib/highlight";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
 import { trackByName } from "../lib/traffic";
-import { LandingPage } from "../views/landing";
+import { LandingPage, type LandingLiveFeed } from "../views/landing";
 import { computePublicStats, type PublicStats } from "../lib/public-stats";
+import {
+  listQueuedAiBuildIssues,
+  listRecentAutoMerges,
+  listRecentAiReviews,
+  countAiReviewsSince,
+  listDemoActivityFeed,
+} from "../lib/demo-activity";
 
 const web = new Hono<AuthEnv>();
 
@@ -89,6 +96,49 @@ web.get("/", async (c) => {
     publicStats = null;
   }
 
+  // Block M1 — initial SSR snapshot for the live-now demo feed.
+  // The helpers in lib/demo-activity.ts never throw, but we still wrap
+  // in try/catch so a freak module-level explosion can't take down /.
+  let liveFeed: LandingLiveFeed | null = null;
+  try {
+    const [queued, merges, reviewList, reviewCount, feed] = await Promise.all([
+      listQueuedAiBuildIssues(3),
+      listRecentAutoMerges(3, 24),
+      listRecentAiReviews(3, 24),
+      countAiReviewsSince(24),
+      listDemoActivityFeed(10),
+    ]);
+    liveFeed = {
+      queued: queued.map((i) => ({
+        repo: i.repo,
+        number: i.number,
+        title: i.title,
+        createdAt: i.createdAt,
+      })),
+      merges: merges.map((m) => ({
+        repo: m.repo,
+        number: m.number,
+        title: m.title,
+        mergedAt: m.mergedAt,
+      })),
+      reviews: reviewList.map((r) => ({
+        repo: r.repo,
+        prNumber: r.prNumber,
+        commentSnippet: r.commentSnippet,
+        createdAt: r.createdAt,
+      })),
+      reviewCount,
+      feed: feed.map((e) => ({
+        kind: e.kind,
+        repo: e.repo,
+        ref: e.ref,
+        at: e.at,
+      })),
+    };
+  } catch {
+    liveFeed = null;
+  }
+
   return c.html(
     <Layout
       user={null}
@@ -100,7 +150,7 @@ web.get("/", async (c) => {
       ogType="website"
       twitterCard="summary_large_image"
     >
-      <LandingPage stats={stats} publicStats={publicStats} />
+      <LandingPage stats={stats} publicStats={publicStats} liveFeed={liveFeed} />
     </Layout>
   );
 });

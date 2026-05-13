@@ -12,6 +12,7 @@ import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
 import { requireRepoAccess } from "../middleware/repo-access";
 import { listBranches } from "../git/repository";
+import { audit } from "../lib/notify";
 import { rm } from "fs/promises";
 import {
   Container,
@@ -235,6 +236,51 @@ repoSettings.get("/:owner/:repo/settings", requireAuth, requireRepoAccess("admin
         </div>
 
         <div
+          style="margin-top: 20px; padding: 20px; border: 1px solid var(--border); border-radius: var(--radius)"
+        >
+          <h3 style="margin-bottom: 8px">Stale activity</h3>
+          <p style="font-size: 14px; color: var(--text-muted); margin-bottom: 12px">
+            Autopilot pokes PRs and issues that have gone quiet, then offers
+            a one-click close path. Each setting controls the final close
+            step — pokes always happen, but they're harmless reminders.
+          </p>
+          <form
+            method="post"
+            action={`/${ownerName}/${repoName}/settings/stale`}
+          >
+            <label
+              style="display:block;margin-bottom:8px;font-size:14px"
+              aria-label="Auto-close stale PRs after 14 days of no activity post-poke"
+            >
+              <input
+                type="checkbox"
+                name="auto_close_stale_prs"
+                value="1"
+                checked={repo.autoCloseStalePrs}
+                style="margin-right:8px"
+              />
+              Auto-close stale PRs after 14 days of no activity post-poke
+            </label>
+            <label
+              style="display:block;margin-bottom:12px;font-size:14px"
+              aria-label="Auto-close stale issues after 60 days of no activity post-poke"
+            >
+              <input
+                type="checkbox"
+                name="auto_close_stale_issues"
+                value="1"
+                checked={repo.autoCloseStaleIssues}
+                style="margin-right:8px"
+              />
+              Auto-close stale issues after 60 days of no activity post-poke
+            </label>
+            <button type="submit" class="btn">
+              Save stale settings
+            </button>
+          </form>
+        </div>
+
+        <div
           style="margin-top: 20px; padding: 20px; border: 1px solid var(--red); border-radius: var(--radius)"
         >
           <h3 style="color: var(--red); margin-bottom: 12px">Danger zone</h3>
@@ -436,6 +482,77 @@ repoSettings.post(
       `/${ownerName}/${repoName}/settings?success=${
         target ? "Repository+archived" : "Repository+unarchived"
       }`
+    );
+  }
+);
+
+// Block M5: stale activity opt-out flags. Owner-only; audits each toggle.
+repoSettings.post(
+  "/:owner/:repo/settings/stale",
+  requireAuth,
+  requireRepoAccess("admin"),
+  async (c) => {
+    const { owner: ownerName, repo: repoName } = c.req.param();
+    const user = c.get("user")!;
+    const body = await c.req.parseBody();
+    const [owner] = await db
+      .select()
+      .from(users)
+      .where(eq(users.username, ownerName))
+      .limit(1);
+    if (!owner || owner.id !== user.id) {
+      return c.redirect(`/${ownerName}/${repoName}`);
+    }
+    const [repo] = await db
+      .select()
+      .from(repositories)
+      .where(
+        and(
+          eq(repositories.ownerId, owner.id),
+          eq(repositories.name, repoName)
+        )
+      )
+      .limit(1);
+    if (!repo) return c.notFound();
+
+    // Unchecked checkboxes are absent from the form payload, so coerce to bool.
+    const newPrs = body.auto_close_stale_prs === "1";
+    const newIssues = body.auto_close_stale_issues === "1";
+
+    await db
+      .update(repositories)
+      .set({
+        autoCloseStalePrs: newPrs,
+        autoCloseStaleIssues: newIssues,
+        updatedAt: new Date(),
+      })
+      .where(eq(repositories.id, repo.id));
+
+    // Audit toggle deltas so the repo's audit log shows the change. Two
+    // separate rows (one per flag) so the action names stay stable + grep-able.
+    if (newPrs !== repo.autoCloseStalePrs) {
+      await audit({
+        userId: user.id,
+        repositoryId: repo.id,
+        action: "repo.auto_close_stale_prs.toggled",
+        targetType: "repository",
+        targetId: repo.id,
+        metadata: { from: repo.autoCloseStalePrs, to: newPrs },
+      });
+    }
+    if (newIssues !== repo.autoCloseStaleIssues) {
+      await audit({
+        userId: user.id,
+        repositoryId: repo.id,
+        action: "repo.auto_close_stale_issues.toggled",
+        targetType: "repository",
+        targetId: repo.id,
+        metadata: { from: repo.autoCloseStaleIssues, to: newIssues },
+      });
+    }
+
+    return c.redirect(
+      `/${ownerName}/${repoName}/settings?success=Stale+settings+saved`
     );
   }
 );

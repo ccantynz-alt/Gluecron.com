@@ -9,15 +9,32 @@
  * try/caught so a single failure never blocks the others.
  */
 
-import { sql } from "drizzle-orm";
+import { and, eq, gte, sql } from "drizzle-orm";
 import { db } from "../db";
-import { mergeQueueEntries, repoDependencies } from "../db/schema";
+import {
+  mergeQueueEntries,
+  prComments,
+  pullRequests,
+  repoDependencies,
+  repositories,
+  users,
+} from "../db/schema";
 import { syncAllDue } from "./mirrors";
 import { peekHead } from "./merge-queue";
 import { sendDigestsToAll } from "./email-digest";
 import { scanRepositoryForAlerts } from "./advisories";
 import { releaseExpiredWaitTimers } from "./environments";
 import { runScheduledWorkflowsTick } from "./scheduled-workflows";
+import {
+  evaluateAutoMerge,
+  recordAutoMergeAttempt,
+  type AutoMergeContext,
+  type AutoMergeDecision,
+} from "./auto-merge";
+import { matchProtection } from "./branch-protection";
+import { performMerge, type PerformMergeResult } from "./pr-merge";
+import { audit } from "./notify";
+import { runAiBuildTaskOnce } from "./ai-build-tasks";
 
 export interface AutopilotTaskResult {
   name: string;
@@ -50,6 +67,12 @@ export interface RunTickOpts {
 
 const DEFAULT_INTERVAL_MS = 5 * 60 * 1000;
 const ADVISORY_RESCAN_BATCH = 5;
+/** K3 — recency window for auto-merge candidate selection. */
+const AUTO_MERGE_LOOKBACK_HOURS = 24;
+/** K3 — hard cap on PRs evaluated per tick (runaway protection). */
+const AUTO_MERGE_MAX_PER_TICK = 50;
+/** K3 — stable marker for the auto-merge audit comment. */
+const AUTO_MERGE_COMMENT_MARKER = "<!-- gluecron:auto-merge:v1 -->";
 
 /**
  * Default task set. Each task is a thin wrapper around an existing locked
@@ -93,7 +116,346 @@ export function defaultTasks(): AutopilotTask[] {
         await runScheduledWorkflowsTick();
       },
     },
+    {
+      name: "auto-merge-sweep",
+      run: async () => {
+        await runAutoMergeSweep();
+      },
+    },
+    {
+      name: "ai-build-from-issues",
+      run: async () => {
+        const summary = await runAiBuildTaskOnce();
+        console.log(
+          `[autopilot] ai-build: queued=${summary.queued} skipped=${summary.skipped}`
+        );
+      },
+    },
   ];
+}
+
+// ---------------------------------------------------------------------------
+// K3 — auto-merge-sweep
+// ---------------------------------------------------------------------------
+
+interface SweepCandidate {
+  prId: string;
+  prNumber: number;
+  prTitle: string;
+  prBody: string | null;
+  baseBranch: string;
+  headBranch: string;
+  isDraft: boolean;
+  repositoryId: string;
+  authorUserId: string;
+  ownerUsername: string | null;
+  repoName: string;
+  state: string;
+}
+
+export interface AutoMergeSweepDeps {
+  /** Inject candidate-finder for tests. */
+  findCandidates?: (lookbackHours: number, limit: number) => Promise<SweepCandidate[]>;
+  /** Inject evaluator for tests. */
+  evaluate?: (ctx: AutoMergeContext) => Promise<AutoMergeDecision>;
+  /** Inject the merge executor for tests. */
+  merge?: (cand: SweepCandidate) => Promise<PerformMergeResult>;
+  /** Inject the audit-recording side-effect for tests. */
+  recordAttempt?: (
+    repoId: string,
+    prId: string,
+    decision: AutoMergeDecision
+  ) => Promise<void>;
+  /** Inject the audit/comment side-effects for the merged path (tests). */
+  onMerged?: (
+    cand: SweepCandidate,
+    result: PerformMergeResult
+  ) => Promise<void>;
+  /** Inject the audit side-effect for the merge-failed path (tests). */
+  onMergeFailed?: (cand: SweepCandidate, error: string) => Promise<void>;
+  /** Inject the AI-key short-circuit signal for tests. */
+  shouldShortCircuitAi?: (cand: SweepCandidate) => Promise<boolean>;
+}
+
+export interface AutoMergeSweepSummary {
+  evaluated: number;
+  merged: number;
+  blocked: number;
+}
+
+/**
+ * Default candidate-finder. Selects open, non-draft PRs from non-archived
+ * repos whose `updated_at` is within the lookback window. Joins repo +
+ * owner so the merge executor doesn't need extra round trips. Cap is
+ * enforced at the SQL layer.
+ */
+async function defaultFindAutoMergeCandidates(
+  lookbackHours: number,
+  limit: number
+): Promise<SweepCandidate[]> {
+  const cutoff = new Date(Date.now() - lookbackHours * 60 * 60 * 1000);
+  try {
+    const rows = await db
+      .select({
+        prId: pullRequests.id,
+        prNumber: pullRequests.number,
+        prTitle: pullRequests.title,
+        prBody: pullRequests.body,
+        baseBranch: pullRequests.baseBranch,
+        headBranch: pullRequests.headBranch,
+        isDraft: pullRequests.isDraft,
+        repositoryId: pullRequests.repositoryId,
+        authorUserId: pullRequests.authorId,
+        ownerUsername: users.username,
+        repoName: repositories.name,
+        state: pullRequests.state,
+      })
+      .from(pullRequests)
+      .innerJoin(
+        repositories,
+        eq(repositories.id, pullRequests.repositoryId)
+      )
+      .leftJoin(users, eq(users.id, repositories.ownerId))
+      .where(
+        and(
+          eq(pullRequests.state, "open"),
+          eq(pullRequests.isDraft, false),
+          eq(repositories.isArchived, false),
+          gte(pullRequests.updatedAt, cutoff)
+        )
+      )
+      .limit(limit);
+    return rows.map((r) => ({
+      prId: r.prId,
+      prNumber: r.prNumber,
+      prTitle: r.prTitle,
+      prBody: r.prBody,
+      baseBranch: r.baseBranch,
+      headBranch: r.headBranch,
+      isDraft: r.isDraft,
+      repositoryId: r.repositoryId,
+      authorUserId: r.authorUserId,
+      ownerUsername: r.ownerUsername ?? null,
+      repoName: r.repoName,
+      state: r.state,
+    }));
+  } catch (err) {
+    console.error("[autopilot] auto-merge: candidate query failed:", err);
+    return [];
+  }
+}
+
+/**
+ * Determine whether the matched branch_protection rule on this PR
+ * requires AI approval but no `ANTHROPIC_API_KEY` is configured. In that
+ * case the AI-approval check would inevitably fail downstream, so we
+ * short-circuit to a "blocked" decision without invoking `evaluateAutoMerge`
+ * — keeps the log readable and prevents misleading "AI review unavailable"
+ * lines in the audit trail.
+ */
+async function defaultShouldShortCircuitAi(
+  cand: SweepCandidate
+): Promise<boolean> {
+  if (process.env.ANTHROPIC_API_KEY) return false;
+  try {
+    const rule = await matchProtection(cand.repositoryId, cand.baseBranch);
+    return !!(rule && rule.requireAiApproval);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Default success-path: post an `auto_merge.merged` audit row + a stable
+ * marker comment on the PR so a partial-merge retry doesn't double-post.
+ * Both are best-effort; failures are logged not thrown.
+ */
+async function defaultOnMerged(
+  cand: SweepCandidate,
+  result: PerformMergeResult
+): Promise<void> {
+  try {
+    await audit({
+      repositoryId: cand.repositoryId,
+      action: "auto_merge.merged",
+      targetType: "pull_request",
+      targetId: cand.prId,
+      metadata: {
+        prNumber: cand.prNumber,
+        baseBranch: cand.baseBranch,
+        headBranch: cand.headBranch,
+        closedIssueNumbers: result.closedIssueNumbers,
+        resolvedFiles: result.resolvedFiles,
+      },
+    });
+  } catch (err) {
+    console.error("[autopilot] auto-merge: merged audit failed:", err);
+  }
+  try {
+    await db.insert(prComments).values({
+      pullRequestId: cand.prId,
+      authorId: cand.authorUserId,
+      isAiReview: true,
+      body: `${AUTO_MERGE_COMMENT_MARKER}\nAuto-merged by Gluecron autopilot — branch protection conditions satisfied.`,
+    });
+  } catch (err) {
+    console.error("[autopilot] auto-merge: comment insert failed:", err);
+  }
+}
+
+/** Default failure-path: only an audit row; no comment (we may retry). */
+async function defaultOnMergeFailed(
+  cand: SweepCandidate,
+  error: string
+): Promise<void> {
+  try {
+    await audit({
+      repositoryId: cand.repositoryId,
+      action: "auto_merge.merge_failed",
+      targetType: "pull_request",
+      targetId: cand.prId,
+      metadata: {
+        prNumber: cand.prNumber,
+        baseBranch: cand.baseBranch,
+        headBranch: cand.headBranch,
+        error,
+      },
+    });
+  } catch (err) {
+    console.error("[autopilot] auto-merge: merge_failed audit failed:", err);
+  }
+}
+
+/**
+ * Execute one sweep over recently-updated open PRs. For each, evaluate
+ * with K2's `evaluateAutoMerge`; on `merge: true`, call `performMerge` and
+ * record the merged/merge-failed audit row + comment. Always record the
+ * `auto_merge.evaluated` audit row via `recordAutoMergeAttempt`.
+ *
+ * Returns a counts summary that the autopilot prints as the tick log line.
+ * Never throws.
+ */
+export async function runAutoMergeSweep(
+  deps: AutoMergeSweepDeps = {}
+): Promise<AutoMergeSweepSummary> {
+  const findCandidates = deps.findCandidates ?? defaultFindAutoMergeCandidates;
+  const evaluate =
+    deps.evaluate ?? ((ctx) => evaluateAutoMerge(ctx, {}));
+  const merge =
+    deps.merge ??
+    (async (cand) => {
+      if (!cand.ownerUsername) {
+        return {
+          ok: false,
+          error: "owner username unresolved",
+          closedIssueNumbers: [],
+          resolvedFiles: [],
+        };
+      }
+      return performMerge({
+        pr: {
+          id: cand.prId,
+          number: cand.prNumber,
+          title: cand.prTitle,
+          body: cand.prBody,
+          baseBranch: cand.baseBranch,
+          headBranch: cand.headBranch,
+          repositoryId: cand.repositoryId,
+          authorId: cand.authorUserId,
+          state: cand.state as "open",
+          isDraft: cand.isDraft,
+        },
+        ownerName: cand.ownerUsername,
+        repoName: cand.repoName,
+        actorUserId: cand.authorUserId,
+      });
+    });
+  const recordAttempt = deps.recordAttempt ?? recordAutoMergeAttempt;
+  const onMerged = deps.onMerged ?? defaultOnMerged;
+  const onMergeFailed = deps.onMergeFailed ?? defaultOnMergeFailed;
+  const shouldShortCircuitAi =
+    deps.shouldShortCircuitAi ?? defaultShouldShortCircuitAi;
+
+  let candidates: SweepCandidate[] = [];
+  try {
+    candidates = await findCandidates(
+      AUTO_MERGE_LOOKBACK_HOURS,
+      AUTO_MERGE_MAX_PER_TICK
+    );
+  } catch (err) {
+    console.error("[autopilot] auto-merge: findCandidates threw:", err);
+    return { evaluated: 0, merged: 0, blocked: 0 };
+  }
+
+  let evaluated = 0;
+  let merged = 0;
+  let blocked = 0;
+
+  for (const cand of candidates) {
+    try {
+      evaluated += 1;
+
+      // AI-key short-circuit: if the rule requires AI approval and we have
+      // no key, treat as blocked without calling the evaluator (which would
+      // log a misleading "AI review unavailable").
+      let decision: AutoMergeDecision;
+      if (await shouldShortCircuitAi(cand)) {
+        decision = {
+          merge: false,
+          reason:
+            "Branch protection requires AI approval but ANTHROPIC_API_KEY is unset.",
+          blocking: [
+            "ANTHROPIC_API_KEY missing; AI approval cannot be sourced.",
+          ],
+        };
+      } else {
+        decision = await evaluate({
+          pullRequestId: cand.prId,
+          repositoryId: cand.repositoryId,
+          baseBranch: cand.baseBranch,
+          isDraft: cand.isDraft,
+          authorUserId: cand.authorUserId,
+        });
+      }
+
+      // Always record the evaluation, regardless of outcome.
+      try {
+        await recordAttempt(cand.repositoryId, cand.prId, decision);
+      } catch (err) {
+        console.error(
+          `[autopilot] auto-merge: recordAttempt failed for pr=${cand.prId}:`,
+          err
+        );
+      }
+
+      if (!decision.merge) {
+        blocked += 1;
+        continue;
+      }
+
+      // Perform the actual merge.
+      const result = await merge(cand);
+      if (result.ok) {
+        merged += 1;
+        await onMerged(cand, result);
+      } else {
+        blocked += 1;
+        await onMergeFailed(cand, result.error || "unknown merge error");
+      }
+    } catch (err) {
+      blocked += 1;
+      console.error(
+        `[autopilot] auto-merge: per-PR failure for pr=${cand.prId}:`,
+        err
+      );
+    }
+  }
+
+  console.log(
+    `[autopilot] auto-merge: evaluated=${evaluated} merged=${merged} blocked=${blocked}`
+  );
+
+  return { evaluated, merged, blocked };
 }
 
 /**
@@ -262,4 +624,11 @@ export const __test = {
   rescanAdvisoriesBatch,
   DEFAULT_INTERVAL_MS,
   ADVISORY_RESCAN_BATCH,
+  AUTO_MERGE_LOOKBACK_HOURS,
+  AUTO_MERGE_MAX_PER_TICK,
+  AUTO_MERGE_COMMENT_MARKER,
+  defaultFindAutoMergeCandidates,
+  defaultOnMerged,
+  defaultOnMergeFailed,
+  defaultShouldShortCircuitAi,
 };

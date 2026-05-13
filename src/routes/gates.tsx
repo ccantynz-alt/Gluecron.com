@@ -297,6 +297,7 @@ gates.get("/:owner/:repo/gates/settings", requireAuth, async (c) => {
                   {p.requireHumanReview
                     ? `${p.requiredApprovals} human approval(s) · `
                     : ""}
+                  {p.enableAutoMerge ? "AI auto-merge · " : ""}
                   {!p.allowForcePush ? "No force push · " : ""}
                   {!p.allowDeletion ? "No deletion" : ""}
                 </div>
@@ -375,6 +376,13 @@ gates.get("/:owner/:repo/gates/settings", requireAuth, async (c) => {
           <label style="display: flex; align-items: center; gap: 6px">
             <input type="checkbox" name="allowDeletion" value="1" />
             Allow deletion
+          </label>
+          <label
+            style="display: flex; align-items: center; gap: 6px"
+            title="K2 — Let the autopilot ticker auto-merge PRs that pass every gate this rule enforces."
+          >
+            <input type="checkbox" name="enableAutoMerge" value="1" />
+            Enable AI auto-merge
           </label>
         </div>
         <button type="submit" class="btn btn-primary" style="margin-top: 12px">
@@ -460,6 +468,8 @@ gates.post("/:owner/:repo/gates/protection", requireAuth, async (c) => {
       requiredApprovals,
       allowForcePush: b("allowForcePush"),
       allowDeletion: b("allowDeletion"),
+      // K2 — opt-in flag for the autopilot auto-merger.
+      enableAutoMerge: b("enableAutoMerge"),
     });
   } catch (err) {
     console.error("[gates] protection save:", err);

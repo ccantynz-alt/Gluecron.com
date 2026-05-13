@@ -31,6 +31,20 @@ import {
   McpError,
 } from "../lib/mcp";
 
+// Capture the REAL modules BEFORE any mock.module() call below so we can
+// restore them in afterAll. `mock.module()` is process-global in Bun and
+// otherwise bleeds into every test file that runs after this one in the
+// same `bun test` invocation, silently breaking every test that imports
+// (directly or transitively) any of the modules we stub.
+const _real_db = await import("../db");
+const _real_notify = await import("../lib/notify");
+const _real_gate = await import("../lib/gate");
+const _real_branchProtection = await import("../lib/branch-protection");
+const _real_mergeResolver = await import("../lib/merge-resolver");
+const _real_aiReview = await import("../lib/ai-review");
+const _real_closeKeywords = await import("../lib/close-keywords");
+const _real_sse = await import("../lib/sse");
+
 // ---------------------------------------------------------------------------
 // Module stubs
 // ---------------------------------------------------------------------------
@@ -103,7 +117,11 @@ const _selectChain: any = {
       return _nextAiCommentRows;
     }
     if (name === "users") {
-      return _nextRepoRow?.username ? [{ username: _nextRepoRow.username }] : [{ username: "owner-x" }];
+      // Only echo a username when the test explicitly set one via
+      // `_nextRepoRow.username`. Returning a default row breaks every
+      // downstream test that expects an empty result for nonexistent
+      // users (graphql, api-v2, etc.).
+      return _nextRepoRow?.username ? [{ username: _nextRepoRow.username }] : [];
     }
     return [];
   },
@@ -220,14 +238,29 @@ const _fakeDb = {
     delete: () => ({ where: () => Promise.resolve() }),
   },
   getDb: () => _fakeDb.db,
-  isNeonUrl: () => false,
+  // NOTE: `isNeonUrl` is intentionally NOT overridden. The real export
+  // is a pure substring helper that downstream tests (db-driver.test.ts)
+  // exercise directly — overriding it here used to bleed `() => false`
+  // into every test in the run.
 };
-mock.module("../db", () => _fakeDb);
-
-// Stub notify so we don't shell out to email + DB on the fan-out path.
+// Mock ONLY `../db`. Bun's `mock.module()` is process-global AND it
+// poisons every downstream test file that imports the same module —
+// overrides applied here persist past `afterAll` because ESM caches
+// the resolved module in each test file at load time. So we keep the
+// stub surface minimal: only the modules that would touch external
+// resources (real DB, real git subprocess, real Anthropic API) get
+// inert overrides. Everything else runs the real implementation,
+// which behaves correctly when the underlying DB returns nothing.
+//
+// For modules that DO need their behaviour neutered (gate runner,
+// merge-resolver, ai-review's API call), we install spy-style stubs
+// inside `beforeEach` and remove them in `afterAll` so they don't
+// leak across files.
 const _notifyCalls: any[] = [];
 const _auditCalls: any[] = [];
+mock.module("../db", () => ({ ..._real_db, ..._fakeDb }));
 mock.module("../lib/notify", () => ({
+  ..._real_notify,
   notify: async (userId: string, opts: any) => {
     _notifyCalls.push({ userId, ...opts });
   },
@@ -236,35 +269,32 @@ mock.module("../lib/notify", () => ({
     _auditCalls.push(opts);
   },
 }));
-
-// merge_pr depends on these — stub the green path.
+// `runAllGateChecks` shells out to git + the gate runner; replace with
+// a permissive no-op. Other gate exports stay real.
 mock.module("../lib/gate", () => ({
+  ..._real_gate,
   runAllGateChecks: async () => ({ checks: [] }),
 }));
-mock.module("../lib/branch-protection", () => ({
-  matchProtection: async () => null,
-  countHumanApprovals: async () => 0,
-  listRequiredChecks: async () => [],
-  passingCheckNames: async () => [],
-  evaluateProtection: () => ({ allowed: true, reasons: [] }),
-}));
+// `mergeWithAutoResolve` shells out to git; replace with a success no-op.
 mock.module("../lib/merge-resolver", () => ({
+  ..._real_mergeResolver,
   mergeWithAutoResolve: async () => ({ success: true, resolvedFiles: [] }),
 }));
+// `triggerAiReview` calls Anthropic; replace with a no-op. Crucially,
+// `AI_REVIEW_MARKER` (used by auto-merge.ts elsewhere) stays the real
+// const.
 mock.module("../lib/ai-review", () => ({
+  ..._real_aiReview,
   isAiReviewEnabled: () => false,
   triggerAiReview: async () => {},
 }));
-mock.module("../lib/close-keywords", () => ({
-  extractClosingRefsMulti: () => [],
-}));
-
-// Block all SSE fanout — the import is dynamic so we need to mock it too.
-mock.module("../lib/sse", () => ({
-  publish: () => {},
-  subscribe: () => () => {},
-  topicSubscriberCount: () => 0,
-}));
+// NOTE: `../lib/branch-protection`, `../lib/close-keywords`, and
+// `../lib/sse` are intentionally NOT mocked here. The real modules
+// are pure (close-keywords) or fail-safe when the DB is the inert
+// stub (branch-protection's `matchProtection` returns null when no
+// rows come back, which is the K1 happy-path expectation anyway).
+// Mocking these previously broke K2's auto-merge.test.ts and the
+// sse + close-keywords + branch-protection test files.
 
 // We stub Bun.spawn globally so any git subprocess (e.g. resolveRef,
 // `git update-ref` in merge_pr) returns a deterministic happy exit. We
@@ -290,12 +320,32 @@ function stubBunSpawnSuccess() {
 function restoreBunSpawn() {
   if (_realBunSpawn) (globalThis as any).Bun.spawn = _realBunSpawn;
 }
-// Install the stub globally for all tests — most calls don't care, the
-// ones that do are happy with exitCode 0 + the deadbeef SHA.
-stubBunSpawnSuccess();
+// Bun.spawn stub is NOT installed globally — the previous global install
+// bled into every downstream test file in the run and broke any test
+// whose code path eventually shelled out to `git`. The merge-PR happy
+// path test below installs + restores it inside the test body instead.
 
 afterAll(() => {
   restoreBunSpawn();
+  // Reset every per-test row hook so any downstream test file whose
+  // code path runs `db.select()...limit(1)` against our stub sees an
+  // empty result (the no-rows branch) rather than inheriting the
+  // PUBLIC_REPO_ROW that K1's beforeEach last installed.
+  _nextRepoRow = null;
+  _nextCollabRow = null;
+  _nextIssueRow = null;
+  _nextPrRow = null;
+  _nextAiCommentRows = [];
+  _nextProtectionRule = null;
+  // Best-effort restoration: re-register the real modules. Note that
+  // downstream test files' static imports are already cached against
+  // whatever was active at their load time, so this is mostly a hygiene
+  // measure for files using dynamic imports.
+  mock.module("../db", () => _real_db);
+  mock.module("../lib/notify", () => _real_notify);
+  mock.module("../lib/gate", () => _real_gate);
+  mock.module("../lib/merge-resolver", () => _real_mergeResolver);
+  mock.module("../lib/ai-review", () => _real_aiReview);
 });
 
 // ---------------------------------------------------------------------------

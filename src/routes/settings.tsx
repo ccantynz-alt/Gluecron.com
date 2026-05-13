@@ -12,6 +12,10 @@ import { Layout } from "../views/layout";
 import { raw } from "hono/html";
 import { composeDigest } from "../lib/email-digest";
 import {
+  composeSleepModeReport,
+  renderSleepModeDigest,
+} from "../lib/sleep-mode";
+import {
   Alert,
   Button,
   Flex,
@@ -144,11 +148,83 @@ settings.get("/settings", (c) => {
               <a href="/settings/digest/preview">preview</a>
             </span>
           </label>
+          <h3 style="margin-top: 32px; font-size: 16px">Sleep Mode</h3>
+          <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 12px">
+            Toggle Sleep Mode. Walk away. Wake up to a daily digest of what
+            Claude shipped overnight &mdash; PRs auto-merged, issues built
+            from <code>ai:build</code> labels, AI reviews, security
+            auto-fixes, gate auto-repairs.{" "}
+            <a href="/sleep-mode">Learn more</a>.
+          </p>
+          <label
+            style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px; font-size: 14px"
+          >
+            <input
+              type="checkbox"
+              name="sleep_mode_enabled"
+              value="1"
+              checked={user.sleepModeEnabled}
+              aria-label="Enable Sleep Mode"
+            />
+            <span>Enable Sleep Mode (daily &ldquo;overnight&rdquo; digest)</span>
+          </label>
+          <label
+            style="display: flex; gap: 8px; align-items: center; margin-bottom: 12px; font-size: 14px"
+          >
+            <span>Send my morning digest at (UTC hour, 0-23):</span>
+            <input
+              type="number"
+              name="sleep_mode_digest_hour_utc"
+              min={0}
+              max={23}
+              step={1}
+              value={String(user.sleepModeDigestHourUtc)}
+              style="width:72px"
+              aria-label="Sleep Mode digest UTC hour"
+            />
+            <a href="/settings/sleep-mode/preview">Preview digest now</a>
+          </label>
           <button type="submit" class="btn btn-primary">
             Save preferences
           </button>
         </form>
       </div>
+    </Layout>
+  );
+});
+
+// Preview the Sleep Mode digest in-browser (rendered HTML).
+settings.get("/settings/sleep-mode/preview", async (c) => {
+  const user = c.get("user")!;
+  const report = await composeSleepModeReport(user.id);
+  const rendered = renderSleepModeDigest(report, { username: user.username });
+  const total =
+    report.prsAutoMerged.length +
+    report.issuesBuiltByAi.length +
+    report.aiReviewsPosted +
+    report.securityIssuesAutoFixed +
+    report.gateFailuresAutoRepaired;
+  return c.html(
+    <Layout title="Sleep Mode preview" user={user}>
+      <h2>Sleep Mode preview</h2>
+      <p style="color:var(--text-muted);font-size:13px">
+        Subject: <code>{rendered.subject}</code>
+      </p>
+      <p style="font-size:12px;color:var(--text-muted)">
+        Window: {report.windowHours}h &middot; PRs auto-merged:{" "}
+        {report.prsAutoMerged.length} &middot; Issues built:{" "}
+        {report.issuesBuiltByAi.length} &middot; AI reviews:{" "}
+        {report.aiReviewsPosted} &middot; Security auto-fixed:{" "}
+        {report.securityIssuesAutoFixed} &middot; Gates repaired:{" "}
+        {report.gateFailuresAutoRepaired} &middot; Hours saved:{" "}
+        {report.hoursSaved} &middot; Total events: {total}
+      </p>
+      <div class="panel" style="padding:20px;background:#fff;color:#111">
+        {raw(rendered.html)}
+      </div>
+      <p style="margin-top:20px">
+        <a href="/settings">Back to settings</a>
+      </p>
     </Layout>
   );
 });
@@ -195,6 +271,12 @@ settings.get("/settings/digest/preview", async (c) => {
 settings.post("/settings/notifications", async (c) => {
   const user = c.get("user")!;
   const body = await c.req.parseBody();
+  // Coerce the Sleep Mode hour to a clamped integer 0-23.
+  const rawHour = String(body.sleep_mode_digest_hour_utc ?? "");
+  let hour = Number.parseInt(rawHour, 10);
+  if (!Number.isFinite(hour)) hour = user.sleepModeDigestHourUtc;
+  if (hour < 0) hour = 0;
+  if (hour > 23) hour = 23;
   await db
     .update(users)
     .set({
@@ -204,6 +286,8 @@ settings.post("/settings/notifications", async (c) => {
         String(body.notify_email_on_gate_fail || "") === "1",
       notifyEmailDigestWeekly:
         String(body.notify_email_digest_weekly || "") === "1",
+      sleepModeEnabled: String(body.sleep_mode_enabled || "") === "1",
+      sleepModeDigestHourUtc: hour,
       updatedAt: new Date(),
     })
     .where(eq(users.id, user.id));

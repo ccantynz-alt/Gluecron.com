@@ -35,6 +35,11 @@ import { matchProtection } from "./branch-protection";
 import { performMerge, type PerformMergeResult } from "./pr-merge";
 import { audit } from "./notify";
 import { runAiBuildTaskOnce } from "./ai-build-tasks";
+import {
+  sendSleepModeDigestForUser,
+  SLEEP_MODE_USER_CAP_PER_TICK,
+  SLEEP_MODE_COOLDOWN_HOURS,
+} from "./sleep-mode";
 
 export interface AutopilotTaskResult {
   name: string;
@@ -131,7 +136,140 @@ export function defaultTasks(): AutopilotTask[] {
         );
       },
     },
+    {
+      name: "sleep-mode-digest",
+      run: async () => {
+        const summary = await runSleepModeDigestTaskOnce();
+        console.log(
+          `[autopilot] sleep-mode-digest: sent=${summary.sent} skipped=${summary.skipped}`
+        );
+      },
+    },
   ];
+}
+
+// ---------------------------------------------------------------------------
+// L1 — sleep-mode-digest
+// ---------------------------------------------------------------------------
+
+export interface SleepModeDigestCandidate {
+  userId: string;
+  digestHourUtc: number;
+  lastDigestSentAt: Date | null;
+}
+
+export interface SleepModeDigestTaskDeps {
+  /** Override the candidate finder. */
+  findCandidates?: (cap: number) => Promise<SleepModeDigestCandidate[]>;
+  /** Override the send-one-user helper (DI for tests). */
+  sendOne?: (userId: string) => Promise<{ ok: boolean; reason?: string }>;
+  /** Override the wall clock (DI for tests). */
+  now?: () => Date;
+  /** Override the per-tick cap. */
+  cap?: number;
+  /** Override the cooldown hours. */
+  cooldownHours?: number;
+}
+
+export interface SleepModeDigestTaskSummary {
+  sent: number;
+  skipped: number;
+}
+
+/**
+ * Default candidate-finder. Returns enabled users whose
+ * `lastDigestSentAt` is older than the cooldown OR null. The hour-match
+ * filter is applied in JS by `runSleepModeDigestTaskOnce` so it stays
+ * timezone-independent of any SQL `extract(hour ...)` behaviour.
+ */
+async function defaultFindSleepModeCandidates(
+  cap: number
+): Promise<SleepModeDigestCandidate[]> {
+  try {
+    const rows = await db
+      .select({
+        userId: users.id,
+        digestHourUtc: users.sleepModeDigestHourUtc,
+        lastDigestSentAt: users.lastDigestSentAt,
+      })
+      .from(users)
+      .where(eq(users.sleepModeEnabled, true))
+      .limit(cap);
+    return rows.map((r) => ({
+      userId: r.userId,
+      digestHourUtc: r.digestHourUtc,
+      lastDigestSentAt: r.lastDigestSentAt,
+    }));
+  } catch (err) {
+    console.error("[autopilot] sleep-mode-digest: candidate query failed:", err);
+    return [];
+  }
+}
+
+/**
+ * One iteration of the sleep-mode-digest task. Never throws.
+ *
+ * Per-user filters (applied in JS so we can DI a clock):
+ *   1. `lastDigestSentAt` is null OR older than cooldown (23h).
+ *   2. `now.getUTCHours() === digestHourUtc` — fires once at the user's
+ *      configured local UTC hour.
+ *
+ * Caps at `SLEEP_MODE_USER_CAP_PER_TICK` (100) users per tick.
+ */
+export async function runSleepModeDigestTaskOnce(
+  deps: SleepModeDigestTaskDeps = {}
+): Promise<SleepModeDigestTaskSummary> {
+  const findCandidates =
+    deps.findCandidates ?? defaultFindSleepModeCandidates;
+  const sendOne = deps.sendOne ?? sendSleepModeDigestForUser;
+  const now = deps.now ?? (() => new Date());
+  const cap = deps.cap ?? SLEEP_MODE_USER_CAP_PER_TICK;
+  const cooldownHours = deps.cooldownHours ?? SLEEP_MODE_COOLDOWN_HOURS;
+
+  let candidates: SleepModeDigestCandidate[] = [];
+  try {
+    candidates = await findCandidates(cap);
+  } catch (err) {
+    console.error("[autopilot] sleep-mode-digest: findCandidates threw:", err);
+    return { sent: 0, skipped: 0 };
+  }
+
+  const nowDate = now();
+  const currentHour = nowDate.getUTCHours();
+  const cooldownMs = cooldownHours * 60 * 60 * 1000;
+
+  let sent = 0;
+  let skipped = 0;
+
+  for (const cand of candidates) {
+    try {
+      // Hour-match: must equal the user's configured UTC delivery hour.
+      if (cand.digestHourUtc !== currentHour) {
+        skipped += 1;
+        continue;
+      }
+      // Cooldown: skip if we sent within the last cooldown window.
+      if (
+        cand.lastDigestSentAt &&
+        nowDate.getTime() - new Date(cand.lastDigestSentAt).getTime() <
+          cooldownMs
+      ) {
+        skipped += 1;
+        continue;
+      }
+      const result = await sendOne(cand.userId);
+      if (result.ok) sent += 1;
+      else skipped += 1;
+    } catch (err) {
+      skipped += 1;
+      console.error(
+        `[autopilot] sleep-mode-digest: per-user failure for user=${cand.userId}:`,
+        err
+      );
+    }
+  }
+
+  return { sent, skipped };
 }
 
 // ---------------------------------------------------------------------------

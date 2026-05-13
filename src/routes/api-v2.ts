@@ -47,6 +47,12 @@ import { apiAuth, requireApiAuth, requireScope } from "../middleware/api-auth";
 import type { ApiAuthEnv } from "../middleware/api-auth";
 import { apiRateLimit, searchRateLimit } from "../middleware/rate-limit";
 import { postCommitStatusHandler } from "./commit-statuses";
+import { apiTokens } from "../db/schema";
+import { audit } from "../lib/notify";
+import {
+  computeAiSavingsForUser,
+  computeLifetimeAiSavingsForUser,
+} from "../lib/ai-hours-saved";
 
 const apiv2 = new Hono<ApiAuthEnv>().basePath("/api/v2");
 
@@ -73,6 +79,122 @@ async function resolveRepo(ownerName: string, repoName: string) {
 
   return { owner, repo };
 }
+
+// ─── Auth (install-token) ───────────────────────────────────────────────────
+//
+// POST /api/v2/auth/install-token
+//
+// Mint a new personal access token from a one-command install script
+// (`scripts/install.sh`). Session-cookie auth ONLY — Bearer tokens are
+// explicitly rejected so existing PATs cannot escalate into a fan-out of new
+// PATs. The plaintext token value is returned exactly once and never persisted.
+//
+// Audit-logged as `auth.install_token.created`.
+
+function generateInstallToken(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  return (
+    "glc_" +
+    Array.from(bytes)
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("")
+  );
+}
+
+async function hashInstallToken(token: string): Promise<string> {
+  const data = new TextEncoder().encode(token);
+  const hash = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(hash))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+apiv2.post("/auth/install-token", async (c) => {
+  // Reject Bearer-token callers outright. The whole point of this endpoint
+  // is preventing token escalation, so we check the raw header rather than
+  // relying on whatever the middleware decided.
+  const authHeader = c.req.header("Authorization");
+  if (authHeader && authHeader.toLowerCase().startsWith("bearer ")) {
+    return c.json(
+      {
+        error: "Session authentication required",
+        hint: "This endpoint refuses Bearer tokens — sign in with a session cookie.",
+      },
+      401
+    );
+  }
+
+  const user = c.get("user");
+  const authMethod = c.get("authMethod");
+  if (!user || authMethod !== "session") {
+    return c.json(
+      {
+        error: "Session authentication required",
+        hint: "Sign in via /login first; install-token mints PATs only over the session cookie.",
+      },
+      401
+    );
+  }
+
+  let body: { name?: unknown; scope?: unknown } = {};
+  try {
+    body = await c.req.json();
+  } catch {
+    // Empty / unparseable body is allowed — we fall back to defaults.
+    body = {};
+  }
+
+  const shortStamp = Math.floor(Date.now() / 1000)
+    .toString(36)
+    .slice(-6);
+  const name =
+    typeof body.name === "string" && body.name.trim().length > 0
+      ? body.name.trim().slice(0, 80)
+      : `gluecron-install-${shortStamp}`;
+
+  const requested = typeof body.scope === "string" ? body.scope : "admin";
+  const scope = requested === "repo" ? "repo" : "admin";
+  // Mirror existing PAT semantics: a comma-separated list. `admin` implies
+  // everything; `repo` keeps it narrow.
+  const scopes = scope === "admin" ? "admin,repo,user" : "repo";
+
+  const token = generateInstallToken();
+  const tokenHash = await hashInstallToken(token);
+  const tokenPrefix = token.slice(0, 12);
+
+  const [row] = await db
+    .insert(apiTokens)
+    .values({
+      userId: user.id,
+      name,
+      tokenHash,
+      tokenPrefix,
+      scopes,
+    })
+    .returning();
+
+  await audit({
+    userId: user.id,
+    action: "auth.install_token.created",
+    targetType: "api_token",
+    targetId: row?.id,
+    ip: c.req.header("x-forwarded-for") || c.req.header("x-real-ip") || undefined,
+    userAgent: c.req.header("user-agent") || undefined,
+    metadata: { name, scope, prefix: tokenPrefix },
+  });
+
+  return c.json(
+    {
+      token,
+      id: row?.id,
+      name,
+      scope,
+      scopes,
+      expiresAt: row?.expiresAt ?? null,
+    },
+    201
+  );
+});
 
 // ─── Users ──────────────────────────────────────────────────────────────────
 
@@ -105,6 +227,31 @@ apiv2.get("/users/:username", async (c) => {
     .limit(1);
   if (!user) return c.json({ error: "User not found" }, 404);
   return c.json(user);
+});
+
+/**
+ * Block L9 — AI hours-saved counter, exposed for the dashboard widget,
+ * VS Code extension, and CLI. Returns the same numbers the web UI shows.
+ * No special scope — any authenticated token can read its own counter.
+ */
+apiv2.get("/me/ai-savings", requireApiAuth, async (c) => {
+  const user = c.get("user")!;
+  const [window, lifetime] = await Promise.all([
+    computeAiSavingsForUser(user.id, { windowHours: 168 }),
+    computeLifetimeAiSavingsForUser(user.id),
+  ]);
+  return c.json({
+    window: {
+      hours: window.windowHours,
+      hoursSaved: window.hoursSaved,
+      breakdown: window.breakdown,
+    },
+    lifetime: {
+      hoursSaved: lifetime.hoursSaved,
+      breakdown: lifetime.breakdown,
+      sinceCreatedAt: lifetime.sinceCreatedAt.toISOString(),
+    },
+  });
 });
 
 apiv2.patch("/user", requireApiAuth, requireScope("user"), async (c) => {
@@ -1032,10 +1179,16 @@ apiv2.get("/", (c) => {
     version: "2.0",
     documentation: "/api/docs",
     endpoints: {
+      auth: {
+        "POST /api/v2/auth/install-token":
+          "Mint a PAT for one-command install (session-cookie auth only)",
+      },
       users: {
         "GET /api/v2/user": "Get authenticated user",
         "GET /api/v2/users/:username": "Get user by username",
         "PATCH /api/v2/user": "Update authenticated user profile",
+        "GET /api/v2/me/ai-savings":
+          "AI hours-saved counter (window + lifetime, Block L9)",
       },
       repositories: {
         "GET /api/v2/users/:username/repos": "List user repositories",

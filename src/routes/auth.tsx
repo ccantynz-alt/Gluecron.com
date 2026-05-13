@@ -21,7 +21,7 @@ import {
   sessionExpiry,
 } from "../lib/auth";
 import { verifyTotpCode, hashRecoveryCode } from "../lib/totp";
-import { getSsoConfig } from "../lib/sso";
+import { getSsoConfig, getGithubOauthConfig } from "../lib/sso";
 import { Layout } from "../views/layout";
 import {
   Form,
@@ -187,6 +187,10 @@ auth.get("/login", async (c) => {
     !!ssoCfg.clientId &&
     !!ssoCfg.clientSecret;
   const ssoLabel = ssoCfg?.providerName || "SSO";
+  // Block L6 — "Sign in with GitHub" (separate row keyed id='github').
+  const githubCfg = await getGithubOauthConfig();
+  const githubEnabled =
+    !!githubCfg?.enabled && !!githubCfg.clientId && !!githubCfg.clientSecret;
   const csrf = c.get("csrfToken") as string | undefined;
   return c.html(
     <Layout title="Sign in">
@@ -222,6 +226,12 @@ auth.get("/login", async (c) => {
             Sign in
           </Button>
         </Form>
+        {githubEnabled && (
+          <div class="auth-sso">
+            <div class="auth-divider">or</div>
+            <LinkButton href="/login/github">Sign in with GitHub</LinkButton>
+          </div>
+        )}
         {ssoEnabled && (
           <div class="auth-sso">
             <div class="auth-divider">or</div>

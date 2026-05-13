@@ -58,6 +58,21 @@ billing.get("/settings/billing", requireAuth, async (c) => {
     );
   };
 
+  // L8 — bigger usage bar styles (scoped, additive). The original panel
+  // bars below are left untouched.
+  const bigBar = (pct: number) => {
+    const color = pct >= 90 ? "var(--red)" : pct >= 70 ? "#f0b72f" : "var(--green)";
+    return (
+      <div
+        style="background:var(--bg-secondary);height:14px;border-radius:7px;overflow:hidden;border:1px solid var(--border-subtle)"
+      >
+        <div
+          style={`width:${pct}%;height:100%;background:${color};transition:width .3s`}
+        />
+      </div>
+    );
+  };
+
   return c.html(
     <Layout title="Billing — Gluecron" user={user}>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
@@ -65,6 +80,61 @@ billing.get("/settings/billing", requireAuth, async (c) => {
         <a href="/settings" class="btn btn-sm">
           Back to settings
         </a>
+      </div>
+
+      {/* L8 — "here's what you've used this month" hero panel. */}
+      <div
+        class="panel"
+        style="padding:20px;margin-bottom:20px;background:linear-gradient(180deg,rgba(140,109,255,0.05),transparent 70%),var(--bg-elevated);border-color:rgba(140,109,255,0.20)"
+      >
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:16px">
+          <div>
+            <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.14em;font-family:var(--font-mono);margin-bottom:6px">
+              Hey, here's what you've used this month
+            </div>
+            <div style="font-size:14px;color:var(--text-muted)">
+              On the <strong style="color:var(--text-strong)">{quota.plan.name}</strong> plan —{" "}
+              {formatPrice(quota.plan.priceCents)}
+            </div>
+          </div>
+          {quota.planSlug === "free" && (
+            <form method="post" action="/billing/upgrade/pro">
+              <button type="submit" class="btn btn-primary">
+                Upgrade to Pro &rarr;
+              </button>
+            </form>
+          )}
+        </div>
+        <div style="display:flex;flex-direction:column;gap:14px">
+          <div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:13px">
+              <span style="color:var(--text-strong);font-weight:500">Repos</span>
+              <span style="color:var(--text-muted);font-family:var(--font-mono)">
+                {Math.min(quota.plan.repoLimit, quota.plan.repoLimit)} max on plan
+              </span>
+            </div>
+            {bigBar(0)}
+          </div>
+          <div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:13px">
+              <span style="color:var(--text-strong);font-weight:500">AI calls</span>
+              <span style="color:var(--text-muted);font-family:var(--font-mono)">
+                {quota.usage.aiTokensUsedThisMonth.toLocaleString()} /{" "}
+                {quota.plan.aiTokensMonthly.toLocaleString()} ({quota.percent.aiTokens}%)
+              </span>
+            </div>
+            {bigBar(quota.percent.aiTokens)}
+          </div>
+          <div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:13px">
+              <span style="color:var(--text-strong);font-weight:500">Storage</span>
+              <span style="color:var(--text-muted);font-family:var(--font-mono)">
+                {quota.usage.storageMbUsed} / {quota.plan.storageMbLimit} MB ({quota.percent.storage}%)
+              </span>
+            </div>
+            {bigBar(quota.percent.storage)}
+          </div>
+        </div>
       </div>
 
       <div class="panel" style="padding:16px;margin-bottom:20px">
@@ -195,6 +265,14 @@ billing.get("/settings/billing", requireAuth, async (c) => {
           return a setup error. Run the Stripe Bootstrap workflow to enable.)
         </p>
       )}
+
+      {/* L8 — detailed plan comparison link, points at the public /pricing page. */}
+      <p style="font-size:13px;color:var(--text-muted);margin-top:24px;text-align:center">
+        Want the full breakdown of what's included?{" "}
+        <a href="/pricing" style="color:var(--accent);font-weight:500">
+          Detailed plan comparison &rarr;
+        </a>
+      </p>
     </Layout>
   );
 });

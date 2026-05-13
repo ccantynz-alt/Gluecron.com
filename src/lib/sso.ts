@@ -444,6 +444,212 @@ export function ssoRedirectUri(): string {
 }
 
 // ----------------------------------------------------------------------------
+// Block L6 — GitHub OAuth sign-in (one-click)
+//
+// GitHub is OAuth 2.0, not OIDC: no id_token, no /userinfo, no nonce.
+// We reuse the `sso_config` schema as a row-keyed store (id='github')
+// alongside the enterprise IdP (id='default'). The actual network shape
+// is implemented in src/lib/github-oauth.ts; this section adds:
+//   - a getter for the github-specific config row
+//   - a Github-specific upsert that defaults to GitHub endpoints
+//   - findOrCreateUserFromGithub() that prefixes the subject with "github:"
+//     so we never collide with id='default' subjects.
+// ----------------------------------------------------------------------------
+
+const GITHUB_OAUTH_CONFIG_ID = "github";
+
+/** Returns the GitHub-OAuth singleton config row, or null if never seeded. */
+export async function getGithubOauthConfig(): Promise<SsoConfig | null> {
+  try {
+    const [row] = await db
+      .select()
+      .from(ssoConfig)
+      .where(eq(ssoConfig.id, GITHUB_OAUTH_CONFIG_ID))
+      .limit(1);
+    return row || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Upsert GitHub OAuth credentials. Same row-shape as `upsertSsoConfig` but
+ * defaults the URLs to github.com endpoints so admins only have to paste
+ * Client ID + Secret.
+ */
+export async function upsertGithubOauthConfig(
+  input: Partial<Pick<SsoConfigInput, "enabled" | "clientId" | "clientSecret" | "autoCreateUsers" | "allowedEmailDomains">>
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const now = new Date();
+    const values = {
+      id: GITHUB_OAUTH_CONFIG_ID,
+      enabled: !!input.enabled,
+      providerName: "GitHub",
+      issuer: "https://github.com",
+      authorizationEndpoint: "https://github.com/login/oauth/authorize",
+      tokenEndpoint: "https://github.com/login/oauth/access_token",
+      userinfoEndpoint: "https://api.github.com/user",
+      clientId: emptyToNull(input.clientId),
+      clientSecret: emptyToNull(input.clientSecret),
+      scopes: "read:user user:email",
+      allowedEmailDomains: emptyToNull(input.allowedEmailDomains ?? null),
+      autoCreateUsers: input.autoCreateUsers !== false,
+      updatedAt: now,
+    };
+    await db
+      .insert(ssoConfig)
+      .values(values)
+      .onConflictDoUpdate({
+        target: ssoConfig.id,
+        set: {
+          enabled: values.enabled,
+          providerName: values.providerName,
+          issuer: values.issuer,
+          authorizationEndpoint: values.authorizationEndpoint,
+          tokenEndpoint: values.tokenEndpoint,
+          userinfoEndpoint: values.userinfoEndpoint,
+          clientId: values.clientId,
+          clientSecret: values.clientSecret,
+          scopes: values.scopes,
+          allowedEmailDomains: values.allowedEmailDomains,
+          autoCreateUsers: values.autoCreateUsers,
+          updatedAt: values.updatedAt,
+        },
+      });
+    return { ok: true };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Failed to save config",
+    };
+  }
+}
+
+/** Shape we receive after the GitHub network round-trip. */
+export interface GithubProfile {
+  id: number;
+  login: string;
+  name: string | null;
+  email: string | null;
+  avatarUrl: string | null;
+}
+
+/**
+ * Like findOrCreateUserFromSso, but specialised for the GitHub flow.
+ *
+ * Differences from the OIDC version:
+ *   - subject is prefixed with "github:" so we run multiple IdPs alongside
+ *     each other without ID collisions (the IdP `sub` namespace is global,
+ *     not per-provider).
+ *   - We use `login` as the username fallback and `name` for display.
+ *   - We still match by email when GitHub returns one; otherwise we
+ *     auto-create using the `login` as the username seed.
+ *
+ * Keeps `findOrCreateUserFromSso` totally untouched.
+ */
+export async function findOrCreateUserFromGithub(
+  profile: GithubProfile,
+  cfg: SsoConfig
+): Promise<
+  | { ok: true; user: User }
+  | { ok: false; error: string }
+> {
+  const subject = `github:${profile.id}`;
+
+  // 1. Existing link
+  const link = await findSsoLinkBySubject(subject);
+  if (link) {
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(eq(users.id, link.userId))
+      .limit(1);
+    if (user) return { ok: true, user };
+    await db
+      .delete(ssoUserLinks)
+      .where(eq(ssoUserLinks.subject, subject))
+      .catch(() => {});
+  }
+
+  // 2. Domain gate (only meaningful if admin set one)
+  if (!emailDomainAllowed(profile.email, cfg.allowedEmailDomains)) {
+    return {
+      ok: false,
+      error: "Your email domain is not permitted for GitHub sign-in.",
+    };
+  }
+
+  // 3. Match by email when present
+  if (profile.email) {
+    const [existing] = await db
+      .select()
+      .from(users)
+      .where(eq(users.email, profile.email))
+      .limit(1);
+    if (existing) {
+      await db
+        .insert(ssoUserLinks)
+        .values({
+          userId: existing.id,
+          subject,
+          emailAtLink: profile.email,
+        })
+        .onConflictDoNothing();
+      return { ok: true, user: existing };
+    }
+  }
+
+  // 4. Auto-create
+  if (!cfg.autoCreateUsers) {
+    return {
+      ok: false,
+      error:
+        "No matching account, and the administrator has disabled GitHub account creation.",
+    };
+  }
+
+  const email = profile.email;
+  if (!email) {
+    return {
+      ok: false,
+      error:
+        "GitHub did not return a verified email. Mark a primary email as verified on github.com and try again.",
+    };
+  }
+
+  const usernameSeed = profile.login || profile.name || email.split("@")[0] || "user";
+  const username = await pickAvailableUsername(usernameSeed);
+
+  const fakeHash = "sso-only:" + randomToken(32);
+
+  const [user] = await db
+    .insert(users)
+    .values({
+      username,
+      email,
+      passwordHash: fakeHash,
+    })
+    .returning();
+
+  await db
+    .insert(ssoUserLinks)
+    .values({
+      userId: user.id,
+      subject,
+      emailAtLink: email,
+    })
+    .onConflictDoNothing();
+
+  return { ok: true, user };
+}
+
+/** Compute the GitHub OAuth redirect URI for this deployment. */
+export function githubOauthRedirectUri(): string {
+  return `${config.appBaseUrl}/login/github/callback`;
+}
+
+// ----------------------------------------------------------------------------
 // Test-only exports
 // ----------------------------------------------------------------------------
 

@@ -32,9 +32,12 @@ import healthDashboardRoutes from "./routes/health";
 import statusRoutes from "./routes/status";
 import helpRoutes from "./routes/help";
 import marketingRoutes from "./routes/marketing";
+import pricingRoutes from "./routes/pricing";
 import seoRoutes from "./routes/seo";
 import versionRoutes from "./routes/version";
 import { platformStatus } from "./routes/platform-status";
+import publicStatsRoutes from "./routes/public-stats";
+import demoRoutes from "./routes/demo";
 import insightRoutes from "./routes/insights";
 import dashboardRoutes from "./routes/dashboard";
 import legalRoutes from "./routes/legal";
@@ -86,6 +89,7 @@ import pagesRoutes from "./routes/pages";
 import projectsRoutes from "./routes/projects";
 import protectedTagsRoutes from "./routes/protected-tags";
 import pwaRoutes from "./routes/pwa";
+import installRoutes from "./routes/install";
 import releasesRoutes from "./routes/releases";
 import requiredChecksRoutes from "./routes/required-checks";
 import rulesetsRoutes from "./routes/rulesets";
@@ -94,6 +98,7 @@ import semanticSearchRoutes from "./routes/semantic-search";
 import signingKeysRoutes from "./routes/signing-keys";
 import sponsorsRoutes from "./routes/sponsors";
 import ssoRoutes from "./routes/sso";
+import githubOauthRoutes from "./routes/github-oauth";
 import symbolsRoutes from "./routes/symbols";
 import templatesRoutes from "./routes/templates";
 import trafficRoutes from "./routes/traffic";
@@ -101,6 +106,8 @@ import wikisRoutes from "./routes/wikis";
 import workflowsRoutes from "./routes/workflows";
 import workflowArtifactsRoutes from "./routes/workflow-artifacts";
 import workflowSecretsRoutes from "./routes/workflow-secrets";
+import sleepModeRoutes from "./routes/sleep-mode";
+import vsGithubRoutes from "./routes/vs-github";
 import { authRateLimit, gitRateLimit, searchRateLimit } from "./middleware/rate-limit";
 import { csrfToken, csrfProtect } from "./middleware/csrf";
 
@@ -158,6 +165,12 @@ app.route("/", gitRoutes);
 
 // REST API v1 (legacy)
 app.route("/", apiRoutes);
+
+// Block L3 — /demo + /api/v2/demo/* live demo endpoints. Mounted BEFORE
+// apiV2Routes so the /api/v2/demo/* JSON endpoints win over the v2 base
+// router's catch-shape, and BEFORE adminRoutes so the live /demo page
+// wins over the legacy /demo redirect in src/routes/admin.tsx.
+app.route("/", demoRoutes);
 
 // REST API v2 (basePath /api/v2)
 app.route("/", apiV2Routes);
@@ -251,11 +264,22 @@ app.route("/", healthRoutes);
 // Cross-product platform status (public, CORS-open — see docs/PLATFORM_STATUS.md)
 app.route("/api/platform-status", platformStatus);
 
+// Block L4 — Public stats counters (powers landing-page social proof)
+app.route("/", publicStatsRoutes);
+
+// Block L3 — Live /demo page + /api/v2/demo/* endpoints
+app.route("/", demoRoutes);
+
 // Public /status — human-readable platform health page
 app.route("/", statusRoutes);
 
 // /help — quickstart + API cheatsheet
 app.route("/", helpRoutes);
+
+// L8 — public /pricing page (free-tier polish). Mounted BEFORE marketing
+// so the new editorial pricing layout wins the route; the legacy marketing
+// pricing remains as a safety net but is shadowed at the router.
+app.route("/", pricingRoutes);
 
 // /pricing, /features, /about — marketing surface
 app.route("/", marketingRoutes);
@@ -324,6 +348,7 @@ app.route("/", pagesRoutes);
 app.route("/", projectsRoutes);
 app.route("/", protectedTagsRoutes);
 app.route("/", pwaRoutes);
+app.route("/", installRoutes);
 app.route("/", releasesRoutes);
 app.route("/", requiredChecksRoutes);
 app.route("/", rulesetsRoutes);
@@ -332,6 +357,7 @@ app.route("/", semanticSearchRoutes);
 app.route("/", signingKeysRoutes);
 app.route("/", sponsorsRoutes);
 app.route("/", ssoRoutes);
+app.route("/", githubOauthRoutes);
 app.route("/", symbolsRoutes);
 app.route("/", templatesRoutes);
 app.route("/", trafficRoutes);
@@ -339,6 +365,8 @@ app.route("/", wikisRoutes);
 app.route("/", workflowsRoutes);
 app.route("/", workflowArtifactsRoutes);
 app.route("/", workflowSecretsRoutes);
+app.route("/", sleepModeRoutes);
+app.route("/", vsGithubRoutes);
 
 // Web UI (catch-all, must be last)
 app.route("/", webRoutes);

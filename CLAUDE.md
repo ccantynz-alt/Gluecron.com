@@ -110,3 +110,21 @@ See `.env.example` for required variables. Key ones:
 - **Other hosts:** a `Dockerfile` is in the repo, so any standard Docker host works.
 - **Database:** Neon PostgreSQL (direct connection via `DATABASE_URL`).
 - See DEPLOY.md for full deployment instructions.
+
+## Skills available for this project
+
+Claude Code skill bundle for the Gluecron MCP write surface lives in
+`.claude/skills/`. The install script (`scripts/install.sh`) copies these
+into `~/.claude/skills/` so they are available across all projects:
+
+- **`gluecron-pr`** — open, list, fetch, comment on, merge, or close pull
+  requests on a Gluecron-hosted repository.
+- **`gluecron-issue`** — create, list, comment on, close, or reopen issues
+  on a Gluecron-hosted repository.
+- **`gluecron-review`** — act as a secondary AI code reviewer on a
+  Gluecron PR; complements the built-in `src/lib/ai-review.ts` pass.
+
+All three skills drive the K1 MCP write tools defined in
+`src/lib/mcp-tools.ts` (`gluecron_create_issue`, `gluecron_create_pr`,
+`gluecron_merge_pr`, etc.). They auto-invoke when the active repo's
+origin URL contains `gluecron.com` or matches `$GLUECRON_HOST`.

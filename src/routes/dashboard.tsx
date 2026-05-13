@@ -38,6 +38,12 @@ import {
   listCommits,
   listBranches,
 } from "../git/repository";
+import {
+  computeAiSavingsForUser,
+  computeLifetimeAiSavingsForUser,
+  type AiSavingsReport,
+  type AiSavingsLifetimeReport,
+} from "../lib/ai-hours-saved";
 
 const dashboard = new Hono<AuthEnv>();
 
@@ -96,6 +102,13 @@ dashboard.get("/dashboard", requireAuth, async (c) => {
       };
     })
   );
+
+  // Block L9 — AI hours-saved counter. Pull both window + lifetime in
+  // parallel; both helpers swallow DB errors so the dashboard always renders.
+  const [savingsWeek, savingsLifetime] = await Promise.all([
+    computeAiSavingsForUser(user.id, { windowHours: 168 }),
+    computeLifetimeAiSavingsForUser(user.id),
+  ]);
 
   // Get recent activity
   let recentActivity: Array<{
@@ -156,6 +169,9 @@ dashboard.get("/dashboard", requireAuth, async (c) => {
           <a href="/settings" class="btn">Settings</a>
         </div>
       </div>
+
+      {/* ─── L9: AI hours-saved hero widget ─── */}
+      <AiHoursSavedWidget week={savingsWeek} lifetime={savingsLifetime} />
 
       {/* ─── Stats Bar ─── */}
       <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 32px">
@@ -555,6 +571,154 @@ dashboard.get("/:owner/:repo/pushes", softAuth, async (c) => {
 });
 
 // ─── COMPONENTS ──────────────────────────────────────────────
+
+/**
+ * Block L9 — pure formatter used by the dashboard widget AND tests.
+ * Turns the breakdown into the small stat-pill array shown under the
+ * big number. Exported so the markup contract is testable without
+ * importing JSX.
+ */
+export function formatSavingsPills(b: {
+  prsAutoMerged: number;
+  issuesBuiltByAi: number;
+  aiReviewsPosted: number;
+  aiTriagesPosted: number;
+  aiCommitMsgs: number;
+  secretsAutoRepaired: number;
+  gateAutoRepairs: number;
+}): string[] {
+  const pills: string[] = [];
+  if (b.prsAutoMerged) pills.push(`${b.prsAutoMerged} PR${b.prsAutoMerged === 1 ? "" : "s"} auto-merged`);
+  if (b.issuesBuiltByAi) pills.push(`${b.issuesBuiltByAi} issue${b.issuesBuiltByAi === 1 ? "" : "s"} built`);
+  if (b.aiReviewsPosted) pills.push(`${b.aiReviewsPosted} AI review${b.aiReviewsPosted === 1 ? "" : "s"}`);
+  if (b.aiTriagesPosted) pills.push(`${b.aiTriagesPosted} triage${b.aiTriagesPosted === 1 ? "" : "s"}`);
+  const fixes = b.secretsAutoRepaired + b.gateAutoRepairs;
+  if (fixes) pills.push(`${fixes} auto-fix${fixes === 1 ? "" : "es"}`);
+  if (b.aiCommitMsgs) pills.push(`${b.aiCommitMsgs} commit msg${b.aiCommitMsgs === 1 ? "" : "s"}`);
+  return pills;
+}
+
+const AiHoursSavedWidget = ({
+  week,
+  lifetime,
+}: {
+  week: AiSavingsReport;
+  lifetime: AiSavingsLifetimeReport;
+}) => {
+  const weekPills = formatSavingsPills(week.breakdown);
+  const lifetimePills = formatSavingsPills(lifetime.breakdown);
+  const hasAnyWeek = week.hoursSaved > 0 || weekPills.length > 0;
+  return (
+    <div
+      class="card ai-hours-saved-widget"
+      style="margin-bottom: 24px; padding: 0; overflow: hidden; position: relative; background: var(--accent-gradient-faint, var(--bg-secondary)); border-color: var(--accent)"
+    >
+      <div style="padding: 24px 24px 20px 24px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap">
+          <div style="flex:1;min-width:240px">
+            <div style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-muted); margin-bottom: 4px">
+              AI working for you
+            </div>
+            <div
+              data-testid="ai-hours-saved-this-week"
+              style="font-size: 56px; font-weight: 800; line-height: 1; background: var(--accent-gradient); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent"
+            >
+              {week.hoursSaved.toFixed(1)}h
+            </div>
+            <div style="margin-top: 6px; font-size: 14px; color: var(--text-muted)">
+              Claude saved you{" "}
+              <strong style="color: var(--text)">
+                {week.hoursSaved.toFixed(1)} hours
+              </strong>{" "}
+              this week.
+              {lifetime.hoursSaved > week.hoursSaved && (
+                <span>
+                  {" — "}
+                  <strong style="color: var(--text)">
+                    {lifetime.hoursSaved.toFixed(1)}h
+                  </strong>{" "}
+                  all-time.
+                </span>
+              )}
+            </div>
+          </div>
+          <div
+            class="ai-hours-saved-tabs"
+            style="display:flex;gap:4px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;padding:2px"
+          >
+            <span
+              data-tab="this-week"
+              style="padding:4px 10px;font-size:12px;font-weight:600;border-radius:4px;background:var(--bg);color:var(--text)"
+            >
+              This week
+            </span>
+            <span
+              data-tab="all-time"
+              style="padding:4px 10px;font-size:12px;color:var(--text-muted)"
+            >
+              All-time
+            </span>
+          </div>
+        </div>
+
+        {hasAnyWeek ? (
+          <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:16px">
+            {weekPills.map((p) => (
+              <span
+                class="badge"
+                style="font-size:12px;padding:4px 10px;background:rgba(140,109,255,0.10);border-color:var(--accent);color:var(--text)"
+              >
+                {p}
+              </span>
+            ))}
+          </div>
+        ) : (
+          <div style="margin-top:16px;font-size:13px;color:var(--text-muted)">
+            No AI activity this week yet — open a PR, label an issue{" "}
+            <code>ai:build</code>, or let auto-merge sweep your branches.
+            The counter will start climbing.
+          </div>
+        )}
+
+        <details style="margin-top:16px">
+          <summary
+            data-testid="ai-hours-saved-formula-toggle"
+            style="cursor:pointer;font-size:12px;color:var(--text-muted);user-select:none"
+          >
+            How is this calculated?
+          </summary>
+          <div
+            style="margin-top:10px;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);font-size:12px;color:var(--text-muted);font-family:var(--font-mono, monospace);line-height:1.6"
+          >
+            <div>hoursSaved =</div>
+            <div>&nbsp;&nbsp;{week.breakdown.prsAutoMerged} PRs auto-merged × 0.30</div>
+            <div>+ {week.breakdown.issuesBuiltByAi} issues built by AI × 1.50</div>
+            <div>+ {week.breakdown.aiReviewsPosted} AI reviews × 0.25</div>
+            <div>+ {week.breakdown.aiTriagesPosted} AI triages × 0.10</div>
+            <div>+ {week.breakdown.aiCommitMsgs} AI commit msgs × 0.05</div>
+            <div>+ {week.breakdown.secretsAutoRepaired} secrets repaired × 0.50</div>
+            <div>+ {week.breakdown.gateAutoRepairs} gates repaired × 0.40</div>
+            <div style="margin-top:6px;color:var(--text)">
+              = {week.hoursSaved.toFixed(1)}h (this week,{" "}
+              {week.windowHours}h window)
+            </div>
+            <div style="margin-top:8px;font-size:11px">
+              Lifetime: {lifetime.hoursSaved.toFixed(1)}h since{" "}
+              {lifetime.sinceCreatedAt.toISOString().slice(0, 10)}.
+              Constants are conservative on purpose — audit-friendly is
+              the brand.
+            </div>
+            {lifetimePills.length > 0 && (
+              <div style="margin-top:8px;font-size:11px">
+                All-time breakdown: {lifetimePills.join(" · ")}
+              </div>
+            )}
+          </div>
+        </details>
+      </div>
+    </div>
+  );
+};
 
 /**
  * Pure helper: pick the bottom-N repos by health score and return a

@@ -10,10 +10,37 @@ export const Layout: FC<
     user?: User | null;
     notificationCount?: number;
     theme?: "dark" | "light";
+    // Block L10 — additive SEO + Open Graph fields. All optional;
+    // omission preserves the prior render exactly (regression-safe).
+    fullTitle?: string;
+    description?: string;
+    ogTitle?: string;
+    ogDescription?: string;
+    ogType?: string;
+    twitterCard?: "summary" | "summary_large_image";
   }>
-> = ({ children, title, user, notificationCount, theme }) => {
+> = ({
+  children,
+  title,
+  user,
+  notificationCount,
+  theme,
+  fullTitle,
+  description,
+  ogTitle,
+  ogDescription,
+  ogType,
+  twitterCard,
+}) => {
   const initialTheme = theme === "light" ? "light" : "dark";
   const build = getBuildInfo();
+  // L10 — when `fullTitle` is provided, use it verbatim (no " — gluecron"
+  // suffix); otherwise fall back to the existing `title` + suffix behaviour.
+  const renderedTitle = fullTitle
+    ? fullTitle
+    : title
+    ? `${title} — gluecron`
+    : "gluecron";
   return (
     <html lang="en" data-theme={initialTheme}>
       <head>
@@ -22,7 +49,19 @@ export const Layout: FC<
         <meta name="theme-color" content="#0d1117" />
         <link rel="manifest" href="/manifest.webmanifest" />
         <link rel="icon" type="image/svg+xml" href="/icon.svg" />
-        <title>{title ? `${title} — gluecron` : "gluecron"}</title>
+        <title>{renderedTitle}</title>
+        {description && <meta name="description" content={description} />}
+        {(ogTitle || fullTitle || title) && (
+          <meta property="og:title" content={ogTitle ?? fullTitle ?? renderedTitle} />
+        )}
+        {(ogDescription || description) && (
+          <meta
+            property="og:description"
+            content={ogDescription ?? description ?? ""}
+          />
+        )}
+        {ogType && <meta property="og:type" content={ogType} />}
+        {twitterCard && <meta name="twitter:card" content={twitterCard} />}
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
         <style dangerouslySetInnerHTML={{ __html: css }} />
         <style dangerouslySetInnerHTML={{ __html: hljsThemeCss }} />

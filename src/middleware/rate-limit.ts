@@ -39,7 +39,15 @@ export function rateLimit(
     // In test env, expose informational rate-limit headers but do not actually
     // enforce limits — the shared in-memory store leaks across test files and
     // would push requests into 429 once accumulated.
-    if (process.env.NODE_ENV === "test" || process.env.BUN_ENV === "test") {
+    //
+    // Belt-and-braces: refuse to disable enforcement when NODE_ENV=production
+    // even if BUN_ENV/NODE_ENV are also somehow set to "test". A misconfigured
+    // production container with a leaked test env var must not silently drop
+    // rate limiting.
+    const isTestEnv =
+      process.env.NODE_ENV !== "production" &&
+      (process.env.NODE_ENV === "test" || process.env.BUN_ENV === "test");
+    if (isTestEnv) {
       c.header("X-RateLimit-Limit", String(maxRequests));
       c.header("X-RateLimit-Remaining", String(maxRequests));
       c.header("X-RateLimit-Reset", String(Math.ceil((Date.now() + windowMs) / 1000)));

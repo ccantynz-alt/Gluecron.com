@@ -116,9 +116,17 @@ export const Form: FC<
     method?: string;
     csrfToken?: string;
     class?: string;
+    id?: string;
+    encType?: string;
   }>
-> = ({ children, action, method = "POST", csrfToken, class: cls }) => (
-  <form method={method.toLowerCase() as any} action={action} class={cls || ""}>
+> = ({ children, action, method = "POST", csrfToken, class: cls, id, encType }) => (
+  <form
+    method={method.toLowerCase() as any}
+    action={action}
+    class={cls || ""}
+    id={id}
+    enctype={encType as any}
+  >
     {csrfToken && <input type="hidden" name="_csrf" value={csrfToken} />}
     {children}
   </form>

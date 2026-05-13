@@ -533,7 +533,7 @@ ${parsed.patches.map((p) => `- ${p.path}: ${p.reason}`).join("\n")}
       tier: "ai-sonnet",
       patchSummary: parsed.summary,
       filesChanged: result.filesChanged,
-      commitSha: result.sha,
+      commitSha: result.sha ?? null,
       outcome: "success",
     }).catch(() => {});
     return {

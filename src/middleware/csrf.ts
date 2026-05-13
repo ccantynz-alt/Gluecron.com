@@ -39,8 +39,23 @@ export const csrfToken = createMiddleware(async (c, next) => {
 });
 
 /**
- * Validates CSRF token on mutating requests (POST, PUT, DELETE, PATCH).
- * Checks form body field '_csrf' or header 'x-csrf-token' against cookie.
+ * Validates CSRF on mutating requests (POST, PUT, DELETE, PATCH).
+ *
+ * Defence-in-depth, in order:
+ *  1. Same-origin check via Origin/Referer header (OWASP-recommended primary
+ *     defence against CSRF — a cross-site forged request from a victim's
+ *     browser always carries the attacker's Origin, never the app's host).
+ *  2. Double-submit cookie token (the `_csrf` form field or `X-CSRF-Token`
+ *     header must equal the `csrf_token` cookie). Optional — used as a
+ *     belt-and-braces fallback when present.
+ *
+ * The Origin check alone is sufficient for modern browsers (all major
+ * browsers send Origin on cross-origin POSTs). The token check is retained
+ * because some legacy clients strip Origin/Referer, and because it gives
+ * forms an explicit "I came from a real page" signal.
+ *
+ * A request is accepted iff EITHER the Origin/Referer matches the request
+ * host OR the token check passes.
  */
 export const csrfProtect = createMiddleware(async (c, next) => {
   const method = c.req.method.toUpperCase();
@@ -74,9 +89,39 @@ export const csrfProtect = createMiddleware(async (c, next) => {
     return next();
   }
 
+  // ---- 1) Same-origin check (Origin / Referer header) -----------------
+  // A genuine same-origin request from our own pages will carry an Origin
+  // (always for cross-origin POSTs, usually for same-origin too) or a
+  // Referer that matches the request host. Cross-site forged requests
+  // either carry the attacker's origin or are stripped — in both cases
+  // they fail this check.
+  const host = c.req.header("host");
+  const origin = c.req.header("origin");
+  const referer = c.req.header("referer");
+  let originOk = false;
+  if (host) {
+    if (origin) {
+      try {
+        originOk = new URL(origin).host === host;
+      } catch {
+        originOk = false;
+      }
+    } else if (referer) {
+      try {
+        originOk = new URL(referer).host === host;
+      } catch {
+        originOk = false;
+      }
+    }
+  }
+  if (originOk) {
+    return next();
+  }
+
+  // ---- 2) Double-submit cookie token (fallback) ------------------------
   const cookieToken = getCookie(c, CSRF_COOKIE);
   if (!cookieToken) {
-    return c.text("CSRF token missing", 403);
+    return c.text("CSRF check failed: no Origin/Referer header and no token cookie", 403);
   }
 
   // Check header first, then form body

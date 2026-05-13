@@ -60,8 +60,15 @@ export function getDb(): AnyDb {
 
 // Re-export as `db` for convenience — proxies to the chosen driver lazily.
 // Will throw on first access if DATABASE_URL is unset.
+//
+// We type the proxy as `NeonHttpDatabase<typeof schema>` for ergonomics: the
+// two driver wrappers expose identical query-builder APIs at runtime (both are
+// `PgDatabase` underneath), but the union type narrows TypeScript's overload
+// resolution and makes `.returning({...})` etc. show as "0 args expected".
+// Casting to the Neon variant exposes the full drizzle PG query-builder
+// surface to call sites without changing runtime behaviour.
 export const db = new Proxy({} as AnyDb, {
   get(_target, prop, receiver) {
     return Reflect.get(getDb(), prop, receiver) as unknown;
   },
-});
+}) as NeonHttpDatabase<typeof schema>;

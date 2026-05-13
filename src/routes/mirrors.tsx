@@ -14,6 +14,7 @@ import { db } from "../db";
 import { repositories, users } from "../db/schema";
 import { Layout } from "../views/layout";
 import { RepoHeader } from "../views/components";
+import { formatRelative } from "../views/ui";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
 import { isSiteAdmin } from "../lib/admin";
@@ -180,9 +181,9 @@ mirrors.get("/:owner/:repo/settings/mirror", requireAuth, async (c) => {
                     style="font-size:12px;color:var(--text-muted);text-transform:uppercase"
                   >
                     {mirror.lastStatus === "ok" ? "Success" : "Error"} —{" "}
-                    {new Date(
+                    {formatRelative(
                       mirror.lastSyncedAt as unknown as string
-                    ).toLocaleString()}
+                    )}
                   </div>
                   {mirror.lastError && (
                     <pre
@@ -222,9 +223,9 @@ mirrors.get("/:owner/:repo/settings/mirror", requireAuth, async (c) => {
                       <span
                         style="font-size:12px;color:var(--text-muted);font-family:var(--font-mono)"
                       >
-                        {new Date(
+                        {formatRelative(
                           r.startedAt as unknown as string
-                        ).toLocaleString()}
+                        )}
                       </span>
                     </div>
                     {r.message && (

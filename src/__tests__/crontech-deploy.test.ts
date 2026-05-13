@@ -143,9 +143,11 @@ describe("hooks/post-receive — triggerCrontechDeploy (BLK-016 sender)", () => 
     expect(calls[0]!.init.method).toBe("POST");
   });
 
-  it("sends Authorization: Bearer <secret> when GLUECRON_WEBHOOK_SECRET is set", async () => {
+  it("sends the GitHub-style push payload (event/repo/ref/sha/pusher/commits)", async () => {
     process.env.GLUECRON_WEBHOOK_SECRET = "webhook-test-value";
-    const calls = installFetchCapture();
+    const { calls, fn } = captureFetch();
+    const after = "b".repeat(40);
+    const before = "c".repeat(40);
 
     await triggerCrontechDeploy(
       makeArgs({

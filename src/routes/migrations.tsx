@@ -20,6 +20,7 @@ import { desc, eq } from "drizzle-orm";
 import { db } from "../db";
 import { repositories } from "../db/schema";
 import { Layout } from "../views/layout";
+import { formatRelative } from "../views/ui";
 import { requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
 
@@ -154,9 +155,7 @@ migrations.get("/migrations", async (c) => {
                   —
                 </div>
                 <div style="flex:1;min-width:0;font-size:12px;color:var(--text-muted)">
-                  {r.createdAt
-                    ? new Date(r.createdAt).toLocaleString()
-                    : "—"}
+                  {r.createdAt ? formatRelative(r.createdAt as unknown as string) : "—"}
                 </div>
                 <div style="width:120px;text-align:right">
                   <a

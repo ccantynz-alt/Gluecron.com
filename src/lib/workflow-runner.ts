@@ -132,6 +132,61 @@ function parseWorkflow(parsed: string): ParsedWorkflow | null {
   return null;
 }
 
+/**
+ * Coerce an `ExtendedParseResult` (from `workflow-parser-ext`) into the
+ * permissive `ParsedWorkflow` shape used by this v1 runner. The extended
+ * parser produces richer per-step/per-job metadata (needs, strategy, if,
+ * uses, env, outputs) — v1 only consumes `name`, `runsOn`, and `steps[].run`
+ * so the extras are tolerated via the index signature on `ParsedJob`.
+ *
+ * Returns null on parse failure or malformed input so callers fall back to
+ * the locked v1 parser.
+ */
+function _coerceExtParsed(result: unknown): ParsedWorkflow | null {
+  if (!result || typeof result !== "object") return null;
+  const r = result as { ok?: unknown; workflow?: unknown };
+  if (r.ok !== true) return null;
+  const wf = r.workflow;
+  if (!wf || typeof wf !== "object") return null;
+  const w = wf as {
+    name?: unknown;
+    on?: unknown;
+    jobs?: unknown;
+  };
+  if (!Array.isArray(w.jobs)) return null;
+  const jobs: ParsedJob[] = [];
+  for (const j of w.jobs) {
+    if (!j || typeof j !== "object") continue;
+    const job = j as Record<string, unknown>;
+    const steps: ParsedStep[] = [];
+    if (Array.isArray(job.steps)) {
+      for (const s of job.steps) {
+        if (!s || typeof s !== "object") continue;
+        const step = s as Record<string, unknown>;
+        steps.push({
+          name: typeof step.name === "string" ? step.name : undefined,
+          run: typeof step.run === "string" ? step.run : undefined,
+        });
+      }
+    }
+    jobs.push({
+      name: typeof job.name === "string" ? job.name : undefined,
+      runsOn:
+        typeof job.runsOn === "string"
+          ? job.runsOn
+          : typeof job["runs-on"] === "string"
+            ? (job["runs-on"] as string)
+            : undefined,
+      steps,
+    });
+  }
+  return {
+    name: typeof w.name === "string" ? w.name : undefined,
+    on: w.on,
+    jobs,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Terminal-state helpers — all wrap DB calls in try/catch.
 // ---------------------------------------------------------------------------

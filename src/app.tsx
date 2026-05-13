@@ -104,7 +104,9 @@ import workflowSecretsRoutes from "./routes/workflow-secrets";
 import { authRateLimit, gitRateLimit, searchRateLimit } from "./middleware/rate-limit";
 import { csrfToken, csrfProtect } from "./middleware/csrf";
 
-const app = new Hono();
+import type { AuthEnv } from "./middleware/auth";
+
+const app = new Hono<AuthEnv>();
 
 // Request context (request ID, start time) runs before everything else
 app.use("*", requestContext);

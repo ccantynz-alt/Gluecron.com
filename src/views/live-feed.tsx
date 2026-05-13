@@ -13,7 +13,7 @@ import { liveSubscribeScript } from "../lib/sse-client";
 export function LiveFeed(props: {
   topic: string;
   title?: string;
-}): JSX.Element {
+}) {
   const title = props.title ?? "Live activity";
   const listId = "live-feed";
 

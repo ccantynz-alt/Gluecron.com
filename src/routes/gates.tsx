@@ -114,7 +114,7 @@ gates.get("/:owner/:repo/gates", async (c) => {
           <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase">Passed</div>
         </div>
         <div class="panel" style="padding: 12px; text-align: center">
-          <div style="font-size: 22px; font-weight: 700; color: #bc8cff">{repaired}</div>
+          <div style="font-size: 22px; font-weight: 700; color: var(--accent)">{repaired}</div>
           <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase">Repaired</div>
         </div>
         <div class="panel" style="padding: 12px; text-align: center">
@@ -154,7 +154,7 @@ gates.get("/:owner/:repo/gates", async (c) => {
                   </div>
                 )}
                 {r.repairCommitSha && (
-                  <div style="font-size: 12px; color: #bc8cff; margin-top: 2px">
+                  <div style="font-size: 12px; color: var(--accent); margin-top: 2px">
                     Auto-repaired in{" "}
                     <a href={`/${owner}/${repo}/commit/${r.repairCommitSha}`}>
                       {r.repairCommitSha.slice(0, 7)}

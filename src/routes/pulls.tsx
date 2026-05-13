@@ -27,7 +27,6 @@ import { isAiReviewEnabled, triggerAiReview } from "../lib/ai-review";
 import { triggerPrTriage } from "../lib/pr-triage";
 import { generatePrSummary } from "../lib/ai-generators";
 import { isAiAvailable } from "../lib/ai-client";
-import { getRepoPath } from "../git/repository";
 import { runAllGateChecks } from "../lib/gate";
 import type { GateCheckResult } from "../lib/gate";
 import {

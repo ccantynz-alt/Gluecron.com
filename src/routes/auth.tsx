@@ -28,6 +28,7 @@ import {
   FormGroup,
   Input,
   Button,
+  LinkButton,
   Alert,
   Text,
 } from "../views/ui";
@@ -221,6 +222,12 @@ auth.get("/login", async (c) => {
             Sign in
           </Button>
         </Form>
+        {ssoEnabled && (
+          <div class="auth-sso">
+            <div class="auth-divider">or</div>
+            <LinkButton href="/login/sso">Sign in with {ssoLabel}</LinkButton>
+          </div>
+        )}
         <p class="auth-switch">
           <Text>New to gluecron? <a href="/register">Create an account</a></Text>
         </p>

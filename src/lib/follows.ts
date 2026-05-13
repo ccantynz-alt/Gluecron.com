@@ -91,6 +91,7 @@ export async function listFollowers(userId: string): Promise<User[]> {
       notifyEmailOnGateFail: users.notifyEmailOnGateFail,
       notifyEmailDigestWeekly: users.notifyEmailDigestWeekly,
       lastDigestSentAt: users.lastDigestSentAt,
+      isAdmin: users.isAdmin,
       createdAt: users.createdAt,
       updatedAt: users.updatedAt,
     })
@@ -115,6 +116,7 @@ export async function listFollowing(userId: string): Promise<User[]> {
       notifyEmailOnGateFail: users.notifyEmailOnGateFail,
       notifyEmailDigestWeekly: users.notifyEmailDigestWeekly,
       lastDigestSentAt: users.lastDigestSentAt,
+      isAdmin: users.isAdmin,
       createdAt: users.createdAt,
       updatedAt: users.updatedAt,
     })

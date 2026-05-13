@@ -195,23 +195,21 @@ export function requireRepoAccess(
         import("hono/jsx"),
         import("../views/layout"),
       ]);
-      const body = jsx(
+      const body = (jsx as any)(
         "div",
         {
           style:
             "max-width: 600px; margin: 80px auto; padding: 24px; text-align: center;",
         },
-        [
-          jsx("h1", { style: "margin-bottom: 12px" }, ["403 — Access denied"]),
-          jsx("p", { style: "color: var(--muted, #8b949e)" }, [reason]),
-        ]
+        (jsx as any)("h1", { style: "margin-bottom: 12px" }, "403 — Access denied"),
+        (jsx as any)("p", { style: "color: var(--muted, #8b949e)" }, reason)
       );
-      const page = jsx(
+      const page = (jsx as any)(
         Layout as any,
         { title: "Access denied", user },
-        [body]
+        body
       );
-      return c.html(page, 403);
+      return c.html(page as any, 403);
     }
 
     c.set("repoAccess", access);

@@ -22,6 +22,20 @@ export type AuthEnv = {
     /** When the caller authenticated via an OAuth bearer token, these are set. */
     oauthScopes?: string[];
     oauthAppId?: string;
+    /** Set by `csrf` middleware on GET requests; required field on POST forms. */
+    csrfToken?: string;
+    /** Set by `requestContext` middleware on every request — opaque request id. */
+    requestId?: string;
+    /** Wall-clock ms when the request entered the app — used by metrics. */
+    requestStart?: number;
+    /** Set by `requireRepoAccess` middleware — the resolved repository row. */
+    repository?: unknown;
+    /** Set by `requireRepoAccess` — the caller's access level ('read'|'write'|'admin'|'owner'). */
+    repoAccess?: string;
+    /** Set by API-auth middleware — how the caller authenticated. */
+    authMethod?: "token" | "session" | "none";
+    /** Set by API-auth middleware — scopes carried by the PAT or session. */
+    tokenScopes?: string[];
   };
 };
 

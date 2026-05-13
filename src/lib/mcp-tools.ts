@@ -287,18 +287,18 @@ const repoExplain: McpToolHandler = {
       .select({
         commitSha: codebaseExplanations.commitSha,
         markdown: codebaseExplanations.markdown,
-        createdAt: codebaseExplanations.createdAt,
+        generatedAt: codebaseExplanations.generatedAt,
       })
       .from(codebaseExplanations)
       .where(eq(codebaseExplanations.repositoryId, r.id))
-      .orderBy(desc(codebaseExplanations.createdAt))
+      .orderBy(desc(codebaseExplanations.generatedAt))
       .limit(1);
     if (!row) {
       return { explanation: null };
     }
     return {
       commitSha: row.commitSha,
-      generatedAt: row.createdAt,
+      generatedAt: row.generatedAt,
       markdown: row.markdown,
     };
   },

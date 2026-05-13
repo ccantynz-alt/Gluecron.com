@@ -19,7 +19,7 @@ export function LogTail(props: {
   fallbackLogs?: string | null;
   height?: string;
   reloadOnRunDone?: boolean;
-}): JSX.Element {
+}) {
   const elementId = `log-tail-${props.runId}${props.jobId ? "-" + props.jobId : ""}`;
   const topic = `workflow-run-${props.runId}`;
   const script = liveLogTailScript({

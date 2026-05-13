@@ -186,7 +186,8 @@ auth.get("/login", async (c) => {
     !!ssoCfg.userinfoEndpoint &&
     !!ssoCfg.clientId &&
     !!ssoCfg.clientSecret;
-  const ssoLabel = ssoCfg?.providerName || "SSO";
+  const ssoLabel =
+    ssoCfg?.providerName || inferSsoProviderName(ssoCfg) || "SSO";
   // Block L6 — "Sign in with GitHub" (separate row keyed id='github').
   const githubCfg = await getGithubOauthConfig();
   const githubEnabled =
@@ -631,5 +632,26 @@ auth.post("/api/auth/login", async (c) => {
     token,
   });
 });
+
+/**
+ * Pick a friendly provider name for the "Sign in with X" button when the
+ * admin hasn't set one explicitly. Looks at the configured IdP URLs.
+ * Falls back to undefined so the caller can default to a literal "SSO".
+ */
+function inferSsoProviderName(
+  cfg: { issuer?: string | null; authorizationEndpoint?: string | null } | null | undefined
+): string | undefined {
+  const urls = [cfg?.issuer, cfg?.authorizationEndpoint]
+    .filter((s): s is string => !!s)
+    .join(" ")
+    .toLowerCase();
+  if (!urls) return undefined;
+  if (urls.includes("google")) return "Google";
+  if (urls.includes("okta")) return "Okta";
+  if (urls.includes("microsoftonline") || urls.includes("azure")) return "Microsoft";
+  if (urls.includes("auth0.com")) return "Auth0";
+  if (urls.includes("authentik")) return "Authentik";
+  return undefined;
+}
 
 export default auth;

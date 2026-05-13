@@ -228,6 +228,17 @@ auth.get("/login", async (c) => {
             <LinkButton href="/login/sso">Sign in with {ssoLabel}</LinkButton>
           </div>
         )}
+        <div class="auth-passkey">
+          <div class="auth-divider">or</div>
+          <button type="button" id="pk-signin-btn" class="btn">
+            Sign in with passkey
+          </button>
+          <div
+            id="pk-signin-status"
+            class="auth-status"
+            aria-live="polite"
+          ></div>
+        </div>
         <p class="auth-switch">
           <Text>New to gluecron? <a href="/register">Create an account</a></Text>
         </p>

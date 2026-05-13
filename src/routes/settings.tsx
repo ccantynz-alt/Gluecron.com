@@ -40,7 +40,7 @@ settings.get("/settings", (c) => {
   const user = c.get("user")!;
   const success = c.req.query("success");
   return c.html(
-    <Layout title="Settings">
+    <Layout title="Settings" user={user}>
       <div class="settings-container">
         <PageHeader title="Profile settings" />
         {success && (
@@ -323,7 +323,7 @@ settings.get("/settings/keys", async (c) => {
     .where(eq(sshKeys.userId, user.id));
 
   return c.html(
-    <Layout title="SSH Keys">
+    <Layout title="SSH Keys" user={user}>
       <div class="settings-container">
         <PageHeader title="SSH Keys" />
         {success && (

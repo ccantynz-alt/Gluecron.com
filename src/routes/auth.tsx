@@ -32,17 +32,22 @@ import {
   Alert,
   Text,
 } from "../views/ui";
+import { softAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
 
 const auth = new Hono<AuthEnv>();
 
 // --- Web UI ---
 
-auth.get("/register", (c) => {
+auth.get("/register", softAuth, (c) => {
+  // If the user is already signed in, drop them on their dashboard rather
+  // than rendering the logged-out sign-up shell over an authed session.
+  const existing = c.get("user");
+  if (existing) return c.redirect("/dashboard");
   const error = c.req.query("error");
   const csrf = c.get("csrfToken") as string | undefined;
   return c.html(
-    <Layout title="Register">
+    <Layout title="Register" user={null}>
       <div class="auth-container">
         <h2>Create account</h2>
         {error && <div class="auth-error">{decodeURIComponent(error)}</div>}
@@ -175,9 +180,13 @@ auth.post("/register", async (c) => {
   return c.redirect(redirect);
 });
 
-auth.get("/login", async (c) => {
+auth.get("/login", softAuth, async (c) => {
+  // Already-authed users hitting the sign-in page get bounced to their
+  // dashboard (or the `redirect=` target if one was supplied).
+  const existing = c.get("user");
   const error = c.req.query("error");
   const redirect = c.req.query("redirect") || "";
+  if (existing) return c.redirect(redirect || "/dashboard");
   const ssoCfg = await getSsoConfig();
   const ssoEnabled =
     !!ssoCfg?.enabled &&
@@ -194,7 +203,7 @@ auth.get("/login", async (c) => {
     !!githubCfg?.enabled && !!githubCfg.clientId && !!githubCfg.clientSecret;
   const csrf = c.get("csrfToken") as string | undefined;
   return c.html(
-    <Layout title="Sign in">
+    <Layout title="Sign in" user={null}>
       <div class="auth-container">
         <h2>Sign in</h2>
         {error && <div class="auth-error">{decodeURIComponent(error)}</div>}
@@ -399,7 +408,7 @@ auth.get("/login/2fa", async (c) => {
   const error = c.req.query("error");
   const redirect = c.req.query("redirect") || "/";
   return c.html(
-    <Layout title="Two-factor authentication">
+    <Layout title="Two-factor authentication" user={null}>
       <div class="auth-container">
         <h2>Enter your code</h2>
         <p

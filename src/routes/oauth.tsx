@@ -20,6 +20,7 @@ import {
   oauthAccessTokens,
   users,
 } from "../db/schema";
+import type { User } from "../db/schema";
 import { Layout } from "../views/layout";
 import { requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
@@ -60,9 +61,9 @@ function appendQuery(url: string, params: Record<string, string | undefined>) {
   return url + sep + parts.join("&");
 }
 
-function errorPage(title: string, message: string) {
+function errorPage(title: string, message: string, user: User | null) {
   return (
-    <Layout title={title}>
+    <Layout title={title} user={user}>
       <div class="empty-state">
         <h2>{title}</h2>
         <p>{message}</p>
@@ -141,14 +142,14 @@ oauth.get("/oauth/authorize", async (c) => {
   const codeChallengeMethod = q.code_challenge_method || "";
 
   if (!clientId) {
-    return c.html(errorPage("OAuth error", "Missing client_id."), 400);
+    return c.html(errorPage("OAuth error", "Missing client_id.", user), 400);
   }
   const app = await loadAppByClientId(clientId);
   if (!app) {
-    return c.html(errorPage("OAuth error", "Unknown client."), 400);
+    return c.html(errorPage("OAuth error", "Unknown client.", user), 400);
   }
   if (app.revokedAt) {
-    return c.html(errorPage("OAuth error", "This application has been revoked."), 400);
+    return c.html(errorPage("OAuth error", "This application has been revoked.", user), 400);
   }
 
   const registered = parseRedirectUris(app.redirectUris);
@@ -156,7 +157,8 @@ oauth.get("/oauth/authorize", async (c) => {
     return c.html(
       errorPage(
         "OAuth error",
-        "redirect_uri does not match any registered callback for this app."
+        "redirect_uri does not match any registered callback for this app.",
+        user
       ),
       400
     );
@@ -273,11 +275,11 @@ oauth.post("/oauth/authorize/decision", async (c) => {
 
   const app = await loadAppByClientId(clientId);
   if (!app || app.revokedAt) {
-    return c.html(errorPage("OAuth error", "Unknown or revoked client."), 400);
+    return c.html(errorPage("OAuth error", "Unknown or revoked client.", user), 400);
   }
   const registered = parseRedirectUris(app.redirectUris);
   if (!redirectUriAllowed(redirectUri, registered)) {
-    return c.html(errorPage("OAuth error", "Invalid redirect_uri."), 400);
+    return c.html(errorPage("OAuth error", "Invalid redirect_uri.", user), 400);
   }
 
   if (decision !== "approve") {

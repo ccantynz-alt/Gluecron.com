@@ -125,7 +125,7 @@ importBulkRoutes.get("/import/bulk", requireAuth, async (c) => {
           </ul>
         </div>
 
-        <form method="POST" action="/import/bulk">
+        <form method="post" action="/import/bulk">
           <div class="form-group">
             <label style="display:block; margin-bottom:4px; font-size:13px">
               GitHub org

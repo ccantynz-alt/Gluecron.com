@@ -85,7 +85,7 @@ importRoutes.get("/import", requireAuth, requireAdmin, async (c) => {
         </p>
         <a
           href="/import/bulk"
-          style="display: block; background: var(--bg-secondary); border: 1px solid var(--border); border-left: 3px solid #3fb950; border-radius: var(--radius); padding: 14px 16px; margin-bottom: 20px; font-size: 14px; text-decoration: none; color: inherit"
+          style="display: block; background: var(--bg-secondary); border: 1px solid var(--border); border-left: 3px solid var(--green); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 20px; font-size: 14px; text-decoration: none; color: inherit"
         >
           <strong>Migrating a whole org? Try the bulk importer →</strong>
           <div style="color: var(--text-muted); margin-top: 4px">
@@ -116,7 +116,7 @@ importRoutes.get("/import", requireAuth, requireAdmin, async (c) => {
           id="import-progress"
           role="status"
           aria-live="polite"
-          style="display: none; background: var(--bg-secondary); border: 1px solid var(--border); border-left: 3px solid #f0b429; border-radius: var(--radius); padding: 14px 16px; margin-bottom: 20px; font-size: 14px"
+          style="display: none; background: var(--bg-secondary); border: 1px solid var(--border); border-left: 3px solid var(--yellow); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 20px; font-size: 14px"
         >
           <strong>Import in progress…</strong>
           <div style="color: var(--text-muted); margin-top: 4px">
@@ -129,7 +129,7 @@ importRoutes.get("/import", requireAuth, requireAdmin, async (c) => {
           <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px">
             Import all public repositories from a GitHub user or organization.
           </p>
-          <form method="POST" action="/import/github/user" data-import-form>
+          <form method="post" action="/import/github/user" data-import-form>
             <div style="display: flex; gap: 8px">
               <input
                 type="text"
@@ -151,7 +151,7 @@ importRoutes.get("/import", requireAuth, requireAdmin, async (c) => {
           <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px">
             Import a specific repository by URL (https, ssh, or owner/repo).
           </p>
-          <form method="POST" action="/import/github/repo" data-import-form>
+          <form method="post" action="/import/github/repo" data-import-form>
             <div style="display: flex; gap: 8px">
               <input
                 type="text"
@@ -174,7 +174,7 @@ importRoutes.get("/import", requireAuth, requireAdmin, async (c) => {
             Use a GitHub personal access token to import private repositories too.
             Generate one at github.com → Settings → Developer settings → Personal access tokens.
           </p>
-          <form method="POST" action="/import/github/user" data-import-form>
+          <form method="post" action="/import/github/user" data-import-form>
             <div class="form-group">
               <input
                 type="text"

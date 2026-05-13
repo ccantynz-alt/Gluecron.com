@@ -493,7 +493,7 @@ actions.get("/:owner/:repo/actions/runs/:runId", async (c) => {
                   if (j.logs && j.logs.length > 0) {
                     return (
                       <pre
-                        style="margin: 0; padding: 12px 14px; background: #0b0d0f; color: #c7ccd1; font-size: 12px; line-height: 1.45; overflow-x: auto; max-height: 480px; border-top: 1px solid var(--border)"
+                        style="margin: 0; padding: 12px 14px; background: var(--bg-tertiary); color: var(--text); font-size: 12px; line-height: 1.45; overflow-x: auto; max-height: 480px; border-top: 1px solid var(--border)"
                       >
                         {j.logs}
                       </pre>

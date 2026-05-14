@@ -78,6 +78,73 @@ export const Layout: FC<
           Pre-launch &mdash; Gluecron is in final validation. Public signups
           and git hosting for non-owner users open after launch review.
         </div>
+        {/* Block Q3 — Playground banner. Renders only when the active
+            user is a playground account with a future expiry; the small
+            inline script counts down once per minute. Strip is dismissible
+            per-page-load (re-appears on next nav) — gentle, not noisy. */}
+        {user && (user as any).isPlayground && (user as any).playgroundExpiresAt && (
+          <div
+            class="playground-banner"
+            role="status"
+            aria-live="polite"
+            data-playground-expires={
+              ((user as any).playgroundExpiresAt instanceof Date
+                ? (user as any).playgroundExpiresAt.toISOString()
+                : String((user as any).playgroundExpiresAt))
+            }
+          >
+            <span class="playground-banner-icon" aria-hidden="true">{"\u{1F3AE}"}</span>
+            <span class="playground-banner-text">
+              Playground account &mdash;{" "}
+              <span class="playground-banner-countdown">expires soon</span>.{" "}
+              <a href="/play/claim" class="playground-banner-cta">
+                Save your work &rarr;
+              </a>
+            </span>
+            <button
+              type="button"
+              class="playground-banner-dismiss"
+              aria-label="Dismiss"
+              data-playground-dismiss="1"
+            >
+              {"×"}
+            </button>
+            <script
+              dangerouslySetInnerHTML={{
+                __html: /* js */ `
+                  (function () {
+                    var el = document.currentScript && document.currentScript.parentElement;
+                    if (!el) return;
+                    var iso = el.getAttribute('data-playground-expires');
+                    if (!iso) return;
+                    var target = Date.parse(iso);
+                    if (isNaN(target)) return;
+                    var out = el.querySelector('.playground-banner-countdown');
+                    function render() {
+                      var ms = target - Date.now();
+                      if (!out) return;
+                      if (ms <= 0) { out.textContent = 'expired'; return; }
+                      var mins = Math.floor(ms / 60000);
+                      var hrs = Math.floor(mins / 60);
+                      if (hrs > 1) out.textContent = hrs + ' hours left';
+                      else if (hrs === 1) out.textContent = '1 hour left';
+                      else if (mins > 1) out.textContent = mins + ' minutes left';
+                      else out.textContent = 'less than a minute left';
+                    }
+                    render();
+                    setInterval(render, 60000);
+                    var dismiss = el.querySelector('[data-playground-dismiss="1"]');
+                    if (dismiss) {
+                      dismiss.addEventListener('click', function () {
+                        el.style.display = 'none';
+                      });
+                    }
+                  })();
+                `,
+              }}
+            />
+          </div>
+        )}
         <header>
           <nav>
             <a href="/" class="logo">
@@ -1045,6 +1112,51 @@ const css = `
     opacity: 0.7;
     vertical-align: 1px;
   }
+
+  /* Block Q3 — Playground banner. Brighter than the prelaunch strip so
+     visitors don't miss the "save your work" CTA, but slim enough to
+     not feel like a modal. */
+  .playground-banner {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    background:
+      linear-gradient(180deg, rgba(251,191,36,0.20), rgba(251,191,36,0.06)),
+      var(--bg);
+    border-bottom: 1px solid rgba(251,191,36,0.45);
+    color: var(--yellow, #fbbf24);
+    padding: 8px 40px 8px 24px;
+    font-size: 13px;
+    font-weight: 500;
+    text-align: center;
+    line-height: 1.4;
+  }
+  .playground-banner-icon { font-size: 14px; }
+  .playground-banner-text { color: var(--text-strong, #e6edf3); }
+  .playground-banner-countdown { font-weight: 600; }
+  .playground-banner-cta {
+    margin-left: 4px;
+    color: var(--yellow, #fbbf24);
+    text-decoration: underline;
+    font-weight: 600;
+  }
+  .playground-banner-cta:hover { opacity: 0.85; }
+  .playground-banner-dismiss {
+    position: absolute;
+    top: 50%;
+    right: 12px;
+    transform: translateY(-50%);
+    background: transparent;
+    border: none;
+    color: var(--text-muted, #8b949e);
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0 4px;
+  }
+  .playground-banner-dismiss:hover { color: var(--text-strong, #e6edf3); }
 
   /* Header — sticky, blurred, hairline border, taller for breathing room */
   header {

@@ -81,6 +81,29 @@ A GitHub replacement. AI-native code intelligence, git hosting, automated CI, an
 
 For the full shipped-vs-missing scorecard and internal roadmap, see [`BUILD_BIBLE.md`](./BUILD_BIBLE.md).
 
+## Install in Claude Desktop
+
+Three paths, pick whichever fits — they all wire the same 15 MCP tools
+(`gluecron_create_pr`, `gluecron_merge_pr`, `gluecron_repo_health`, …) into
+Claude.
+
+1. **One-click (recommended).** Download
+   [`https://gluecron.com/gluecron.dxt`](https://gluecron.com/gluecron.dxt),
+   then in Claude Desktop go to **Settings → Extensions** and drag the
+   file in. Claude prompts for your Gluecron host + personal access token
+   (generate one at `/settings/tokens` with `admin` scope) and the tools
+   light up.
+2. **One command (terminal).**
+   ```bash
+   curl -sSL https://gluecron.com/install | bash
+   ```
+   The installer mints a PAT, edits `claude_desktop_config.json`, and
+   drops the Claude Code skill bundle into `~/.claude/skills/`. See
+   [`scripts/install.sh`](./scripts/install.sh).
+3. **Manual.** Edit `claude_desktop_config.json` yourself and add an
+   `mcpServers.gluecron` entry pointing at `https://gluecron.com/mcp` with
+   an `Authorization: Bearer <pat>` header.
+
 ## Quick start
 
 ```bash

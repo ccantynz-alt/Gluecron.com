@@ -1,0 +1,62 @@
+{
+  "$schema_note": "Anthropic Claude Desktop .dxt extension manifest. Schema is still in flux at the time of authoring (Q1 build); we lock dxt_version to '0.1' as the conservative baseline. If/when Anthropic ships a stable schema reference and the field names diverge, this file should be regenerated to match — keep server.type=http, the user_config prompt fields, and the tools list as the source of truth.",
+  "dxt_version": "0.1",
+  "name": "gluecron",
+  "display_name": "Gluecron",
+  "version": "1.0.0",
+  "description": "AI-native git hosting. Claude can open PRs, review code, merge, manage issues, and ship — all on Gluecron.",
+  "long_description": "Gluecron is the git host built around Claude. This extension gives Claude 15 tools to read and write against your Gluecron-hosted repos: open and merge PRs, file and comment on issues, search code, list and read files, get health reports, drive your AI-native development loop end-to-end. No more switching between Claude and a browser tab.",
+  "author": {
+    "name": "Gluecron",
+    "url": "https://gluecron.com"
+  },
+  "homepage": "https://gluecron.com",
+  "documentation": "https://gluecron.com/help#mcp",
+  "support": "https://gluecron.com/help",
+  "icon": "icon.png",
+  "screenshots": ["screenshot-1.png"],
+  "server": {
+    "type": "http",
+    "endpoint": "${user_config.gluecron_host}/mcp",
+    "headers": {
+      "Authorization": "Bearer ${user_config.gluecron_pat}"
+    }
+  },
+  "user_config": {
+    "gluecron_host": {
+      "type": "string",
+      "title": "Gluecron host",
+      "description": "URL of your Gluecron instance.",
+      "default": "https://gluecron.com",
+      "required": true
+    },
+    "gluecron_pat": {
+      "type": "string",
+      "title": "Personal access token",
+      "description": "Generate one at <host>/settings/tokens with admin scope (needed for write tools).",
+      "sensitive": true,
+      "required": true
+    }
+  },
+  "tools": [
+    {"name": "gluecron_repo_search", "description": "Search public Gluecron repositories by keyword."},
+    {"name": "gluecron_repo_read_file", "description": "Read a file from a Gluecron repo at a ref."},
+    {"name": "gluecron_repo_list_issues", "description": "List open issues for a repo."},
+    {"name": "gluecron_repo_explain_codebase", "description": "Get the AI explain-this-codebase Markdown for a repo."},
+    {"name": "gluecron_repo_health", "description": "Compute the current health score for a repo."},
+    {"name": "gluecron_create_issue", "description": "Open a new issue."},
+    {"name": "gluecron_comment_issue", "description": "Comment on an issue."},
+    {"name": "gluecron_close_issue", "description": "Close an issue."},
+    {"name": "gluecron_reopen_issue", "description": "Reopen an issue."},
+    {"name": "gluecron_create_pr", "description": "Open a pull request from head into base."},
+    {"name": "gluecron_get_pr", "description": "Read a PR's metadata + state + mergeable hint."},
+    {"name": "gluecron_list_prs", "description": "List PRs by state."},
+    {"name": "gluecron_comment_pr", "description": "Comment on a PR."},
+    {"name": "gluecron_merge_pr", "description": "Merge a PR (gated on branch protection + AI review + risk score)."},
+    {"name": "gluecron_close_pr", "description": "Close a PR without merging."}
+  ],
+  "compatibility": {
+    "claude_desktop": ">=0.10.0",
+    "platforms": ["darwin", "win32", "linux"]
+  }
+}

@@ -183,6 +183,16 @@ export const LandingHero: FC<LandingPageProps> = ({
               </a>
             </div>
 
+            {/* Block Q3 — tertiary "try it without signing up" link.
+                Visually subordinate to the buttons above; renders as a
+                small ghost text link so it doesn't crowd the CTA row. */}
+            <div class="landing-hero-play">
+              <a href="/play" class="landing-hero-play-link" data-testid="cta-play">
+                Or try it without signing up
+                <span aria-hidden="true">{" →"}</span>
+              </a>
+            </div>
+
             {/* L10 — "what just happened" rail. Mini, secondary,
                 separate from the BIG L4 counters tile section below. */}
             {publicStats && (
@@ -1629,6 +1639,26 @@ const landingCss = `
   .landing-cta-arrow {
     transition: transform var(--t-base) var(--ease-spring);
     display: inline-block;
+  }
+
+  /* Block Q3 — tertiary "try it without signing up" link.
+     Sits under the primary CTA row as a small, low-contrast text link
+     so it doesn't crowd the main calls-to-action. */
+  .landing-hero-play {
+    margin-top: 14px;
+    text-align: center;
+  }
+  .landing-hero-play-link {
+    font-size: 13px;
+    color: var(--text-muted);
+    text-decoration: none;
+    border-bottom: 1px dashed transparent;
+    padding-bottom: 1px;
+    transition: color var(--t-base), border-color var(--t-base);
+  }
+  .landing-hero-play-link:hover {
+    color: var(--text-strong, var(--text));
+    border-bottom-color: var(--text-muted);
   }
   .btn:hover .landing-cta-arrow,
   .landing-cta-primary:hover .landing-cta-arrow {

@@ -286,6 +286,9 @@ auth.get("/login", softAuth, async (c) => {
           </FormGroup>
           <div class="auth-forgot" style="margin:-8px 0 12px;text-align:right;font-size:13px">
             <a href="/forgot-password">Forgot password?</a>
+            {/* BLOCK Q2 — magic-link sign-in. */}
+            <span style="margin:0 6px;color:var(--text-muted)">·</span>
+            <a href="/login/magic">Sign in with a magic link instead</a>
           </div>
           <Button type="submit" variant="primary">
             Sign in

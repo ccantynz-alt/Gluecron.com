@@ -14,6 +14,7 @@ import apiDocsRoutes from "./routes/api-docs";
 import authRoutes from "./routes/auth";
 import passwordResetRoutes from "./routes/password-reset";
 import emailVerificationRoutes from "./routes/email-verification";
+import magicLinkRoutes from "./routes/magic-link";
 import settingsRoutes from "./routes/settings";
 import settings2faRoutes from "./routes/settings-2fa";
 import issueRoutes from "./routes/issues";
@@ -95,6 +96,7 @@ import projectsRoutes from "./routes/projects";
 import protectedTagsRoutes from "./routes/protected-tags";
 import pwaRoutes from "./routes/pwa";
 import installRoutes from "./routes/install";
+import dxtRoutes from "./routes/dxt";
 import releasesRoutes from "./routes/releases";
 import requiredChecksRoutes from "./routes/required-checks";
 import rulesetsRoutes from "./routes/rulesets";
@@ -113,6 +115,7 @@ import workflowArtifactsRoutes from "./routes/workflow-artifacts";
 import workflowSecretsRoutes from "./routes/workflow-secrets";
 import sleepModeRoutes from "./routes/sleep-mode";
 import vsGithubRoutes from "./routes/vs-github";
+import playgroundRoutes from "./routes/playground";
 import { authRateLimit, gitRateLimit, searchRateLimit } from "./middleware/rate-limit";
 import { csrfToken, csrfProtect } from "./middleware/csrf";
 
@@ -156,6 +159,8 @@ app.use("/login", rateLimit(20, 60_000, "login"));
 app.use("/register", rateLimit(10, 60_000, "register"));
 // BLOCK P1 — throttle forgot-password to deter enumeration + mail spam.
 app.use("/forgot-password", rateLimit(5, 60_000, "forgot-password"));
+// BLOCK Q2 — throttle magic-link sign-in for the same reason.
+app.use("/login/magic", rateLimit(5, 60_000, "magic-link"));
 
 // CSRF protection — set token on all requests, validate on mutations
 app.use("*", csrfToken);
@@ -202,6 +207,9 @@ app.route("/", passwordResetRoutes);
 
 // BLOCK P2 — Email verification (verify-email + resend)
 app.route("/", emailVerificationRoutes);
+
+// BLOCK Q2 — Magic-link sign-in (/login/magic + callback)
+app.route("/", magicLinkRoutes);
 
 // Settings routes (profile, SSH keys)
 app.route("/", settingsRoutes);
@@ -369,6 +377,8 @@ app.route("/", projectsRoutes);
 app.route("/", protectedTagsRoutes);
 app.route("/", pwaRoutes);
 app.route("/", installRoutes);
+// BLOCK Q1 — /gluecron.dxt download (Claude Desktop one-click extension)
+app.route("/", dxtRoutes);
 app.route("/", releasesRoutes);
 app.route("/", requiredChecksRoutes);
 app.route("/", rulesetsRoutes);
@@ -387,6 +397,11 @@ app.route("/", workflowArtifactsRoutes);
 app.route("/", workflowSecretsRoutes);
 app.route("/", sleepModeRoutes);
 app.route("/", vsGithubRoutes);
+
+// Block Q3 — Anonymous playground (`/play`, `/play/claim`). Mounted
+// before the web catch-all so the bare `/play` literal wins over the
+// `/:owner` user-profile route.
+app.route("/", playgroundRoutes);
 
 // Web UI (catch-all, must be last)
 app.route("/", webRoutes);

@@ -77,53 +77,27 @@ export async function isFollowing(
 // ----------------------------------------------------------------------------
 
 export async function listFollowers(userId: string): Promise<User[]> {
+  // Use `db.select().from(users)` (no projection) so the returned type
+  // tracks the live `users` schema. L1 (Sleep Mode) + M2 (push prefs)
+  // added 6 new columns; enumerating column-by-column made this list
+  // drift out of sync.
   return db
-    .select({
-      id: users.id,
-      username: users.username,
-      email: users.email,
-      displayName: users.displayName,
-      passwordHash: users.passwordHash,
-      avatarUrl: users.avatarUrl,
-      bio: users.bio,
-      notifyEmailOnMention: users.notifyEmailOnMention,
-      notifyEmailOnAssign: users.notifyEmailOnAssign,
-      notifyEmailOnGateFail: users.notifyEmailOnGateFail,
-      notifyEmailDigestWeekly: users.notifyEmailDigestWeekly,
-      lastDigestSentAt: users.lastDigestSentAt,
-      isAdmin: users.isAdmin,
-      createdAt: users.createdAt,
-      updatedAt: users.updatedAt,
-    })
-    .from(userFollows)
-    .innerJoin(users, eq(userFollows.followerId, users.id))
+    .select()
+    .from(users)
+    .innerJoin(userFollows, eq(userFollows.followerId, users.id))
     .where(eq(userFollows.followingId, userId))
-    .orderBy(desc(userFollows.createdAt));
+    .orderBy(desc(userFollows.createdAt))
+    .then((rows) => rows.map((r) => r.users));
 }
 
 export async function listFollowing(userId: string): Promise<User[]> {
   return db
-    .select({
-      id: users.id,
-      username: users.username,
-      email: users.email,
-      displayName: users.displayName,
-      passwordHash: users.passwordHash,
-      avatarUrl: users.avatarUrl,
-      bio: users.bio,
-      notifyEmailOnMention: users.notifyEmailOnMention,
-      notifyEmailOnAssign: users.notifyEmailOnAssign,
-      notifyEmailOnGateFail: users.notifyEmailOnGateFail,
-      notifyEmailDigestWeekly: users.notifyEmailDigestWeekly,
-      lastDigestSentAt: users.lastDigestSentAt,
-      isAdmin: users.isAdmin,
-      createdAt: users.createdAt,
-      updatedAt: users.updatedAt,
-    })
-    .from(userFollows)
-    .innerJoin(users, eq(userFollows.followingId, users.id))
+    .select()
+    .from(users)
+    .innerJoin(userFollows, eq(userFollows.followingId, users.id))
     .where(eq(userFollows.followerId, userId))
-    .orderBy(desc(userFollows.createdAt));
+    .orderBy(desc(userFollows.createdAt))
+    .then((rows) => rows.map((r) => r.users));
 }
 
 export async function followCounts(userId: string): Promise<{

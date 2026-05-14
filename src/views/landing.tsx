@@ -1667,15 +1667,17 @@ const landingCss = `
 
   /* BLOCK Q1 — flagship "Add to Claude Desktop" CTA.
      Gradient-bordered + accent text so it reads as a peer of the primary
-     Sign-up CTA, not a third secondary. Subtle elevation on hover; static
-     when the visitor opts out of motion. */
+     Sign-up CTA, not a third secondary. Theme-aware: inner fill uses
+     --bg-elevated so it's white on light and dark on dark, never the
+     jarring near-black on white we shipped first time. Subtle elevation
+     on hover; static when the visitor opts out of motion. */
   .landing-cta-dxt {
     position: relative;
-    background: var(--bg-elev-1, #161b22);
-    color: var(--text-strong, #e6edf3);
+    background: var(--bg-elevated);
+    color: var(--text-strong);
     border: 1px solid transparent;
     background-image:
-      linear-gradient(var(--bg-elev-1, #161b22), var(--bg-elev-1, #161b22)),
+      linear-gradient(var(--bg-elevated), var(--bg-elevated)),
       linear-gradient(90deg, #8c6dff 0%, #36c5d6 100%);
     background-origin: border-box;
     background-clip: padding-box, border-box;

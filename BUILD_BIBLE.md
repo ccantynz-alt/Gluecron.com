@@ -632,6 +632,8 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 
 ## 5. OPERATIONAL NOTES
 
+> Day-to-day operator surface: [`/admin/ops`](https://gluecron.com/admin/ops) (auto-merge toggle, deploy, rollback) and [`/admin/deploys`](https://gluecron.com/admin/deploys) (live log stream). Prefer those over SSH wherever possible — see README.md and DEPLOY.md §6. The terminal commands below are for local dev.
+
 ### 5.1 Running locally
 ```bash
 bun install

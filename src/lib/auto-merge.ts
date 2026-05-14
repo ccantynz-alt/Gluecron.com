@@ -31,7 +31,13 @@
 
 import { and, eq } from "drizzle-orm";
 import { db } from "../db";
-import { branchProtection, prComments } from "../db/schema";
+import {
+  branchProtection,
+  prComments,
+  pullRequests,
+  repositories,
+  users,
+} from "../db/schema";
 import type { BranchProtection } from "../db/schema";
 import {
   countHumanApprovals,
@@ -44,6 +50,7 @@ import { AI_REVIEW_MARKER } from "./ai-review";
 import { audit } from "./notify";
 import { getRepoPath } from "../git/repository";
 import { getLatestCachedPrRisk } from "./pr-risk";
+import { performMerge, type PerformMergeResult } from "./pr-merge";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -415,6 +422,333 @@ export async function recordAutoMergeAttempt(
 }
 
 // ---------------------------------------------------------------------------
+// R3 — Fast-lane auto-merge (PR-create / PR-head-update event path)
+// ---------------------------------------------------------------------------
+
+/** Stable marker for the auto-merge success comment (shared with autopilot). */
+const FAST_LANE_AUTO_MERGE_MARKER = "<!-- gluecron:auto-merge:v1 -->";
+
+/** Default poll interval (ms) while waiting for the AI-review summary comment. */
+const FAST_LANE_DEFAULT_POLL_MS = 5_000;
+
+/** Default ceiling (ms) on the AI-review wait. */
+const FAST_LANE_DEFAULT_WAIT_MS = 60_000;
+
+/**
+ * PR + repo facts the fast-lane needs to drive `performMerge`. Resolved
+ * once at the top of `tryAutoMergeNow` so each side-effect handler shares
+ * the same snapshot.
+ */
+interface FastLaneContext {
+  prId: string;
+  prNumber: number;
+  prTitle: string;
+  prBody: string | null;
+  baseBranch: string;
+  headBranch: string;
+  isDraft: boolean;
+  repositoryId: string;
+  authorUserId: string;
+  ownerUsername: string;
+  repoName: string;
+  state: string;
+}
+
+export interface TryAutoMergeNowDeps {
+  /** Inject the PR-context loader. */
+  loadContext?: (prId: string) => Promise<FastLaneContext | null>;
+  /** Inject the AI-review comment existence probe. */
+  hasAiReviewComment?: (prId: string) => Promise<boolean>;
+  /** Inject the decision evaluator. */
+  evaluate?: (ctx: AutoMergeContext) => Promise<AutoMergeDecision>;
+  /** Inject the merge executor. */
+  merge?: (ctx: FastLaneContext) => Promise<PerformMergeResult>;
+  /** Inject the audit-log helper for the `auto_merge.evaluated` row. */
+  recordAttempt?: (
+    repositoryId: string,
+    pullRequestId: string,
+    decision: AutoMergeDecision
+  ) => Promise<void>;
+  /** Inject the success-path side-effect (audit + marker comment). */
+  onMerged?: (ctx: FastLaneContext, result: PerformMergeResult) => Promise<void>;
+  /** Inject sleep so tests don't actually wait 60s. */
+  sleep?: (ms: number) => Promise<void>;
+}
+
+export interface TryAutoMergeNowOptions {
+  /** Inject for tests. */
+  now?: Date;
+  /**
+   * Skip the AI-review polling and decide based on whatever comments
+   * exist right now. Default false — we wait briefly for the AI
+   * review to land.
+   */
+  skipAiReviewWait?: boolean;
+  /**
+   * Max time (ms) to wait for an AI-review comment to appear before
+   * giving up. Default 60_000 (60s). The autopilot 5-min sweep is the
+   * safety net if the AI review takes longer.
+   */
+  waitForAiReviewMs?: number;
+  /** Poll cadence while waiting; default 5_000 ms. Mostly for tests. */
+  aiReviewPollIntervalMs?: number;
+  /** DI seam for tests. Pass through to the inner helpers. */
+  deps?: TryAutoMergeNowDeps;
+}
+
+/** Default PR-context loader — single join across pr/repo/user. */
+async function defaultLoadFastLaneContext(
+  prId: string
+): Promise<FastLaneContext | null> {
+  try {
+    const [row] = await db
+      .select({
+        prId: pullRequests.id,
+        prNumber: pullRequests.number,
+        prTitle: pullRequests.title,
+        prBody: pullRequests.body,
+        baseBranch: pullRequests.baseBranch,
+        headBranch: pullRequests.headBranch,
+        isDraft: pullRequests.isDraft,
+        repositoryId: pullRequests.repositoryId,
+        authorUserId: pullRequests.authorId,
+        ownerUsername: users.username,
+        repoName: repositories.name,
+        state: pullRequests.state,
+      })
+      .from(pullRequests)
+      .innerJoin(repositories, eq(repositories.id, pullRequests.repositoryId))
+      .innerJoin(users, eq(users.id, repositories.ownerId))
+      .where(eq(pullRequests.id, prId))
+      .limit(1);
+    if (!row) return null;
+    return {
+      prId: row.prId,
+      prNumber: row.prNumber,
+      prTitle: row.prTitle,
+      prBody: row.prBody,
+      baseBranch: row.baseBranch,
+      headBranch: row.headBranch,
+      isDraft: row.isDraft,
+      repositoryId: row.repositoryId,
+      authorUserId: row.authorUserId,
+      ownerUsername: row.ownerUsername,
+      repoName: row.repoName,
+      state: row.state,
+    };
+  } catch (err) {
+    console.error("[auto-merge:fast-lane] loadContext failed:", err);
+    return null;
+  }
+}
+
+/**
+ * Default AI-review comment probe. Returns true when at least one
+ * marker-bearing AI-review comment exists for the PR.
+ */
+async function defaultHasAiReviewComment(prId: string): Promise<boolean> {
+  try {
+    const rows = await db
+      .select({ body: prComments.body })
+      .from(prComments)
+      .where(
+        and(
+          eq(prComments.pullRequestId, prId),
+          eq(prComments.isAiReview, true)
+        )
+      );
+    return rows.some((r) => (r.body || "").includes(AI_REVIEW_MARKER));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Default success-path: same shape as the K3 sweep's `defaultOnMerged`
+ * (auto_merge.merged audit row + marker comment). Both side-effects are
+ * best-effort; failures are logged, not thrown.
+ */
+async function defaultFastLaneOnMerged(
+  ctx: FastLaneContext,
+  result: PerformMergeResult
+): Promise<void> {
+  try {
+    await audit({
+      repositoryId: ctx.repositoryId,
+      action: "auto_merge.merged",
+      targetType: "pull_request",
+      targetId: ctx.prId,
+      metadata: {
+        prNumber: ctx.prNumber,
+        baseBranch: ctx.baseBranch,
+        headBranch: ctx.headBranch,
+        closedIssueNumbers: result.closedIssueNumbers,
+        resolvedFiles: result.resolvedFiles,
+        fastLane: true,
+      },
+    });
+  } catch (err) {
+    console.error("[auto-merge:fast-lane] merged audit failed:", err);
+  }
+  try {
+    await db.insert(prComments).values({
+      pullRequestId: ctx.prId,
+      authorId: ctx.authorUserId,
+      isAiReview: true,
+      body: `${FAST_LANE_AUTO_MERGE_MARKER}\nAuto-merged by Gluecron autopilot — branch protection conditions satisfied.`,
+    });
+  } catch (err) {
+    console.error("[auto-merge:fast-lane] comment insert failed:", err);
+  }
+}
+
+/** Default `performMerge` wrapper that maps a FastLaneContext to the args shape. */
+async function defaultFastLaneMerge(
+  ctx: FastLaneContext
+): Promise<PerformMergeResult> {
+  return performMerge({
+    pr: {
+      id: ctx.prId,
+      number: ctx.prNumber,
+      title: ctx.prTitle,
+      body: ctx.prBody,
+      baseBranch: ctx.baseBranch,
+      headBranch: ctx.headBranch,
+      repositoryId: ctx.repositoryId,
+      authorId: ctx.authorUserId,
+      state: ctx.state as "open",
+      isDraft: ctx.isDraft,
+    },
+    ownerName: ctx.ownerUsername,
+    repoName: ctx.repoName,
+    actorUserId: ctx.authorUserId,
+  });
+}
+
+/**
+ * Fast-lane auto-merge evaluator. Fired from PR-create (or PR-head-update)
+ * events. Evaluates auto-merge immediately and, when the decision is
+ * `merge: true`, performs the merge via the shared `performMerge()` path.
+ * Otherwise records the evaluation audit and exits — the 5-min autopilot
+ * sweep is the safety net.
+ *
+ * Always fire-and-forget from the caller. Never throws — every side
+ * effect is wrapped in try/catch and logged.
+ */
+export async function tryAutoMergeNow(
+  pullRequestId: string,
+  opts: TryAutoMergeNowOptions = {}
+): Promise<void> {
+  const deps = opts.deps ?? {};
+  const loadContext = deps.loadContext ?? defaultLoadFastLaneContext;
+  const hasAiReviewComment =
+    deps.hasAiReviewComment ?? defaultHasAiReviewComment;
+  const evaluate =
+    deps.evaluate ?? ((ctx: AutoMergeContext) => evaluateAutoMerge(ctx, {}));
+  const merge = deps.merge ?? defaultFastLaneMerge;
+  const recordAttempt = deps.recordAttempt ?? recordAutoMergeAttempt;
+  const onMerged = deps.onMerged ?? defaultFastLaneOnMerged;
+  const sleep =
+    deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+
+  try {
+    // 1. Load the PR + repo facts. Abort cleanly if the PR is gone.
+    let ctx: FastLaneContext | null = null;
+    try {
+      ctx = await loadContext(pullRequestId);
+    } catch (err) {
+      console.error("[auto-merge:fast-lane] loadContext threw:", err);
+      return;
+    }
+    if (!ctx) return;
+
+    // 2. Wait briefly for the AI-review summary comment. The 5-min
+    // sweep handles the case where the AI takes longer than the cap.
+    // Even when waitMs is 0 we do ONE probe — "wait for it" semantics
+    // require *presence*, not just patience; the sweep is the safety net
+    // when the AI hasn't landed yet.
+    const waitMs = opts.waitForAiReviewMs ?? FAST_LANE_DEFAULT_WAIT_MS;
+    const pollMs = opts.aiReviewPollIntervalMs ?? FAST_LANE_DEFAULT_POLL_MS;
+    if (!opts.skipAiReviewWait) {
+      const deadline = Date.now() + Math.max(0, waitMs);
+      // Poll cadence: check once, then every pollMs until the deadline.
+      while (true) {
+        let present = false;
+        try {
+          present = await hasAiReviewComment(pullRequestId);
+        } catch {
+          present = false;
+        }
+        if (present) break;
+        if (Date.now() >= deadline) return; // give up; sweep is the safety net
+        try {
+          await sleep(pollMs);
+        } catch {
+          return;
+        }
+      }
+    }
+
+    // 3. Evaluate the auto-merge decision via the shared K2 helper.
+    let decision: AutoMergeDecision;
+    try {
+      decision = await evaluate({
+        pullRequestId: ctx.prId,
+        repositoryId: ctx.repositoryId,
+        baseBranch: ctx.baseBranch,
+        isDraft: ctx.isDraft,
+        authorUserId: ctx.authorUserId,
+      });
+    } catch (err) {
+      console.error("[auto-merge:fast-lane] evaluate threw:", err);
+      // Still record the evaluation as best-effort so the paper trail exists.
+      try {
+        await recordAttempt(ctx.repositoryId, ctx.prId, {
+          merge: false,
+          reason: `evaluate threw: ${err instanceof Error ? err.message : String(err)}`,
+          blocking: ["evaluator error"],
+        });
+      } catch {
+        /* swallow */
+      }
+      return;
+    }
+
+    // 4. Always record the evaluation, regardless of outcome.
+    try {
+      await recordAttempt(ctx.repositoryId, ctx.prId, decision);
+    } catch (err) {
+      console.error("[auto-merge:fast-lane] recordAttempt failed:", err);
+    }
+
+    if (!decision.merge) return;
+
+    // 5. Perform the merge via the shared executor. On success, fire the
+    // audit + marker comment side-effects (same shape as the K3 sweep).
+    try {
+      const result = await merge(ctx);
+      if (result.ok) {
+        try {
+          await onMerged(ctx, result);
+        } catch (err) {
+          console.error("[auto-merge:fast-lane] onMerged threw:", err);
+        }
+      } else {
+        console.error(
+          `[auto-merge:fast-lane] performMerge failed for pr=${ctx.prId}: ${result.error}`
+        );
+      }
+    } catch (err) {
+      console.error("[auto-merge:fast-lane] performMerge threw:", err);
+    }
+  } catch (err) {
+    // Belt-and-braces: nothing above should throw, but the contract is
+    // "fire-and-forget, never throws". Final catch swallows + logs.
+    console.error("[auto-merge:fast-lane] unexpected error:", err);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Test-only surface
 // ---------------------------------------------------------------------------
 
@@ -423,4 +757,11 @@ export const __test = {
   aiCommentLooksApproved,
   diffStatsForBranches,
   aiApprovedForPr,
+  defaultLoadFastLaneContext,
+  defaultHasAiReviewComment,
+  defaultFastLaneOnMerged,
+  defaultFastLaneMerge,
+  FAST_LANE_AUTO_MERGE_MARKER,
+  FAST_LANE_DEFAULT_POLL_MS,
+  FAST_LANE_DEFAULT_WAIT_MS,
 };

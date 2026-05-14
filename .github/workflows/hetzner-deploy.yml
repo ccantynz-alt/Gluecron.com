@@ -64,6 +64,18 @@ jobs:
             || echo "(deploy-started notify failed — continuing)"
 
       # ─── 1. Capture pre-deploy SHA so we can rollback ───────────────────
+      # R2 — bracket every major step with notify-deploy-step calls so the
+      # /admin/deploys modal can stream the workflow live. The composite
+      # action is fire-and-forget — a 5xx never blocks the deploy.
+      - name: Notify step — setup (in_progress)
+        if: env.DEPLOY_EVENT_TOKEN != ''
+        uses: ./.github/actions/notify-deploy-step
+        with:
+          step_name: setup
+          status: in_progress
+          app_base_url: ${{ secrets.APP_BASE_URL || 'https://gluecron.com' }}
+          deploy_event_token: ${{ secrets.DEPLOY_EVENT_TOKEN }}
+
       - name: Capture pre-deploy SHA
         id: prev
         uses: appleboy/ssh-action@v1.2.0
@@ -78,6 +90,24 @@ jobs:
             echo "Previous SHA: $sha"
             echo "$sha" > /tmp/gluecron_prev_sha
             cat /tmp/gluecron_prev_sha
+
+      - name: Notify step — setup (succeeded)
+        if: success() && env.DEPLOY_EVENT_TOKEN != ''
+        uses: ./.github/actions/notify-deploy-step
+        with:
+          step_name: setup
+          status: succeeded
+          app_base_url: ${{ secrets.APP_BASE_URL || 'https://gluecron.com' }}
+          deploy_event_token: ${{ secrets.DEPLOY_EVENT_TOKEN }}
+
+      - name: Notify step — setup (failed)
+        if: failure() && env.DEPLOY_EVENT_TOKEN != ''
+        uses: ./.github/actions/notify-deploy-step
+        with:
+          step_name: setup
+          status: failed
+          app_base_url: ${{ secrets.APP_BASE_URL || 'https://gluecron.com' }}
+          deploy_event_token: ${{ secrets.DEPLOY_EVENT_TOKEN }}
 
       # ─── 2. Deploy: pull main, install/compile/restart ─────────────────
       # Block N2 — speed optimisation:
@@ -98,19 +128,52 @@ jobs:
       - name: Deploy
         id: deploy
         uses: appleboy/ssh-action@v1.2.0
+        env:
+          DEPLOY_EVENT_TOKEN: ${{ secrets.DEPLOY_EVENT_TOKEN }}
+          APP_BASE_URL: ${{ secrets.APP_BASE_URL || 'https://gluecron.com' }}
+          GH_RUN_ID: ${{ github.run_id }}
+          GH_SHA: ${{ github.sha }}
         with:
           host: ${{ secrets.HETZNER_HOST }}
           username: ${{ secrets.HETZNER_USER }}
           key: ${{ secrets.HETZNER_SSH_KEY }}
           command_timeout: 8m
           script_stop: true
+          # R2: stream per-phase progress to /api/events/deploy/step. We
+          # share one SSH session across all phases (git pull → install →
+          # build → migrate → restart) so the in-script curl posts give us
+          # the live timeline a black-box step boundary can't.
+          envs: DEPLOY_EVENT_TOKEN,APP_BASE_URL,GH_RUN_ID,GH_SHA
           script: |
             set -euo pipefail
             cd /opt/gluecron
+
+            # R2 helper: POST a single step event (in_progress|succeeded|failed).
+            # Never fails — observability must not break deploys.
+            notify_step() {
+              local NAME="$1" STATUS="$2" DUR="${3:-}"
+              if [ -z "${DEPLOY_EVENT_TOKEN:-}" ] || [ -z "${APP_BASE_URL:-}" ]; then
+                return 0
+              fi
+              local DUR_FIELD=""
+              if [ -n "$DUR" ]; then
+                DUR_FIELD=",\"duration_ms\":$DUR"
+              fi
+              curl --silent --show-error --max-time 5 \
+                -X POST "$APP_BASE_URL/api/events/deploy/step" \
+                -H "authorization: Bearer $DEPLOY_EVENT_TOKEN" \
+                -H "content-type: application/json" \
+                --data "{\"run_id\":\"$GH_RUN_ID\",\"sha\":\"$GH_SHA\",\"step_name\":\"$NAME\",\"status\":\"$STATUS\"$DUR_FIELD}" \
+                >/dev/null 2>&1 || true
+            }
+
+            notify_step "git-pull" "in_progress"
+            GP_START=$(date +%s)
             git fetch --prune origin main
             git reset --hard origin/main
             new_sha=$(git rev-parse HEAD)
             echo "Deploying SHA: $new_sha"
+            notify_step "git-pull" "succeeded" "$(( ( $(date +%s) - GP_START ) * 1000 ))"
 
             BUN=/root/.bun/bin/bun
             CACHE_DIR=/opt/gluecron/.cache
@@ -118,6 +181,8 @@ jobs:
             mkdir -p "$CACHE_DIR"
 
             # ─── (a) Cached deps: skip bun install when bun.lock is unchanged
+            notify_step "bun-install" "in_progress"
+            BI_START=$(date +%s)
             if [ -f bun.lock ]; then
               new_hash=$(sha256sum bun.lock | awk '{print $1}')
             else
@@ -134,8 +199,11 @@ jobs:
               "$BUN" install --frozen-lockfile
               echo "$new_hash" > "$HASH_FILE"
             fi
+            notify_step "bun-install" "succeeded" "$(( ( $(date +%s) - BI_START ) * 1000 ))"
 
             # ─── (b) Compile to a single static binary (best-effort)
+            notify_step "build" "in_progress"
+            BD_START=$(date +%s)
             mkdir -p .next
             COMPILED=.next/gluecron-server
             COMPILED_TMP=.next/gluecron-server.new
@@ -144,11 +212,15 @@ jobs:
               chmod +x "$COMPILED"
               EXEC_START="/opt/gluecron/.next/gluecron-server"
               echo "==> compiled binary ready: $COMPILED"
+              notify_step "build" "succeeded" "$(( ( $(date +%s) - BD_START ) * 1000 ))"
             else
               # Backward-compat: if compile fails, fall back to interpreted Bun
               echo "WARN: bun build --compile failed — falling back to bun run"
               rm -f "$COMPILED_TMP"
               EXEC_START="$BUN run src/index.ts"
+              # Treat compile-failure-with-fallback as 'succeeded' for the
+              # modal — the deploy itself is still going.
+              notify_step "build" "succeeded" "$(( ( $(date +%s) - BD_START ) * 1000 ))"
             fi
 
             # ─── (c) Idempotent systemd unit rewrite (Type=notify)
@@ -196,13 +268,19 @@ jobs:
             fi
 
             # ─── DB migrations (cheap; safe to always run)
+            notify_step "db-migrate" "in_progress"
+            DM_START=$(date +%s)
             set -a; source /etc/gluecron.env; set +a
             "$BUN" run src/db/migrate.ts || echo "WARN: migrate failed (may be already-applied)"
+            notify_step "db-migrate" "succeeded" "$(( ( $(date +%s) - DM_START ) * 1000 ))"
 
             # ─── (d) Zero-downtime restart. Blocks until sd_notify(READY=1).
+            notify_step "restart-service" "in_progress"
+            RS_START=$(date +%s)
             echo "==> systemctl restart gluecron (blocks on sd_notify READY=1)"
             systemctl restart gluecron
             echo "==> restart returned — gluecron signalled ready"
+            notify_step "restart-service" "succeeded" "$(( ( $(date +%s) - RS_START ) * 1000 ))"
 
       # ─── 3. Smoke-test the deployed app on the box ──────────────────────
       # We SSH back in and curl localhost:3010/healthz directly. This tests
@@ -213,6 +291,15 @@ jobs:
       #   - external network reachability from GH runners
       # If you ALSO want a public-DNS smoke check, add a second step that
       # hits https://gluecron.com after this one succeeds.
+      - name: Notify step — smoke-test (in_progress)
+        if: env.DEPLOY_EVENT_TOKEN != ''
+        uses: ./.github/actions/notify-deploy-step
+        with:
+          step_name: smoke-test
+          status: in_progress
+          app_base_url: ${{ secrets.APP_BASE_URL || 'https://gluecron.com' }}
+          deploy_event_token: ${{ secrets.DEPLOY_EVENT_TOKEN }}
+
       - name: Smoke test (localhost on the box)
         id: smoke
         uses: appleboy/ssh-action@v1.2.0
@@ -243,6 +330,24 @@ jobs:
             systemctl status gluecron --no-pager | head -10 || true
             journalctl -u gluecron -n 30 --no-pager || true
             exit 1
+
+      - name: Notify step — smoke-test (succeeded)
+        if: success() && env.DEPLOY_EVENT_TOKEN != ''
+        uses: ./.github/actions/notify-deploy-step
+        with:
+          step_name: smoke-test
+          status: succeeded
+          app_base_url: ${{ secrets.APP_BASE_URL || 'https://gluecron.com' }}
+          deploy_event_token: ${{ secrets.DEPLOY_EVENT_TOKEN }}
+
+      - name: Notify step — smoke-test (failed)
+        if: failure() && steps.smoke.conclusion == 'failure' && env.DEPLOY_EVENT_TOKEN != ''
+        uses: ./.github/actions/notify-deploy-step
+        with:
+          step_name: smoke-test
+          status: failed
+          app_base_url: ${{ secrets.APP_BASE_URL || 'https://gluecron.com' }}
+          deploy_event_token: ${{ secrets.DEPLOY_EVENT_TOKEN }}
 
       # ─── 4. Auto-rollback on smoke failure ──────────────────────────────
       # Only rolls back if the workflow was triggered by a normal push.

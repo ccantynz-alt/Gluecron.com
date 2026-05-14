@@ -50,7 +50,11 @@ import { timingSafeEqual } from "crypto";
 import { db } from "../db";
 import { deployments, repositories, users } from "../db/schema";
 import { processedEvents } from "../db/schema-events";
-import { platformDeploys } from "../db/schema-deploys";
+import {
+  platformDeploys,
+  platformDeploySteps,
+} from "../db/schema-deploys";
+import { sql } from "drizzle-orm";
 import { notify } from "../lib/notify";
 import { publish } from "../lib/sse";
 
@@ -691,6 +695,270 @@ events.post("/deploy/finished", async (c) => {
   return c.json({ ok: true });
 });
 
+// ---------------------------------------------------------------------------
+// Block R2 — Live deploy log streaming via SSE.
+//
+//   POST /api/events/deploy/step
+//     Authorization: Bearer ${DEPLOY_EVENT_TOKEN}
+//     Body: {
+//       run_id:     <string ≤128>,
+//       sha:        <hex 7-64>,
+//       step_name:  <string ≤64>,
+//       status:     "in_progress" | "succeeded" | "failed",
+//       output?:    <string, truncated to 8 KB>,
+//       duration_ms?: <number ≥0>
+//     }
+//
+// Behaviour:
+//   1. Look up `platform_deploys` by run_id. 404 if missing — the workflow's
+//      `started` notification creates that row, so a step before /started is
+//      operator error rather than a normal race.
+//   2. Insert a `platform_deploy_steps` row. Idempotent on
+//      (deploy_id, step_name, status) — replaying the same transition is a
+//      no-op (returns duplicate:true and does NOT republish SSE).
+//   3. Update the parent's `last_step` to the current step_name and bump
+//      `step_count` on (status='succeeded' OR first 'in_progress' for this
+//      step), so a page reload mid-deploy shows the last known position.
+//   4. Publish on TWO topics:
+//        - `platform:deploys`           (the N3 site-wide pill — coarse)
+//        - `platform:deploys:<run_id>`  (per-deploy fine-grained, drives the
+//                                        admin-deploys modal)
+//
+// Auth: bearer `DEPLOY_EVENT_TOKEN`, same as /started + /finished. Refuse
+// by default when unset.
+// ---------------------------------------------------------------------------
+
+const VALID_STEP_STATUS: ReadonlySet<string> = new Set([
+  "in_progress",
+  "succeeded",
+  "failed",
+]);
+
+// Permissive enough for the workflow's `git-pull`, `bun-install`, `build`,
+// `db-migrate`, `restart-service`, `smoke-test`. Disallow anything that
+// could mess with SSE payload framing or DB display columns.
+const STEP_NAME_RE = /^[a-z0-9][a-z0-9_\-]{0,63}$/i;
+const STEP_OUTPUT_MAX = 8 * 1024;
+const STEP_OUTPUT_SSE_MAX = 2_000;
+
+interface DeployStepPayload {
+  run_id: string;
+  sha: string;
+  step_name: string;
+  status: "in_progress" | "succeeded" | "failed";
+  output?: string;
+  duration_ms?: number;
+}
+
+function validateStep(raw: unknown):
+  | { ok: true; payload: DeployStepPayload }
+  | { ok: false; error: string } {
+  if (!raw || typeof raw !== "object") {
+    return { ok: false, error: "Body must be a JSON object" };
+  }
+  const p = raw as Record<string, unknown>;
+  if (
+    typeof p.run_id !== "string" ||
+    p.run_id.length === 0 ||
+    p.run_id.length > 128
+  ) {
+    return {
+      ok: false,
+      error: "run_id must be a non-empty string (≤128 chars)",
+    };
+  }
+  if (typeof p.sha !== "string" || !SHORT_SHA_RE.test(p.sha)) {
+    return { ok: false, error: "sha must be a hex commit id (7-64 chars)" };
+  }
+  if (typeof p.step_name !== "string" || !STEP_NAME_RE.test(p.step_name)) {
+    return {
+      ok: false,
+      error:
+        "step_name must match /^[a-z0-9][a-z0-9_-]{0,63}$/i (e.g. git-pull, bun-install)",
+    };
+  }
+  if (typeof p.status !== "string" || !VALID_STEP_STATUS.has(p.status)) {
+    return {
+      ok: false,
+      error: "status must be 'in_progress', 'succeeded', or 'failed'",
+    };
+  }
+  if (p.duration_ms !== undefined) {
+    if (
+      typeof p.duration_ms !== "number" ||
+      !Number.isFinite(p.duration_ms) ||
+      p.duration_ms < 0
+    ) {
+      return {
+        ok: false,
+        error: "duration_ms must be a non-negative number when provided",
+      };
+    }
+  }
+  if (p.output !== undefined && typeof p.output !== "string") {
+    return { ok: false, error: "output must be a string when provided" };
+  }
+  return {
+    ok: true,
+    payload: {
+      run_id: p.run_id,
+      sha: p.sha,
+      step_name: p.step_name,
+      status: p.status as "in_progress" | "succeeded" | "failed",
+      output:
+        typeof p.output === "string"
+          ? p.output.slice(0, STEP_OUTPUT_MAX)
+          : undefined,
+      duration_ms:
+        typeof p.duration_ms === "number" ? p.duration_ms : undefined,
+    },
+  };
+}
+
+/** SSE topic for a single deploy (drives the admin-deploys modal). */
+function perDeployTopic(runId: string): string {
+  return `${PLATFORM_DEPLOYS_TOPIC}:${runId}`;
+}
+
+events.post("/deploy/step", async (c) => {
+  const auth = verifyDeployBearer(c);
+  if (!auth.ok) {
+    return c.json({ ok: false, error: auth.error || "Unauthorized" }, 401);
+  }
+
+  let raw: unknown;
+  try {
+    raw = await c.req.json();
+  } catch {
+    return c.json({ ok: false, error: "Invalid JSON body" }, 400);
+  }
+
+  const validated = validateStep(raw);
+  if (!validated.ok) {
+    return c.json({ ok: false, error: validated.error }, 400);
+  }
+  const payload = validated.payload;
+
+  // --- 1. Resolve the parent deploy row -----------------------------------
+  let deploy: { id: string; stepCount: number } | null = null;
+  try {
+    const [row] = await db
+      .select({
+        id: platformDeploys.id,
+        stepCount: platformDeploys.stepCount,
+      })
+      .from(platformDeploys)
+      .where(eq(platformDeploys.runId, payload.run_id))
+      .limit(1);
+    deploy = row ?? null;
+  } catch (err) {
+    console.error("[events/deploy/step] parent lookup failed:", err);
+    return c.json({ ok: false, error: "Failed to read deploy state" }, 500);
+  }
+
+  if (!deploy) {
+    return c.json(
+      {
+        ok: false,
+        error:
+          "No platform_deploys row for run_id — POST /api/events/deploy/started first",
+      },
+      404
+    );
+  }
+
+  // --- 2. Insert the step row (idempotent on transition) ------------------
+  let duplicate = false;
+  let stepFinishedAt: Date | null = null;
+  try {
+    const insertValues: Record<string, unknown> = {
+      deployId: deploy.id,
+      stepName: payload.step_name,
+      status: payload.status,
+      output: payload.output ?? null,
+      durationMs: payload.duration_ms ?? null,
+    };
+    if (payload.status !== "in_progress") {
+      stepFinishedAt = new Date();
+      insertValues.finishedAt = stepFinishedAt;
+    }
+    const inserted = await db
+      .insert(platformDeploySteps)
+      .values(insertValues as any)
+      .onConflictDoNothing({
+        target: [
+          platformDeploySteps.deployId,
+          platformDeploySteps.stepName,
+          platformDeploySteps.status,
+        ],
+      })
+      .returning({ id: platformDeploySteps.id });
+    duplicate = inserted.length === 0;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("unique") || msg.includes("duplicate")) {
+      duplicate = true;
+    } else {
+      console.error("[events/deploy/step] insert failed:", err);
+      return c.json({ ok: false, error: "Failed to persist step" }, 500);
+    }
+  }
+
+  if (duplicate) {
+    return c.json({ ok: true, duplicate: true });
+  }
+
+  // --- 3. Update the parent's last_step + step_count ----------------------
+  // Only bump the counter on transitions that represent forward progress:
+  // - 'succeeded' (the step finished cleanly)
+  // - first 'in_progress' transition for THIS step (we haven't seen its
+  //   name yet) — handled implicitly because the idempotency dedupe above
+  //   already filters out a second in_progress for the same step.
+  //
+  // 'failed' updates last_step but does NOT bump the counter — the deploy
+  // is wedged, no more progress to count.
+  try {
+    if (payload.status === "failed") {
+      await db
+        .update(platformDeploys)
+        .set({ lastStep: payload.step_name })
+        .where(eq(platformDeploys.id, deploy.id));
+    } else {
+      await db
+        .update(platformDeploys)
+        .set({
+          lastStep: payload.step_name,
+          stepCount: sql`${platformDeploys.stepCount} + 1`,
+        })
+        .where(eq(platformDeploys.id, deploy.id));
+    }
+  } catch (err) {
+    // Persistence failure on the rollup column must not stop the SSE push
+    // — the modal will still show the live state, the page refresh just
+    // won't carry the last_step. Log and continue.
+    console.error("[events/deploy/step] parent rollup update failed:", err);
+  }
+
+  // --- 4. Publish to both SSE topics --------------------------------------
+  const ssePayload = {
+    event: "step",
+    data: JSON.stringify({
+      run_id: payload.run_id,
+      step_name: payload.step_name,
+      status: payload.status,
+      duration_ms: payload.duration_ms ?? null,
+      output: payload.output
+        ? payload.output.slice(0, STEP_OUTPUT_SSE_MAX)
+        : null,
+      finished_at: stepFinishedAt ? stepFinishedAt.toISOString() : null,
+    }),
+  };
+  publish(PLATFORM_DEPLOYS_TOPIC, ssePayload);
+  publish(perDeployTopic(payload.run_id), ssePayload);
+
+  return c.json({ ok: true, duplicate: false });
+});
+
 // Test-only access for unit tests that want to exercise helpers directly.
 export const __test = {
   constantTimeEq,
@@ -699,7 +967,9 @@ export const __test = {
   findTargetDeployment,
   validateStarted,
   validateFinished,
+  validateStep,
   verifyDeployBearer,
+  perDeployTopic,
   PLATFORM_DEPLOYS_TOPIC,
 };
 

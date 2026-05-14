@@ -18,9 +18,13 @@
  */
 
 import { Hono } from "hono";
-import { desc } from "drizzle-orm";
+import { raw } from "hono/html";
+import { asc, desc, eq } from "drizzle-orm";
 import { db } from "../db";
-import { platformDeploys } from "../db/schema-deploys";
+import {
+  platformDeploys,
+  platformDeploySteps,
+} from "../db/schema-deploys";
 import { Layout } from "../views/layout";
 import { softAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
@@ -77,6 +81,50 @@ interface DeployRow {
   finishedAt: Date | null;
   durationMs: number | null;
   error: string | null;
+}
+
+/**
+ * R2 — the canonical step order surfaced by `hetzner-deploy.yml`. Drives
+ * the modal skeleton so steps render with a stable order even before any
+ * step events have arrived. Mirror exactly what the workflow + notify
+ * helper emits as `step_name`.
+ */
+export const R2_STEP_ORDER: ReadonlyArray<{ name: string; label: string }> = [
+  { name: "setup", label: "Setup" },
+  { name: "git-pull", label: "Git pull" },
+  { name: "bun-install", label: "Bun install" },
+  { name: "build", label: "Build" },
+  { name: "db-migrate", label: "DB migrate" },
+  { name: "restart-service", label: "Restart service" },
+  { name: "smoke-test", label: "Smoke test" },
+];
+
+interface DeployStepRow {
+  stepName: string;
+  status: string;
+  startedAt: Date;
+  finishedAt: Date | null;
+  durationMs: number | null;
+}
+
+async function fetchStepsForDeploy(deployId: string): Promise<DeployStepRow[]> {
+  try {
+    const rows = await db
+      .select({
+        stepName: platformDeploySteps.stepName,
+        status: platformDeploySteps.status,
+        startedAt: platformDeploySteps.startedAt,
+        finishedAt: platformDeploySteps.finishedAt,
+        durationMs: platformDeploySteps.durationMs,
+      })
+      .from(platformDeploySteps)
+      .where(eq(platformDeploySteps.deployId, deployId))
+      .orderBy(asc(platformDeploySteps.startedAt));
+    return rows as DeployStepRow[];
+  } catch (err) {
+    console.error("[admin-deploys-page] fetchStepsForDeploy failed:", err);
+    return [];
+  }
 }
 
 async function fetchLatest(limit = 50): Promise<DeployRow[]> {
@@ -171,6 +219,23 @@ page.get("/admin/deploys", async (c) => {
   const rows = await fetchLatest(50);
   const lastSuccess = rows.find((r) => r.status === "succeeded") || null;
   const repo = process.env.GITHUB_REPOSITORY || "ccantynz/Gluecron.com";
+
+  // R2 — if a deploy is currently in_progress, fetch its persisted step
+  // history so the modal pre-fills on hard refresh. SSE then keeps it
+  // live going forward. If `?modal=<run_id>` is present we open the
+  // modal regardless of state (the Trigger button uses an inline JS
+  // path; this query-string mode is for deep-linkable debug).
+  const inProgress = rows.find((r) => r.status === "in_progress") || null;
+  const queryModalRun = (() => {
+    const qs = c.req.query("modal");
+    return typeof qs === "string" && qs.length > 0 ? qs : null;
+  })();
+  const modalDeploy =
+    inProgress ||
+    (queryModalRun ? rows.find((r) => r.runId === queryModalRun) || null : null);
+  const modalSteps: DeployStepRow[] = modalDeploy
+    ? await fetchStepsForDeploy(modalDeploy.id)
+    : [];
 
   return c.html(
     <Layout title="Deploys — admin" user={user}>
@@ -282,9 +347,252 @@ page.get("/admin/deploys", async (c) => {
           gh workflow run hetzner-deploy.yml -R {repo}
         </code>
       </p>
+
+      {/* R2 — Live deploy modal. Hidden by default; shown when an
+          in_progress deploy is detected or when ?modal=<run_id> is set.
+          The Trigger button posts to /admin/deploys/trigger then opens
+          the modal as soon as the SSE stream sends its first event. */}
+      {renderDeployModal(modalDeploy, modalSteps, repo)}
     </Layout>
   );
 });
+
+/**
+ * R2 — server-render the modal skeleton (steps, status pills, live log
+ * pane) plus the inline JS that wires it to EventSource on
+ * `/live-events/platform:deploys:<run_id>`.
+ *
+ * The modal is ALWAYS rendered in the DOM (hidden by default) so the
+ * client-side Trigger flow can open it without a full page reload after
+ * a successful POST /admin/deploys/trigger. When a deploy is already in
+ * progress on initial load we mark it visible and pre-seed steps.
+ */
+function renderDeployModal(
+  active: DeployRow | null,
+  steps: DeployStepRow[],
+  repo: string
+) {
+  const initiallyOpen = active !== null;
+  // Build a status map keyed by step_name → status for fast initial paint.
+  const stepStatus: Record<string, string> = {};
+  const stepDuration: Record<string, number | null> = {};
+  for (const s of steps) {
+    // Last-write-wins is what we want — succeeded > in_progress.
+    stepStatus[s.stepName] = s.status;
+    stepDuration[s.stepName] = s.durationMs ?? null;
+  }
+  return (
+    <>
+      <div
+        id="deploy-modal-backdrop"
+        data-active-run={active ? active.runId : ""}
+        style={`position:fixed;inset:0;background:rgba(0,0,0,0.55);display:${
+          initiallyOpen ? "flex" : "none"
+        };align-items:flex-start;justify-content:center;padding-top:8vh;z-index:1000`}
+      >
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="deploy-modal-title"
+          style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:10px;max-width:600px;width:92vw;padding:18px 20px;box-shadow:0 24px 64px rgba(0,0,0,0.5);font-size:14px;color:var(--text);max-height:80vh;overflow:auto"
+        >
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:8px">
+            <h3
+              id="deploy-modal-title"
+              style="margin:0;font-size:16px;font-weight:600"
+            >
+              Deploying — run{" "}
+              <code class="meta-mono" id="deploy-modal-run">
+                #{active ? active.runId : ""}
+              </code>
+            </h3>
+            <button
+              type="button"
+              id="deploy-modal-close"
+              aria-label="Close"
+              style="background:transparent;border:0;color:var(--text-muted);cursor:pointer;font-size:18px;line-height:1;padding:4px 8px"
+            >
+              ×
+            </button>
+          </div>
+          <ol
+            id="deploy-modal-steps"
+            style="list-style:none;padding:0;margin:0 0 12px;display:flex;flex-direction:column;gap:6px"
+          >
+            {R2_STEP_ORDER.map((step) => {
+              const s = stepStatus[step.name];
+              const dur = stepDuration[step.name];
+              const icon =
+                s === "succeeded"
+                  ? "✓"
+                  : s === "failed"
+                  ? "✗"
+                  : s === "in_progress"
+                  ? "⏳"
+                  : "·";
+              const colour =
+                s === "succeeded"
+                  ? "#34d399"
+                  : s === "failed"
+                  ? "#f87171"
+                  : s === "in_progress"
+                  ? "#fbbf24"
+                  : "var(--text-muted)";
+              const detail =
+                s === "succeeded" && typeof dur === "number"
+                  ? `completed in ${formatDuration(dur)}`
+                  : s === "in_progress"
+                  ? "in progress"
+                  : s === "failed"
+                  ? "failed"
+                  : "";
+              return (
+                <li
+                  data-step={step.name}
+                  data-status={s || "pending"}
+                  style="display:flex;align-items:center;gap:10px;padding:6px 8px;border-radius:6px;background:rgba(255,255,255,0.02)"
+                >
+                  <span
+                    class="step-icon"
+                    aria-hidden="true"
+                    style={`display:inline-block;width:18px;text-align:center;color:${colour};font-weight:600`}
+                  >
+                    {icon}
+                  </span>
+                  <span class="step-label" style="flex:1">
+                    {step.label}
+                  </span>
+                  <span
+                    class="step-detail"
+                    style="color:var(--text-muted);font-size:12px"
+                  >
+                    {detail}
+                  </span>
+                </li>
+              );
+            })}
+          </ol>
+          <div
+            style="display:flex;justify-content:space-between;font-size:12px;color:var(--text-muted);border-top:1px solid var(--border);padding-top:10px"
+          >
+            <span id="deploy-modal-elapsed">
+              {active
+                ? `Started ${relativeTime(active.startedAt)}`
+                : "Idle"}
+            </span>
+            <a
+              id="deploy-modal-runlink"
+              href={
+                active
+                  ? `https://github.com/${repo}/actions/runs/${active.runId}`
+                  : "#"
+              }
+              target="_blank"
+              rel="noreferrer noopener"
+              style="color:var(--text-muted)"
+            >
+              Run on GitHub →
+            </a>
+          </div>
+        </div>
+      </div>
+      {raw(`<script>${DEPLOY_MODAL_JS}</script>`)}
+    </>
+  );
+}
+
+/**
+ * R2 — client-side glue. Plain-JS only (no deps).
+ *
+ * Responsibilities:
+ *   - Wire Esc + backdrop click + close-button to hide the modal.
+ *   - Hook the "Trigger deploy" form so submission opens the modal and
+ *     starts an EventSource for the new run id. The N4 POST returns
+ *     {ok:true, run_id?:string} but the run id isn't guaranteed yet —
+ *     we fall back to polling /admin/deploys/latest.json once.
+ *   - On every SSE 'step' event, update the matching `<li data-step=…>`
+ *     row's icon + status pill.
+ */
+const DEPLOY_MODAL_JS = `
+(function(){
+  var modal = document.getElementById('deploy-modal-backdrop');
+  if (!modal) return;
+  var stepsList = document.getElementById('deploy-modal-steps');
+  var runEl = document.getElementById('deploy-modal-run');
+  var runLink = document.getElementById('deploy-modal-runlink');
+  var closeBtn = document.getElementById('deploy-modal-close');
+  var trigger = document.querySelector('form[action="/admin/deploys/trigger"]');
+  var es = null;
+
+  function hide(){ modal.style.display = 'none'; if (es) { try { es.close(); } catch(_){} es = null; } }
+  function show(){ modal.style.display = 'flex'; }
+
+  closeBtn && closeBtn.addEventListener('click', hide);
+  modal.addEventListener('click', function(e){ if (e.target === modal) hide(); });
+  document.addEventListener('keydown', function(e){ if (e.key === 'Escape') hide(); });
+
+  function applyStep(stepName, status, durationMs){
+    var li = stepsList && stepsList.querySelector('li[data-step="' + stepName + '"]');
+    if (!li) return;
+    li.setAttribute('data-status', status);
+    var icon = li.querySelector('.step-icon');
+    var detail = li.querySelector('.step-detail');
+    if (status === 'succeeded') {
+      if (icon) { icon.textContent = '✓'; icon.style.color = '#34d399'; }
+      if (detail) detail.textContent = typeof durationMs === 'number'
+        ? ('completed in ' + Math.round(durationMs/1000) + 's')
+        : 'completed';
+    } else if (status === 'failed') {
+      if (icon) { icon.textContent = '✗'; icon.style.color = '#f87171'; }
+      if (detail) detail.textContent = 'failed';
+    } else if (status === 'in_progress') {
+      if (icon) { icon.textContent = '⏳'; icon.style.color = '#fbbf24'; }
+      if (detail) detail.textContent = 'in progress';
+    }
+  }
+
+  function attach(runId){
+    if (!runId) return;
+    runEl && (runEl.textContent = '#' + runId);
+    if (runLink) {
+      var href = runLink.getAttribute('href') || '';
+      runLink.setAttribute('href', href.replace(/runs\\/[^/]*$/, 'runs/' + runId));
+    }
+    show();
+    if (es) { try { es.close(); } catch(_){} es = null; }
+    var topic = 'platform:deploys:' + runId;
+    try {
+      es = new EventSource('/live-events/' + topic);
+    } catch (e) { return; }
+    es.addEventListener('step', function(ev){
+      try {
+        var data = JSON.parse(ev.data);
+        applyStep(data.step_name, data.status, data.duration_ms);
+      } catch(_){ /* swallow */ }
+    });
+  }
+
+  // If the server pre-rendered the modal as open, attach to that run id.
+  var preActive = modal.getAttribute('data-active-run') || '';
+  if (preActive) attach(preActive);
+
+  // Hook the trigger form so a click flips the modal open and we discover
+  // the run_id via latest.json.
+  if (trigger) {
+    trigger.addEventListener('submit', function(e){
+      e.preventDefault();
+      show();
+      fetch('/admin/deploys/trigger', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })
+        .then(function(){ return fetch('/admin/deploys/latest.json'); })
+        .then(function(r){ return r.json(); })
+        .then(function(j){
+          if (j && j.latest && j.latest.run_id) attach(j.latest.run_id);
+        })
+        .catch(function(){ /* swallow — the page is still usable */ });
+    });
+  }
+})();
+`;
 
 export const __test = {
   relativeTime,
@@ -292,6 +600,9 @@ export const __test = {
   formatDuration,
   fetchLatest,
   serialise,
+  fetchStepsForDeploy,
+  R2_STEP_ORDER,
+  DEPLOY_MODAL_JS,
 };
 
 export default page;

@@ -66,6 +66,7 @@ import onboardingRoutes from "./routes/onboarding";
 import adminRoutes from "./routes/admin";
 import adminDeploysRoutes from "./routes/admin-deploys";
 import adminDeploysPageRoutes from "./routes/admin-deploys-page";
+import adminOpsRoutes from "./routes/admin-ops";
 import advisoriesRoutes from "./routes/advisories";
 import aiChangelogRoutes from "./routes/ai-changelog";
 import aiExplainRoutes from "./routes/ai-explain";
@@ -320,6 +321,11 @@ app.route("/", versionRoutes);
 // Health dashboard (per-repo health page)
 app.route("/", healthDashboardRoutes);
 
+// Block R1 — site-admin operations console. MUST be mounted BEFORE
+// insightRoutes because its POST `/:owner/:repo/rollback` catch-all would
+// otherwise intercept `/admin/ops/rollback` (matching :owner=admin :repo=ops).
+app.route("/", adminOpsRoutes);
+
 // Insights (time-travel, dependencies, rollback)
 app.route("/", insightRoutes);
 
@@ -347,6 +353,7 @@ app.route("/", onboardingRoutes);
 app.route("/", adminRoutes);
 app.route("/", adminDeploysRoutes);
 app.route("/", adminDeploysPageRoutes);
+// Note: adminOpsRoutes is mounted earlier (before insightRoutes) — see comment above.
 app.route("/", advisoriesRoutes);
 app.route("/", aiChangelogRoutes);
 app.route("/", aiExplainRoutes);

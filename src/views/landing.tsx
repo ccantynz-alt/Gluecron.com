@@ -118,11 +118,25 @@ export const LandingHero: FC<LandingPageProps> = ({
       <style dangerouslySetInnerHTML={{ __html: landingCss }} />
 
       <div class="landing-root">
-        {/* ---------- Hero ---------- */}
+        {/* ---------- Hero ----------
+            Block U1 — Senior polish pass. Rebuilt for tighter rhythm:
+              · 2 primary CTAs (sign up + Claude Desktop)
+              · "Try the live demo" / "Compare to GitHub" demoted to
+                a tertiary text-link row
+              · Install snippet moved BELOW the CTAs as a "power users"
+                panel — used to sit above and crowded the buttons
+              · 4-stat rail kept but rendered as a tighter horizontal
+                strip with the gradient accent rule
+              · One new muted gradient orb absolutely positioned behind
+                everything so the section reads as a product page, not
+                a tutorial
+              · vertical rhythm = var(--space-6) between every block
+        */}
         <section class="landing-hero">
           <div class="landing-hero-bg" aria-hidden="true">
             <div class="landing-hero-blob landing-hero-blob-1" />
             <div class="landing-hero-blob landing-hero-blob-2" />
+            <div class="landing-hero-blob landing-hero-orb" />
             <div class="landing-hero-grid" />
           </div>
 
@@ -140,30 +154,13 @@ export const LandingHero: FC<LandingPageProps> = ({
               Label an issue. Walk away. Wake up to a merged PR.
             </p>
 
-            {/* L10 — one-line install snippet with copy button. */}
-            <div class="landing-hero-install" aria-label="One-line install">
-              <code class="landing-hero-install-code">
-                <span class="landing-hero-install-prompt" aria-hidden="true">$</span>
-                <span id="landing-install-text">curl -sSL gluecron.com/install | bash</span>
-              </code>
-              <button
-                type="button"
-                class="landing-hero-install-copy"
-                data-copy-target="landing-install-text"
-                aria-label="Copy install command"
-              >
-                Copy
-              </button>
-            </div>
-
-            <div class="landing-hero-ctas">
+            {/* U1 — primary CTA row, demoted to 2 buttons. */}
+            <div class="landing-hero-ctas" data-testid="hero-primary-ctas">
               <a href="/register" class="btn btn-primary btn-xl landing-cta-primary">
                 Sign up free
                 <span class="landing-cta-arrow" aria-hidden="true">{"→"}</span>
               </a>
-              {/* BLOCK Q1 — one-click Claude Desktop install. Gradient
-                  border + accent so it reads as a distinct flagship CTA,
-                  not just a third secondary option. */}
+              {/* BLOCK Q1 — one-click Claude Desktop install. */}
               <a
                 href="/gluecron.dxt"
                 class="btn btn-xl landing-cta-dxt"
@@ -173,50 +170,72 @@ export const LandingHero: FC<LandingPageProps> = ({
                 Add to Claude Desktop
                 <span class="landing-cta-arrow" aria-hidden="true">{"→"}</span>
               </a>
-              <a href="/demo" class="btn btn-secondary btn-xl">
-                Try the live demo
-                <span class="landing-cta-arrow" aria-hidden="true">{"→"}</span>
-              </a>
-              <a href="/vs-github" class="btn btn-ghost btn-xl">
-                Compare to GitHub
-                <span class="landing-cta-arrow" aria-hidden="true">{"→"}</span>
-              </a>
             </div>
 
-            {/* Block Q3 — tertiary "try it without signing up" link.
-                Visually subordinate to the buttons above; renders as a
-                small ghost text link so it doesn't crowd the CTA row. */}
-            <div class="landing-hero-play">
-              <a href="/play" class="landing-hero-play-link" data-testid="cta-play">
-                Or try it without signing up
+            {/* U1 — tertiary text-link row.
+                Visually subordinate to the buttons above. Keeps the
+                "Try the live demo" + "Compare to GitHub" affordances
+                from L10 + the Q3 "try without signing up" /play link
+                without crowding the primary CTA row. */}
+            <div class="landing-hero-tertiary" data-testid="hero-tertiary-row">
+              <a href="/demo" class="landing-hero-tertiary-link" data-testid="cta-tertiary-demo">
+                Try the live demo
+                <span aria-hidden="true">{" →"}</span>
+              </a>
+              <span class="landing-hero-tertiary-sep" aria-hidden="true">·</span>
+              <a href="/vs-github" class="landing-hero-tertiary-link" data-testid="cta-tertiary-vs">
+                Compare to GitHub
+                <span aria-hidden="true">{" →"}</span>
+              </a>
+              <span class="landing-hero-tertiary-sep" aria-hidden="true">·</span>
+              <a href="/play" class="landing-hero-tertiary-link" data-testid="cta-play">
+                Try it without signing up
                 <span aria-hidden="true">{" →"}</span>
               </a>
             </div>
 
-            {/* L10 — "what just happened" rail. Mini, secondary,
-                separate from the BIG L4 counters tile section below. */}
+            {/* U1 — power-users install snippet panel.
+                Moved BELOW the CTAs so it doesn't compete for the eye
+                with the primary "Sign up free" button. */}
+            <div class="landing-hero-install-wrap" aria-label="Power users install panel">
+              <div class="landing-hero-install-label">For power users</div>
+              <div class="landing-hero-install" aria-label="One-line install">
+                <code class="landing-hero-install-code">
+                  <span class="landing-hero-install-prompt" aria-hidden="true">$</span>
+                  <span id="landing-install-text">curl -sSL gluecron.com/install | bash</span>
+                </code>
+                <button
+                  type="button"
+                  class="landing-hero-install-copy"
+                  data-copy-target="landing-install-text"
+                  aria-label="Copy install command"
+                >
+                  Copy
+                </button>
+              </div>
+            </div>
+
+            {/* U1 — tightened "what just happened" rail.
+                Same data as before, rendered as a single horizontal
+                rule with the gradient accent line on top. Numbers
+                smaller, copy still scannable. */}
             {publicStats && (
               <ul class="landing-hero-rail" aria-label="What just happened on Gluecron">
                 <li>
-                  <span class="landing-hero-rail-check" aria-hidden="true">{"✓"}</span>
                   <strong>{publicStats.weeklyPrsAutoMerged.toLocaleString()}</strong>
-                  {" PRs auto-merged this week"}
+                  <span class="landing-hero-rail-label">PRs auto-merged</span>
                 </li>
                 <li>
-                  <span class="landing-hero-rail-check" aria-hidden="true">{"✓"}</span>
                   <strong>{publicStats.weeklyIssuesBuiltByAi.toLocaleString()}</strong>
-                  {" issues built by AI"}
+                  <span class="landing-hero-rail-label">issues built by AI</span>
                 </li>
                 <li>
-                  <span class="landing-hero-rail-check" aria-hidden="true">{"✓"}</span>
                   <strong>{publicStats.weeklyDeploysShipped.toLocaleString()}</strong>
-                  {" deploys shipped overnight"}
+                  <span class="landing-hero-rail-label">deploys overnight</span>
                 </li>
                 <li>
-                  <span class="landing-hero-rail-check" aria-hidden="true">{"✓"}</span>
-                  {"~"}
-                  <strong>{Math.round(publicStats.weeklyHoursSaved).toLocaleString()}</strong>
-                  {" hours saved by AI"}
+                  <strong>{`~${Math.round(publicStats.weeklyHoursSaved).toLocaleString()}`}</strong>
+                  <span class="landing-hero-rail-label">hours saved by AI</span>
                 </li>
               </ul>
             )}
@@ -1562,6 +1581,30 @@ const landingCss = `
     height: 380px;
     background: radial-gradient(circle, rgba(54,197,214,0.40), transparent 65%);
   }
+  /* U1 — subtle, low-opacity accent-gradient orb behind the headline.
+     Sits dead-centre, very blurred, so the hero reads as a real product
+     surface rather than flat-bg + text. */
+  .landing-hero-orb {
+    top: 18%;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 720px;
+    height: 720px;
+    background: radial-gradient(circle, rgba(140,109,255,0.22), rgba(54,197,214,0.12) 45%, transparent 70%);
+    filter: blur(120px);
+    opacity: 0.55;
+    z-index: 0;
+  }
+  :root[data-theme='light'] .landing-hero-orb {
+    opacity: 0.32;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .landing-hero-blob-1,
+    .landing-hero-blob-2,
+    .landing-hero-orb {
+      animation: none;
+    }
+  }
   .landing-hero-grid {
     position: absolute;
     inset: 0;
@@ -1584,8 +1627,9 @@ const landingCss = `
     max-width: 960px;
     margin: 0 auto;
   }
+  /* U1 — every block below the headline obeys a single rhythm. */
   .landing-hero-eyebrow {
-    margin: 0 auto var(--s-6);
+    margin: 0 auto var(--space-6);
     color: var(--accent);
   }
   .landing-hero-eyebrow::before { display: none; }
@@ -1609,7 +1653,7 @@ const landingCss = `
     line-height: 1.05;
     letter-spacing: -0.025em;
     font-weight: 700;
-    margin: 0 0 var(--s-7);
+    margin: 0 0 var(--space-6);
     color: var(--text-strong);
   }
   .landing-hero-title .gradient-text {
@@ -1624,41 +1668,55 @@ const landingCss = `
     font-size: clamp(15px, 1.6vw, 19px);
     color: var(--text-muted);
     max-width: 680px;
-    margin: 0 auto;
+    margin: 0 auto var(--space-6);
     line-height: 1.55;
     letter-spacing: -0.005em;
   }
 
   .landing-hero-ctas {
     display: flex;
-    gap: 12px;
+    gap: var(--space-3);
     justify-content: center;
     flex-wrap: wrap;
-    margin-top: var(--s-10);
+    margin-top: 0;
+    margin-bottom: var(--space-4);
   }
   .landing-cta-arrow {
     transition: transform var(--t-base) var(--ease-spring);
     display: inline-block;
   }
 
-  /* Block Q3 — tertiary "try it without signing up" link.
-     Sits under the primary CTA row as a small, low-contrast text link
-     so it doesn't crowd the main calls-to-action. */
-  .landing-hero-play {
-    margin-top: 14px;
+  /* U1 — tertiary text-link row.
+     Sits directly under the 2-button primary CTA row. Smaller, muted,
+     so it reads as "by the way" rather than competing for the eye. */
+  .landing-hero-tertiary {
+    margin-top: 0;
+    margin-bottom: var(--space-6);
     text-align: center;
-  }
-  .landing-hero-play-link {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-3);
+    justify-content: center;
+    align-items: baseline;
+    width: 100%;
     font-size: 13px;
+    color: var(--text-muted);
+  }
+  .landing-hero-tertiary-link {
     color: var(--text-muted);
     text-decoration: none;
     border-bottom: 1px dashed transparent;
     padding-bottom: 1px;
-    transition: color var(--t-base), border-color var(--t-base);
+    transition: color var(--t-fast) var(--ease),
+                border-color var(--t-fast) var(--ease);
   }
-  .landing-hero-play-link:hover {
-    color: var(--text-strong, var(--text));
+  .landing-hero-tertiary-link:hover {
+    color: var(--text-strong);
     border-bottom-color: var(--text-muted);
+  }
+  .landing-hero-tertiary-sep {
+    color: var(--text-faint);
+    user-select: none;
   }
   .btn:hover .landing-cta-arrow,
   .landing-cta-primary:hover .landing-cta-arrow {
@@ -1696,9 +1754,10 @@ const landingCss = `
     }
   }
 
-  /* L8 — free-tier reassurance link beneath the CTA row. */
+  /* L8 — free-tier reassurance link beneath the CTA row.
+     U1 — rhythm snapped to var(--space-6). */
   .landing-hero-freenote {
-    margin-top: var(--s-5);
+    margin: 0 auto var(--space-6);
     font-size: var(--t-sm);
     color: var(--text-muted);
     text-align: center;
@@ -1716,14 +1775,14 @@ const landingCss = `
   }
 
   .landing-hero-caption {
-    margin-top: var(--s-8);
+    margin: 0 auto var(--space-6);
     font-size: var(--t-sm);
     color: var(--text-muted);
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     justify-content: center;
-    gap: 12px;
+    gap: var(--space-3);
   }
   .landing-hero-cmd {
     display: inline-flex;
@@ -1750,14 +1809,14 @@ const landingCss = `
   }
 
   .landing-stats {
-    margin-top: var(--s-7);
+    margin: 0 auto;
     font-family: var(--font-mono);
     font-size: 12px;
     color: var(--text-muted);
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 10px;
+    gap: var(--space-2);
     flex-wrap: wrap;
     letter-spacing: 0.02em;
   }
@@ -2300,12 +2359,28 @@ const landingCss = `
     .landing-counters-grid { grid-template-columns: repeat(2, 1fr); gap: 18px 12px; }
   }
 
-  /* ---------- L10 hero install snippet ---------- */
+  /* ---------- L10/U1 hero install snippet ----------
+     U1: wrapped in a labelled "power users" panel and re-located
+     beneath the CTA + tertiary rows so it no longer competes with
+     the primary calls to action. */
+  .landing-hero-install-wrap {
+    margin: 0 auto var(--space-6);
+    text-align: center;
+  }
+  .landing-hero-install-label {
+    display: inline-block;
+    margin-bottom: var(--space-2);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
   .landing-hero-install {
     display: inline-flex;
     align-items: stretch;
     gap: 0;
-    margin: var(--s-8) auto 0;
+    margin: 0 auto;
     background: var(--bg-elevated);
     border: 1px solid var(--border-strong);
     border-radius: var(--r);
@@ -2353,36 +2428,56 @@ const landingCss = `
     color: var(--green, #34d399);
   }
 
-  /* ---------- L10 hero "what just happened" rail ---------- */
+  /* ---------- L10/U1 hero "what just happened" rail ----------
+     U1 — tightened into a single horizontal strip. The 1px gradient
+     rule on top is the same accent the headline uses, so the rail
+     reads as part of the hero composition rather than a stray list. */
   .landing-hero-rail {
     list-style: none;
-    padding: 0;
-    margin: var(--s-7) auto 0;
+    padding: var(--space-4) 0 0;
+    margin: 0 auto var(--space-6);
     display: flex;
     flex-wrap: wrap;
     justify-content: center;
-    gap: 8px 22px;
+    gap: var(--space-2) var(--space-6);
     font-family: var(--font-sans);
-    font-size: var(--t-sm);
-    color: var(--text-muted);
+    font-size: 12px;
+    color: var(--text-faint);
     max-width: 760px;
+    position: relative;
+  }
+  .landing-hero-rail::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 120px;
+    height: 1px;
+    background: var(--accent-gradient);
+    opacity: 0.45;
+    border-radius: 9999px;
   }
   .landing-hero-rail li {
     display: inline-flex;
-    align-items: center;
-    gap: 7px;
+    align-items: baseline;
+    gap: var(--space-2);
     line-height: 1.4;
   }
   .landing-hero-rail strong {
     color: var(--text-strong);
     font-weight: 600;
     font-feature-settings: 'tnum';
+    font-size: 14px;
+    letter-spacing: -0.01em;
   }
-  .landing-hero-rail-check {
-    color: var(--accent);
-    font-weight: 700;
-    flex-shrink: 0;
+  .landing-hero-rail-label {
+    color: var(--text-muted);
+    letter-spacing: 0.01em;
   }
+  /* Backwards-compat: nothing references this any more but if a stale
+     fragment lingers it's still hidden cleanly rather than orphaned. */
+  .landing-hero-rail-check { display: none; }
 
   /* ---------- L10 three-reasons section ---------- */
   .landing-reasons { margin-top: var(--s-12); }

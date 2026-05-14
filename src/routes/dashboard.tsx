@@ -181,7 +181,7 @@ dashboard.get("/dashboard", requireAuth, async (c) => {
     <Layout title="Command Center" user={user}>
       {showVerifyBanner && (
         <div
-          style="background: rgba(210, 153, 34, 0.12); border: 1px solid rgba(210, 153, 34, 0.45); color: #e3b341; padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 14px"
+          style="background: rgba(210, 153, 34, 0.12); border: 1px solid rgba(210, 153, 34, 0.45); color: #e3b341; padding: var(--space-3) var(--space-4); border-radius: 8px; margin-bottom: var(--space-4); display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); font-size: 14px"
           data-p2-verify-banner=""
         >
           <div style="flex: 1 1 auto; min-width: 0">
@@ -204,7 +204,7 @@ dashboard.get("/dashboard", requireAuth, async (c) => {
           <form
             method="post"
             action="/verify-email/resend"
-            style="display: inline-flex; gap: 8px; align-items: center; margin: 0"
+            style="display: inline-flex; gap: var(--space-2); align-items: center; margin: 0"
           >
             <input
               type="hidden"
@@ -236,7 +236,7 @@ dashboard.get("/dashboard", requireAuth, async (c) => {
             Real-time overview of all your repositories
           </p>
         </div>
-        <div style="display: flex; gap: 8px">
+        <div style="display: flex; gap: var(--space-2)">
           <a href="/new" class="btn btn-primary">+ New repo</a>
           <a href="/settings" class="btn">Settings</a>
         </div>
@@ -246,7 +246,7 @@ dashboard.get("/dashboard", requireAuth, async (c) => {
       <AiHoursSavedWidget week={savingsWeek} lifetime={savingsLifetime} />
 
       {/* ─── Stats Bar ─── */}
-      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 32px">
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: var(--space-3); margin-bottom: var(--space-8)">
         <StatBox
           label="Repositories"
           value={String(repos.length)}
@@ -281,7 +281,7 @@ dashboard.get("/dashboard", requireAuth, async (c) => {
       {/* ─── Repo Grid ─── */}
       <h2 style="font-size: 18px; margin-bottom: 16px">Your Repositories</h2>
       {repos.length === 0 ? (
-        <div class="empty-state" style="text-align:left;padding:24px">
+        <div class="empty-state" style="text-align:left;padding:var(--space-6)">
           <div style="text-align:center;margin-bottom:20px">
             <h2 style="margin-bottom:6px">Get started</h2>
             <p style="color:var(--text-muted);font-size:14px;margin:0">
@@ -289,7 +289,7 @@ dashboard.get("/dashboard", requireAuth, async (c) => {
             </p>
           </div>
           <div class="panel" style="margin-bottom:20px;text-align:left">
-            <div class="panel-item" style="justify-content:space-between;padding:16px;gap:12px">
+            <div class="panel-item" style="justify-content:space-between;padding:var(--space-4);gap:var(--space-3)">
               <div style="flex:1">
                 <div style="font-size:15px;font-weight:600">Create a new repository</div>
                 <div style="font-size:13px;color:var(--text-muted);margin-top:2px">
@@ -298,7 +298,7 @@ dashboard.get("/dashboard", requireAuth, async (c) => {
               </div>
               <a href="/new" class="btn btn-primary">Create repo</a>
             </div>
-            <div class="panel-item" style="justify-content:space-between;padding:16px;gap:12px">
+            <div class="panel-item" style="justify-content:space-between;padding:var(--space-4);gap:var(--space-3)">
               <div style="flex:1">
                 <div style="font-size:15px;font-weight:600">Import from GitHub</div>
                 <div style="font-size:13px;color:var(--text-muted);margin-top:2px">
@@ -307,7 +307,7 @@ dashboard.get("/dashboard", requireAuth, async (c) => {
               </div>
               <a href="/import" class="btn">Import repo</a>
             </div>
-            <div class="panel-item" style="justify-content:space-between;padding:16px;gap:12px">
+            <div class="panel-item" style="justify-content:space-between;padding:var(--space-4);gap:var(--space-3)">
               <div style="flex:1">
                 <div style="font-size:15px;font-weight:600">Browse public repos</div>
                 <div style="font-size:13px;color:var(--text-muted);margin-top:2px">
@@ -317,7 +317,7 @@ dashboard.get("/dashboard", requireAuth, async (c) => {
               <a href="/explore" class="btn">Browse</a>
             </div>
           </div>
-          <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px">
+          <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius);padding:var(--space-4)">
             <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px">
               Push an existing project (preview)
             </div>
@@ -327,14 +327,14 @@ git push -u gluecron main</code></pre>
           </div>
         </div>
       ) : (
-        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 16px; margin-bottom: 32px">
+        <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: var(--space-4); margin-bottom: var(--space-8)">
           {repoData.map(({ repo, healthScore, healthGrade, recentCommits, branchCount, ciConfig }) => (
             <div class="card" style="padding: 0; overflow: hidden">
               {/* Health bar at top */}
               <div
                 style={`height: 4px; background: ${gradeColor(healthGrade)}; width: ${healthScore}%; transition: width 0.3s`}
               />
-              <div style="padding: 16px">
+              <div style="padding: var(--space-4)">
                 <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px">
                   <div>
                     <h3 style="font-size: 16px; margin-bottom: 2px">
@@ -358,14 +358,14 @@ git push -u gluecron main</code></pre>
                   </div>
                 </div>
 
-                <div style="display: flex; gap: 16px; font-size: 12px; color: var(--text-muted); margin-top: 8px">
+                <div style="display: flex; gap: var(--space-4); font-size: 12px; color: var(--text-muted); margin-top: var(--space-2)">
                   <span>{branchCount} branch{branchCount !== 1 ? "es" : ""}</span>
                   <span>{"\u2606"} {repo.starCount}</span>
                   {repo.isPrivate && <span class="badge" style="font-size: 10px">Private</span>}
                 </div>
 
                 {ciConfig && ciConfig.commands.length > 0 && (
-                  <div style="margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap">
+                  <div style="margin-top: var(--space-2); display: flex; gap: 6px; flex-wrap: wrap">
                     {ciConfig.detected.slice(0, 3).map((d) => (
                       <span
                         class="badge"
@@ -377,7 +377,7 @@ git push -u gluecron main</code></pre>
                   </div>
                 )}
 
-                <div style="display: flex; gap: 6px; margin-top: 12px">
+                <div style="display: flex; gap: 6px; margin-top: var(--space-3)">
                   <a
                     href={`/${user.username}/${repo.name}/health`}
                     class="btn btn-sm"
@@ -420,7 +420,7 @@ git push -u gluecron main</code></pre>
           <div class="issue-list">
             {recentActivity.map((a) => (
               <div class="issue-item">
-                <div style="display: flex; gap: 8px; align-items: center">
+                <div style="display: flex; gap: var(--space-2); align-items: center">
                   <ActivityIcon action={a.action} />
                   <div>
                     <span style="font-size: 14px">
@@ -447,7 +447,7 @@ git push -u gluecron main</code></pre>
       <LiveFeed topic={`user:${user.id}`} title="Live activity" />
 
       {/* ─── Quick Links ─── */}
-      <div style="margin-top: 32px; display: flex; gap: 16px; flex-wrap: wrap">
+      <div style="margin-top: var(--space-8); display: flex; gap: var(--space-4); flex-wrap: wrap">
         <a href="/explore" class="btn">Browse public repos</a>
         <a href="/settings/tokens" class="btn">API tokens</a>
         <a href="/settings/keys" class="btn">SSH keys</a>
@@ -579,7 +579,7 @@ dashboard.get("/:owner/:repo/pushes", softAuth, async (c) => {
             return (
               <div class="issue-item" style="flex-direction: column; align-items: stretch">
                 <div style="display: flex; justify-content: space-between; align-items: start">
-                  <div style="display: flex; gap: 8px; align-items: start">
+                  <div style="display: flex; gap: var(--space-2); align-items: start">
                     {isRepair ? (
                       <span
                         style="color: var(--green); font-size: 16px; flex-shrink: 0; margin-top: 2px"
@@ -628,7 +628,7 @@ dashboard.get("/:owner/:repo/pushes", softAuth, async (c) => {
                 </div>
                 {isRepair && (
                   <div
-                    style="margin-top: 8px; padding: 8px 12px; background: rgba(63, 185, 80, 0.1); border-radius: var(--radius); font-size: 12px; color: var(--green)"
+                    style="margin-top: var(--space-2); padding: var(--space-2) var(--space-3); background: rgba(63, 185, 80, 0.1); border-radius: var(--radius); font-size: 12px; color: var(--green)"
                   >
                     Automatically repaired by gluecron
                   </div>
@@ -685,8 +685,8 @@ const AiHoursSavedWidget = ({
       class="card ai-hours-saved-widget"
       style="margin-bottom: 24px; padding: 0; overflow: hidden; position: relative; background: var(--accent-gradient-faint, var(--bg-secondary)); border-color: var(--accent)"
     >
-      <div style="padding: 24px 24px 20px 24px">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap">
+      <div style="padding: var(--space-6) var(--space-6) var(--space-5) var(--space-6)">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:var(--space-4);flex-wrap:wrap">
           <div style="flex:1;min-width:240px">
             <div style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-muted); margin-bottom: 4px">
               AI working for you
@@ -734,7 +734,7 @@ const AiHoursSavedWidget = ({
         </div>
 
         {hasAnyWeek ? (
-          <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:16px">
+          <div style="display:flex;flex-wrap:wrap;gap:var(--space-2);margin-top:var(--space-4)">
             {weekPills.map((p) => (
               <span
                 class="badge"
@@ -836,7 +836,7 @@ const HealthCoach = ({
     return (
       <div
         class="card"
-        style="margin-bottom: 32px; padding: 16px; background: rgba(63,185,80,0.08); border-color: var(--green)"
+        style="margin-bottom: var(--space-8); padding: var(--space-4); background: rgba(63,185,80,0.08); border-color: var(--green)"
       >
         <h3 style="margin: 0 0 4px; font-size: 15px">
           {"✨"} AI Health Coach
@@ -853,14 +853,14 @@ const HealthCoach = ({
       style="margin-bottom: 32px; padding: 0; overflow: hidden"
     >
       <div
-        style="padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between"
+        style="padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between"
       >
         <div>
           <h3 style="margin: 0; font-size: 15px">
             {"✨"} AI Health Coach
           </h3>
           <p
-            style="margin: 4px 0 0; color: var(--text-muted); font-size: 12px"
+            style="margin: var(--space-1) 0 0; color: var(--text-muted); font-size: 12px"
           >
             Top {picks.length} repos that would benefit from attention
             this week.
@@ -870,7 +870,7 @@ const HealthCoach = ({
       <ul style="list-style: none; margin: 0; padding: 0">
         {picks.map((p) => (
           <li
-            style="padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px"
+            style="padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: var(--space-3)"
           >
             <div
               style={`min-width: 40px; padding: 4px 8px; border-radius: 4px; text-align: center; font-weight: 600; color: var(--bg); background: ${moduleGradeColor(p.healthGrade)}`}
@@ -916,7 +916,7 @@ const StatBox = ({
   color: string;
 }) => (
   <div
-    style="background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; text-align: center"
+    style="background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--space-4); text-align: center"
   >
     <div style={`font-size: 28px; font-weight: 700; color: ${color}`}>
       {value}
@@ -939,7 +939,7 @@ const ToggleSetting = ({
   defaultChecked: boolean;
 }) => (
   <div
-    style="display: flex; justify-content: space-between; align-items: start; padding: 16px 0; border-bottom: 1px solid var(--border)"
+    style="display: flex; justify-content: space-between; align-items: start; padding: var(--space-4) 0; border-bottom: 1px solid var(--border)"
   >
     <div style="flex: 1">
       <div style="font-size: 15px; font-weight: 600">{label}</div>

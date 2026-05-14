@@ -241,7 +241,7 @@ function CardShell({
 }) {
   return (
     <div
-      style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;padding:16px 18px;margin-bottom:16px"
+      style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;padding:var(--space-4);margin-bottom:var(--space-4)"
     >
       <h3
         style="margin:0 0 12px 0;font-size:14px;letter-spacing:0.04em;text-transform:uppercase;color:var(--text-muted)"
@@ -319,7 +319,7 @@ ops.get("/admin/ops", async (c) => {
 
   return c.html(
     <Layout title="Operations — admin" user={user}>
-      <div style="max-width:880px;margin:0 auto;padding:24px 16px">
+      <div style="max-width:880px;margin:0 auto;padding:var(--space-6) var(--space-4)">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
           <h1 style="margin:0">Operations</h1>
           <a href="/admin" class="btn btn-sm">
@@ -344,7 +344,7 @@ ops.get("/admin/ops", async (c) => {
 
         {/* ---- Auto-merge card ---- */}
         <CardShell title="AI auto-merge on main">
-          <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+          <div style="display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-3)">
             <span style="font-size:13px;color:var(--text-muted)">Status:</span>
             <Pill
               ok={autoMergeState.enabled}
@@ -385,7 +385,7 @@ ops.get("/admin/ops", async (c) => {
             </ul>
           </div>
 
-          <div style="display:flex;gap:8px;align-items:center">
+          <div style="display:flex;gap:var(--space-2);align-items:center">
             {autoMergeState.enabled ? (
               <form
                 method="post"
@@ -447,7 +447,7 @@ ops.get("/admin/ops", async (c) => {
               </span>
             )}
           </div>
-          <div style="display:flex;gap:8px;align-items:center">
+          <div style="display:flex;gap:var(--space-2);align-items:center">
             <form
               method="post"
               action="/admin/ops/deploy/trigger"
@@ -483,7 +483,7 @@ ops.get("/admin/ops", async (c) => {
               </span>
             )}
           </div>
-          <div style="display:flex;gap:8px;align-items:center">
+          <div style="display:flex;gap:var(--space-2);align-items:center">
             <form
               method="post"
               action="/admin/ops/rollback"

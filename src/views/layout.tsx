@@ -317,7 +317,7 @@ export const Layout: FC<
             type="text"
             placeholder="Type a command..."
             aria-label="Command palette"
-            style="width:100%;padding:12px 16px;background:transparent;color:var(--text);border:0;border-bottom:1px solid var(--border);outline:none;font-size:14px"
+            style="width:100%;padding:var(--space-3) var(--space-4);background:transparent;color:var(--text);border:0;border-bottom:1px solid var(--border);outline:none;font-size:14px"
           />
           <div id="cmdk-list" style="max-height:60vh;overflow-y:auto" />
         </div>
@@ -668,13 +668,13 @@ const navScript = `
         var cls = i === selected ? 'cmdk-item cmdk-active' : 'cmdk-item';
         var bg = i === selected ? 'background:var(--bg);' : '';
         html += '<div class="' + cls + '" data-idx="' + i + '" data-url="' + item.href + '"' +
-                ' style="padding:10px 16px;cursor:pointer;border-bottom:1px solid var(--border);' + bg + '">' +
+                ' style="padding:var(--space-2) var(--space-4);cursor:pointer;border-bottom:1px solid var(--border);' + bg + '">' +
                 '<div>' + item.label + '</div>' +
                 '<div style="font-size:11px;color:var(--text-muted)">' + item.href + '</div>' +
                 '</div>';
       }
       if (filtered.length === 0) {
-        html = '<div style="padding:16px;color:var(--text-muted);text-align:center">No matches.</div>';
+        html = '<div style="padding:var(--space-4);color:var(--text-muted);text-align:center">No matches.</div>';
       }
       list.innerHTML = html;
     }
@@ -1460,6 +1460,16 @@ const css = `
   /* ============================================================ */
   /* Buttons                                                      */
   /* ============================================================ */
+  /* ============================================================ */
+  /* Buttons — Block U2 senior polish pass.                       */
+  /* Rules:                                                       */
+  /*  · hover lifts every .btn by 1px + soft drop shadow (180ms)  */
+  /*  · active presses back down to 0 (80ms — faster on press)    */
+  /*  · focus-visible uses a soft box-shadow ring (no outline)    */
+  /*  · primary gradient shifts position on hover for a slow      */
+  /*    600ms shimmer                                             */
+  /*  · disabled never lifts and never animates                   */
+  /* ============================================================ */
   .btn {
     display: inline-flex;
     align-items: center;
@@ -1477,12 +1487,15 @@ const css = `
     text-decoration: none;
     line-height: 1.25;
     letter-spacing: -0.008em;
+    /* U2 — hover/transform settles in 180ms; press snaps in 80ms.
+       Listed once on the base rule so :active can override only the
+       transform/duration without re-typing the colour/bg transitions. */
     transition:
-      background var(--t-fast) var(--ease),
-      border-color var(--t-fast) var(--ease),
-      transform var(--t-fast) var(--ease),
-      box-shadow var(--t-fast) var(--ease),
-      color var(--t-fast) var(--ease);
+      background 180ms ease,
+      border-color 180ms ease,
+      transform 180ms ease,
+      box-shadow 180ms ease,
+      color 180ms ease;
     user-select: none;
     white-space: nowrap;
     position: relative;
@@ -1492,12 +1505,24 @@ const css = `
     border-color: var(--border-strong);
     color: var(--text-strong);
     text-decoration: none;
+    /* U2 — universal hover lift + soft accent drop shadow. */
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px -4px rgba(15, 17, 26, 0.45);
   }
-  .btn:active { transform: translateY(1px); }
-  .btn:focus-visible { outline: none; box-shadow: var(--ring); }
+  .btn:active {
+    transform: translateY(0);
+    transition-duration: 80ms;
+  }
+  /* U2 — soft modern focus ring via box-shadow, not outline. */
+  .btn:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(140, 109, 255, 0.35);
+  }
 
   .btn-primary {
     background: var(--accent-gradient);
+    background-size: 200% 100%;
+    background-position: 0% 50%;
     border-color: transparent;
     color: #fff;
     font-weight: 600;
@@ -1507,6 +1532,13 @@ const css = `
       inset 0 -1px 0 rgba(0,0,0,0.10),
       0 1px 2px rgba(0,0,0,0.40),
       0 0 0 1px rgba(140,109,255,0.30);
+    /* U2 — slower 600ms transition on background-position so the
+       primary CTA shimmers when the cursor lands. */
+    transition:
+      background-position 600ms ease,
+      transform 180ms ease,
+      box-shadow 180ms ease,
+      color 180ms ease;
   }
   .btn-primary::before {
     content: '';
@@ -1521,7 +1553,10 @@ const css = `
   .btn-primary:hover {
     color: #fff;
     background: var(--accent-gradient);
+    background-size: 200% 100%;
+    background-position: 100% 50%;
     border-color: transparent;
+    transform: translateY(-1px);
     box-shadow:
       inset 0 1px 0 rgba(255,255,255,0.30),
       inset 0 -1px 0 rgba(0,0,0,0.10),
@@ -1529,6 +1564,13 @@ const css = `
       0 0 0 1px rgba(140,109,255,0.45);
   }
   .btn-primary:hover::before { opacity: 1; }
+  .btn-primary:active { transform: translateY(0); transition-duration: 80ms; }
+  /* U2 — primary focus ring uses the same accent box-shadow recipe. */
+  .btn-primary:focus-visible {
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.22),
+      0 0 0 3px rgba(140,109,255,0.35);
+  }
 
   .btn-danger {
     background: transparent;
@@ -1539,8 +1581,10 @@ const css = `
     background: rgba(248,113,113,0.08);
     border-color: var(--red);
     color: var(--red);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px -4px rgba(248,113,113,0.30);
   }
-  .btn-danger:focus-visible { box-shadow: var(--ring-err); }
+  .btn-danger:focus-visible { box-shadow: 0 0 0 3px rgba(248,113,113,0.35); }
 
   .btn-ghost {
     background: transparent;
@@ -1551,6 +1595,8 @@ const css = `
     background: var(--bg-hover);
     color: var(--text-strong);
     border-color: var(--border);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px -4px rgba(15, 17, 26, 0.30);
   }
 
   .btn-secondary {
@@ -1561,6 +1607,8 @@ const css = `
   .btn-secondary:hover {
     background: var(--bg-surface);
     border-color: var(--border-strong);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px -4px rgba(15, 17, 26, 0.35);
   }
 
   .btn-sm  { padding: 4px 10px; font-size: var(--t-xs); border-radius: var(--r-sm); gap: 5px; }
@@ -1568,10 +1616,26 @@ const css = `
   .btn-xl  { padding: 14px 28px; font-size: var(--t-md); border-radius: var(--r); font-weight: 600; }
   .btn-block { width: 100%; }
 
-  .btn:disabled, .btn[aria-disabled='true'] {
-    opacity: 0.45;
+  /* U2 — disabled never lifts, never shimmers, never glows. */
+  .btn:disabled,
+  .btn[aria-disabled='true'],
+  .btn:disabled:hover,
+  .btn[aria-disabled='true']:hover {
+    opacity: 0.5;
     cursor: not-allowed;
     pointer-events: none;
+    transform: none;
+    box-shadow: none;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .btn,
+    .btn:hover,
+    .btn:active,
+    .btn-primary,
+    .btn-primary:hover {
+      transform: none;
+      transition: background-color 80ms linear, color 80ms linear;
+    }
   }
 
   /* ============================================================ */
@@ -2747,4 +2811,42 @@ const css = `
   footer .footer-banner-info { border-color: rgba(96,165,250,0.40); color: var(--blue); }
   footer .footer-banner-warn { border-color: rgba(251,191,36,0.40); color: var(--yellow); }
   footer .footer-banner-error { border-color: rgba(248,113,113,0.45); color: var(--red); }
+
+  /* ============================================================ */
+  /* Block U4 — cross-document view transitions.                  */
+  /* Chrome 126+, Edge, Safari 18.2+ get a soft 200ms fade on     */
+  /* every same-origin navigation. Older browsers ignore these    */
+  /* rules entirely — no JS shim, no breakage.                    */
+  /* prefers-reduced-motion disables the animation honourably.    */
+  /* ============================================================ */
+  @view-transition {
+    navigation: auto;
+  }
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation-duration: 200ms;
+    animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  ::view-transition-old(root) {
+    animation-name: vt-fade-out;
+  }
+  ::view-transition-new(root) {
+    animation-name: vt-fade-in;
+  }
+  @keyframes vt-fade-out {
+    to { opacity: 0; }
+  }
+  @keyframes vt-fade-in {
+    from { opacity: 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    ::view-transition-old(root),
+    ::view-transition-new(root) {
+      animation-duration: 0s;
+    }
+  }
+  /* The transition system picks up its root subject from this rule. */
+  body {
+    view-transition-name: root;
+  }
 `;

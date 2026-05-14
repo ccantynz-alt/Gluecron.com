@@ -102,7 +102,7 @@ settings.get("/settings", (c) => {
         </p>
         <form method="post" action="/settings/notifications">
           <label
-            style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px; font-size: 14px"
+            style="display: flex; gap: var(--space-2); align-items: center; margin-bottom: var(--space-2); font-size: 14px"
           >
             <input
               type="checkbox"
@@ -116,7 +116,7 @@ settings.get("/settings", (c) => {
             </span>
           </label>
           <label
-            style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px; font-size: 14px"
+            style="display: flex; gap: var(--space-2); align-items: center; margin-bottom: var(--space-2); font-size: 14px"
           >
             <input
               type="checkbox"
@@ -128,7 +128,7 @@ settings.get("/settings", (c) => {
             <span>I am assigned to an issue or PR</span>
           </label>
           <label
-            style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px; font-size: 14px"
+            style="display: flex; gap: var(--space-2); align-items: center; margin-bottom: var(--space-2); font-size: 14px"
           >
             <input
               type="checkbox"
@@ -140,7 +140,7 @@ settings.get("/settings", (c) => {
             <span>A gate fails on one of my repositories</span>
           </label>
           <label
-            style="display: flex; gap: 8px; align-items: center; margin-bottom: 12px; font-size: 14px"
+            style="display: flex; gap: var(--space-2); align-items: center; margin-bottom: var(--space-3); font-size: 14px"
           >
             <input
               type="checkbox"
@@ -163,7 +163,7 @@ settings.get("/settings", (c) => {
             <a href="/sleep-mode">Learn more</a>.
           </p>
           <label
-            style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px; font-size: 14px"
+            style="display: flex; gap: var(--space-2); align-items: center; margin-bottom: var(--space-2); font-size: 14px"
           >
             <input
               type="checkbox"
@@ -175,7 +175,7 @@ settings.get("/settings", (c) => {
             <span>Enable Sleep Mode (daily &ldquo;overnight&rdquo; digest)</span>
           </label>
           <label
-            style="display: flex; gap: 8px; align-items: center; margin-bottom: 12px; font-size: 14px"
+            style="display: flex; gap: var(--space-2); align-items: center; margin-bottom: var(--space-3); font-size: 14px"
           >
             <span>Send my morning digest at (UTC hour, 0-23):</span>
             <input
@@ -198,7 +198,7 @@ settings.get("/settings", (c) => {
             control which notification kinds trigger a push.
           </p>
           <label
-            style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px; font-size: 14px"
+            style="display: flex; gap: var(--space-2); align-items: center; margin-bottom: var(--space-2); font-size: 14px"
           >
             <input
               type="checkbox"
@@ -212,7 +212,7 @@ settings.get("/settings", (c) => {
             </span>
           </label>
           <label
-            style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px; font-size: 14px"
+            style="display: flex; gap: var(--space-2); align-items: center; margin-bottom: var(--space-2); font-size: 14px"
           >
             <input
               type="checkbox"
@@ -224,7 +224,7 @@ settings.get("/settings", (c) => {
             <span>I am assigned to an issue or PR</span>
           </label>
           <label
-            style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px; font-size: 14px"
+            style="display: flex; gap: var(--space-2); align-items: center; margin-bottom: var(--space-2); font-size: 14px"
           >
             <input
               type="checkbox"
@@ -236,7 +236,7 @@ settings.get("/settings", (c) => {
             <span>Someone requests a review from me</span>
           </label>
           <label
-            style="display: flex; gap: 8px; align-items: center; margin-bottom: 12px; font-size: 14px"
+            style="display: flex; gap: var(--space-2); align-items: center; margin-bottom: var(--space-3); font-size: 14px"
           >
             <input
               type="checkbox"
@@ -253,7 +253,7 @@ settings.get("/settings", (c) => {
         </form>
         <div
           id="gc-push-device"
-          style="margin-top:16px;padding:12px;border:1px solid var(--border);border-radius:6px;background:var(--bg-elevated,transparent)"
+          style="margin-top:var(--space-4);padding:var(--space-3);border:1px solid var(--border);border-radius:6px;background:var(--bg-elevated,transparent)"
         >
           <div
             id="gc-push-status"
@@ -261,7 +261,7 @@ settings.get("/settings", (c) => {
           >
             Push status: checking…
           </div>
-          <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+          <div style="margin-top:var(--space-2);display:flex;gap:var(--space-2);flex-wrap:wrap">
             <button type="button" id="gc-push-subscribe" class="btn btn-sm btn-primary">
               Subscribe on this device
             </button>
@@ -334,7 +334,7 @@ function renderDeleteAccountSection(args: {
       </p>
       <form method="post" action="/settings/delete-account">
         <input type="hidden" name="_csrf" value={csrfToken || ""} />
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <div style="display:flex;gap:var(--space-2);align-items:center;flex-wrap:wrap">
           <input
             type="text"
             name="confirm_username"
@@ -405,7 +405,7 @@ settings.get("/settings/sleep-mode/preview", async (c) => {
         {report.gateFailuresAutoRepaired} &middot; Hours saved:{" "}
         {report.hoursSaved} &middot; Total events: {total}
       </p>
-      <div class="panel" style="padding:20px;background:#fff;color:#111">
+      <div class="panel" style="padding:var(--space-5);background:#fff;color:#111">
         {raw(rendered.html)}
       </div>
       <p style="margin-top:20px">
@@ -443,7 +443,7 @@ settings.get("/settings/digest/preview", async (c) => {
       </p>
       <div
         class="panel"
-        style="padding:20px;background:#fff;color:#111"
+        style="padding:var(--space-5);background:#fff;color:#111"
       >
         {raw(body.html)}
       </div>

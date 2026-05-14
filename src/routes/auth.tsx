@@ -32,17 +32,22 @@ import {
   Alert,
   Text,
 } from "../views/ui";
+import { softAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
 
 const auth = new Hono<AuthEnv>();
 
 // --- Web UI ---
 
-auth.get("/register", (c) => {
+auth.get("/register", softAuth, (c) => {
+  // If the user is already signed in, drop them on their dashboard rather
+  // than rendering the logged-out sign-up shell over an authed session.
+  const existing = c.get("user");
+  if (existing) return c.redirect("/dashboard");
   const error = c.req.query("error");
   const csrf = c.get("csrfToken") as string | undefined;
   return c.html(
-    <Layout title="Register">
+    <Layout title="Register" user={null}>
       <div class="auth-container">
         <h2>Create account</h2>
         {error && <div class="auth-error">{decodeURIComponent(error)}</div>}
@@ -175,9 +180,13 @@ auth.post("/register", async (c) => {
   return c.redirect(redirect);
 });
 
-auth.get("/login", async (c) => {
+auth.get("/login", softAuth, async (c) => {
+  // Already-authed users hitting the sign-in page get bounced to their
+  // dashboard (or the `redirect=` target if one was supplied).
+  const existing = c.get("user");
   const error = c.req.query("error");
   const redirect = c.req.query("redirect") || "";
+  if (existing) return c.redirect(redirect || "/dashboard");
   const ssoCfg = await getSsoConfig();
   const ssoEnabled =
     !!ssoCfg?.enabled &&
@@ -186,14 +195,15 @@ auth.get("/login", async (c) => {
     !!ssoCfg.userinfoEndpoint &&
     !!ssoCfg.clientId &&
     !!ssoCfg.clientSecret;
-  const ssoLabel = ssoCfg?.providerName || "SSO";
+  const ssoLabel =
+    ssoCfg?.providerName || inferSsoProviderName(ssoCfg) || "SSO";
   // Block L6 — "Sign in with GitHub" (separate row keyed id='github').
   const githubCfg = await getGithubOauthConfig();
   const githubEnabled =
     !!githubCfg?.enabled && !!githubCfg.clientId && !!githubCfg.clientSecret;
   const csrf = c.get("csrfToken") as string | undefined;
   return c.html(
-    <Layout title="Sign in">
+    <Layout title="Sign in" user={null}>
       <div class="auth-container">
         <h2>Sign in</h2>
         {error && <div class="auth-error">{decodeURIComponent(error)}</div>}
@@ -398,7 +408,7 @@ auth.get("/login/2fa", async (c) => {
   const error = c.req.query("error");
   const redirect = c.req.query("redirect") || "/";
   return c.html(
-    <Layout title="Two-factor authentication">
+    <Layout title="Two-factor authentication" user={null}>
       <div class="auth-container">
         <h2>Enter your code</h2>
         <p
@@ -631,5 +641,26 @@ auth.post("/api/auth/login", async (c) => {
     token,
   });
 });
+
+/**
+ * Pick a friendly provider name for the "Sign in with X" button when the
+ * admin hasn't set one explicitly. Looks at the configured IdP URLs.
+ * Falls back to undefined so the caller can default to a literal "SSO".
+ */
+function inferSsoProviderName(
+  cfg: { issuer?: string | null; authorizationEndpoint?: string | null } | null | undefined
+): string | undefined {
+  const urls = [cfg?.issuer, cfg?.authorizationEndpoint]
+    .filter((s): s is string => !!s)
+    .join(" ")
+    .toLowerCase();
+  if (!urls) return undefined;
+  if (urls.includes("google")) return "Google";
+  if (urls.includes("okta")) return "Okta";
+  if (urls.includes("microsoftonline") || urls.includes("azure")) return "Microsoft";
+  if (urls.includes("auth0.com")) return "Auth0";
+  if (urls.includes("authentik")) return "Authentik";
+  return undefined;
+}
 
 export default auth;

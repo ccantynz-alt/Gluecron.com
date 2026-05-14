@@ -45,6 +45,15 @@ export const users = pgTable("users", {
   // digest, so a user cannot receive both on the same day.
   sleepModeEnabled: boolean("sleep_mode_enabled").default(false).notNull(),
   sleepModeDigestHourUtc: integer("sleep_mode_digest_hour_utc").default(9).notNull(),
+  // Block M2 — Web Push per-event preferences. Default on; opt-out via /settings.
+  notifyPushOnMention: boolean("notify_push_on_mention").default(true).notNull(),
+  notifyPushOnAssign: boolean("notify_push_on_assign").default(true).notNull(),
+  notifyPushOnReviewRequest: boolean("notify_push_on_review_request")
+    .default(true)
+    .notNull(),
+  notifyPushOnDeployFailed: boolean("notify_push_on_deploy_failed")
+    .default(true)
+    .notNull(),
   isAdmin: boolean("is_admin").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -91,6 +100,13 @@ export const repositories = pgTable(
     starCount: integer("star_count").default(0).notNull(),
     forkCount: integer("fork_count").default(0).notNull(),
     issueCount: integer("issue_count").default(0).notNull(),
+    // Block M5: autopilot stale-sweep opt-out flags. Default true — the
+    // 2-stage close (poke at 7d/30d, close at 14d/60d after poke) runs on
+    // every repo unless an owner disables it via repo-settings.
+    autoCloseStalePrs: boolean("auto_close_stale_prs").default(true).notNull(),
+    autoCloseStaleIssues: boolean("auto_close_stale_issues")
+      .default(true)
+      .notNull(),
   },
   (table) => [
     // Partial: uniqueness only in the user namespace (org-owned rows exempt).
@@ -662,6 +678,33 @@ export const sshKeys = pgTable("ssh_keys", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// Block M2 — Web Push subscriptions. One row per (user, endpoint).
+// Endpoint is the browser-issued push URL; p256dh + auth are the W3C
+// payload-encryption keys (base64url). Stale endpoints (HTTP 410) are
+// deleted lazily on next `sendPushToUser` pass.
+export const pushSubscriptions = pgTable(
+  "push_subscriptions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    endpoint: text("endpoint").notNull(),
+    p256dh: text("p256dh").notNull(),
+    auth: text("auth").notNull(),
+    userAgent: text("user_agent"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    lastUsedAt: timestamp("last_used_at"),
+  },
+  (table) => [
+    uniqueIndex("push_subscriptions_user_endpoint").on(
+      table.userId,
+      table.endpoint
+    ),
+    index("idx_push_subscriptions_user").on(table.userId),
+  ]
+);
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Repository = typeof repositories.$inferSelect;
@@ -669,6 +712,8 @@ export type NewRepository = typeof repositories.$inferInsert;
 export type Session = typeof sessions.$inferSelect;
 export type Star = typeof stars.$inferSelect;
 export type SshKey = typeof sshKeys.$inferSelect;
+export type PushSubscription = typeof pushSubscriptions.$inferSelect;
+export type NewPushSubscription = typeof pushSubscriptions.$inferInsert;
 export type Issue = typeof issues.$inferSelect;
 export type IssueComment = typeof issueComments.$inferSelect;
 export type Label = typeof labels.$inferSelect;
@@ -2647,4 +2692,45 @@ export const repairFlywheel = pgTable(
 
 export type RepairFlywheelEntry = typeof repairFlywheel.$inferSelect;
 export type NewRepairFlywheelEntry = typeof repairFlywheel.$inferInsert;
+
+/**
+ * Block M3 — AI pre-merge risk score cache.
+ *
+ * One row per (pull_request_id, commit_sha). The score is computed by a
+ * transparent formula over `signals`; the LLM only writes `ai_summary`.
+ * Pinning by head SHA means a new push invalidates the cache implicitly
+ * (the new SHA won't have a row yet → cache miss → recompute).
+ *
+ * Migration: 0044_pr_risk_scores.sql
+ */
+export const prRiskScores = pgTable(
+  "pr_risk_scores",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    pullRequestId: uuid("pull_request_id")
+      .notNull()
+      .references(() => pullRequests.id, { onDelete: "cascade" }),
+    commitSha: text("commit_sha").notNull(),
+    // 0..10 integer score.
+    score: integer("score").notNull(),
+    // 'low' | 'medium' | 'high' | 'critical'
+    band: text("band").notNull(),
+    // Raw signal map — see PrRiskSignals in src/lib/pr-risk.ts.
+    signals: jsonb("signals").notNull(),
+    aiSummary: text("ai_summary"),
+    generatedAt: timestamp("generated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("pr_risk_scores_pr_sha_uq").on(
+      table.pullRequestId,
+      table.commitSha
+    ),
+    index("pr_risk_scores_pr_idx").on(table.pullRequestId),
+  ]
+);
+
+export type PrRiskScoreRow = typeof prRiskScores.$inferSelect;
+export type NewPrRiskScoreRow = typeof prRiskScores.$inferInsert;
 

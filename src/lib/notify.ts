@@ -31,7 +31,9 @@ export type NotificationKind =
   | "deploy_failed"
   | "deployment_approval"
   | "release_published"
-  | "repo_archived";
+  | "repo_archived"
+  | "pr_stale"
+  | "issue_stale";
 
 /** Kinds that can trigger email delivery. Keep this list conservative — any
  *  kind here must map to a user preference column on the users table. */

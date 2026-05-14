@@ -106,6 +106,91 @@ sso.get("/admin/sso", requireAuth, async (c) => {
         )}
         {error && <div class="auth-error">{decodeURIComponent(error)}</div>}
 
+        <div
+          class="panel"
+          style="padding:14px 16px;margin-bottom:14px;display:flex;gap:10px;flex-wrap:wrap;align-items:center"
+        >
+          <span style="font-size:13px;color:var(--text-muted)">
+            Quick fill from a preset:
+          </span>
+          <button
+            type="button"
+            class="btn btn-sm"
+            onclick="window.gluecronSsoPreset('google')"
+          >
+            Google Workspace
+          </button>
+          <button
+            type="button"
+            class="btn btn-sm"
+            onclick="window.gluecronSsoPreset('okta')"
+          >
+            Okta
+          </button>
+          <button
+            type="button"
+            class="btn btn-sm"
+            onclick="window.gluecronSsoPreset('auth0')"
+          >
+            Auth0
+          </button>
+          <button
+            type="button"
+            class="btn btn-sm"
+            onclick="window.gluecronSsoPreset('azure')"
+          >
+            Microsoft Entra
+          </button>
+        </div>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: /* js */ `
+              window.gluecronSsoPreset = function (provider) {
+                var P = {
+                  google: {
+                    provider_name: 'Google',
+                    issuer: 'https://accounts.google.com',
+                    authorization_endpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
+                    token_endpoint: 'https://oauth2.googleapis.com/token',
+                    userinfo_endpoint: 'https://openidconnect.googleapis.com/v1/userinfo',
+                    scopes: 'openid email profile',
+                  },
+                  okta: {
+                    provider_name: 'Okta',
+                    issuer: 'https://YOUR-TENANT.okta.com',
+                    authorization_endpoint: 'https://YOUR-TENANT.okta.com/oauth2/v1/authorize',
+                    token_endpoint: 'https://YOUR-TENANT.okta.com/oauth2/v1/token',
+                    userinfo_endpoint: 'https://YOUR-TENANT.okta.com/oauth2/v1/userinfo',
+                    scopes: 'openid email profile',
+                  },
+                  auth0: {
+                    provider_name: 'Auth0',
+                    issuer: 'https://YOUR-TENANT.auth0.com',
+                    authorization_endpoint: 'https://YOUR-TENANT.auth0.com/authorize',
+                    token_endpoint: 'https://YOUR-TENANT.auth0.com/oauth/token',
+                    userinfo_endpoint: 'https://YOUR-TENANT.auth0.com/userinfo',
+                    scopes: 'openid email profile',
+                  },
+                  azure: {
+                    provider_name: 'Microsoft',
+                    issuer: 'https://login.microsoftonline.com/YOUR-TENANT-ID/v2.0',
+                    authorization_endpoint: 'https://login.microsoftonline.com/YOUR-TENANT-ID/oauth2/v2.0/authorize',
+                    token_endpoint: 'https://login.microsoftonline.com/YOUR-TENANT-ID/oauth2/v2.0/token',
+                    userinfo_endpoint: 'https://graph.microsoft.com/oidc/userinfo',
+                    scopes: 'openid email profile',
+                  },
+                };
+                var p = P[provider];
+                if (!p) return;
+                for (var k in p) {
+                  var el = document.getElementById(k);
+                  if (el) el.value = p[k];
+                }
+              };
+            `,
+          }}
+        />
+
         <form
           method="post"
           action="/admin/sso"
@@ -391,15 +476,43 @@ sso.get("/login/sso/callback", async (c) => {
     return c.redirect("/");
   } catch (err) {
     console.error("[sso] callback error:", err);
-    return c.redirect(
-      `/login?error=${encodeURIComponent(
-        err instanceof Error
-          ? `SSO sign-in failed: ${err.message}`
-          : "SSO sign-in failed"
-      )}`
-    );
+    const friendly = friendlySsoError(err);
+    return c.redirect(`/login?error=${encodeURIComponent(friendly)}`);
   }
 });
+
+/**
+ * Map the raw OIDC failure shape to a one-sentence message safe to render
+ * inside an HTML <div>. We never surface the IdP's response body — those
+ * have been Google 404 HTML pages, Azure JSON blobs full of object IDs,
+ * etc. The raw `err.message` is logged via console.error above so admins
+ * can still diagnose from server logs.
+ */
+function friendlySsoError(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err ?? "");
+  if (raw.includes("token_endpoint")) {
+    if (/\b40[01]\b/.test(raw)) {
+      return "SSO sign-in failed: the identity provider rejected our token request (HTTP 4xx). Check the Token endpoint URL and Client Secret at /admin/sso.";
+    }
+    if (/\b404\b/.test(raw)) {
+      return "SSO sign-in failed: the Token endpoint URL returned 404. Verify the URL at /admin/sso — for Google it's https://oauth2.googleapis.com/token.";
+    }
+    if (/\b5\d\d\b/.test(raw)) {
+      return "SSO sign-in failed: the identity provider returned a server error. Try again, or check the IdP's status page.";
+    }
+    return "SSO sign-in failed at the token exchange step. Check /admin/sso configuration.";
+  }
+  if (raw.includes("userinfo_endpoint")) {
+    return "SSO sign-in failed while fetching profile info. Verify the Userinfo endpoint URL at /admin/sso.";
+  }
+  if (raw.includes("state cookie") || raw.includes("nonce")) {
+    return "SSO sign-in expired before you returned to the site. Please try again.";
+  }
+  if (raw.includes("email") && raw.includes("not allowed")) {
+    return "SSO sign-in failed: your email domain is not on the allowlist for this site.";
+  }
+  return "SSO sign-in failed. Check /admin/sso configuration or try again.";
+}
 
 // ----------------------------------------------------------------------------
 // User: unlink SSO

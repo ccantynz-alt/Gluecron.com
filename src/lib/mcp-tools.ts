@@ -43,6 +43,12 @@ import {
 } from "./branch-protection";
 import { mergeWithAutoResolve } from "./merge-resolver";
 import { isAiReviewEnabled } from "./ai-review";
+import {
+  computePrRiskForPullRequest,
+  getCachedPrRisk,
+  getLatestCachedPrRisk,
+  type PrRiskScore,
+} from "./pr-risk";
 
 export type McpTool = {
   name: string;
@@ -1074,13 +1080,18 @@ const mergePr: McpToolHandler = {
   tool: {
     name: "gluecron_merge_pr",
     description:
-      "Merge an open PR. Enforces the same checks as the HTTP merge flow: not a draft, head SHA resolves, GateTest+AI-review hard gates pass, branch-protection rules satisfied. Returns {merged, sha?, reason?}.",
+      "Merge an open PR. Enforces the same checks as the HTTP merge flow: not a draft, head SHA resolves, GateTest+AI-review hard gates pass, branch-protection rules satisfied. M3: soft-blocks when the pre-merge risk score is `critical` unless `confirm_high_risk: true` is passed. Returns {merged, sha?, reason?, riskScore?}.",
     inputSchema: {
       type: "object",
       properties: {
         owner: { type: "string", description: "Repo owner username" },
         repo: { type: "string", description: "Repo name" },
         number: { type: "number", description: "PR number" },
+        confirm_high_risk: {
+          type: "boolean",
+          description:
+            "When true, bypass the M3 risk-score soft-block on critical-band PRs.",
+        },
       },
       required: ["owner", "repo", "number"],
     },
@@ -1089,6 +1100,7 @@ const mergePr: McpToolHandler = {
     const owner = argString(args, "owner");
     const repo = argString(args, "repo");
     const number = argNumber(args, "number");
+    const confirmHighRisk = args.confirm_high_risk === true;
 
     const gate = await gateWriteAccess({ owner, repo }, ctx, "gluecron_merge_pr");
     const pr = await loadPrByNumber(gate.repoId, number);
@@ -1105,6 +1117,28 @@ const mergePr: McpToolHandler = {
       return {
         merged: false,
         reason: "This PR is a draft. Mark it as ready for review before merging.",
+      };
+    }
+
+    // Block M3 — pre-merge risk score. Prefer the SHA-pinned cache entry;
+    // fall back to most-recent cached row; finally compute on demand so the
+    // MCP caller always gets a score (HTTP path is async + tolerant of a
+    // missing score, but MCP callers want an answer in one round trip).
+    let risk: PrRiskScore | null = null;
+    try {
+      risk =
+        (await getCachedPrRisk(pr.id)) ||
+        (await getLatestCachedPrRisk(pr.id)) ||
+        (await computePrRiskForPullRequest(pr.id));
+    } catch {
+      risk = null;
+    }
+
+    if (risk && risk.band === "critical" && !confirmHighRisk) {
+      return {
+        merged: false,
+        reason: `risk score is critical (${risk.score}/10) — confirm with confirm_high_risk: true`,
+        riskScore: serialisePrRiskForResponse(risk),
       };
     }
 
@@ -1271,12 +1305,42 @@ const mergePr: McpToolHandler = {
       mergedSha = null;
     }
 
-    return {
+    // Block M3 — informational payload: when the risk score is high or
+    // critical, include the score + summary in the response even on a
+    // successful merge so the caller has the audit context. Low/medium
+    // bands stay quiet to keep response noise low.
+    const response: {
+      merged: true;
+      sha: string;
+      riskScore?: ReturnType<typeof serialisePrRiskForResponse>;
+    } = {
       merged: true,
       sha: mergedSha ?? headSha,
     };
+    if (risk && (risk.band === "high" || risk.band === "critical")) {
+      response.riskScore = serialisePrRiskForResponse(risk);
+    }
+    return response;
   },
 };
+
+/**
+ * Compact serialiser for embedding a PrRiskScore in an MCP response.
+ * Keeps the surface stable + JSON-RPC-safe (Date → ISO string).
+ */
+function serialisePrRiskForResponse(risk: PrRiskScore) {
+  return {
+    score: risk.score,
+    band: risk.band,
+    aiSummary: risk.aiSummary,
+    commitSha: risk.commitSha,
+    signals: risk.signals,
+    generatedAt:
+      risk.generatedAt instanceof Date
+        ? risk.generatedAt.toISOString()
+        : String(risk.generatedAt),
+  };
+}
 
 // ---------------------------------------------------------------------------
 // gluecron_close_pr

@@ -215,6 +215,15 @@ export const Layout: FC<
         </div>
         <script dangerouslySetInnerHTML={{ __html: clientJs }} />
         <script dangerouslySetInnerHTML={{ __html: pwaRegisterScript }} />
+        {/* Block M2 — smart install banner + push-SW bootstrap. Authed
+            users only; the banner respects a 3+ visits + 14-day cooldown
+            heuristic. The push SW is registered on the same gate so we
+            don't ask anonymous visitors to opt into anything. */}
+        {user && (
+          <script
+            dangerouslySetInnerHTML={{ __html: pwaInstallBannerScript }}
+          />
+        )}
         <script dangerouslySetInnerHTML={{ __html: navScript }} />
       </body>
     </html>
@@ -276,6 +285,76 @@ const pwaRegisterScript = `
       navigator.serviceWorker.register('/sw.js').catch(function(){});
     });
   }
+`;
+
+// Block M2 — smart install banner (authed users only). Three heuristics:
+//   1. user is authenticated (gated server-side via the `{user &&}` JSX)
+//   2. visit counter (localStorage) ≥ 3
+//   3. dismissed-cooldown < 14 days ago
+// Also bootstraps the push + offline SW at /sw-push.js. Idempotent — safe
+// to load on every page; only inserts DOM nodes if all conditions match.
+const pwaInstallBannerScript = `
+(function(){
+  try {
+    var DISMISS_KEY = 'gc:pwa-banner-dismissed-at';
+    var VISITS_KEY  = 'gc:pwa-visit-count';
+    var DISMISS_MS  = 14 * 24 * 60 * 60 * 1000;
+    var visits = parseInt(localStorage.getItem(VISITS_KEY) || '0', 10) || 0;
+    visits++;
+    try { localStorage.setItem(VISITS_KEY, String(visits)); } catch(_){}
+    // Bootstrap the push + offline SW (separate from /sw.js's locked behaviour).
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function(){
+        navigator.serviceWorker.register('/sw-push.js', { scope: '/' })
+          .catch(function(){});
+      });
+    }
+    var deferredPrompt = null;
+    window.addEventListener('beforeinstallprompt', function(e){
+      e.preventDefault();
+      deferredPrompt = e;
+      maybeShow();
+    });
+    function maybeShow(){
+      if (!deferredPrompt) return;
+      if (visits < 3) return;
+      var dismissedAt = parseInt(localStorage.getItem(DISMISS_KEY) || '0', 10) || 0;
+      if (dismissedAt && (Date.now() - dismissedAt) < DISMISS_MS) return;
+      if (document.getElementById('gc-install-banner')) return;
+      var bar = document.createElement('div');
+      bar.id = 'gc-install-banner';
+      bar.setAttribute('role', 'dialog');
+      bar.setAttribute('aria-label', 'Install Gluecron');
+      bar.style.cssText = 'position:fixed;left:12px;right:12px;bottom:12px;z-index:9997;'
+        + 'background:var(--bg-elevated,#161b22);color:var(--text,#c9d1d9);'
+        + 'border:1px solid var(--border,#30363d);border-radius:8px;padding:12px 14px;'
+        + 'display:flex;gap:10px;align-items:center;justify-content:space-between;'
+        + 'box-shadow:0 8px 24px rgba(0,0,0,0.45);font-size:13px;line-height:1.3;'
+        + 'max-width:560px;margin:0 auto';
+      bar.innerHTML = '<span style="flex:1">'
+        + '<strong>Install Gluecron</strong> to keep working when offline + get push notifications.'
+        + '</span>'
+        + '<button type="button" id="gc-install-go" style="background:#238636;color:#fff;'
+        + 'border:0;border-radius:6px;padding:6px 12px;font-size:12px;cursor:pointer;'
+        + 'font-family:inherit">Install</button>'
+        + '<button type="button" id="gc-install-no" style="background:transparent;color:inherit;'
+        + 'border:1px solid var(--border,#30363d);border-radius:6px;padding:6px 12px;'
+        + 'font-size:12px;cursor:pointer;font-family:inherit">Not now</button>';
+      document.body.appendChild(bar);
+      var go = bar.querySelector('#gc-install-go');
+      var no = bar.querySelector('#gc-install-no');
+      if (go) go.addEventListener('click', function(){
+        try { deferredPrompt.prompt(); } catch(_){}
+        bar.parentNode && bar.parentNode.removeChild(bar);
+        deferredPrompt = null;
+      });
+      if (no) no.addEventListener('click', function(){
+        try { localStorage.setItem(DISMISS_KEY, String(Date.now())); } catch(_){}
+        bar.parentNode && bar.parentNode.removeChild(bar);
+      });
+    }
+  } catch(_) {}
+})();
 `;
 
 const navScript = `

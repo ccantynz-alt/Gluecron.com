@@ -126,18 +126,23 @@ app.use("*", async (c, next) => {
 });
 app.use("/api/*", cors());
 
-// Force fresh HTML on every request — kills browser HTTP cache holding stale
+// Force-revalidate HTML on every request — kills browser cache holding stale
 // pre-redesign markup. JSON / static assets keep their own cache rules; only
 // text/html responses get the no-cache stamp. Without this, every push to
 // main left users staring at cached 80s-looking pages from before the design
 // landed.
+//
+// We deliberately use `private, no-cache, must-revalidate` rather than
+// `no-store`. `no-store` disables Safari/Chrome's back-forward cache (bfcache),
+// which makes every Back/Forward press a cold server round-trip — that
+// contributed to the "every nav feels like a fresh login" UX complaint.
+// `no-cache` still revalidates on direct fetch but lets bfcache hold the
+// page in memory between navigations.
 app.use("*", async (c, next) => {
   await next();
   const ct = c.res.headers.get("content-type") || "";
   if (ct.startsWith("text/html")) {
-    c.header("cache-control", "no-cache, no-store, must-revalidate");
-    c.header("pragma", "no-cache");
-    c.header("expires", "0");
+    c.header("cache-control", "private, no-cache, must-revalidate");
   }
 });
 // Rate-limit API + auth endpoints (generous default)
@@ -373,8 +378,9 @@ app.route("/", webRoutes);
 
 // Global 404
 app.notFound((c) => {
+  const user = c.get("user") ?? null;
   return c.html(
-    <Layout title="Not Found">
+    <Layout title="Not Found" user={user}>
       <div class="error-page">
         <div class="error-page-code">404</div>
         <div class="eyebrow">Not found</div>
@@ -406,8 +412,9 @@ app.onError((err, c) => {
     method: c.req.method,
   });
   const requestId = c.get("requestId" as never) as string | undefined;
+  const user = c.get("user") ?? null;
   return c.html(
-    <Layout title="Error">
+    <Layout title="Error" user={user}>
       <div class="error-page">
         <div class="error-page-code error-page-code-err">500</div>
         <div class="eyebrow" style="color:var(--red)">Server error</div>

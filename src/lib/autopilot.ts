@@ -40,6 +40,12 @@ import {
   SLEEP_MODE_USER_CAP_PER_TICK,
   SLEEP_MODE_COOLDOWN_HOURS,
 } from "./sleep-mode";
+import {
+  runStalePrSweepOnce,
+  runStaleIssueSweepOnce,
+} from "./stale-sweep";
+import { computePrRiskForPullRequest } from "./pr-risk";
+import { prRiskScores } from "../db/schema";
 
 export interface AutopilotTaskResult {
   name: string;
@@ -78,6 +84,10 @@ const AUTO_MERGE_LOOKBACK_HOURS = 24;
 const AUTO_MERGE_MAX_PER_TICK = 50;
 /** K3 — stable marker for the auto-merge audit comment. */
 const AUTO_MERGE_COMMENT_MARKER = "<!-- gluecron:auto-merge:v1 -->";
+/** M3 — hard cap on PRs scored per tick (runaway protection). */
+const PR_RISK_RESCORE_MAX_PER_TICK = 20;
+/** M3 — recency window for the pr-risk-rescore sweep. */
+const PR_RISK_RESCORE_LOOKBACK_HOURS = 1;
 
 /**
  * Default task set. Each task is a thin wrapper around an existing locked
@@ -142,6 +152,45 @@ export function defaultTasks(): AutopilotTask[] {
         const summary = await runSleepModeDigestTaskOnce();
         console.log(
           `[autopilot] sleep-mode-digest: sent=${summary.sent} skipped=${summary.skipped}`
+        );
+      },
+    },
+    {
+      name: "stale-pr-sweep",
+      run: async () => {
+        // Two-stage gate: poke at 7d stale, close at 14d after poke
+        // (when the repo opts in via `auto_close_stale_prs`).
+        // Wrapped in try/catch so a finder crash never wedges the tick.
+        try {
+          const summary = await runStalePrSweepOnce();
+          console.log(
+            `[autopilot] stale-pr-sweep: poked=${summary.poked} closed=${summary.closed}`
+          );
+        } catch (err) {
+          console.error("[autopilot] stale-pr-sweep: threw:", err);
+        }
+      },
+    },
+    {
+      name: "stale-issue-sweep",
+      run: async () => {
+        // Mirror of stale-pr-sweep with the issue thresholds (30d/60d).
+        try {
+          const summary = await runStaleIssueSweepOnce();
+          console.log(
+            `[autopilot] stale-issue-sweep: poked=${summary.poked} closed=${summary.closed}`
+          );
+        } catch (err) {
+          console.error("[autopilot] stale-issue-sweep: threw:", err);
+        }
+      },
+    },
+    {
+      name: "pr-risk-rescore",
+      run: async () => {
+        const summary = await runPrRiskRescoreTaskOnce();
+        console.log(
+          `[autopilot] pr-risk-rescore: scored=${summary.scored} skipped=${summary.skipped}`
         );
       },
     },
@@ -270,6 +319,162 @@ export async function runSleepModeDigestTaskOnce(
   }
 
   return { sent, skipped };
+}
+
+// ---------------------------------------------------------------------------
+// M3 — pr-risk-rescore
+// ---------------------------------------------------------------------------
+
+export interface PrRiskRescoreCandidate {
+  pullRequestId: string;
+  headBranch: string;
+  updatedAt: Date;
+}
+
+export interface PrRiskRescoreTaskDeps {
+  /** Override candidate finder for tests. */
+  findCandidates?: (
+    lookbackHours: number,
+    cap: number
+  ) => Promise<PrRiskRescoreCandidate[]>;
+  /** Override score computation for tests. */
+  scoreOne?: (prId: string) => Promise<{ ok: boolean }>;
+  /** Override per-tick cap. */
+  cap?: number;
+  /** Override lookback. */
+  lookbackHours?: number;
+}
+
+export interface PrRiskRescoreTaskSummary {
+  scored: number;
+  skipped: number;
+}
+
+/**
+ * Default candidate-finder. Returns open, non-draft PRs from non-archived
+ * repos whose `updated_at` falls inside the lookback window. The "scored
+ * at all" filter is applied as a second pass via `defaultFilterNeedsScoring`.
+ */
+async function defaultFindPrRiskCandidates(
+  lookbackHours: number,
+  cap: number
+): Promise<PrRiskRescoreCandidate[]> {
+  const cutoff = new Date(Date.now() - lookbackHours * 60 * 60 * 1000);
+  try {
+    const rows = await db
+      .select({
+        pullRequestId: pullRequests.id,
+        headBranch: pullRequests.headBranch,
+        updatedAt: pullRequests.updatedAt,
+      })
+      .from(pullRequests)
+      .innerJoin(
+        repositories,
+        eq(repositories.id, pullRequests.repositoryId)
+      )
+      .where(
+        and(
+          eq(pullRequests.state, "open"),
+          eq(pullRequests.isDraft, false),
+          eq(repositories.isArchived, false),
+          gte(pullRequests.updatedAt, cutoff)
+        )
+      )
+      .orderBy(sql`${pullRequests.updatedAt} DESC`)
+      .limit(cap);
+    return rows.map((r) => ({
+      pullRequestId: r.pullRequestId,
+      headBranch: r.headBranch,
+      updatedAt: r.updatedAt,
+    }));
+  } catch (err) {
+    console.error("[autopilot] pr-risk-rescore: candidate query failed:", err);
+    return [];
+  }
+}
+
+/**
+ * Drop candidates that already have ANY cached score row. The unique
+ * constraint on (pull_request_id, commit_sha) handles the "score-the-
+ * same-SHA-twice" case at persist time; this filter just keeps the work
+ * list small enough to fit under the per-tick cap when many PRs are
+ * being pushed concurrently.
+ */
+async function defaultFilterNeedsScoring(
+  candidates: PrRiskRescoreCandidate[]
+): Promise<PrRiskRescoreCandidate[]> {
+  if (candidates.length === 0) return [];
+  try {
+    const rows = await db
+      .select({ pullRequestId: prRiskScores.pullRequestId })
+      .from(prRiskScores);
+    const scoredIds = new Set(rows.map((r) => r.pullRequestId));
+    return candidates.filter((c) => !scoredIds.has(c.pullRequestId));
+  } catch (err) {
+    console.error("[autopilot] pr-risk-rescore: filter query failed:", err);
+    // Fail-open: better to score everything than silently skip.
+    return candidates;
+  }
+}
+
+/**
+ * One iteration of the pr-risk-rescore task. Never throws. Compute risk
+ * for up to `cap` recently-touched open PRs that have no cached score
+ * yet, so reviewers usually see a populated card on first visit.
+ */
+export async function runPrRiskRescoreTaskOnce(
+  deps: PrRiskRescoreTaskDeps = {}
+): Promise<PrRiskRescoreTaskSummary> {
+  const findCandidates = deps.findCandidates ?? defaultFindPrRiskCandidates;
+  const scoreOne =
+    deps.scoreOne ??
+    (async (prId: string) => {
+      try {
+        const result = await computePrRiskForPullRequest(prId);
+        return { ok: result !== null };
+      } catch {
+        return { ok: false };
+      }
+    });
+  const cap = deps.cap ?? PR_RISK_RESCORE_MAX_PER_TICK;
+  const lookbackHours =
+    deps.lookbackHours ?? PR_RISK_RESCORE_LOOKBACK_HOURS;
+
+  let candidates: PrRiskRescoreCandidate[] = [];
+  try {
+    candidates = await findCandidates(lookbackHours, cap);
+  } catch (err) {
+    console.error("[autopilot] pr-risk-rescore: findCandidates threw:", err);
+    return { scored: 0, skipped: 0 };
+  }
+
+  // Only score PRs missing a cached row. Skip filter when the caller
+  // injected a custom finder (tests pass already-filtered lists).
+  const needsScoring =
+    deps.findCandidates === undefined
+      ? await defaultFilterNeedsScoring(candidates)
+      : candidates;
+
+  let scored = 0;
+  let skipped = 0;
+  for (const cand of needsScoring.slice(0, cap)) {
+    try {
+      const result = await scoreOne(cand.pullRequestId);
+      if (result.ok) scored += 1;
+      else skipped += 1;
+    } catch (err) {
+      skipped += 1;
+      console.error(
+        `[autopilot] pr-risk-rescore: per-PR failure for pr=${cand.pullRequestId}:`,
+        err
+      );
+    }
+  }
+  if (needsScoring.length > cap) {
+    skipped += needsScoring.length - cap;
+  }
+
+  return { scored, skipped };
 }
 
 // ---------------------------------------------------------------------------
@@ -765,8 +970,12 @@ export const __test = {
   AUTO_MERGE_LOOKBACK_HOURS,
   AUTO_MERGE_MAX_PER_TICK,
   AUTO_MERGE_COMMENT_MARKER,
+  PR_RISK_RESCORE_MAX_PER_TICK,
+  PR_RISK_RESCORE_LOOKBACK_HOURS,
   defaultFindAutoMergeCandidates,
   defaultOnMerged,
   defaultOnMergeFailed,
   defaultShouldShortCircuitAi,
+  defaultFindPrRiskCandidates,
+  defaultFilterNeedsScoring,
 };

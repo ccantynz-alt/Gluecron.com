@@ -2,6 +2,34 @@
 
 AI-native code intelligence platform — git hosting, automated CI, and push-time gate enforcement.
 
+## Source of truth: Gluecron (not GitHub)
+
+This repository self-hosts on Gluecron itself. The canonical remote is
+`https://gluecron.com/ccantynz/Gluecron.com.git`. GitHub is a 7-day
+fallback mirror only.
+
+**For any AI session working in this repo:**
+
+- Use the Gluecron MCP server (`.claude/settings.json` already points
+  there). Tools: `gluecron_create_pr`, `gluecron_merge_pr`,
+  `gluecron_create_issue`, `gluecron_comment_pr`, etc. See
+  `src/lib/mcp-tools.ts` for the full 15-tool surface.
+- Do NOT call any `mcp__github__*` write tool. The settings file's
+  `permissions.deny` already blocks them; if you encounter a deny
+  error, switch to the equivalent `gluecron_*` tool.
+- The `.claude/skills/gluecron-pr`, `gluecron-issue`, and
+  `gluecron-review` skills are the highest-leverage entry points for
+  routine work. Invoke them when the user mentions a PR, an issue,
+  or wants a second AI review pass.
+- Auth: the `GLUECRON_PAT` env var holds the user's personal access
+  token. If it's missing, prompt the user to generate one at
+  `/settings/tokens` (admin scope required for the merge tools).
+
+**Deploys are self-driven now.** Push to `main` and
+`src/hooks/post-receive.ts` fires `scripts/self-deploy.sh` directly —
+no GitHub Actions involvement. The live site reflects the push in
+~25 seconds. Watch `/admin/deploys` for the live step stream.
+
 ## READ FIRST — every session
 
 **`BUILD_BIBLE.md` is mandatory reading for every Claude agent before any code changes.**

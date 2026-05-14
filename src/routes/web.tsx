@@ -359,7 +359,7 @@ web.get("/:owner", async (c) => {
           <div class="username">@{ownerName}</div>
           {ownerUser?.bio && <div class="bio">{ownerUser.bio}</div>}
           <div
-            style="margin-top:8px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;font-size:13px"
+            style="margin-top:var(--space-2);display:flex;gap:var(--space-3);align-items:center;flex-wrap:wrap;font-size:13px"
           >
             <a
               href={`/${ownerName}/followers`}
@@ -402,7 +402,7 @@ web.get("/:owner", async (c) => {
       {profileReadmeHtml && (
         <div
           class="markdown-body"
-          style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius);padding:20px 24px;margin-bottom:24px"
+          style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius);padding:var(--space-5) var(--space-6);margin-bottom:var(--space-6)"
           dangerouslySetInnerHTML={{ __html: profileReadmeHtml }}
         />
       )}
@@ -615,7 +615,7 @@ git push -u gluecron main`}</pre>
       {isTemplate && user && user.username !== owner && (
         <div
           class="panel"
-          style="margin-bottom:16px;padding:12px;display:flex;align-items:center;justify-content:space-between;gap:12px"
+          style="margin-bottom:var(--space-4);padding:var(--space-3);display:flex;align-items:center;justify-content:space-between;gap:var(--space-3)"
         >
           <div style="font-size:13px">
             <strong>Template repository.</strong> Create a new repository from
@@ -624,7 +624,7 @@ git push -u gluecron main`}</pre>
           <form
             method="post"
             action={`/${owner}/${repo}/use-template`}
-            style="display:flex;gap:8px;align-items:center"
+            style="display:flex;gap:var(--space-2);align-items:center"
           >
             <input
               type="text"
@@ -780,7 +780,7 @@ web.get("/:owner/:repo/blob/:ref{.+$}", async (c) => {
       <div class="blob-view">
         <div class="blob-header">
           <span>{fileName} — {blob.size} bytes</span>
-          <span style="display: flex; gap: 12px">
+          <span style="display: flex; gap: var(--space-3)">
             <a href={`/${owner}/${repo}/raw/${ref}/${filePath}`} style="font-size: 12px">
               Raw
             </a>
@@ -798,7 +798,7 @@ web.get("/:owner/:repo/blob/:ref{.+$}", async (c) => {
           </span>
         </div>
         {blob.isBinary ? (
-          <div style="padding: 16px; color: var(--text-muted)">
+          <div style="padding: var(--space-4); color: var(--text-muted)">
             Binary file not shown.
           </div>
         ) : (() => {
@@ -1003,7 +1003,7 @@ web.get("/:owner/:repo/commit/:sha", async (c) => {
     <Layout title={`${commit.message} — ${owner}/${repo}`} user={user}>
       <RepoHeader owner={owner} repo={repo} />
       <div
-        style="background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 20px"
+        style="background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--space-4); margin-bottom: var(--space-5)"
       >
         <div style="font-size: 18px; font-weight: 600; margin-bottom: 8px">
           {commit.message}
@@ -1252,14 +1252,14 @@ web.get("/:owner/:repo/search", async (c) => {
         action={`/${owner}/${repo}/search`}
         style="margin-bottom: 20px"
       >
-        <div style="display: flex; gap: 8px">
+        <div style="display: flex; gap: var(--space-2)">
           <input
             type="text"
             name="q"
             value={q}
             placeholder="Search code..."
             aria-label="Search code"
-            style="flex: 1; padding: 8px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); font-size: 14px"
+            style="flex: 1; padding: var(--space-2) var(--space-3); background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); font-size: 14px"
           />
           <button type="submit" class="btn btn-primary">
             Search

@@ -252,13 +252,13 @@ page.get("/admin/deploys", async (c) => {
         </form>
       </div>
 
-      <div style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-bottom:18px">
+      <div style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;padding:var(--space-4);margin-bottom:var(--space-4)">
         {lastSuccess ? (
           <div>
             <div style="font-size:12px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.06em">
               Last successful deploy
             </div>
-            <div style="margin-top:4px;font-size:14px">
+            <div style="margin-top:var(--space-1);font-size:14px">
               <code class="meta-mono">{shortSha(lastSuccess.sha)}</code>
               {" · "}
               <span title={lastSuccess.startedAt.toISOString()}>
@@ -293,7 +293,7 @@ page.get("/admin/deploys", async (c) => {
             <tr>
               <td
                 colspan={6}
-                style="padding:18px 6px;color:var(--text-muted);text-align:center"
+                style="padding:var(--space-4) 6px;color:var(--text-muted);text-align:center"
               >
                 No deploys recorded yet — they'll appear here when the next
                 push to <code>main</code> runs hetzner-deploy.yml.
@@ -314,7 +314,7 @@ page.get("/admin/deploys", async (c) => {
                       : "#fbbf24"
                   }`}
                 />
-                <span style="margin-left:8px">{row.status}</span>
+                <span style="margin-left:var(--space-2)">{row.status}</span>
               </td>
               <td style="padding:8px 6px">
                 <code class="meta-mono">{shortSha(row.sha)}</code>
@@ -340,7 +340,7 @@ page.get("/admin/deploys", async (c) => {
         </tbody>
       </table>
 
-      <p style="margin-top:18px;font-size:12px;color:var(--text-muted)">
+      <p style="margin-top:var(--space-4);font-size:12px;color:var(--text-muted)">
         Manual trigger (CLI shortcut — the button above is wired to the N4
         POST /admin/deploys/trigger handler):{" "}
         <code class="meta-mono">
@@ -394,9 +394,9 @@ function renderDeployModal(
           role="dialog"
           aria-modal="true"
           aria-labelledby="deploy-modal-title"
-          style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:10px;max-width:600px;width:92vw;padding:18px 20px;box-shadow:0 24px 64px rgba(0,0,0,0.5);font-size:14px;color:var(--text);max-height:80vh;overflow:auto"
+          style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:10px;max-width:600px;width:92vw;padding:var(--space-4) var(--space-5);box-shadow:0 24px 64px rgba(0,0,0,0.5);font-size:14px;color:var(--text);max-height:80vh;overflow:auto"
         >
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:8px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-3);gap:var(--space-2)">
             <h3
               id="deploy-modal-title"
               style="margin:0;font-size:16px;font-weight:600"
@@ -410,14 +410,14 @@ function renderDeployModal(
               type="button"
               id="deploy-modal-close"
               aria-label="Close"
-              style="background:transparent;border:0;color:var(--text-muted);cursor:pointer;font-size:18px;line-height:1;padding:4px 8px"
+              style="background:transparent;border:0;color:var(--text-muted);cursor:pointer;font-size:18px;line-height:1;padding:var(--space-1) var(--space-2)"
             >
               ×
             </button>
           </div>
           <ol
             id="deploy-modal-steps"
-            style="list-style:none;padding:0;margin:0 0 12px;display:flex;flex-direction:column;gap:6px"
+            style="list-style:none;padding:0;margin:0 0 var(--space-3);display:flex;flex-direction:column;gap:6px"
           >
             {R2_STEP_ORDER.map((step) => {
               const s = stepStatus[step.name];
@@ -450,7 +450,7 @@ function renderDeployModal(
                 <li
                   data-step={step.name}
                   data-status={s || "pending"}
-                  style="display:flex;align-items:center;gap:10px;padding:6px 8px;border-radius:6px;background:rgba(255,255,255,0.02)"
+                  style="display:flex;align-items:center;gap:var(--space-2);padding:6px var(--space-2);border-radius:6px;background:rgba(255,255,255,0.02)"
                 >
                   <span
                     class="step-icon"

@@ -97,20 +97,20 @@ admin.get("/admin", async (c) => {
         </div>
       )}
 
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px">
-        <div class="panel" style="padding:12px;text-align:center">
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:var(--space-3);margin-bottom:var(--space-5)">
+        <div class="panel" style="padding:var(--space-3);text-align:center">
           <div style="font-size:22px;font-weight:700">{Number(uc?.n || 0)}</div>
           <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">
             Users
           </div>
         </div>
-        <div class="panel" style="padding:12px;text-align:center">
+        <div class="panel" style="padding:var(--space-3);text-align:center">
           <div style="font-size:22px;font-weight:700">{Number(rc?.n || 0)}</div>
           <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">
             Repos
           </div>
         </div>
-        <div class="panel" style="padding:12px;text-align:center">
+        <div class="panel" style="padding:var(--space-3);text-align:center">
           <div style="font-size:22px;font-weight:700">{admins.length}</div>
           <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">
             Site admins
@@ -118,7 +118,7 @@ admin.get("/admin", async (c) => {
         </div>
       </div>
 
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:20px">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:var(--space-2);margin-bottom:var(--space-5)">
         <a href="/admin/ops" class="btn btn-primary">
           Operations
         </a>
@@ -415,7 +415,7 @@ admin.get("/admin/flags", async (c) => {
         method="post"
         action="/admin/flags"
         class="panel"
-        style="padding:16px"
+        style="padding:var(--space-4)"
       >
         {keys.map((k) => {
           const current = existingMap.get(k) ?? (KNOWN_FLAGS as any)[k];
@@ -502,7 +502,7 @@ admin.get("/admin/digests", async (c) => {
         <div class="auth-error">{decodeURIComponent(error)}</div>
       )}
 
-      <div class="panel" style="padding:16px;margin-bottom:20px">
+      <div class="panel" style="padding:var(--space-4);margin-bottom:var(--space-5)">
         <div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">
           {opted} user{opted === 1 ? "" : "s"} opted into the weekly digest.
         </div>
@@ -630,7 +630,7 @@ admin.get("/admin/autopilot", async (c) => {
   const isErr = !!c.req.query("error");
   return c.html(
     <Layout title="Autopilot — admin" user={user}>
-      <div style="max-width: 960px; margin: 0 auto; padding: 24px 16px">
+      <div style="max-width: 960px; margin: 0 auto; padding: var(--space-6) var(--space-4)">
         <h1 style="margin-bottom: 8px">Autopilot</h1>
         <p style="color: var(--text-muted); margin-bottom: 24px">
           Periodic platform-maintenance loop — mirror sync, merge-queue
@@ -646,7 +646,7 @@ admin.get("/admin/autopilot", async (c) => {
           </div>
         )}
         <div
-          style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 24px"
+          style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: var(--space-3); margin-bottom: var(--space-6)"
         >
           <div class="stat-card">
             <div class="stat-label">Status</div>

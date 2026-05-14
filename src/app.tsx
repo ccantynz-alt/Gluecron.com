@@ -34,6 +34,7 @@ import contributorRoutes from "./routes/contributors";
 import healthRoutes from "./routes/health-probe";
 import healthDashboardRoutes from "./routes/health";
 import statusRoutes from "./routes/status";
+import adminStatusRoutes from "./routes/admin-status";
 import helpRoutes from "./routes/help";
 import marketingRoutes from "./routes/marketing";
 import pricingRoutes from "./routes/pricing";
@@ -299,6 +300,11 @@ app.route("/", demoRoutes);
 
 // Public /status — human-readable platform health page
 app.route("/", statusRoutes);
+
+// BLOCK S4 — Site-admin synthetic-monitor dashboard (/admin/status).
+// Mounted near the public status route so the two surfaces are visible
+// side-by-side; routes are gated by isSiteAdmin internally.
+app.route("/", adminStatusRoutes);
 
 // /help — quickstart + API cheatsheet
 app.route("/", helpRoutes);

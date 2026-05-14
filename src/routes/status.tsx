@@ -18,6 +18,7 @@ import { Layout } from "../views/layout";
 import { softAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
 import { getLastTick, getTickCount } from "../lib/autopilot";
+import { recentRedChecks } from "../lib/synthetic-monitor";
 
 const status = new Hono<AuthEnv>();
 status.use("*", softAuth);
@@ -82,7 +83,16 @@ status.get("/status", async (c) => {
   const autopilotDisabled = process.env.AUTOPILOT_DISABLED === "1";
   const uptimeMs = Date.now() - started;
 
-  const overallOk = dbOk;
+  // BLOCK S4 — Show any red synthetic-monitor results from the last 24h
+  // on the public status page. Never blocks the render.
+  let recentIncidents: Awaited<ReturnType<typeof recentRedChecks>> = [];
+  try {
+    recentIncidents = await recentRedChecks(24, 10);
+  } catch {
+    recentIncidents = [];
+  }
+
+  const overallOk = dbOk && recentIncidents.length === 0;
 
   return c.html(
     <Layout title="Status — gluecron" user={user}>
@@ -214,6 +224,32 @@ status.get("/status", async (c) => {
             </div>
           </div>
         </div>
+
+        {recentIncidents.length > 0 ? (
+          <>
+            <h2 style="margin-bottom: 12px; font-size: 18px">
+              Recent incidents (last 24h)
+            </h2>
+            <div class="panel" style="margin-bottom: 24px">
+              {recentIncidents.map((r) => (
+                <div
+                  class="panel-item"
+                  style="justify-content: space-between; font-size: 13px"
+                >
+                  <div>
+                    <code>{r.name}</code>
+                    <span style="color: var(--text-muted); margin-left: 8px">
+                      — {r.error || "(no error message)"}
+                    </span>
+                  </div>
+                  <span style="color: var(--text-muted); font-size: 12px">
+                    {r.checkedAt.toISOString()}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </>
+        ) : null}
 
         <h2 style="margin-bottom: 12px; font-size: 18px">
           Latest autopilot tick

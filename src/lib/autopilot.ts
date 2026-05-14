@@ -48,6 +48,12 @@ import { computePrRiskForPullRequest } from "./pr-risk";
 import { prRiskScores } from "../db/schema";
 import { purgeScheduledAccounts } from "./account-deletion";
 import { purgeExpiredPlaygroundAccounts } from "./playground";
+import {
+  runSyntheticChecks,
+  persistChecks,
+  latestStatusByCheck,
+  type SyntheticCheckResult,
+} from "./synthetic-monitor";
 
 export interface AutopilotTaskResult {
   name: string;
@@ -227,7 +233,145 @@ export function defaultTasks(): AutopilotTask[] {
         }
       },
     },
+    {
+      // BLOCK S4 — Synthetic monitor.
+      //
+      // Runs the URL-only smoke suite (see src/lib/synthetic-monitor.ts),
+      // records the outcome into `synthetic_checks`, and on a
+      // green->red transition fires a webhook to MONITOR_ALERT_WEBHOOK_URL
+      // (when configured) so the owner finds out instantly that the live
+      // site is broken. Wrapped in try/catch — the monitor must never
+      // wedge the tick.
+      name: "synthetic-monitor",
+      run: async () => {
+        try {
+          const summary = await runSyntheticMonitorTaskOnce();
+          console.log(
+            `[autopilot] synthetic-monitor: green=${summary.green} red=${summary.red} transitions=${summary.transitions}`
+          );
+        } catch (err) {
+          console.error("[autopilot] synthetic-monitor: threw:", err);
+        }
+      },
+    },
   ];
+}
+
+// ---------------------------------------------------------------------------
+// BLOCK S4 — synthetic-monitor task
+// ---------------------------------------------------------------------------
+
+export interface SyntheticMonitorTaskDeps {
+  /** Override the suite runner (DI for tests). */
+  runChecks?: () => Promise<SyntheticCheckResult[]>;
+  /** Override the persistence step (DI for tests). */
+  persist?: (results: SyntheticCheckResult[]) => Promise<void>;
+  /** Override the previous-state loader (DI for tests). */
+  loadPrevious?: () => Promise<Record<string, SyntheticCheckResult>>;
+  /** Override the webhook poster (DI for tests). */
+  postAlert?: (url: string, payload: unknown) => Promise<void>;
+  /** Override the alert-webhook URL lookup (defaults to env). */
+  alertUrl?: () => string;
+}
+
+export interface SyntheticMonitorTaskSummary {
+  green: number;
+  red: number;
+  yellow: number;
+  transitions: number;
+}
+
+async function defaultPostAlert(
+  url: string,
+  payload: unknown
+): Promise<void> {
+  try {
+    await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  } catch (err) {
+    console.error("[autopilot] synthetic-monitor: alert webhook failed:", err);
+  }
+}
+
+/**
+ * One iteration of the synthetic-monitor task. Runs the checks, persists
+ * them, compares against the prior state, and fires a webhook on each
+ * green->red transition (red->red repeats stay quiet so we don't spam
+ * the channel). Never throws.
+ */
+export async function runSyntheticMonitorTaskOnce(
+  deps: SyntheticMonitorTaskDeps = {}
+): Promise<SyntheticMonitorTaskSummary> {
+  const runChecks = deps.runChecks ?? (() => runSyntheticChecks());
+  const persist = deps.persist ?? persistChecks;
+  const loadPrevious =
+    deps.loadPrevious ??
+    (async () => {
+      const latest = await latestStatusByCheck();
+      // Strip the `checkedAt` from the result shape so the diff loop
+      // compares the canonical SyntheticCheckResult fields only.
+      const out: Record<string, SyntheticCheckResult> = {};
+      for (const [k, v] of Object.entries(latest)) {
+        const { checkedAt: _unused, ...rest } = v;
+        void _unused;
+        out[k] = rest;
+      }
+      return out;
+    });
+  const postAlert = deps.postAlert ?? defaultPostAlert;
+  const alertUrl =
+    deps.alertUrl ?? (() => process.env.MONITOR_ALERT_WEBHOOK_URL || "");
+
+  let previous: Record<string, SyntheticCheckResult> = {};
+  try {
+    previous = await loadPrevious();
+  } catch (err) {
+    console.error(
+      "[autopilot] synthetic-monitor: loadPrevious threw:",
+      err
+    );
+    previous = {};
+  }
+
+  const results = await runChecks();
+  await persist(results);
+
+  let green = 0;
+  let red = 0;
+  let yellow = 0;
+  let transitions = 0;
+  const url = alertUrl();
+
+  for (const r of results) {
+    if (r.status === "green") green += 1;
+    else if (r.status === "red") red += 1;
+    else yellow += 1;
+
+    const prior = previous[r.name];
+    // green->red transition: prior was green (or absent and current is red
+    // after a green is also a transition — but absent-before is treated as
+    // green to avoid spamming on a fresh DB). We only alert on the
+    // green->red edge so red->red doesn't re-fire.
+    const priorWasGreen = !prior || prior.status === "green";
+    if (priorWasGreen && r.status === "red") {
+      transitions += 1;
+      if (url) {
+        await postAlert(url, {
+          check: r.name,
+          status: r.status,
+          statusCode: r.statusCode ?? null,
+          durationMs: r.durationMs,
+          error: r.error ?? null,
+          checkedAt: new Date().toISOString(),
+        });
+      }
+    }
+  }
+
+  return { green, red, yellow, transitions };
 }
 
 // ---------------------------------------------------------------------------

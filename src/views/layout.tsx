@@ -18,6 +18,11 @@ export const Layout: FC<
     ogDescription?: string;
     ogType?: string;
     twitterCard?: "summary" | "summary_large_image";
+    // Block O3 — site-wide footer banner stripe. When non-empty,
+    // renders below the footer-bottom row; wired from
+    // admin.system_flags.site_banner_text.
+    siteBannerText?: string;
+    siteBannerLevel?: "info" | "warn" | "error";
   }>
 > = ({
   children,
@@ -31,6 +36,8 @@ export const Layout: FC<
   ogDescription,
   ogType,
   twitterCard,
+  siteBannerText,
+  siteBannerLevel,
 }) => {
   const initialTheme = theme === "light" ? "light" : "dark";
   const build = getBuildInfo();
@@ -192,6 +199,15 @@ export const Layout: FC<
               {build.sha} · {build.branch}
             </span>
           </div>
+          {siteBannerText ? (
+            <div
+              class={`footer-banner footer-banner-${siteBannerLevel || "info"}`}
+              role="status"
+              aria-live="polite"
+            >
+              {siteBannerText}
+            </div>
+          ) : null}
         </footer>
         {/* Live update poller — checks /api/version every 15s, prompts
             reload when the running sha changes. Pure progressive-
@@ -778,6 +794,45 @@ const css = `
     --t-slower:560ms;
 
     --header-h: 60px;
+
+    /* Block O3 — visual coherence: named token aliases (additive). */
+    --space-1: var(--s-1);
+    --space-2: var(--s-2);
+    --space-3: var(--s-3);
+    --space-4: var(--s-4);
+    --space-5: var(--s-5);
+    --space-6: var(--s-6);
+    --space-8: var(--s-8);
+    --space-10: var(--s-10);
+    --space-12: var(--s-12);
+    --space-16: var(--s-16);
+    --space-20: var(--s-20);
+    --space-24: var(--s-24);
+    --radius-sm: var(--r-sm);
+    --radius-md: var(--r-md);
+    --radius-lg: var(--r-lg);
+    --radius-xl: var(--r-xl);
+    --radius-full: var(--r-full);
+    --font-size-xs: var(--t-xs);
+    --font-size-sm: var(--t-sm);
+    --font-size-base: var(--t-base);
+    --font-size-md: var(--t-md);
+    --font-size-lg: var(--t-lg);
+    --font-size-xl: var(--t-xl);
+    --font-size-2xl: var(--t-2xl);
+    --font-size-3xl: var(--t-3xl);
+    --font-size-hero: var(--t-display);
+    --leading-tight: 1.2;
+    --leading-snug: 1.35;
+    --leading-normal: 1.5;
+    --leading-relaxed: 1.6;
+    --leading-loose: 1.7;
+    --z-base: 1;
+    --z-nav: 10;
+    --z-sticky: 50;
+    --z-overlay: 100;
+    --z-modal: 1000;
+    --z-toast: 10000;
   }
 
   :root[data-theme='light'] {
@@ -2449,4 +2504,114 @@ const css = `
       transition-duration: 0.01ms !important;
     }
   }
+
+  /* Block O3 — visual coherence additive rules. */
+  .card.card-p-none { padding: 0; }
+  .card.card-p-sm { padding: var(--space-3); }
+  .card.card-p-md { padding: var(--space-4); }
+  .card.card-p-lg { padding: var(--space-6); }
+  .card.card-elevated { box-shadow: var(--elev-2); }
+  .card.card-gradient {
+    background:
+      linear-gradient(135deg, rgba(140,109,255,0.05), transparent 60%),
+      var(--bg-elevated);
+  }
+  .card.card-gradient::before { opacity: 1; }
+  .notice {
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border);
+    background: var(--bg-elevated);
+    color: var(--text);
+    font-size: var(--font-size-sm);
+    margin-bottom: var(--space-6);
+    line-height: var(--leading-normal);
+  }
+  .notice-info { border-color: rgba(96,165,250,0.40); background: rgba(96,165,250,0.08); color: var(--text); }
+  .notice-success { border-color: var(--green); background: rgba(52,211,153,0.08); color: var(--text); }
+  .notice-warn { border-color: var(--yellow); background: rgba(251,191,36,0.10); color: var(--yellow); }
+  .notice-error { border-color: var(--red); background: rgba(248,113,113,0.10); color: var(--red); }
+  .notice-accent { border-color: var(--accent); background: rgba(140,109,255,0.10); color: var(--text); }
+  .email-preview {
+    padding: var(--space-5);
+    background: #fff;
+    color: #111;
+    border-radius: var(--radius-md);
+  }
+  .code-block {
+    margin: var(--space-2) 0 0;
+    padding: var(--space-3);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    font-family: var(--font-mono);
+    font-size: var(--font-size-xs);
+    line-height: var(--leading-normal);
+    overflow-x: auto;
+  }
+  .status-pill-operational {
+    display: inline-flex;
+    align-items: center;
+    padding: var(--space-1) var(--space-3);
+    border-radius: var(--radius-full);
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    background: rgba(52,211,153,0.15);
+    color: var(--green);
+  }
+  .api-tag {
+    display: inline-flex;
+    align-items: center;
+    font-size: var(--font-size-xs);
+    padding: 2px var(--space-2);
+    border-radius: var(--radius-sm);
+    font-family: var(--font-mono);
+  }
+  .api-tag-auth { background: rgba(96,165,250,0.15); color: var(--accent); }
+  .api-tag-scope { background: rgba(52,211,153,0.15); color: var(--green); }
+  .stat-number {
+    font-size: var(--font-size-xl);
+    font-weight: 700;
+    color: var(--text-strong);
+    line-height: var(--leading-tight);
+  }
+  .stat-number-accent { color: var(--accent); }
+  .stat-number-blue { color: var(--blue); }
+  .stat-number-purple { color: var(--text-link); }
+  footer .footer-tag-sub {
+    margin-top: var(--space-2);
+    font-size: var(--font-size-xs);
+    color: var(--text-faint);
+    line-height: var(--leading-normal);
+  }
+  footer .footer-version-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-1) var(--space-3);
+    border-radius: var(--radius-full);
+    border: 1px solid var(--border);
+    background: var(--bg-elevated);
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: var(--font-size-xs);
+    cursor: help;
+  }
+  footer .footer-banner {
+    max-width: 1240px;
+    margin: var(--space-6) auto 0;
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border);
+    background: var(--bg-elevated);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: var(--font-size-xs);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    text-align: center;
+  }
+  footer .footer-banner-info { border-color: rgba(96,165,250,0.40); color: var(--blue); }
+  footer .footer-banner-warn { border-color: rgba(251,191,36,0.40); color: var(--yellow); }
+  footer .footer-banner-error { border-color: rgba(248,113,113,0.45); color: var(--red); }
 `;

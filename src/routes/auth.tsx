@@ -21,6 +21,7 @@ import {
   sessionExpiry,
 } from "../lib/auth";
 import { verifyTotpCode, hashRecoveryCode } from "../lib/totp";
+import { cancelAccountDeletion } from "../lib/account-deletion";
 import { getSsoConfig, getGithubOauthConfig } from "../lib/sso";
 import { Layout } from "../views/layout";
 import {
@@ -86,6 +87,31 @@ auth.get("/register", softAuth, (c) => {
               aria-label="Password"
             />
           </FormGroup>
+          {/* P3 — Terms / Privacy acceptance. Required client-side via the
+              `required` attribute; server-side re-checked in POST handler. */}
+          <div class="form-group" style="margin: 12px 0">
+            <label style="display: flex; gap: 8px; align-items: flex-start; font-size: 13px; color: var(--text-muted)">
+              <input
+                type="checkbox"
+                name="accept_terms"
+                value="1"
+                required
+                style="margin-top: 3px"
+                aria-label="Accept Terms of Service and Privacy Policy"
+              />
+              <span>
+                I agree to the{" "}
+                <a href="/legal/terms" target="_blank" rel="noopener">
+                  Terms of Service
+                </a>{" "}
+                and{" "}
+                <a href="/legal/privacy" target="_blank" rel="noopener">
+                  Privacy Policy
+                </a>
+                .
+              </span>
+            </label>
+          </div>
           <Button type="submit" variant="primary">
             Create account
           </Button>
@@ -106,6 +132,15 @@ auth.post("/register", async (c) => {
 
   if (!username || !email || !password) {
     return c.redirect("/register?error=All+fields+are+required");
+  }
+
+  // Block P3 — Terms acceptance is required. The form's checkbox has
+  // `required` so browsers normally enforce client-side; the server
+  // re-checks for defensive depth (curl, scripted POST, etc.).
+  if (!body.accept_terms) {
+    return c.redirect(
+      "/register?error=Please+accept+the+Terms+of+Service+and+Privacy+Policy"
+    );
   }
 
   if (!/^[a-zA-Z0-9_-]+$/.test(username)) {
@@ -157,7 +192,15 @@ auth.post("/register", async (c) => {
 
   const [user] = await db
     .insert(users)
-    .values({ username, email, passwordHash, isAdmin: isFirstUser })
+    .values({
+      username,
+      email,
+      passwordHash,
+      isAdmin: isFirstUser,
+      // P3 — record terms acceptance now. Version bumps when Terms change.
+      termsAcceptedAt: new Date(),
+      termsVersion: "1.0",
+    })
     .returning();
 
   // If username matches SITE_ADMIN_USERNAME env, grant site admin instantly
@@ -176,7 +219,12 @@ auth.post("/register", async (c) => {
 
   setCookie(c, "session", token, sessionCookieOptions());
 
-  const redirect = c.req.query("redirect") || "/";
+  // Block P2 — fire-and-forget email verification. Never blocks registration.
+  import("../lib/email-verification").then((m) => m.startEmailVerification(user.id, email)).catch(() => {});
+
+  // P3 — default landing is /onboarding (the guided first-five-minutes
+  // flow). The `redirect=` query is still honoured for OAuth-style flows.
+  const redirect = c.req.query("redirect") || "/onboarding?welcome=1";
   return c.redirect(redirect);
 });
 
@@ -185,6 +233,7 @@ auth.get("/login", softAuth, async (c) => {
   // dashboard (or the `redirect=` target if one was supplied).
   const existing = c.get("user");
   const error = c.req.query("error");
+  const success = c.req.query("success");
   const redirect = c.req.query("redirect") || "";
   if (existing) return c.redirect(redirect || "/dashboard");
   const ssoCfg = await getSsoConfig();
@@ -207,6 +256,9 @@ auth.get("/login", softAuth, async (c) => {
       <div class="auth-container">
         <h2>Sign in</h2>
         {error && <div class="auth-error">{decodeURIComponent(error)}</div>}
+        {success && (
+          <div class="auth-success">{decodeURIComponent(success)}</div>
+        )}
         <Form
           method="post"
           action={`/login${redirect ? `?redirect=${encodeURIComponent(redirect)}` : ""}`}
@@ -232,6 +284,9 @@ auth.get("/login", softAuth, async (c) => {
               aria-label="Password"
             />
           </FormGroup>
+          <div class="auth-forgot" style="margin:-8px 0 12px;text-align:right;font-size:13px">
+            <a href="/forgot-password">Forgot password?</a>
+          </div>
           <Button type="submit" variant="primary">
             Sign in
           </Button>
@@ -393,6 +448,13 @@ auth.post("/login", async (c) => {
   });
 
   setCookie(c, "session", token, sessionCookieOptions());
+
+  // Block P5 — If account was scheduled for deletion but user signed back
+  // in, cancel the deletion. Safe regardless of 2FA: password was proven.
+  if (user.deletedAt) {
+    await cancelAccountDeletion(user.id);
+  }
+
   if (needs2fa) {
     return c.redirect(
       `/login/2fa?redirect=${encodeURIComponent(redirect)}`

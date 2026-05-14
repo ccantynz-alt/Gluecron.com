@@ -16,6 +16,7 @@
 
 import { Hono } from "hono";
 import { eq, desc, and } from "drizzle-orm";
+import { getCookie, setCookie } from "hono/cookie";
 import { db } from "../db";
 import {
   repositories,
@@ -53,6 +54,17 @@ dashboard.use("*", softAuth);
 
 dashboard.get("/dashboard", requireAuth, async (c) => {
   const user = c.get("user")!;
+
+  // Block P2 — banner dismiss handler. Set a session cookie and re-redirect
+  // to the bare /dashboard URL so refreshing doesn't keep firing the dismiss.
+  if (c.req.query("p2_dismiss") === "1") {
+    setCookie(c, "p2_verify_dismissed", "1", {
+      path: "/",
+      httpOnly: true,
+      sameSite: "Lax",
+    });
+    return c.redirect("/dashboard");
+  }
 
   // Get all user's repos
   const repos = await db
@@ -155,8 +167,68 @@ dashboard.get("/dashboard", requireAuth, async (c) => {
             ? "var(--text-muted)"
             : "var(--red)";
 
+  // Block P2 — email verification banner. Shows when the user hasn't
+  // verified yet AND they haven't dismissed it this session. Also surfaces
+  // transient resend feedback (`?verify=sent` / `?verify=rate_limited`)
+  // and the post-register hint (`?welcome=1`).
+  const verifyDismissed = getCookie(c, "p2_verify_dismissed") === "1";
+  const showVerifyBanner =
+    !(user as any).emailVerifiedAt && !verifyDismissed;
+  const verifyQuery = c.req.query("verify");
+  const welcomeQuery = c.req.query("welcome");
+
   return c.html(
     <Layout title="Command Center" user={user}>
+      {showVerifyBanner && (
+        <div
+          style="background: rgba(210, 153, 34, 0.12); border: 1px solid rgba(210, 153, 34, 0.45); color: #e3b341; padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 14px"
+          data-p2-verify-banner=""
+        >
+          <div style="flex: 1 1 auto; min-width: 0">
+            {welcomeQuery === "1" ? (
+              <span>
+                Welcome to Gluecron! Check your inbox to verify your email.
+              </span>
+            ) : verifyQuery === "sent" ? (
+              <span>
+                Verification link sent. It may take a minute to arrive.
+              </span>
+            ) : verifyQuery === "rate_limited" ? (
+              <span>
+                You've requested too many verification emails. Try again later.
+              </span>
+            ) : (
+              <span>Verify your email to keep using Gluecron.</span>
+            )}
+          </div>
+          <form
+            method="post"
+            action="/verify-email/resend"
+            style="display: inline-flex; gap: 8px; align-items: center; margin: 0"
+          >
+            <input
+              type="hidden"
+              name="_csrf"
+              value={(c.get("csrfToken") as string | undefined) || ""}
+            />
+            <button
+              type="submit"
+              class="btn"
+              style="padding: 4px 10px; font-size: 12px"
+            >
+              Resend verification link
+            </button>
+            <a
+              href="/dashboard?p2_dismiss=1"
+              class="btn"
+              style="padding: 4px 10px; font-size: 12px"
+              aria-label="Dismiss verification banner"
+            >
+              Dismiss
+            </a>
+          </form>
+        </div>
+      )}
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px">
         <div>
           <h1 style="font-size: 28px; margin-bottom: 4px">Command Center</h1>

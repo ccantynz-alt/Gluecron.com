@@ -46,6 +46,7 @@ import {
 } from "./stale-sweep";
 import { computePrRiskForPullRequest } from "./pr-risk";
 import { prRiskScores } from "../db/schema";
+import { purgeScheduledAccounts } from "./account-deletion";
 
 export interface AutopilotTaskResult {
   name: string;
@@ -192,6 +193,21 @@ export function defaultTasks(): AutopilotTask[] {
         console.log(
           `[autopilot] pr-risk-rescore: scored=${summary.scored} skipped=${summary.skipped}`
         );
+      },
+    },
+
+    {
+      // Block P5 — Hard-delete users whose 30-day grace period expired.
+      name: "account-purge",
+      run: async () => {
+        try {
+          const summary = await purgeScheduledAccounts({ cap: 50 });
+          console.log(
+            `[autopilot] account-purge: purged=${summary.purged} errors=${summary.errors}`
+          );
+        } catch (err) {
+          console.error("[autopilot] account-purge: threw:", err);
+        }
       },
     },
   ];

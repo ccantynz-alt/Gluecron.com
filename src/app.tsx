@@ -2,7 +2,8 @@ import { Hono } from "hono";
 import { logger } from "hono/logger";
 import { cors } from "hono/cors";
 import { compress } from "hono/compress";
-import { Layout } from "./views/layout";
+// BLOCK O2 — shared error-page surface (404 / 500 / 403).
+import { NotFoundPage, ServerErrorPage } from "./views/error-page";
 import { reportError } from "./lib/observability";
 import { requestContext } from "./middleware/request-context";
 import { rateLimit } from "./middleware/rate-limit";
@@ -11,6 +12,8 @@ import apiRoutes from "./routes/api";
 import apiV2Routes from "./routes/api-v2";
 import apiDocsRoutes from "./routes/api-docs";
 import authRoutes from "./routes/auth";
+import passwordResetRoutes from "./routes/password-reset";
+import emailVerificationRoutes from "./routes/email-verification";
 import settingsRoutes from "./routes/settings";
 import settings2faRoutes from "./routes/settings-2fa";
 import issueRoutes from "./routes/issues";
@@ -151,6 +154,8 @@ app.use("*", async (c, next) => {
 app.use("/api/*", rateLimit(120, 60_000, "api"));
 app.use("/login", rateLimit(20, 60_000, "login"));
 app.use("/register", rateLimit(10, 60_000, "register"));
+// BLOCK P1 — throttle forgot-password to deter enumeration + mail spam.
+app.use("/forgot-password", rateLimit(5, 60_000, "forgot-password"));
 
 // CSRF protection — set token on all requests, validate on mutations
 app.use("*", csrfToken);
@@ -191,6 +196,12 @@ app.route("/", apiDocsRoutes);
 
 // Auth routes (register, login, logout)
 app.route("/", authRoutes);
+
+// BLOCK P1 — Password reset (forgot-password + reset-password)
+app.route("/", passwordResetRoutes);
+
+// BLOCK P2 — Email verification (verify-email + resend)
+app.route("/", emailVerificationRoutes);
 
 // Settings routes (profile, SSH keys)
 app.route("/", settingsRoutes);
@@ -380,69 +391,36 @@ app.route("/", vsGithubRoutes);
 // Web UI (catch-all, must be last)
 app.route("/", webRoutes);
 
-// Global 404
+// Global 404 — BLOCK O2 routes the shared `NotFoundPage` view so
+// the markup stays consistent with /500 and the admin /403 page.
 app.notFound((c) => {
   const user = c.get("user") ?? null;
   return c.html(
-    <Layout title="Not Found" user={user}>
-      <div class="error-page">
-        <div class="error-page-code">404</div>
-        <div class="eyebrow">Not found</div>
-        <h1 class="display error-page-title">
-          That page <span class="gradient-text">isn't here.</span>
-        </h1>
-        <p class="error-page-sub">
-          The URL might be wrong, the resource might have moved, or you
-          might not have permission to see it.
-        </p>
-        <div class="error-page-actions">
-          <a href="/" class="btn btn-primary btn-lg">Go home</a>
-          <a href="/explore" class="btn btn-ghost btn-lg">Explore repos</a>
-        </div>
-        <div class="error-page-meta">
-          <span class="meta-mono">{c.req.method} {c.req.path}</span>
-        </div>
-      </div>
-    </Layout>,
+    <NotFoundPage user={user} method={c.req.method} path={c.req.path} />,
     404
   );
 });
 
-// Global error handler
+// Global error handler — BLOCK O2 uses the shared `ServerErrorPage`
+// view. Trace block only shown outside production.
 app.onError((err, c) => {
   reportError(err, {
     requestId: c.get("requestId"),
     path: c.req.path,
     method: c.req.method,
   });
-  const requestId = c.get("requestId" as never) as string | undefined;
+  // Prefer the inbound `x-request-id` header (LB-supplied) and fall
+  // back to the context value set by request-context middleware.
+  const requestId =
+    c.req.header("x-request-id") ||
+    ((c.get("requestId" as never) as string | undefined) ?? undefined);
   const user = c.get("user") ?? null;
+  const trace =
+    process.env.NODE_ENV !== "production" && err && err.message
+      ? err.message
+      : undefined;
   return c.html(
-    <Layout title="Error" user={user}>
-      <div class="error-page">
-        <div class="error-page-code error-page-code-err">500</div>
-        <div class="eyebrow" style="color:var(--red)">Server error</div>
-        <h1 class="display error-page-title">
-          Something <span class="gradient-text">went wrong.</span>
-        </h1>
-        <p class="error-page-sub">
-          The error has been reported. Try again — if it persists, file
-          an issue with the request ID below.
-        </p>
-        <div class="error-page-actions">
-          <a href={c.req.path} class="btn btn-primary btn-lg">Retry</a>
-          <a href="/" class="btn btn-ghost btn-lg">Go home</a>
-        </div>
-        {requestId && (
-          <div class="error-page-meta">
-            <span class="meta-mono">request-id: {requestId}</span>
-          </div>
-        )}
-        {process.env.NODE_ENV !== "production" && (
-          <pre class="error-page-trace">{err.message}</pre>
-        )}
-      </div>
-    </Layout>,
+    <ServerErrorPage user={user} requestId={requestId} trace={trace} />,
     500
   );
 });

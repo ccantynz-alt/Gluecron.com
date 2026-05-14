@@ -312,6 +312,14 @@ importRoutes.post("/import/github/repo", requireAuth, requireAdmin, async (c) =>
     return c.redirect("/import?error=Repository+URL+is+required");
   }
 
+  // P4 — same quota gate as /new + /api/v2/repos. Imports count toward
+  // the user's plan limit.
+  const { checkRepoCreateAllowed } = await import("../lib/repo-create-gate");
+  const gate = await checkRepoCreateAllowed(user.id);
+  if (!gate.ok) {
+    return c.redirect(`/import?error=${encodeURIComponent(gate.reason)}`);
+  }
+
   const parsed = parseGithubUrl(repoUrl);
   if (!parsed) {
     return c.redirect(

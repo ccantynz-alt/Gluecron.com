@@ -165,6 +165,16 @@ importRoutes.get("/import", requireAuth, requireAdmin, async (c) => {
                 Import
               </button>
             </div>
+            <div style="margin-top: 8px">
+              <input
+                type="password"
+                name="github_token"
+                placeholder="Optional: GitHub PAT to also migrate Actions secret names"
+                aria-label="Optional GitHub personal access token for secrets migration"
+                autocomplete="off"
+                style="padding: 8px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); font-size: 13px; font-family: var(--font-mono); width: 100%"
+              />
+            </div>
           </form>
         </div>
 
@@ -307,6 +317,10 @@ importRoutes.post("/import/github/repo", requireAuth, requireAdmin, async (c) =>
   const user = c.get("user")!;
   const body = await c.req.parseBody();
   const repoUrl = String(body.repo_url || "").trim();
+  // Optional PAT — when supplied, used after the import succeeds to also
+  // migrate GitHub Actions secret NAMES (values are never exposed by the
+  // API) into placeholder rows the user can paste values into.
+  const optionalToken = String(body.github_token || "").trim() || null;
 
   if (!repoUrl) {
     return c.redirect("/import?error=Repository+URL+is+required");
@@ -354,14 +368,14 @@ importRoutes.post("/import/github/repo", requireAuth, requireAdmin, async (c) =>
 
   try {
     // Fetch repo info
+    const metaHeaders: Record<string, string> = {
+      Accept: "application/vnd.github.v3+json",
+      "User-Agent": "gluecron/1.0",
+    };
+    if (optionalToken) metaHeaders.Authorization = `Bearer ${optionalToken}`;
     const res = await fetch(
       `https://api.github.com/repos/${ghOwner}/${ghRepo}`,
-      {
-        headers: {
-          Accept: "application/vnd.github.v3+json",
-          "User-Agent": "gluecron/1.0",
-        },
-      }
+      { headers: metaHeaders }
     );
 
     if (!res.ok) {
@@ -374,9 +388,50 @@ importRoutes.post("/import/github/repo", requireAuth, requireAdmin, async (c) =>
 
     const ghRepoData: GitHubRepo = await res.json();
 
-    await importSingleRepo(user, ghRepoData, null);
+    await importSingleRepo(user, ghRepoData, optionalToken);
 
-    return c.redirect(`/${user.username}/${sanitizeRepoName(ghRepoData.name)}`);
+    // Block T1 — opportunistically migrate GitHub Actions secret NAMES
+    // (values are never exposed by GitHub's API). If a token was supplied
+    // on this request, list the secret names + pre-create empty
+    // placeholders, then redirect the user to the paste-each-value
+    // checklist. Fire-and-forget semantics: any failure (no token, network
+    // error, no secrets, DB blip) collapses to "skip the checklist step"
+    // and we redirect straight to the repo home.
+    const targetName = sanitizeRepoName(ghRepoData.name);
+    let secretsRedirect: string | null = null;
+    if (optionalToken) {
+      try {
+        const [newRepoRow] = await db
+          .select({ id: repositories.id })
+          .from(repositories)
+          .where(
+            and(
+              eq(repositories.ownerId, user.id),
+              eq(repositories.name, targetName)
+            )
+          )
+          .limit(1);
+        if (newRepoRow) {
+          const { importSecretsForRepo } = await import(
+            "../lib/github-secrets-import"
+          );
+          const result = await importSecretsForRepo({
+            githubOwner: ghOwner,
+            githubRepo: ghRepo,
+            githubToken: optionalToken,
+            gluecronRepositoryId: newRepoRow.id,
+            importedByUserId: user.id,
+          });
+          if (result.imported.length > 0) {
+            secretsRedirect = `/${user.username}/${targetName}/import/secrets`;
+          }
+        }
+      } catch (err) {
+        console.error("[import] secrets migration skipped:", err);
+      }
+    }
+
+    return c.redirect(secretsRedirect ?? `/${user.username}/${targetName}`);
   } catch (err) {
     console.error("[import] error:", err);
     return c.redirect(

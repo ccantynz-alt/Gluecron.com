@@ -81,30 +81,33 @@ A GitHub replacement. AI-native code intelligence, git hosting, automated CI, an
 
 For the full shipped-vs-missing scorecard and internal roadmap, see [`BUILD_BIBLE.md`](./BUILD_BIBLE.md).
 
-## Install in Claude Desktop
+## Install
 
-Three paths, pick whichever fits — they all wire the same 15 MCP tools
-(`gluecron_create_pr`, `gluecron_merge_pr`, `gluecron_repo_health`, …) into
-Claude.
+**One click**: Drag [`gluecron.dxt`](https://gluecron.com/gluecron.dxt) into Claude Desktop → Extensions. Claude prompts for your Gluecron host + a personal access token (generate one at `/settings/tokens` with `admin` scope) and the 15 MCP tools (`gluecron_create_pr`, `gluecron_merge_pr`, `gluecron_repo_health`, …) light up.
 
-1. **One-click (recommended).** Download
-   [`https://gluecron.com/gluecron.dxt`](https://gluecron.com/gluecron.dxt),
-   then in Claude Desktop go to **Settings → Extensions** and drag the
-   file in. Claude prompts for your Gluecron host + personal access token
-   (generate one at `/settings/tokens` with `admin` scope) and the tools
-   light up.
-2. **One command (terminal).**
-   ```bash
-   curl -sSL https://gluecron.com/install | bash
-   ```
-   The installer mints a PAT, edits `claude_desktop_config.json`, and
-   drops the Claude Code skill bundle into `~/.claude/skills/`. See
-   [`scripts/install.sh`](./scripts/install.sh).
-3. **Manual.** Edit `claude_desktop_config.json` yourself and add an
-   `mcpServers.gluecron` entry pointing at `https://gluecron.com/mcp` with
-   an `Authorization: Bearer <pat>` header.
+**Browser**: Sign up at <https://gluecron.com/register> or try without signing up at <https://gluecron.com/play>.
 
-## Quick start
+**Day-to-day ops**: Every routine operator action lives at [`/admin/ops`](https://gluecron.com/admin/ops) (enable AI auto-merge, trigger a deploy, rollback). Deploy progress streams to [`/admin/deploys`](https://gluecron.com/admin/deploys). No SSH required.
+
+<details>
+<summary>Power-user options (terminal)</summary>
+
+```bash
+curl -sSL https://gluecron.com/install | bash
+```
+
+The installer mints a PAT, edits `claude_desktop_config.json`, and drops the Claude Code skill bundle into `~/.claude/skills/`. See [`scripts/install.sh`](./scripts/install.sh).
+
+You can also wire MCP manually — edit `claude_desktop_config.json` and add an `mcpServers.gluecron` entry pointing at `https://gluecron.com/mcp` with an `Authorization: Bearer <pat>` header.
+
+</details>
+
+## Quick start (local development)
+
+Visit `http://localhost:3000` after starting the dev server to register and create your first repository.
+
+<details>
+<summary>Local dev commands (terminal)</summary>
 
 ```bash
 bun install
@@ -113,9 +116,9 @@ bun run db:migrate # run database migrations
 bun test           # run the test suite
 ```
 
-Then visit `http://localhost:3000` to register and create your first repository.
-
 You'll need at minimum a `DATABASE_URL` pointing at Postgres. Everything AI-flavoured gracefully degrades without `ANTHROPIC_API_KEY`. See [`.env.example`](./.env.example) for the full list.
+
+</details>
 
 ## Stack
 

@@ -2,6 +2,8 @@
 
 Gluecron is a standalone product. It runs anywhere Bun runs. The repo ships a `fly.toml` for Fly.io as the documented primary target, and a `Dockerfile` for any other container host.
 
+> **Already deployed?** Day-to-day operations (enable AI auto-merge, trigger a deploy, rollback) all live at [`/admin/ops`](https://gluecron.com/admin/ops). Live deploy progress streams to [`/admin/deploys`](https://gluecron.com/admin/deploys). No SSH required — see §6 below. This document covers first-time bootstrap and the terminal fallbacks.
+
 ---
 
 ## 1. Prerequisites
@@ -125,19 +127,52 @@ Verify these in order after the first deploy:
 
 ---
 
-## 6. Operations
+## 6. Day-to-day operations
+
+Every routine action is a button click on [`/admin/ops`](https://gluecron.com/admin/ops):
+
+- **Enable AI auto-merge on main** — flips the per-repo opt-in covered in §8 below.
+- **Trigger a deploy** — fires the same path as a push to the default branch.
+- **Rollback to the previous successful release** — selects from the history shown on `/admin/deploys`.
+
+Live deploy progress streams to [`/admin/deploys`](https://gluecron.com/admin/deploys) while the workflow runs. No SSH required for any of this.
 
 ### Logs
-Your host streams stdout/stderr from `bun run src/index.ts` (on Fly.io: `fly logs`). Every request carries an `X-Request-Id` header; grep logs by that ID when tracing a report.
+Every request carries an `X-Request-Id` header. Grep `/admin/deploys` (per-deploy log panel) or your host's log stream for that ID when tracing a report.
 
 ### Restarts
-Trigger from your host's dashboard or CLI (on Fly.io: `fly apps restart`). Rate-limit counters are in-memory and reset on restart — that is intentional.
+Trigger from `/admin/ops` ("Trigger a deploy" — restart-equivalent) or your host's dashboard. Rate-limit counters are in-memory and reset on restart — that is intentional.
 
 ### Rollbacks
-Roll back via your host's release history (on Fly.io: `fly releases` + `fly deploy --image <previous>`). Database migrations are additive; rolling back the service does not roll back the schema. If a migration needs reverting, write a new forward-migration.
+Use the "Rollback" button on `/admin/ops`. Database migrations are additive; rolling back the service does not roll back the schema. If a migration needs reverting, write a new forward-migration.
 
 ### Backups
 Neon handles PITR + branch snapshots — configure retention in the Neon console. The bare repos on the persistent volume must be backed up separately (filesystem snapshot of the mount at `GIT_REPOS_PATH`; on Fly.io, snapshot the `gluecron_repos` volume). See BUILD_BIBLE §2.6 for what still needs wiring on the observability side.
+
+<details>
+<summary>Manual fallback (terminal)</summary>
+
+Only needed for first-time box bootstrap or if `/admin/ops` is itself broken.
+
+```bash
+# Logs (Fly.io)
+fly logs
+
+# Restart (Fly.io)
+fly apps restart
+
+# Rollback (Fly.io)
+fly releases
+fly deploy --image <previous>
+
+# Restart on Hetzner (matches scripts/bootstrap-hetzner.sh)
+ssh root@gluecron.com 'systemctl restart gluecron'
+
+# Rollback on Hetzner
+ssh root@gluecron.com 'cd /opt/gluecron && git checkout <previous-sha> && systemctl restart gluecron'
+```
+
+</details>
 
 ---
 
@@ -155,9 +190,9 @@ Every missing integration follows the same rule: **never break the primary reque
 
 ---
 
-## Lightning-fast deploys (Block N1)
+## 8. Lightning-fast deploys (Block N1)
 
-Once PR #62 has landed and the release-command has applied migration 0040, the operator can flip a single repo into "auto-merge mode" with two scripts. From "feature description → live in ~6 minutes, zero clicks" goes from possible to the default.
+Once migration 0040 has been applied (the release command does this automatically), the operator can flip a single repo into "auto-merge mode" with a single click. From "feature description → live in ~6 minutes, zero clicks" goes from possible to the default.
 
 ### What it does
 
@@ -170,9 +205,21 @@ When `branch_protection.enable_auto_merge=true` on the matching rule, the K3 aut
 
 The merge is performed by the autopilot, not by any human click. Default-deny: this only fires on rules where the operator has explicitly opted in.
 
-### Step 1 — Readiness check
+### Web flow (primary)
 
-Run the preflight to make sure the box is in a state where opting in will actually do something useful:
+1. Go to [`/admin/ops`](https://gluecron.com/admin/ops).
+2. Click **"Enable AI auto-merge"**, select the repo (e.g. `ccantynz/Gluecron.com`) and pattern (defaults to `main`).
+3. The page runs the readiness check inline (migration 0040 applied, `ANTHROPIC_API_KEY` set, autopilot running, `auto-merge-sweep` registered) and shows red lines if anything is wrong.
+4. Confirm. The page writes the `enable_auto_merge=true` flip and surfaces the resulting audit-log row.
+
+Within 5 minutes (the autopilot sweep cadence), any qualifying PR on that branch will auto-merge with zero human clicks. Use the same screen's **"Disable"** toggle to revert.
+
+<details>
+<summary>Manual fallback (terminal)</summary>
+
+Only needed if `/admin/ops` is broken. Otherwise prefer the web flow above.
+
+#### Step 1 — Readiness check
 
 ```bash
 # Fly.io
@@ -190,7 +237,7 @@ The check verifies:
 
 Exit code 0 if all green; 1 if any check fails. Fix any red lines before continuing.
 
-### Step 2 — Flip the switch for a single repo
+#### Step 2 — Flip the switch for a single repo
 
 ```bash
 # Fly.io
@@ -213,11 +260,7 @@ The script is idempotent:
 
 It prints a before / after diff so you see exactly what changed, and writes an `auto_merge.enabled_on_main` row to `audit_log` for traceability.
 
-Within 5 minutes (the autopilot sweep cadence), any qualifying PR on that branch will auto-merge with zero human clicks.
-
-### Revert
-
-To turn auto-merge back off:
+#### Revert
 
 ```bash
 bun run scripts/enable-auto-merge.ts ccantynz/Gluecron.com --off
@@ -225,7 +268,9 @@ bun run scripts/enable-auto-merge.ts ccantynz/Gluecron.com --off
 
 Or manually: `UPDATE branch_protection SET enable_auto_merge = false WHERE repository_id = ... AND pattern = 'main';`. The autopilot sweep is default-deny — it will stop firing the moment the column flips back to `false`.
 
-### Don'ts
+#### Don'ts
 
 - Do not run `enable-auto-merge.ts` without first running the readiness check. The AI approval gate silently fails closed when `ANTHROPIC_API_KEY` is missing, and you'll spend half an hour wondering why nothing auto-merges.
 - The script intentionally does NOT auto-discover repos and flip them all. Explicit per-repo opt-in is the whole point — the operator decides which repos go on autopilot.
+
+</details>

@@ -5,6 +5,13 @@ Step-by-step guide for taking Gluecron from zero to running at
 Gluecron is deployed as free internal infrastructure for Craig's
 ecosystem, **not** as a paid product.
 
+> **Day-to-day operations** (enable AI auto-merge, trigger a deploy,
+> rollback) live at [`/admin/ops`](https://gluecron.com/admin/ops) once
+> the box is up. Deploy progress streams to
+> [`/admin/deploys`](https://gluecron.com/admin/deploys). This runbook
+> covers **first-time bootstrap only** — terminal steps below are
+> appropriate because there is no service yet to click against.
+
 ---
 
 ## What Gluecron is today
@@ -158,7 +165,19 @@ from `src/lib/config.ts` and direct `process.env.*` references in
 
 On both Fly.io and Railway, `bun run db:migrate` is the release
 command and runs automatically before traffic is routed to a new
-revision. If you need to run it manually:
+revision. Once the box is up, the easiest way to re-run migrations is
+to click **"Trigger a deploy"** on
+[`/admin/ops`](https://gluecron.com/admin/ops) — the release command
+fires `bun run db:migrate` as part of the redeploy.
+
+Verify the server starts cleanly — `bun run` should not error on
+boot.
+
+<details>
+<summary>Manual fallback (terminal)</summary>
+
+Only needed during first-time bootstrap before `/admin/ops` is
+reachable, or if `/admin/ops` itself is broken.
 
 ```bash
 # Fly.io
@@ -169,8 +188,7 @@ bun run db:migrate
 railway run bun run db:migrate
 ```
 
-Verify the server starts cleanly — `bun run` should not error on
-boot.
+</details>
 
 ---
 

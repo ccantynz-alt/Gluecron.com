@@ -598,6 +598,9 @@ pulls.post(
       headBranch,
     }).catch((err) => console.error("[pr-triage] Failed:", err));
 
+    // R3 — fast-lane auto-merge evaluation. Fires after AI review lands.
+    import("../lib/auto-merge").then((m) => m.tryAutoMergeNow(pr.id)).catch(() => {});
+
     return c.redirect(`/${ownerName}/${repoName}/pulls/${pr.number}`);
   }
 );

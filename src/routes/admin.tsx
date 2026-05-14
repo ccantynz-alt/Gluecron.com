@@ -119,6 +119,9 @@ admin.get("/admin", async (c) => {
       </div>
 
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:20px">
+        <a href="/admin/ops" class="btn btn-primary">
+          Operations
+        </a>
         <a href="/admin/users" class="btn">
           Manage users
         </a>

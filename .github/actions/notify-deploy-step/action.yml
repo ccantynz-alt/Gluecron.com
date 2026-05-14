@@ -1,0 +1,92 @@
+# Block R2 — composite action: notify the running site of a deploy step.
+#
+# Posts to POST /api/events/deploy/step on the live site so the
+# /admin/deploys modal can stream the workflow in real time. Failure to
+# notify is logged but never blocks the deploy itself — observability is
+# strictly a side-channel.
+#
+# Used from `.github/workflows/hetzner-deploy.yml` to mark the start +
+# finish of every meaningful step (git pull, bun install, build, db
+# migrate, restart, smoke test).
+
+name: Notify deploy step
+description: >
+  Post a single per-step status event to the running gluecron site so the
+  /admin/deploys modal can stream a deploy in real time.
+
+inputs:
+  step_name:
+    description: Short slug, e.g. git-pull, bun-install, build, db-migrate, restart, smoke-test
+    required: true
+  status:
+    description: 'One of: in_progress | succeeded | failed'
+    required: true
+  run_id:
+    description: GitHub Actions run id (defaults to $GITHUB_RUN_ID)
+    required: false
+    default: ${{ github.run_id }}
+  sha:
+    description: Commit SHA being deployed (defaults to $GITHUB_SHA)
+    required: false
+    default: ${{ github.sha }}
+  output:
+    description: Optional stdout/stderr snippet (first 8 KB will be persisted)
+    required: false
+    default: ""
+  duration_ms:
+    description: Optional milliseconds the step took
+    required: false
+    default: ""
+  app_base_url:
+    description: Live site base URL (e.g. https://gluecron.com)
+    required: true
+  deploy_event_token:
+    description: Bearer token matching DEPLOY_EVENT_TOKEN on the server
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: POST /api/events/deploy/step
+      shell: bash
+      env:
+        STEP_NAME: ${{ inputs.step_name }}
+        STATUS: ${{ inputs.status }}
+        RUN_ID: ${{ inputs.run_id }}
+        SHA: ${{ inputs.sha }}
+        OUTPUT: ${{ inputs.output }}
+        DURATION_MS: ${{ inputs.duration_ms }}
+        APP_BASE_URL: ${{ inputs.app_base_url }}
+        DEPLOY_EVENT_TOKEN: ${{ inputs.deploy_event_token }}
+      run: |
+        if [ -z "$DEPLOY_EVENT_TOKEN" ] || [ -z "$APP_BASE_URL" ]; then
+          echo "(notify-deploy-step: token or base url missing — skipping)"
+          exit 0
+        fi
+        # Truncate the optional output to 8 KB before JSON-encoding so the
+        # POST body stays small. The server also caps at 8 KB defensively.
+        if [ -n "$OUTPUT" ]; then
+          OUTPUT=$(printf '%s' "$OUTPUT" | head -c 8192)
+        fi
+        # jq -Rs is the safest way to JSON-escape arbitrary multi-line text.
+        if command -v jq >/dev/null 2>&1; then
+          OUTPUT_JSON=$(printf '%s' "$OUTPUT" | jq -Rs '.')
+        else
+          OUTPUT_JSON=$(printf '%s' "$OUTPUT" | python3 -c "import sys,json;print(json.dumps(sys.stdin.read()))")
+        fi
+        if [ -n "$DURATION_MS" ]; then
+          DUR_FIELD=",\"duration_ms\":$DURATION_MS"
+        else
+          DUR_FIELD=""
+        fi
+        if [ -n "$OUTPUT" ]; then
+          OUTPUT_FIELD=",\"output\":$OUTPUT_JSON"
+        else
+          OUTPUT_FIELD=""
+        fi
+        curl --silent --show-error --max-time 10 \
+          -X POST "$APP_BASE_URL/api/events/deploy/step" \
+          -H "authorization: Bearer $DEPLOY_EVENT_TOKEN" \
+          -H "content-type: application/json" \
+          --data "{\"run_id\":\"$RUN_ID\",\"sha\":\"$SHA\",\"step_name\":\"$STEP_NAME\",\"status\":\"$STATUS\"$DUR_FIELD$OUTPUT_FIELD}" \
+          || echo "(notify-deploy-step[$STEP_NAME/$STATUS]: POST failed — continuing)"

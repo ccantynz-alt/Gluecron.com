@@ -1,39 +1,23 @@
 name: Deploy gluecron to itself
-# This is gluecron's first self-hosted workflow. When pushed to gluecron.com's
-# git endpoint, gluecron's own workflow runner picks this up and runs it.
-# Replaces the GitHub Action `vultr-deploy.yml` step for step.
-#
-# Trigger: every push to main.
-# Effect: pulls latest, runs the production deploy script, smoke-tests.
+# BLOCK W — Self-host. When Gluecron.com receives a push to main, the
+# post-receive hook in src/hooks/post-receive.ts forks scripts/self-deploy.sh
+# directly. This workflow file remains as an OPTIONAL alternative path for
+# operators who prefer the workflow runner over the post-receive hook, or
+# as a manual dispatch escape hatch.
 
 on:
   push:
     branches: [main]
+  workflow_dispatch: {}
 
 jobs:
   deploy:
     runs-on: self
     steps:
-      - name: Pull latest main onto the box
+      - name: Run self-deploy.sh inline
         run: |
-          cd /opt/gluecron
-          git fetch --prune origin main
-          git reset --hard origin/main
-          echo "Deploying SHA: $(git rev-parse HEAD)"
-
-      - name: Run production deploy script
-        run: bash /opt/gluecron/scripts/deploy-crontech.sh
-
-      - name: Smoke test
-        run: |
-          for i in 1 2 3 4 5 6 7 8; do
-            code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3010/healthz)
-            echo "Attempt $i: /healthz -> $code"
-            if [ "$code" = "200" ]; then
-              echo "OK"
-              exit 0
-            fi
-            sleep 8
-          done
-          echo "Smoke failed"
-          exit 1
+          if [ ! -x /opt/gluecron/scripts/self-deploy.sh ]; then
+            echo "self-deploy.sh missing — run scripts/self-host-bootstrap.ts first"
+            exit 1
+          fi
+          /opt/gluecron/scripts/self-deploy.sh --inline

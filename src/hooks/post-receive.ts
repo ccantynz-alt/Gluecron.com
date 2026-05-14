@@ -116,6 +116,48 @@ export async function onPostReceive(
       }
     }
   }
+
+  // 6. BLOCK W — Self-host. When Gluecron.com itself receives a push to
+  // main, fire the local deploy via scripts/self-deploy.sh. The script
+  // forks into the background, so this call returns immediately (git
+  // push doesn't block). Gated on env SELF_HOST_REPO (set on the box) to
+  // avoid firing on customer repos that happen to be named "Gluecron.com".
+  const selfHostRepo = process.env.SELF_HOST_REPO;
+  if (selfHostRepo && `${owner}/${repo}` === selfHostRepo) {
+    const mainRef = refs.find(
+      (r) => r.refName === "refs/heads/main" && !r.newSha.startsWith("0000")
+    );
+    if (mainRef) {
+      const scriptPath =
+        process.env.GLUECRON_SELF_DEPLOY_SCRIPT ||
+        "/opt/gluecron/scripts/self-deploy.sh";
+      try {
+        const child = __selfHostSpawn(
+          [scriptPath, mainRef.oldSha, mainRef.newSha],
+          { stdout: "ignore", stderr: "ignore", stdin: "ignore" }
+        );
+        try {
+          (child as any)?.unref?.();
+        } catch {
+          /* unref optional */
+        }
+        console.log(
+          `[self-host] dispatched self-deploy for ${owner}/${repo}@${mainRef.newSha.slice(0, 7)}`
+        );
+      } catch (err) {
+        console.error(`[self-host] failed to spawn:`, err);
+      }
+    }
+  }
+}
+
+// BLOCK W — DI seam so the test suite can capture the spawn call without
+// actually shelling out to /opt/gluecron/scripts/self-deploy.sh. Production
+// callers go straight to Bun.spawn.
+let __selfHostSpawn: (cmd: string[], opts: any) => any = (cmd, opts) =>
+  Bun.spawn(cmd, opts);
+export function __setSelfHostSpawnForTests(fn: typeof __selfHostSpawn) {
+  __selfHostSpawn = fn;
 }
 
 /**

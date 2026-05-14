@@ -69,6 +69,7 @@ import adminRoutes from "./routes/admin";
 import adminDeploysRoutes from "./routes/admin-deploys";
 import adminDeploysPageRoutes from "./routes/admin-deploys-page";
 import adminOpsRoutes from "./routes/admin-ops";
+import adminSelfHostRoutes from "./routes/admin-self-host";
 import advisoriesRoutes from "./routes/advisories";
 import aiChangelogRoutes from "./routes/ai-changelog";
 import aiExplainRoutes from "./routes/ai-explain";
@@ -332,6 +333,8 @@ app.route("/", healthDashboardRoutes);
 // insightRoutes because its POST `/:owner/:repo/rollback` catch-all would
 // otherwise intercept `/admin/ops/rollback` (matching :owner=admin :repo=ops).
 app.route("/", adminOpsRoutes);
+// BLOCK W — Self-host status + bootstrap dashboard.
+app.route("/", adminSelfHostRoutes);
 
 // Insights (time-travel, dependencies, rollback)
 app.route("/", insightRoutes);

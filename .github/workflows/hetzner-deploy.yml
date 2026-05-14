@@ -267,11 +267,75 @@ jobs:
               echo "==> $UNIT already matches desired state — skipping daemon-reload"
             fi
 
-            # ─── DB migrations (cheap; safe to always run)
+            # ─── DB migrations
+            #
+            # Block S1 (2026-05-14): migrate.ts MUST be allowed to fail
+            # the entire workflow. The previous `|| echo WARN` swallowed
+            # the exit code, which is exactly how migrations 0046-0053
+            # silently skipped a real deploy and left the live site
+            # crashing every request that touched `users.*`. We now:
+            #   - run migrate.ts and abort the deploy on non-zero exit
+            #   - stream stdout + stderr live to the workflow log
+            #   - then read back the applied list from _migrations and
+            #     refuse to restart if the latest drizzle/*.sql file
+            #     isn't in it.
             notify_step "db-migrate" "in_progress"
             DM_START=$(date +%s)
             set -a; source /etc/gluecron.env; set +a
-            "$BUN" run src/db/migrate.ts || echo "WARN: migrate failed (may be already-applied)"
+
+            echo "==> running migrations (must succeed to proceed)"
+            if ! "$BUN" run src/db/migrate.ts; then
+              notify_step "db-migrate" "failed" "$(( ( $(date +%s) - DM_START ) * 1000 ))"
+              echo "ERROR: bun run db:migrate failed — aborting deploy" >&2
+              exit 1
+            fi
+
+            # Verify the LATEST drizzle/*.sql is present in _migrations.
+            # This catches the case where migrate.ts thought every file
+            # was already applied but the actual list on disk has new
+            # entries the runner somehow skipped. We write a tiny ESM
+            # verifier into /tmp and call it; this avoids the require()
+            # vs ESM mismatch you'd hit using `bun -e` on a "type":"module"
+            # package.
+            echo "==> verifying latest drizzle/*.sql is recorded in _migrations"
+            LATEST_FILE=$(ls drizzle/*.sql 2>/dev/null | sort | tail -1 | xargs -n1 basename || true)
+            if [ -z "$LATEST_FILE" ]; then
+              echo "WARN: no drizzle/*.sql files found — skipping verification"
+            else
+              cat > /tmp/verify-migration.mjs <<'VERIFY_EOF'
+              import { neon } from "@neondatabase/serverless";
+              import postgres from "postgres";
+              const url = process.env.DATABASE_URL;
+              const target = process.argv[2];
+              if (!url || !target) { console.error("verify: missing DATABASE_URL or target"); process.exit(1); }
+              const isNeon = /(^|\.)neon\.tech$/i.test(new URL(url).hostname);
+              try {
+                let rows;
+                if (isNeon) {
+                  const sql = neon(url);
+                  rows = await sql(`SELECT name FROM _migrations WHERE name = $1`, [target]);
+                } else {
+                  const client = postgres(url, { max: 1, prepare: false });
+                  rows = await client`SELECT name FROM _migrations WHERE name = ${target}`;
+                  await client.end({ timeout: 5 });
+                }
+                if (rows.length === 0) {
+                  console.error(`verify: ${target} is NOT in _migrations`);
+                  process.exit(2);
+                }
+                console.log(`verify: ${target} is applied`);
+              } catch (e) {
+                console.error("verify: query failed:", e?.message ?? e);
+                process.exit(3);
+              }
+              VERIFY_EOF
+              if ! "$BUN" run /tmp/verify-migration.mjs "$LATEST_FILE"; then
+                echo "ERROR: latest migration $LATEST_FILE is NOT recorded in _migrations — aborting deploy" >&2
+                notify_step "db-migrate" "failed" "$(( ( $(date +%s) - DM_START ) * 1000 ))"
+                exit 1
+              fi
+            fi
+
             notify_step "db-migrate" "succeeded" "$(( ( $(date +%s) - DM_START ) * 1000 ))"
 
             # ─── (d) Zero-downtime restart. Blocks until sd_notify(READY=1).
@@ -349,14 +413,74 @@ jobs:
           app_base_url: ${{ secrets.APP_BASE_URL || 'https://gluecron.com' }}
           deploy_event_token: ${{ secrets.DEPLOY_EVENT_TOKEN }}
 
+      # ─── 3b. Full post-deploy smoke suite (Block S1+S3) ──────────────────
+      # `/healthz` alone is NOT enough — it doesn't touch the DB schema, so
+      # a broken migration leaves it green while every real page crashes
+      # selecting columns that don't exist. The post-deploy-smoke script
+      # hits 15 critical endpoints (login renders, /api/version, /demo,
+      # /mcp, /sw.js, etc.) and verifies the LATEST drizzle/*.sql is in
+      # the running process's reported migrations list. If ANY check
+      # fails, the workflow auto-rolls back.
+      - name: Notify step — full-smoke (in_progress)
+        if: env.DEPLOY_EVENT_TOKEN != ''
+        uses: ./.github/actions/notify-deploy-step
+        with:
+          step_name: full-smoke
+          status: in_progress
+          app_base_url: ${{ secrets.APP_BASE_URL || 'https://gluecron.com' }}
+          deploy_event_token: ${{ secrets.DEPLOY_EVENT_TOKEN }}
+
+      - name: Full post-deploy smoke suite
+        id: full_smoke
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.HETZNER_HOST }}
+          username: ${{ secrets.HETZNER_USER }}
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          script_stop: true
+          script: |
+            set -e
+            cd /opt/gluecron
+            BUN=/root/.bun/bin/bun
+            export GLUECRON_HOST="http://localhost:3010"
+            echo "==> running 15-endpoint smoke suite against $GLUECRON_HOST"
+            # The script exits 1 on endpoint failure, 2 on missing
+            # migration. We treat both as fatal so the workflow rolls
+            # back. stdout/stderr stream live to the GH Actions log.
+            "$BUN" run scripts/post-deploy-smoke.ts
+
+      - name: Notify step — full-smoke (succeeded)
+        if: success() && env.DEPLOY_EVENT_TOKEN != ''
+        uses: ./.github/actions/notify-deploy-step
+        with:
+          step_name: full-smoke
+          status: succeeded
+          app_base_url: ${{ secrets.APP_BASE_URL || 'https://gluecron.com' }}
+          deploy_event_token: ${{ secrets.DEPLOY_EVENT_TOKEN }}
+
+      - name: Notify step — full-smoke (failed)
+        if: failure() && steps.full_smoke.conclusion == 'failure' && env.DEPLOY_EVENT_TOKEN != ''
+        uses: ./.github/actions/notify-deploy-step
+        with:
+          step_name: full-smoke
+          status: failed
+          app_base_url: ${{ secrets.APP_BASE_URL || 'https://gluecron.com' }}
+          deploy_event_token: ${{ secrets.DEPLOY_EVENT_TOKEN }}
+
       # ─── 4. Auto-rollback on smoke failure ──────────────────────────────
       # Only rolls back if the workflow was triggered by a normal push.
       # Manual workflow_dispatch runs SKIP rollback so the operator can
       # diagnose the new code on the box before reverting. This stops the
       # pathological case where rollback masks the real failure by reverting
       # to an already-broken previous SHA.
+      #
+      # S1 (2026-05-14): rollback now also fires when the FULL smoke suite
+      # fails (steps.full_smoke), not just the basic /healthz curl. Recursion
+      # cap: only ONE rollback attempt per workflow run (the `if:` guard
+      # naturally enforces this — the only rollback step in the file).
       - name: Rollback on failure
-        if: failure() && steps.smoke.conclusion == 'failure' && github.event_name == 'push'
+        id: rollback
+        if: failure() && github.event_name == 'push' && (steps.smoke.conclusion == 'failure' || steps.full_smoke.conclusion == 'failure')
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.HETZNER_HOST }}
@@ -365,12 +489,39 @@ jobs:
           script_stop: false
           script: |
             cd /opt/gluecron
-            prev=$(cat /tmp/gluecron_prev_sha)
-            echo "Rolling back to $prev"
+            prev=$(cat /tmp/gluecron_prev_sha 2>/dev/null || true)
+            if [ -z "$prev" ]; then
+              echo "ROLLBACK SKIPPED: no /tmp/gluecron_prev_sha — human intervention required"
+              exit 1
+            fi
+            echo "ROLLED BACK to $prev because post-deploy smoke failed"
             git reset --hard "$prev"
+            # Don't re-run migrations here: rolling back schema is
+            # destructive and migrations are forward-only. We just put
+            # the code back to where it was and restart. If a migration
+            # is the reason the new code is incompatible with the old,
+            # the operator must intervene manually.
+            BUN=/root/.bun/bin/bun
+            if [ -f bun.lock ] && [ -d node_modules ]; then
+              echo "==> reusing existing node_modules (lockfile hash check skipped during rollback)"
+            else
+              "$BUN" install --frozen-lockfile || true
+            fi
             systemctl restart gluecron
-            sleep 5
+            # Verify the rollback target itself comes up green.
+            sleep 3
+            for i in 1 2 3; do
+              code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3010/healthz)
+              echo "Rollback healthz attempt $i: $code"
+              if [ "$code" = "200" ]; then
+                echo "OK: rolled-back instance is healthy"
+                exit 0
+              fi
+              sleep 2
+            done
+            echo "WARN: rollback target ALSO failed /healthz — human intervention required"
             systemctl status gluecron --no-pager | head -20 || true
+            exit 1
 
       # ─── 5. Failure diagnostics — captured into a file for summary + AI ──
       - name: Capture failure context
@@ -498,10 +649,30 @@ jobs:
           APP_BASE_URL: ${{ secrets.APP_BASE_URL || 'https://gluecron.com' }}
           START_EPOCH: ${{ steps.start.outputs.epoch }}
           DIAG: ${{ steps.ctx.outputs.stdout }}
+          ROLLBACK_OUTCOME: ${{ steps.rollback.outcome }}
+          SMOKE_OUTCOME: ${{ steps.smoke.conclusion }}
+          FULL_SMOKE_OUTCOME: ${{ steps.full_smoke.conclusion }}
         run: |
           DUR_MS=$(( ( $(date +%s) - START_EPOCH ) * 1000 ))
+          # Build a short reason header. S1 (2026-05-14): the deploy-
+          # finished payload now records WHICH smoke layer failed and
+          # whether the rollback succeeded, so /admin/deploys shows a
+          # red pill with the actual cause instead of "deploy failed".
+          REASON_HEADER=""
+          if [ "$FULL_SMOKE_OUTCOME" = "failure" ]; then
+            REASON_HEADER="post-deploy smoke suite failed"
+          elif [ "$SMOKE_OUTCOME" = "failure" ]; then
+            REASON_HEADER="/healthz smoke failed"
+          fi
+          if [ -n "$ROLLBACK_OUTCOME" ] && [ "$ROLLBACK_OUTCOME" != "skipped" ]; then
+            if [ "$ROLLBACK_OUTCOME" = "success" ]; then
+              REASON_HEADER="ROLLED BACK — $REASON_HEADER"
+            else
+              REASON_HEADER="ROLLBACK FAILED — $REASON_HEADER — human intervention required"
+            fi
+          fi
           # First 1 KB of diagnostics — keeps the JSON small and the DB row sane.
-          ERR_TEXT=$(printf '%s' "${DIAG:-deploy failed; see workflow logs}" | head -c 1024)
+          ERR_TEXT=$(printf '%s\n\n%s' "${REASON_HEADER:-deploy failed}" "${DIAG:-see workflow logs}" | head -c 1024)
           # jq -Rs '.' is the safest way to JSON-escape arbitrary multi-line text.
           if command -v jq >/dev/null 2>&1; then
             ERR_JSON=$(printf '%s' "$ERR_TEXT" | jq -Rs '.')

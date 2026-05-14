@@ -96,15 +96,97 @@ self.addEventListener('activate', (e) => {
 // No fetch handler — every request goes straight to the network.
 `;
 
+/**
+ * Block S2 — deploy-SHA-pinned cache bust.
+ *
+ * The SW source we SERVE from `/sw.js` is built per-request and pins its
+ * cache name to the current deploy SHA. The locked Block-G1
+ * `SERVICE_WORKER_SRC` constant above is preserved (exported for tests +
+ * historical context); the served body is built afresh in the handler so
+ * the SW_VERSION is always current.
+ *
+ * Behaviour:
+ *   - `install` calls `skipWaiting()` so the new SW activates immediately
+ *     instead of waiting for every tab to close.
+ *   - `activate` deletes every `gluecron-*` cache that isn't the current
+ *     version's cache, then `clients.claim()`s so open tabs adopt the new
+ *     SW without a manual reload.
+ *
+ * The `Cache-Control: no-store` header on `/sw.js` itself ensures browsers
+ * always re-fetch the SW source on update checks — critical for the new
+ * version to actually reach returning visitors.
+ *
+ * BUILD_SHA is read from `process.env.BUILD_SHA` at request time so the
+ * deploy pipeline can rotate it without a rebuild. Falls back to a stable
+ * per-process `dev-<pid>` string when unset; a one-shot warn() is logged
+ * so operators notice misconfigured deploys.
+ */
+
+// One-shot warning latch — exported only for tests to reset between cases.
+let _missingShaWarned = false;
+export function _resetSwShaWarningForTests(): void {
+  _missingShaWarned = false;
+}
+
+export function buildSwVersion(): string {
+  const sha = process.env.BUILD_SHA?.trim();
+  if (sha) return sha;
+  if (!_missingShaWarned) {
+    _missingShaWarned = true;
+    console.warn(
+      "[pwa] BUILD_SHA env not set — service worker will fall back to a dev-mode version string. Set BUILD_SHA in the deploy environment so cache-busting pins to the deploy SHA."
+    );
+  }
+  // Dev fallback: stable per-process so reloads don't churn the cache
+  // while developing locally, but distinct from any real SHA.
+  return `dev-${process.pid}`;
+}
+
+export function buildVersionedServiceWorker(version: string): string {
+  // Escape backslashes + double-quotes so the version is safe inside a
+  // double-quoted JS string literal. Real SHAs are hex, but the dev
+  // fallback could in principle contain anything — belt + braces.
+  const safe = version.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  return `// gluecron service worker — Block S2 (deploy-SHA-pinned cache bust)
+const SW_VERSION = "${safe}";
+const CACHE_PREFIX = "gluecron-";
+const CURRENT_CACHE = CACHE_PREFIX + SW_VERSION;
+
+self.addEventListener("install", (e) => {
+  // Activate immediately — don't wait for every tab to close. Pairs with
+  // the layout's updatefound→reload hook so the user sees the new HTML
+  // on the very next page load instead of "forever until DevTools".
+  self.skipWaiting();
+});
+
+self.addEventListener("activate", (e) => {
+  e.waitUntil(
+    caches.keys().then((names) =>
+      Promise.all(
+        names
+          .filter((n) => n.startsWith(CACHE_PREFIX) && n !== CURRENT_CACHE)
+          .map((n) => caches.delete(n))
+      )
+    ).then(() => self.clients.claim())
+  );
+});
+
+// No fetch handler — every request goes straight to the network. The
+// version-pinned cache machinery is in place for future opt-in caching
+// without re-introducing the stale-HTML bug.
+`;
+}
+
 pwa.get("/sw.js", (c) => {
   c.header("content-type", "application/javascript");
-  // No-cache: browser must check on every page load. Critical for the v4
-  // self-nuke SW to actually reach all returning visitors.
-  c.header("cache-control", "no-cache, no-store, must-revalidate");
+  // no-store on /sw.js itself: browsers must re-fetch the SW source on
+  // every update check so the new SW_VERSION can actually propagate.
+  c.header("cache-control", "no-store");
   c.header("pragma", "no-cache");
-  // Service-Worker-Allowed required for root-scope SW served from root
+  // Service-Worker-Allowed required for root-scope SW served from root.
   c.header("service-worker-allowed", "/");
-  return c.body(SERVICE_WORKER_SRC);
+  const version = buildSwVersion();
+  return c.body(buildVersionedServiceWorker(version));
 });
 
 /**

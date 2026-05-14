@@ -515,10 +515,31 @@ const themeInitScript = `
 
 // Block G1 — register service worker for offline / install support.
 // Kept inline (and tiny) so we don't block first paint.
+//
+// Block S2 extension — when an updated SW activates we force a single
+// reload so the user picks up the fresh HTML immediately instead of
+// being stuck on the previous deploy's cached page (the "I saw /login's
+// old version even after merging" bug that triggered S2 in the first
+// place). The reload only fires when `controller` is already set, which
+// means this is NOT the first-ever install (no double-load on first
+// visit). A page-scoped guard prevents reload loops if the SW updates
+// twice in quick succession.
 const pwaRegisterScript = `
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function(){
-      navigator.serviceWorker.register('/sw.js').catch(function(){});
+      navigator.serviceWorker.register('/sw.js').then(function(reg){
+        var reloaded = false;
+        reg.addEventListener('updatefound', function(){
+          var newSW = reg.installing;
+          if (!newSW) return;
+          newSW.addEventListener('statechange', function(){
+            if (newSW.state === 'activated' && navigator.serviceWorker.controller && !reloaded) {
+              reloaded = true;
+              window.location.reload();
+            }
+          });
+        });
+      }).catch(function(){});
     });
   }
 `;

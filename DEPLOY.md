@@ -137,6 +137,8 @@ Every routine action is a button click on [`/admin/ops`](https://gluecron.com/ad
 
 Live deploy progress streams to [`/admin/deploys`](https://gluecron.com/admin/deploys) while the workflow runs. No SSH required for any of this.
 
+**Post-deploy verification is automatic.** Every deploy runs a 15-endpoint smoke suite (`scripts/post-deploy-smoke.ts`) after `systemctl restart`. If any endpoint returns the wrong status or shape — including the case where migrations didn't apply and `/login` now 500s — the workflow auto-rolls back to the previous successful SHA and marks the deploy failed. You'll see this on `/admin/deploys` with a red status pill and a "ROLLED BACK" reason header. The same step also reads `_migrations` from the live DB and refuses to mark the deploy successful if the latest `drizzle/*.sql` file isn't recorded — closing the silent-migration-failure gap that broke gluecron.com for hours on 2026-05-13.
+
 ### Logs
 Every request carries an `X-Request-Id` header. Grep `/admin/deploys` (per-deploy log panel) or your host's log stream for that ID when tracing a report.
 

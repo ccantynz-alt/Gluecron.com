@@ -2854,3 +2854,37 @@ export const magicLinkTokens = pgTable(
 export type MagicLinkToken = typeof magicLinkTokens.$inferSelect;
 export type NewMagicLinkToken = typeof magicLinkTokens.$inferInsert;
 
+// ---------------------------------------------------------------------------
+// BLOCK S4 — Synthetic monitor history.
+//
+// Every autopilot tick runs `runSyntheticChecks()` (see
+// `src/lib/synthetic-monitor.ts`) and inserts one row per check here.
+// The /admin/status page reads the most-recent row per check_name and
+// renders the red/green dashboard. On a green->red transition we fire
+// MONITOR_ALERT_WEBHOOK_URL so the owner sees the site is on fire.
+// ---------------------------------------------------------------------------
+export const syntheticChecks = pgTable(
+  "synthetic_checks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    checkName: text("check_name").notNull(),
+    status: text("status").notNull(), // "green" | "red" | "yellow"
+    statusCode: integer("status_code"),
+    durationMs: integer("duration_ms").notNull(),
+    error: text("error"),
+    checkedAt: timestamp("checked_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("idx_synthetic_checks_checked_at").on(table.checkedAt),
+    index("idx_synthetic_checks_name_checked_at").on(
+      table.checkName,
+      table.checkedAt
+    ),
+  ]
+);
+
+export type SyntheticCheckRow = typeof syntheticChecks.$inferSelect;
+export type NewSyntheticCheckRow = typeof syntheticChecks.$inferInsert;
+

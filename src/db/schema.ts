@@ -55,6 +55,26 @@ export const users = pgTable("users", {
     .default(true)
     .notNull(),
   isAdmin: boolean("is_admin").default(false).notNull(),
+  // Block P2 — set when the user clicks the verification link. Soft-gate
+  // only: registration succeeds regardless; /dashboard surfaces a banner
+  // until this is non-null.
+  emailVerifiedAt: timestamp("email_verified_at"),
+  // Block P5 — Account deletion with 30-day grace period.
+  // See drizzle/0049_account_deletion.sql.
+  deletedAt: timestamp("deleted_at"),
+  deletionScheduledFor: timestamp("deletion_scheduled_for"),
+  // Block P3 — Terms of Service / Privacy Policy acceptance audit trail.
+  // Set on /register when the user ticks the accept_terms checkbox.
+  // termsVersion bumps when Terms change; UI prompts re-acceptance later.
+  termsAcceptedAt: timestamp("terms_accepted_at"),
+  termsVersion: text("terms_version"),
+  // Block Q3 — Anonymous playground accounts. When `isPlayground=true`, the
+  // account was minted by /play with a synthetic email + random password
+  // and is hard-deleted by the autopilot `playground-purge` task once
+  // `playgroundExpiresAt` passes. Real accounts always carry false/null.
+  // See drizzle/0052_playground_accounts.sql.
+  isPlayground: boolean("is_playground").default(false).notNull(),
+  playgroundExpiresAt: timestamp("playground_expires_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -2733,4 +2753,104 @@ export const prRiskScores = pgTable(
 
 export type PrRiskScoreRow = typeof prRiskScores.$inferSelect;
 export type NewPrRiskScoreRow = typeof prRiskScores.$inferInsert;
+
+/**
+ * Block P1 — Password reset tokens.
+ *
+ * One row per outstanding reset request. `tokenHash` is a SHA-256 of the
+ * plaintext token mailed to the user; the plaintext never persists.
+ * `usedAt` is flipped on consume so a replayed link cannot rotate the
+ * password twice. `expiresAt` is enforced at consume time (1-hour TTL).
+ *
+ * Migration: 0047_password_reset_tokens.sql
+ */
+export const passwordResetTokens = pgTable(
+  "password_reset_tokens",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull().unique(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    requestIp: text("request_ip"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("idx_password_reset_tokens_user").on(table.userId),
+    index("idx_password_reset_tokens_expires").on(table.expiresAt),
+  ]
+);
+
+export type PasswordResetToken = typeof passwordResetTokens.$inferSelect;
+export type NewPasswordResetToken = typeof passwordResetTokens.$inferInsert;
+
+/**
+ * Block P2 — email verification tokens.
+ *
+ * SHA-256 hashed at rest. `email` captured at issuance so a verification
+ * link still resolves the right address even after a profile-email change.
+ * Migration: drizzle/0048_email_verification.sql
+ */
+export const emailVerificationTokens = pgTable(
+  "email_verification_tokens",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    tokenHash: text("token_hash").notNull().unique(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [index("idx_email_verify_tokens_user").on(table.userId)]
+);
+
+export type EmailVerificationToken = typeof emailVerificationTokens.$inferSelect;
+export type NewEmailVerificationToken = typeof emailVerificationTokens.$inferInsert;
+
+/**
+ * Block Q2 — Magic-link sign-in tokens.
+ *
+ * Structurally identical to passwordResetTokens / emailVerificationTokens:
+ * a short plaintext token is mailed to the user, only its sha256 hash is
+ * persisted, the token is single-use (usedAt) and time-limited (expiresAt).
+ *
+ * Difference: `userId` is NULLABLE. When a user enters an email that does
+ * NOT yet have an account, we still mint a row — consume will create the
+ * account on click (autoCreate=true), using the click itself as proof the
+ * recipient owns the address. See `src/lib/magic-link.ts`.
+ *
+ * Migration: drizzle/0051_magic_link_tokens.sql
+ */
+export const magicLinkTokens = pgTable(
+  "magic_link_tokens",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    email: text("email").notNull(),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull().unique(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    requestIp: text("request_ip"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("idx_magic_link_tokens_email").on(table.email),
+    index("idx_magic_link_tokens_user").on(table.userId),
+    index("idx_magic_link_tokens_expires").on(table.expiresAt),
+  ]
+);
+
+export type MagicLinkToken = typeof magicLinkTokens.$inferSelect;
+export type NewMagicLinkToken = typeof magicLinkTokens.$inferInsert;
 

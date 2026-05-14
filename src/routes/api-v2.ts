@@ -310,6 +310,14 @@ apiv2.post("/repos", requireApiAuth, requireScope("repo"), async (c) => {
     return c.json({ error: "Invalid repository name" }, 400);
   }
 
+  // P4 — plan-quota gate. 402 Payment Required is the canonical HTTP
+  // signal that the client should branch on (e.g. show an upgrade CTA).
+  const { checkRepoCreateAllowed } = await import("../lib/repo-create-gate");
+  const gate = await checkRepoCreateAllowed(user.id);
+  if (!gate.ok) {
+    return c.json({ error: gate.reason, upgrade_url: gate.upgradeUrl }, 402);
+  }
+
   if (await repoExists(user.username, body.name)) {
     return c.json({ error: "Repository already exists" }, 409);
   }

@@ -223,6 +223,14 @@ web.post("/new", requireAuth, async (c) => {
     return c.redirect("/new?error=Repository+name+is+required");
   }
 
+  // P4 — plan-quota gate. Fail-open inside the helper so a billing
+  // outage never blocks repo creation.
+  const { checkRepoCreateAllowed } = await import("../lib/repo-create-gate");
+  const gate = await checkRepoCreateAllowed(user.id);
+  if (!gate.ok) {
+    return c.redirect(`/new?error=${encodeURIComponent(gate.reason)}`);
+  }
+
   if (!/^[a-zA-Z0-9._-]+$/.test(name)) {
     return c.redirect("/new?error=Invalid+repository+name");
   }

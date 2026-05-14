@@ -46,6 +46,8 @@ import {
 } from "./stale-sweep";
 import { computePrRiskForPullRequest } from "./pr-risk";
 import { prRiskScores } from "../db/schema";
+import { purgeScheduledAccounts } from "./account-deletion";
+import { purgeExpiredPlaygroundAccounts } from "./playground";
 
 export interface AutopilotTaskResult {
   name: string;
@@ -192,6 +194,37 @@ export function defaultTasks(): AutopilotTask[] {
         console.log(
           `[autopilot] pr-risk-rescore: scored=${summary.scored} skipped=${summary.skipped}`
         );
+      },
+    },
+
+    {
+      // Block P5 — Hard-delete users whose 30-day grace period expired.
+      name: "account-purge",
+      run: async () => {
+        try {
+          const summary = await purgeScheduledAccounts({ cap: 50 });
+          console.log(
+            `[autopilot] account-purge: purged=${summary.purged} errors=${summary.errors}`
+          );
+        } catch (err) {
+          console.error("[autopilot] account-purge: threw:", err);
+        }
+      },
+    },
+    {
+      // Block Q3 — Hard-delete anonymous playground accounts past their
+      // 24h TTL. CASCADE handles repos, sessions, issues. Per-user
+      // try/catch in the lib so one FK violation can't stall the queue.
+      name: "playground-purge",
+      run: async () => {
+        try {
+          const summary = await purgeExpiredPlaygroundAccounts({ cap: 50 });
+          console.log(
+            `[autopilot] playground-purge: purged=${summary.purged} errors=${summary.errors}`
+          );
+        } catch (err) {
+          console.error("[autopilot] playground-purge: threw:", err);
+        }
       },
     },
   ];

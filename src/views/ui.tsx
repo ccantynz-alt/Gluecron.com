@@ -249,15 +249,39 @@ export const Badge: FC<
 
 // ─── Card Components ────────────────────────────────────────────────────────
 
-export const Card: FC<PropsWithChildren<{ class?: string; style?: string }>> = ({
-  children,
-  class: cls,
-  style,
-}) => (
-  <div class={`card${cls ? ` ${cls}` : ""}`} style={style}>
-    {children}
-  </div>
-);
+/**
+ * Card — the canonical panel primitive.
+ *
+ * Block O3: extended with `padding` and `variant` props so every "panel"
+ * style across the app maps to a single CSS contract.
+ */
+export const Card: FC<
+  PropsWithChildren<{
+    padding?: "none" | "sm" | "md" | "lg";
+    variant?: "default" | "elevated" | "gradient";
+    class?: string;
+    style?: string;
+  }>
+> = ({ children, padding, variant, class: cls, style }) => {
+  const padCls =
+    padding === "none" ? " card-p-none" :
+    padding === "sm" ? " card-p-sm" :
+    padding === "md" ? " card-p-md" :
+    padding === "lg" ? " card-p-lg" :
+    "";
+  const variantCls =
+    variant === "elevated" ? " card-elevated" :
+    variant === "gradient" ? " card-gradient" :
+    "";
+  return (
+    <div
+      class={`card${padCls}${variantCls}${cls ? ` ${cls}` : ""}`}
+      style={style}
+    >
+      {children}
+    </div>
+  );
+};
 
 export const CardMeta: FC<PropsWithChildren> = ({ children }) => (
   <div class="card-meta">{children}</div>

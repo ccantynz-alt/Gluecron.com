@@ -194,8 +194,24 @@ ok "deps + migrations done"
 # ────────────────────────────────────────────────────────────────────────────
 # 8. systemd unit for gluecron
 # ────────────────────────────────────────────────────────────────────────────
+# Block N2 — `Type=notify` so `systemctl restart gluecron` blocks until the
+# new process has called sd_notify(READY=1) (wired in src/lib/systemd-notify.ts
+# from src/index.ts). That eliminates the post-restart sleep-and-poll loop in
+# the deploy workflow.
+#
+# Block N2 — Bun-compiled single-binary path. If `/opt/gluecron/.next/gluecron-server`
+# exists (built by the deploy workflow), prefer it (~10x faster cold start vs
+# `bun run src/index.ts`). Falls back to interpreted Bun for safety so a stale
+# bootstrap still produces a runnable unit on a brand-new box.
 say "[8/11] Writing /etc/systemd/system/gluecron.service"
 BUN_BIN=/root/.bun/bin/bun
+COMPILED_BIN=/opt/gluecron/.next/gluecron-server
+mkdir -p /opt/gluecron/.next
+if [ -x "$COMPILED_BIN" ]; then
+  EXEC_START="$COMPILED_BIN"
+else
+  EXEC_START="${BUN_BIN} run src/index.ts"
+fi
 cat > /etc/systemd/system/gluecron.service <<EOF
 [Unit]
 Description=Gluecron — AI-native code intelligence platform
@@ -203,13 +219,17 @@ After=network-online.target postgresql.service
 Wants=network-online.target
 
 [Service]
-Type=simple
+Type=notify
+NotifyAccess=main
 User=root
 WorkingDirectory=/opt/gluecron
 EnvironmentFile=/etc/gluecron.env
-ExecStart=${BUN_BIN} run src/index.ts
+ExecStart=${EXEC_START}
 Restart=always
 RestartSec=5
+# Block N2 — give the new process up to 30s to call sd_notify(READY=1).
+# Default is 90s; we lower it so a hung-on-startup deploy fails fast.
+TimeoutStartSec=30
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=gluecron
@@ -221,7 +241,7 @@ EOF
 systemctl daemon-reload
 systemctl enable gluecron >/dev/null
 systemctl restart gluecron
-ok "gluecron systemd unit installed + started"
+ok "gluecron systemd unit installed + started (Type=notify, ExecStart=${EXEC_START})"
 
 # ────────────────────────────────────────────────────────────────────────────
 # 9. Append gluecron + www.gluecron to Caddyfile if missing

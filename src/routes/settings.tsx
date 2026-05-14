@@ -16,6 +16,12 @@ import {
   renderSleepModeDigest,
 } from "../lib/sleep-mode";
 import {
+  scheduleAccountDeletion,
+  cancelAccountDeletion,
+  daysUntilPurge,
+} from "../lib/account-deletion";
+import { deleteCookie } from "hono/cookie";
+import {
   Alert,
   Button,
   Flex,
@@ -273,9 +279,104 @@ settings.get("/settings", (c) => {
           />
         </div>
         <script dangerouslySetInnerHTML={{ __html: pushDeviceScript }} />
+        {renderDeleteAccountSection({ user, csrfToken: c.get("csrfToken") })}
       </div>
     </Layout>
   );
+});
+
+/** Block P5 — Danger zone at bottom of /settings. */
+function renderDeleteAccountSection(args: {
+  user: { id: string; username: string; deletedAt: Date | null; deletionScheduledFor: Date | null };
+  csrfToken: string | undefined;
+}) {
+  const { user, csrfToken } = args;
+  const scheduled = user.deletedAt !== null;
+  const daysLeft = daysUntilPurge({ deletionScheduledFor: user.deletionScheduledFor });
+  const dangerStyle =
+    "margin-top:48px;padding:20px;border:1px solid #e5484d;border-radius:8px;background:rgba(229,72,77,0.04)";
+
+  if (scheduled) {
+    return (
+      <div style={dangerStyle}>
+        <h3 style="margin:0 0 8px 0;font-size:16px;color:#e5484d">
+          Account scheduled for deletion
+        </h3>
+        <p style="margin:0 0 12px 0;font-size:14px">
+          Your account is scheduled for permanent deletion in{" "}
+          <strong>{daysLeft ?? 0}</strong>{" "}
+          {daysLeft === 1 ? "day" : "days"}. Cancel below to keep your
+          account; signing in again also cancels the deletion automatically.
+        </p>
+        <form method="post" action="/settings/delete-account/cancel">
+          <input type="hidden" name="_csrf" value={csrfToken || ""} />
+          <button type="submit" class="btn btn-primary">
+            Cancel deletion
+          </button>
+        </form>
+      </div>
+    );
+  }
+
+  return (
+    <div style={dangerStyle}>
+      <h3 style="margin:0 0 8px 0;font-size:16px;color:#e5484d">
+        Delete account
+      </h3>
+      <p style="margin:0 0 8px 0;font-size:14px">
+        Deleting your account starts a 30-day grace period. Your repos,
+        issues, PRs, and settings are kept during that window — sign in
+        any time before it ends to cancel. After 30 days everything is
+        permanently purged.
+      </p>
+      <p style="margin:0 0 12px 0;font-size:13px;color:var(--text-muted)">
+        To confirm, type your username (<code>{user.username}</code>) below.
+      </p>
+      <form method="post" action="/settings/delete-account">
+        <input type="hidden" name="_csrf" value={csrfToken || ""} />
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <input
+            type="text"
+            name="confirm_username"
+            required
+            autocomplete="off"
+            placeholder={user.username}
+            aria-label="Type your username to confirm account deletion"
+            style="font-family:var(--font-mono);font-size:13px;padding:6px 8px;min-width:220px"
+          />
+          <button type="submit" class="btn btn-danger">
+            Delete my account
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+// Block P5 — schedule a deletion.
+settings.post("/settings/delete-account", async (c) => {
+  const user = c.get("user")!;
+  const body = await c.req.parseBody();
+  const confirm = String(body.confirm_username || "").trim();
+  if (confirm !== user.username) {
+    return c.text(
+      "Username confirmation did not match. Account NOT deleted.",
+      400
+    );
+  }
+  const result = await scheduleAccountDeletion(user.id);
+  if (!result.ok) {
+    return c.text("Failed to schedule deletion. Please try again later.", 500);
+  }
+  deleteCookie(c, "session", { path: "/" });
+  return c.redirect("/login?info=Account+scheduled+for+deletion");
+});
+
+// Block P5 — cancel a pending deletion.
+settings.post("/settings/delete-account/cancel", async (c) => {
+  const user = c.get("user")!;
+  await cancelAccountDeletion(user.id);
+  return c.redirect("/settings?success=Account+deletion+cancelled");
 });
 
 // Preview the Sleep Mode digest in-browser (rendered HTML).

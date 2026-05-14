@@ -19,6 +19,8 @@
 import { createMiddleware } from "hono/factory";
 import type { AuthEnv } from "./auth";
 import { isSiteAdmin } from "../lib/admin";
+// BLOCK O2 — polished 403 page renderer (standalone HTML, DB-free).
+import { renderStandaloneErrorPage } from "../views/error-page";
 
 export const requireAdmin = createMiddleware<AuthEnv>(async (c, next) => {
   const user = c.get("user");
@@ -29,14 +31,19 @@ export const requireAdmin = createMiddleware<AuthEnv>(async (c, next) => {
 
   const admin = user.isAdmin === true || (await isSiteAdmin(user.id));
   if (!admin) {
+    // BLOCK O2 — polished 403 page (was inline 80s-era markup). The
+    // standalone renderer returns a self-contained <!doctype html>
+    // document so this middleware has no Layout dependency.
     return c.html(
-      `<html><body style="background:#0d1117;color:#e6edf3;font-family:sans-serif;display:flex;justify-content:center;align-items:center;height:100vh">
-        <div style="text-align:center">
-          <h1>403</h1>
-          <p>Admin access required.</p>
-          <a href="/" style="color:#58a6ff">Go home</a>
-        </div>
-      </body></html>`,
+      renderStandaloneErrorPage({
+        code: "403",
+        eyebrow: "Forbidden",
+        title: "Admin access required.",
+        body:
+          "This area is restricted to site admins. If you think this is " +
+          "a mistake, contact a site admin or sign in as a different user.",
+        signedIn: true,
+      }),
       403
     );
   }

@@ -18,6 +18,11 @@ export const Layout: FC<
     ogDescription?: string;
     ogType?: string;
     twitterCard?: "summary" | "summary_large_image";
+    // Block O3 — site-wide footer banner stripe. When non-empty,
+    // renders below the footer-bottom row; wired from
+    // admin.system_flags.site_banner_text.
+    siteBannerText?: string;
+    siteBannerLevel?: "info" | "warn" | "error";
   }>
 > = ({
   children,
@@ -31,6 +36,8 @@ export const Layout: FC<
   ogDescription,
   ogType,
   twitterCard,
+  siteBannerText,
+  siteBannerLevel,
 }) => {
   const initialTheme = theme === "light" ? "light" : "dark";
   const build = getBuildInfo();
@@ -71,6 +78,73 @@ export const Layout: FC<
           Pre-launch &mdash; Gluecron is in final validation. Public signups
           and git hosting for non-owner users open after launch review.
         </div>
+        {/* Block Q3 — Playground banner. Renders only when the active
+            user is a playground account with a future expiry; the small
+            inline script counts down once per minute. Strip is dismissible
+            per-page-load (re-appears on next nav) — gentle, not noisy. */}
+        {user && (user as any).isPlayground && (user as any).playgroundExpiresAt && (
+          <div
+            class="playground-banner"
+            role="status"
+            aria-live="polite"
+            data-playground-expires={
+              ((user as any).playgroundExpiresAt instanceof Date
+                ? (user as any).playgroundExpiresAt.toISOString()
+                : String((user as any).playgroundExpiresAt))
+            }
+          >
+            <span class="playground-banner-icon" aria-hidden="true">{"\u{1F3AE}"}</span>
+            <span class="playground-banner-text">
+              Playground account &mdash;{" "}
+              <span class="playground-banner-countdown">expires soon</span>.{" "}
+              <a href="/play/claim" class="playground-banner-cta">
+                Save your work &rarr;
+              </a>
+            </span>
+            <button
+              type="button"
+              class="playground-banner-dismiss"
+              aria-label="Dismiss"
+              data-playground-dismiss="1"
+            >
+              {"×"}
+            </button>
+            <script
+              dangerouslySetInnerHTML={{
+                __html: /* js */ `
+                  (function () {
+                    var el = document.currentScript && document.currentScript.parentElement;
+                    if (!el) return;
+                    var iso = el.getAttribute('data-playground-expires');
+                    if (!iso) return;
+                    var target = Date.parse(iso);
+                    if (isNaN(target)) return;
+                    var out = el.querySelector('.playground-banner-countdown');
+                    function render() {
+                      var ms = target - Date.now();
+                      if (!out) return;
+                      if (ms <= 0) { out.textContent = 'expired'; return; }
+                      var mins = Math.floor(ms / 60000);
+                      var hrs = Math.floor(mins / 60);
+                      if (hrs > 1) out.textContent = hrs + ' hours left';
+                      else if (hrs === 1) out.textContent = '1 hour left';
+                      else if (mins > 1) out.textContent = mins + ' minutes left';
+                      else out.textContent = 'less than a minute left';
+                    }
+                    render();
+                    setInterval(render, 60000);
+                    var dismiss = el.querySelector('[data-playground-dismiss="1"]');
+                    if (dismiss) {
+                      dismiss.addEventListener('click', function () {
+                        el.style.display = 'none';
+                      });
+                    }
+                  })();
+                `,
+              }}
+            />
+          </div>
+        )}
         <header>
           <nav>
             <a href="/" class="logo">
@@ -87,6 +161,24 @@ export const Layout: FC<
               </form>
             </div>
             <div class="nav-right">
+              {/* Block N3 — site-admin platform-deploy status pill. Hidden
+                  by default; revealed client-side once /admin/deploys/latest.json
+                  responds 200 (non-admins get 401/403 and the pill stays
+                  hidden). Subscribes to the `platform:deploys` SSE topic
+                  for live updates. See `deployPillScript` below. */}
+              {user && (
+                <a
+                  id="deploy-pill"
+                  href="/admin/deploys"
+                  class="nav-deploy-pill"
+                  style="display:none"
+                  aria-label="Platform deploy status"
+                  title="Platform deploy status"
+                >
+                  <span class="deploy-pill-dot" />
+                  <span class="deploy-pill-text">Deploys</span>
+                </a>
+              )}
               <a
                 href="/theme/toggle"
                 class="nav-link nav-theme"
@@ -174,6 +266,15 @@ export const Layout: FC<
               {build.sha} · {build.branch}
             </span>
           </div>
+          {siteBannerText ? (
+            <div
+              class={`footer-banner footer-banner-${siteBannerLevel || "info"}`}
+              role="status"
+              aria-live="polite"
+            >
+              {siteBannerText}
+            </div>
+          ) : null}
         </footer>
         {/* Live update poller — checks /api/version every 15s, prompts
             reload when the running sha changes. Pure progressive-
@@ -195,6 +296,13 @@ export const Layout: FC<
           </button>
         </div>
         <script dangerouslySetInnerHTML={{ __html: versionPollerScript }} />
+        {/* Block N3 — site-admin deploy status pill (script-only). The pill
+            container is rendered above for authed users; this script bootstraps
+            it by fetching /admin/deploys/latest.json. Non-admins get 401/403
+            and the pill stays display:none — zero leak. */}
+        {user && (
+          <script dangerouslySetInnerHTML={{ __html: deployPillScript }} />
+        )}
         {/* Block I4 — Command palette shell (hidden by default) */}
         <div
           id="cmdk-backdrop"
@@ -255,6 +363,134 @@ const versionPollerScript = `
       if (btn) btn.addEventListener('click', function(){ window.location.reload(); });
       poll();
       setInterval(poll, 15000);
+    }
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', init);
+    } else {
+      init();
+    }
+  })();
+`;
+
+// Block N3 — site-admin deploy status pill. Fetches /admin/deploys/latest.json;
+// if 200, reveals the pill in the nav and subscribes to the `platform:deploys`
+// SSE topic for live status updates. Non-admins get 401/403 and the pill stays
+// display:none — there's no leakage of admin-only data to other users.
+//
+// Pill states (CSS classes on the container drive colour):
+//   .deploy-pill-success    🟢 "Deployed 12s ago"
+//   .deploy-pill-progress   🟡 "Deploying… 14s"   (pulsing dot)
+//   .deploy-pill-failed     🔴 "Deploy failed 1m ago"
+//   .deploy-pill-empty      ⚪ "No deploys yet"
+//
+// Relative-time auto-refreshes every 15s without re-fetching.
+export const deployPillScript = `
+  (function(){
+    var pill, dot, text;
+    var state = { latest: null, asOf: null };
+
+    function classifyAge(ms){
+      if (ms < 0) return 'just now';
+      var s = Math.floor(ms / 1000);
+      if (s < 5) return 'just now';
+      if (s < 60) return s + 's ago';
+      var m = Math.floor(s / 60);
+      if (m < 60) return m + 'm ago';
+      var h = Math.floor(m / 60);
+      if (h < 24) return h + 'h ago';
+      var d = Math.floor(h / 24);
+      return d + 'd ago';
+    }
+    function elapsed(ms){
+      if (ms < 0) ms = 0;
+      var s = Math.floor(ms / 1000);
+      if (s < 60) return s + 's';
+      var m = Math.floor(s / 60);
+      var rem = s - m * 60;
+      return m + 'm ' + rem + 's';
+    }
+
+    function render(){
+      if (!pill || !text || !dot) return;
+      var d = state.latest;
+      if (!d) {
+        pill.className = 'nav-deploy-pill deploy-pill-empty';
+        text.textContent = 'No deploys yet';
+        pill.style.display = 'inline-flex';
+        return;
+      }
+      pill.style.display = 'inline-flex';
+      var now = Date.now();
+      if (d.status === 'in_progress') {
+        pill.className = 'nav-deploy-pill deploy-pill-progress';
+        var started = Date.parse(d.started_at) || now;
+        text.textContent = 'Deploying… ' + elapsed(now - started);
+      } else if (d.status === 'succeeded') {
+        pill.className = 'nav-deploy-pill deploy-pill-success';
+        var ref = Date.parse(d.finished_at || d.started_at) || now;
+        text.textContent = 'Deployed ' + classifyAge(now - ref);
+      } else if (d.status === 'failed') {
+        pill.className = 'nav-deploy-pill deploy-pill-failed';
+        var refF = Date.parse(d.finished_at || d.started_at) || now;
+        text.textContent = 'Deploy failed ' + classifyAge(now - refF);
+      } else {
+        pill.className = 'nav-deploy-pill';
+        text.textContent = d.status;
+      }
+    }
+
+    function fetchLatest(){
+      fetch('/admin/deploys/latest.json', { cache: 'no-store', credentials: 'same-origin' })
+        .then(function(r){ if (!r.ok) return null; return r.json(); })
+        .then(function(j){
+          if (!j || j.ok !== true) return;
+          state.latest = j.latest;
+          state.asOf = j.asOf;
+          render();
+          subscribe();
+        })
+        .catch(function(){});
+    }
+
+    var subscribed = false;
+    function subscribe(){
+      if (subscribed) return;
+      if (typeof EventSource === 'undefined') return;
+      subscribed = true;
+      var es;
+      var delay = 1500;
+      function connect(){
+        try { es = new EventSource('/live-events/platform:deploys'); }
+        catch(e){ setTimeout(connect, delay); return; }
+        es.onmessage = function(m){
+          try {
+            var d = JSON.parse(m.data);
+            if (d && d.run_id) {
+              if (!state.latest || state.latest.run_id === d.run_id ||
+                  Date.parse(d.started_at) >= Date.parse(state.latest.started_at)) {
+                state.latest = d;
+                render();
+              }
+            }
+          } catch(e){}
+        };
+        es.onerror = function(){
+          try { es.close(); } catch(e){}
+          setTimeout(connect, delay);
+        };
+      }
+      connect();
+    }
+
+    function init(){
+      pill = document.getElementById('deploy-pill');
+      if (!pill) return;
+      dot = pill.querySelector('.deploy-pill-dot');
+      text = pill.querySelector('.deploy-pill-text');
+      fetchLatest();
+      // Refresh relative-time labels every 15s so "12s ago" → "27s ago"
+      // without a fresh fetch.
+      setInterval(render, 15000);
     }
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', init);
@@ -625,6 +861,45 @@ const css = `
     --t-slower:560ms;
 
     --header-h: 60px;
+
+    /* Block O3 — visual coherence: named token aliases (additive). */
+    --space-1: var(--s-1);
+    --space-2: var(--s-2);
+    --space-3: var(--s-3);
+    --space-4: var(--s-4);
+    --space-5: var(--s-5);
+    --space-6: var(--s-6);
+    --space-8: var(--s-8);
+    --space-10: var(--s-10);
+    --space-12: var(--s-12);
+    --space-16: var(--s-16);
+    --space-20: var(--s-20);
+    --space-24: var(--s-24);
+    --radius-sm: var(--r-sm);
+    --radius-md: var(--r-md);
+    --radius-lg: var(--r-lg);
+    --radius-xl: var(--r-xl);
+    --radius-full: var(--r-full);
+    --font-size-xs: var(--t-xs);
+    --font-size-sm: var(--t-sm);
+    --font-size-base: var(--t-base);
+    --font-size-md: var(--t-md);
+    --font-size-lg: var(--t-lg);
+    --font-size-xl: var(--t-xl);
+    --font-size-2xl: var(--t-2xl);
+    --font-size-3xl: var(--t-3xl);
+    --font-size-hero: var(--t-display);
+    --leading-tight: 1.2;
+    --leading-snug: 1.35;
+    --leading-normal: 1.5;
+    --leading-relaxed: 1.6;
+    --leading-loose: 1.7;
+    --z-base: 1;
+    --z-nav: 10;
+    --z-sticky: 50;
+    --z-overlay: 100;
+    --z-modal: 1000;
+    --z-toast: 10000;
   }
 
   :root[data-theme='light'] {
@@ -838,6 +1113,51 @@ const css = `
     vertical-align: 1px;
   }
 
+  /* Block Q3 — Playground banner. Brighter than the prelaunch strip so
+     visitors don't miss the "save your work" CTA, but slim enough to
+     not feel like a modal. */
+  .playground-banner {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    background:
+      linear-gradient(180deg, rgba(251,191,36,0.20), rgba(251,191,36,0.06)),
+      var(--bg);
+    border-bottom: 1px solid rgba(251,191,36,0.45);
+    color: var(--yellow, #fbbf24);
+    padding: 8px 40px 8px 24px;
+    font-size: 13px;
+    font-weight: 500;
+    text-align: center;
+    line-height: 1.4;
+  }
+  .playground-banner-icon { font-size: 14px; }
+  .playground-banner-text { color: var(--text-strong, #e6edf3); }
+  .playground-banner-countdown { font-weight: 600; }
+  .playground-banner-cta {
+    margin-left: 4px;
+    color: var(--yellow, #fbbf24);
+    text-decoration: underline;
+    font-weight: 600;
+  }
+  .playground-banner-cta:hover { opacity: 0.85; }
+  .playground-banner-dismiss {
+    position: absolute;
+    top: 50%;
+    right: 12px;
+    transform: translateY(-50%);
+    background: transparent;
+    border: none;
+    color: var(--text-muted, #8b949e);
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0 4px;
+  }
+  .playground-banner-dismiss:hover { color: var(--text-strong, #e6edf3); }
+
   /* Header — sticky, blurred, hairline border, taller for breathing room */
   header {
     position: sticky;
@@ -937,6 +1257,45 @@ const css = `
   }
 
   .nav-right { display: flex; align-items: center; gap: 2px; margin-left: auto; }
+
+  /* Block N3 — site-admin deploy status pill */
+  .nav-deploy-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    margin: 0 6px 0 0;
+    border-radius: 9999px;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1;
+    color: var(--text-strong);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    text-decoration: none;
+    transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+  }
+  .nav-deploy-pill:hover { background: var(--bg-hover); text-decoration: none; }
+  .nav-deploy-pill .deploy-pill-dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: #6b7280;
+  }
+  .deploy-pill-success .deploy-pill-dot { background: #34d399; box-shadow: 0 0 6px rgba(52,211,153,0.45); }
+  .deploy-pill-failed  .deploy-pill-dot { background: #f87171; box-shadow: 0 0 6px rgba(248,113,113,0.45); }
+  .deploy-pill-failed  { border-color: rgba(248,113,113,0.4); }
+  .deploy-pill-progress .deploy-pill-dot {
+    background: #fbbf24;
+    box-shadow: 0 0 6px rgba(251,191,36,0.55);
+    animation: deployPillPulse 1.2s ease-in-out infinite;
+  }
+  @keyframes deployPillPulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50%      { opacity: 0.45; transform: scale(0.8); }
+  }
+  .deploy-pill-empty .deploy-pill-dot { background: #9ca3af; }
+
   .nav-link {
     position: relative;
     color: var(--text-muted);
@@ -2257,4 +2616,114 @@ const css = `
       transition-duration: 0.01ms !important;
     }
   }
+
+  /* Block O3 — visual coherence additive rules. */
+  .card.card-p-none { padding: 0; }
+  .card.card-p-sm { padding: var(--space-3); }
+  .card.card-p-md { padding: var(--space-4); }
+  .card.card-p-lg { padding: var(--space-6); }
+  .card.card-elevated { box-shadow: var(--elev-2); }
+  .card.card-gradient {
+    background:
+      linear-gradient(135deg, rgba(140,109,255,0.05), transparent 60%),
+      var(--bg-elevated);
+  }
+  .card.card-gradient::before { opacity: 1; }
+  .notice {
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border);
+    background: var(--bg-elevated);
+    color: var(--text);
+    font-size: var(--font-size-sm);
+    margin-bottom: var(--space-6);
+    line-height: var(--leading-normal);
+  }
+  .notice-info { border-color: rgba(96,165,250,0.40); background: rgba(96,165,250,0.08); color: var(--text); }
+  .notice-success { border-color: var(--green); background: rgba(52,211,153,0.08); color: var(--text); }
+  .notice-warn { border-color: var(--yellow); background: rgba(251,191,36,0.10); color: var(--yellow); }
+  .notice-error { border-color: var(--red); background: rgba(248,113,113,0.10); color: var(--red); }
+  .notice-accent { border-color: var(--accent); background: rgba(140,109,255,0.10); color: var(--text); }
+  .email-preview {
+    padding: var(--space-5);
+    background: #fff;
+    color: #111;
+    border-radius: var(--radius-md);
+  }
+  .code-block {
+    margin: var(--space-2) 0 0;
+    padding: var(--space-3);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    font-family: var(--font-mono);
+    font-size: var(--font-size-xs);
+    line-height: var(--leading-normal);
+    overflow-x: auto;
+  }
+  .status-pill-operational {
+    display: inline-flex;
+    align-items: center;
+    padding: var(--space-1) var(--space-3);
+    border-radius: var(--radius-full);
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    background: rgba(52,211,153,0.15);
+    color: var(--green);
+  }
+  .api-tag {
+    display: inline-flex;
+    align-items: center;
+    font-size: var(--font-size-xs);
+    padding: 2px var(--space-2);
+    border-radius: var(--radius-sm);
+    font-family: var(--font-mono);
+  }
+  .api-tag-auth { background: rgba(96,165,250,0.15); color: var(--accent); }
+  .api-tag-scope { background: rgba(52,211,153,0.15); color: var(--green); }
+  .stat-number {
+    font-size: var(--font-size-xl);
+    font-weight: 700;
+    color: var(--text-strong);
+    line-height: var(--leading-tight);
+  }
+  .stat-number-accent { color: var(--accent); }
+  .stat-number-blue { color: var(--blue); }
+  .stat-number-purple { color: var(--text-link); }
+  footer .footer-tag-sub {
+    margin-top: var(--space-2);
+    font-size: var(--font-size-xs);
+    color: var(--text-faint);
+    line-height: var(--leading-normal);
+  }
+  footer .footer-version-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-1) var(--space-3);
+    border-radius: var(--radius-full);
+    border: 1px solid var(--border);
+    background: var(--bg-elevated);
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    font-size: var(--font-size-xs);
+    cursor: help;
+  }
+  footer .footer-banner {
+    max-width: 1240px;
+    margin: var(--space-6) auto 0;
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border);
+    background: var(--bg-elevated);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: var(--font-size-xs);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    text-align: center;
+  }
+  footer .footer-banner-info { border-color: rgba(96,165,250,0.40); color: var(--blue); }
+  footer .footer-banner-warn { border-color: rgba(251,191,36,0.40); color: var(--yellow); }
+  footer .footer-banner-error { border-color: rgba(248,113,113,0.45); color: var(--red); }
 `;

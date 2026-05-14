@@ -161,6 +161,18 @@ export const LandingHero: FC<LandingPageProps> = ({
                 Sign up free
                 <span class="landing-cta-arrow" aria-hidden="true">{"→"}</span>
               </a>
+              {/* BLOCK Q1 — one-click Claude Desktop install. Gradient
+                  border + accent so it reads as a distinct flagship CTA,
+                  not just a third secondary option. */}
+              <a
+                href="/gluecron.dxt"
+                class="btn btn-xl landing-cta-dxt"
+                download
+                data-testid="cta-dxt"
+              >
+                Add to Claude Desktop
+                <span class="landing-cta-arrow" aria-hidden="true">{"→"}</span>
+              </a>
               <a href="/demo" class="btn btn-secondary btn-xl">
                 Try the live demo
                 <span class="landing-cta-arrow" aria-hidden="true">{"→"}</span>
@@ -168,6 +180,16 @@ export const LandingHero: FC<LandingPageProps> = ({
               <a href="/vs-github" class="btn btn-ghost btn-xl">
                 Compare to GitHub
                 <span class="landing-cta-arrow" aria-hidden="true">{"→"}</span>
+              </a>
+            </div>
+
+            {/* Block Q3 — tertiary "try it without signing up" link.
+                Visually subordinate to the buttons above; renders as a
+                small ghost text link so it doesn't crowd the CTA row. */}
+            <div class="landing-hero-play">
+              <a href="/play" class="landing-hero-play-link" data-testid="cta-play">
+                Or try it without signing up
+                <span aria-hidden="true">{" →"}</span>
               </a>
             </div>
 
@@ -1583,9 +1605,9 @@ const landingCss = `
   }
 
   .landing-hero-title {
-    font-size: clamp(48px, 9.5vw, 124px);
-    line-height: 0.96;
-    letter-spacing: -0.045em;
+    font-size: clamp(32px, 5.5vw, 64px);
+    line-height: 1.05;
+    letter-spacing: -0.025em;
     font-weight: 700;
     margin: 0 0 var(--s-7);
     color: var(--text-strong);
@@ -1618,9 +1640,58 @@ const landingCss = `
     transition: transform var(--t-base) var(--ease-spring);
     display: inline-block;
   }
+
+  /* Block Q3 — tertiary "try it without signing up" link.
+     Sits under the primary CTA row as a small, low-contrast text link
+     so it doesn't crowd the main calls-to-action. */
+  .landing-hero-play {
+    margin-top: 14px;
+    text-align: center;
+  }
+  .landing-hero-play-link {
+    font-size: 13px;
+    color: var(--text-muted);
+    text-decoration: none;
+    border-bottom: 1px dashed transparent;
+    padding-bottom: 1px;
+    transition: color var(--t-base), border-color var(--t-base);
+  }
+  .landing-hero-play-link:hover {
+    color: var(--text-strong, var(--text));
+    border-bottom-color: var(--text-muted);
+  }
   .btn:hover .landing-cta-arrow,
   .landing-cta-primary:hover .landing-cta-arrow {
     transform: translateX(4px);
+  }
+
+  /* BLOCK Q1 — flagship "Add to Claude Desktop" CTA.
+     Gradient-bordered + accent text so it reads as a peer of the primary
+     Sign-up CTA, not a third secondary. Subtle elevation on hover; static
+     when the visitor opts out of motion. */
+  .landing-cta-dxt {
+    position: relative;
+    background: var(--bg-elev-1, #161b22);
+    color: var(--text-strong, #e6edf3);
+    border: 1px solid transparent;
+    background-image:
+      linear-gradient(var(--bg-elev-1, #161b22), var(--bg-elev-1, #161b22)),
+      linear-gradient(90deg, #8c6dff 0%, #36c5d6 100%);
+    background-origin: border-box;
+    background-clip: padding-box, border-box;
+    transition: transform var(--t-base, 180ms) var(--ease-spring, ease),
+                box-shadow var(--t-base, 180ms) var(--ease-spring, ease);
+  }
+  .landing-cta-dxt:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px -8px rgba(140, 109, 255, 0.45);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .landing-cta-dxt,
+    .landing-cta-dxt:hover {
+      transform: none;
+      transition: none;
+    }
   }
 
   /* L8 — free-tier reassurance link beneath the CTA row. */

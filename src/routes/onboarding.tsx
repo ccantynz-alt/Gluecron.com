@@ -28,8 +28,12 @@ import {
 
 const onboardingRoutes = new Hono<AuthEnv>();
 
-onboardingRoutes.get("/getting-started", softAuth, requireAuth, async (c) => {
+// P3 — `/onboarding` is the canonical post-register landing. Alias the
+// existing `/getting-started` handler so both URLs work; new users hit
+// /onboarding?welcome=1 and see a celebration banner.
+const gettingStartedHandler = async (c: any) => {
   const user = c.get("user")!;
+  const welcome = c.req.query("welcome") === "1";
 
   // Check what the user has done
   let repoCount = 0;
@@ -61,6 +65,14 @@ onboardingRoutes.get("/getting-started", softAuth, requireAuth, async (c) => {
   return c.html(
     <Layout title="Getting Started" user={user}>
       <Container maxWidth={760}>
+        {welcome && (
+          <div
+            data-onboarding-welcome="1"
+            style="margin: 12px 0 20px; padding: 14px 18px; border-radius: 12px; background: linear-gradient(135deg, rgba(140,109,255,0.18) 0%, rgba(54,197,214,0.18) 100%); border: 1px solid rgba(140,109,255,0.45); font-size: 14px; color: var(--text-strong)"
+          >
+            🎉 Welcome to Gluecron! Let's get you set up.
+          </div>
+        )}
         {/* ─── Welcome headline + 1-line value prop ─── */}
         <WelcomeHero
           title={firstRun ? `Welcome, ${user.username}` : "Finish setting up"}
@@ -185,6 +197,9 @@ onboardingRoutes.get("/getting-started", softAuth, requireAuth, async (c) => {
       </Container>
     </Layout>
   );
-});
+};
+
+onboardingRoutes.get("/getting-started", softAuth, requireAuth, gettingStartedHandler);
+onboardingRoutes.get("/onboarding", softAuth, requireAuth, gettingStartedHandler);
 
 export default onboardingRoutes;

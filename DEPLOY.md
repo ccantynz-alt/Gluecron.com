@@ -152,3 +152,80 @@ Neon handles PITR + branch snapshots — configure retention in the Neon console
 | `VOYAGE_API_KEY` | Semantic search falls back to the deterministic hashing embedder. Quality drops; feature still works. |
 
 Every missing integration follows the same rule: **never break the primary request path**. See BUILD_BIBLE §4.9 for the full invariant list.
+
+---
+
+## Lightning-fast deploys (Block N1)
+
+Once PR #62 has landed and the release-command has applied migration 0040, the operator can flip a single repo into "auto-merge mode" with two scripts. From "feature description → live in ~6 minutes, zero clicks" goes from possible to the default.
+
+### What it does
+
+When `branch_protection.enable_auto_merge=true` on the matching rule, the K3 autopilot sweep (`auto-merge-sweep`, fires every 5 minutes) will auto-merge any PR that:
+
+- Targets a branch matching the rule's `pattern`
+- Is not a draft
+- Passes every gate the manual-merge path enforces (green gates, AI approval, required checks)
+- Is not flagged as `critical` by the M3 PR risk scorer
+
+The merge is performed by the autopilot, not by any human click. Default-deny: this only fires on rules where the operator has explicitly opted in.
+
+### Step 1 — Readiness check
+
+Run the preflight to make sure the box is in a state where opting in will actually do something useful:
+
+```bash
+# Fly.io
+fly ssh console -C "bun run /opt/gluecron/scripts/check-auto-merge-readiness.ts"
+
+# Hetzner (matches scripts/bootstrap-hetzner.sh)
+ssh root@gluecron.com "cd /opt/gluecron && bun run scripts/check-auto-merge-readiness.ts"
+```
+
+The check verifies:
+- Migration 0040 has been applied (`branch_protection.enable_auto_merge` column exists)
+- `ANTHROPIC_API_KEY` is set (otherwise the AI approval gate blocks every candidate)
+- The autopilot is running (`AUTOPILOT_DISABLED != 1`)
+- The K3 `auto-merge-sweep` task is in `defaultTasks()`
+
+Exit code 0 if all green; 1 if any check fails. Fix any red lines before continuing.
+
+### Step 2 — Flip the switch for a single repo
+
+```bash
+# Fly.io
+fly ssh console -C "bun run /opt/gluecron/scripts/enable-auto-merge.ts ccantynz/Gluecron.com"
+
+# Hetzner
+ssh root@gluecron.com "cd /opt/gluecron && bun run scripts/enable-auto-merge.ts ccantynz/Gluecron.com"
+```
+
+By default this targets the `main` branch. Pass a second arg to target a different pattern, e.g. `release/*`:
+
+```bash
+bun run scripts/enable-auto-merge.ts ccantynz/Gluecron.com release/*
+```
+
+The script is idempotent:
+- If a `branch_protection` row already exists for the (repo, pattern), it flips `enable_auto_merge=true` and preserves every other field.
+- If no row exists, it inserts a fresh one with the documented safety defaults (`require_green_gates=true`, `require_ai_approval=true`, `require_human_review=false`, `required_approvals=0`).
+- Running it twice in a row produces a "no-op" — no duplicate audit entry.
+
+It prints a before / after diff so you see exactly what changed, and writes an `auto_merge.enabled_on_main` row to `audit_log` for traceability.
+
+Within 5 minutes (the autopilot sweep cadence), any qualifying PR on that branch will auto-merge with zero human clicks.
+
+### Revert
+
+To turn auto-merge back off:
+
+```bash
+bun run scripts/enable-auto-merge.ts ccantynz/Gluecron.com --off
+```
+
+Or manually: `UPDATE branch_protection SET enable_auto_merge = false WHERE repository_id = ... AND pattern = 'main';`. The autopilot sweep is default-deny — it will stop firing the moment the column flips back to `false`.
+
+### Don'ts
+
+- Do not run `enable-auto-merge.ts` without first running the readiness check. The AI approval gate silently fails closed when `ANTHROPIC_API_KEY` is missing, and you'll spend half an hour wondering why nothing auto-merges.
+- The script intentionally does NOT auto-discover repos and flip them all. Explicit per-repo opt-in is the whole point — the operator decides which repos go on autopilot.

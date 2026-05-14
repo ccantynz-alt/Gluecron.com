@@ -50,7 +50,9 @@ import { timingSafeEqual } from "crypto";
 import { db } from "../db";
 import { deployments, repositories, users } from "../db/schema";
 import { processedEvents } from "../db/schema-events";
+import { platformDeploys } from "../db/schema-deploys";
 import { notify } from "../lib/notify";
+import { publish } from "../lib/sse";
 
 const events = new Hono();
 
@@ -376,12 +378,329 @@ events.post("/deploy", async (c) => {
   return c.json({ ok: true, duplicate: false });
 });
 
+// ---------------------------------------------------------------------------
+// Block N3 — Platform deploy timeline ingest.
+//
+// These endpoints are FOR THIS SITE. The Hetzner deploy workflow posts a
+// 'started' event when SSH begins and a 'finished' event on success/failure.
+// They power the admin status pill in `src/views/layout.tsx` and the
+// `/admin/deploys` timeline. NEW endpoints — they do NOT touch the Crontech
+// `/deploy` receiver above (which §4.6 locks the semantics of).
+//
+//   POST /api/events/deploy/started
+//     Authorization: Bearer ${DEPLOY_EVENT_TOKEN}
+//     Body: { sha: "<40-hex>", run_id: "<string>", source: "<string>" }
+//     200 { ok: true, duplicate: false | true }
+//     401 invalid bearer
+//     400 malformed payload
+//
+//   POST /api/events/deploy/finished
+//     Authorization: Bearer ${DEPLOY_EVENT_TOKEN}
+//     Body: { run_id, status: "succeeded"|"failed",
+//             duration_ms?: number, error?: string }
+//
+// Idempotency: keyed on run_id via the UNIQUE constraint in migration 0046.
+// A duplicate 'started' POST is a no-op. A 'finished' POST without a prior
+// 'started' INSERTs a fresh row (so the timeline still records the deploy
+// even if the started-step silently dropped its packet).
+// ---------------------------------------------------------------------------
+
+const SHORT_SHA_RE = /^[0-9a-f]{7,64}$/i;
+const VALID_DEPLOY_STATUS: ReadonlySet<string> = new Set([
+  "succeeded",
+  "failed",
+]);
+
+function verifyDeployBearer(c: any): { ok: boolean; error?: string } {
+  const expected = process.env.DEPLOY_EVENT_TOKEN || "";
+  if (!expected) {
+    return {
+      ok: false,
+      error:
+        "Deploy event endpoint not configured: set DEPLOY_EVENT_TOKEN in the environment",
+    };
+  }
+  const auth = c.req.header("authorization") || "";
+  if (!auth.startsWith("Bearer ")) {
+    return { ok: false, error: "Missing Bearer token" };
+  }
+  const token = auth.slice(7).trim();
+  if (!constantTimeEq(token, expected)) {
+    return { ok: false, error: "Invalid bearer token" };
+  }
+  return { ok: true };
+}
+
+interface DeployStartedPayload {
+  sha: string;
+  run_id: string;
+  source: string;
+}
+
+interface DeployFinishedPayload {
+  run_id: string;
+  sha?: string;
+  status: "succeeded" | "failed";
+  duration_ms?: number;
+  error?: string;
+}
+
+function validateStarted(raw: unknown):
+  | { ok: true; payload: DeployStartedPayload }
+  | { ok: false; error: string } {
+  if (!raw || typeof raw !== "object") {
+    return { ok: false, error: "Body must be a JSON object" };
+  }
+  const p = raw as Record<string, unknown>;
+  if (typeof p.sha !== "string" || !SHORT_SHA_RE.test(p.sha)) {
+    return { ok: false, error: "sha must be a hex commit id (7-64 chars)" };
+  }
+  if (typeof p.run_id !== "string" || p.run_id.length === 0 || p.run_id.length > 128) {
+    return { ok: false, error: "run_id must be a non-empty string (≤128 chars)" };
+  }
+  if (typeof p.source !== "string" || p.source.length === 0 || p.source.length > 64) {
+    return { ok: false, error: "source must be a non-empty string (≤64 chars)" };
+  }
+  return {
+    ok: true,
+    payload: { sha: p.sha, run_id: p.run_id, source: p.source },
+  };
+}
+
+function validateFinished(raw: unknown):
+  | { ok: true; payload: DeployFinishedPayload }
+  | { ok: false; error: string } {
+  if (!raw || typeof raw !== "object") {
+    return { ok: false, error: "Body must be a JSON object" };
+  }
+  const p = raw as Record<string, unknown>;
+  if (typeof p.run_id !== "string" || p.run_id.length === 0 || p.run_id.length > 128) {
+    return { ok: false, error: "run_id must be a non-empty string (≤128 chars)" };
+  }
+  if (typeof p.status !== "string" || !VALID_DEPLOY_STATUS.has(p.status)) {
+    return {
+      ok: false,
+      error: "status must be 'succeeded' or 'failed'",
+    };
+  }
+  if (p.sha !== undefined && (typeof p.sha !== "string" || !SHORT_SHA_RE.test(p.sha))) {
+    return { ok: false, error: "sha must be a hex commit id when provided" };
+  }
+  if (p.duration_ms !== undefined) {
+    if (
+      typeof p.duration_ms !== "number" ||
+      !Number.isFinite(p.duration_ms) ||
+      p.duration_ms < 0
+    ) {
+      return { ok: false, error: "duration_ms must be a non-negative number" };
+    }
+  }
+  if (p.error !== undefined && typeof p.error !== "string") {
+    return { ok: false, error: "error must be a string when provided" };
+  }
+  return {
+    ok: true,
+    payload: {
+      run_id: p.run_id,
+      sha: typeof p.sha === "string" ? p.sha : undefined,
+      status: p.status as "succeeded" | "failed",
+      duration_ms:
+        typeof p.duration_ms === "number" ? p.duration_ms : undefined,
+      // Cap error text at 8 KB so a misbehaving emitter can't blow up
+      // the DB row (the workflow already truncates to 1 KB on its end).
+      error:
+        typeof p.error === "string" ? p.error.slice(0, 8 * 1024) : undefined,
+    },
+  };
+}
+
+const PLATFORM_DEPLOYS_TOPIC = "platform:deploys";
+
+events.post("/deploy/started", async (c) => {
+  const auth = verifyDeployBearer(c);
+  if (!auth.ok) {
+    return c.json({ ok: false, error: auth.error || "Unauthorized" }, 401);
+  }
+
+  let raw: unknown;
+  try {
+    raw = await c.req.json();
+  } catch {
+    return c.json({ ok: false, error: "Invalid JSON body" }, 400);
+  }
+
+  const validated = validateStarted(raw);
+  if (!validated.ok) {
+    return c.json({ ok: false, error: validated.error }, 400);
+  }
+  const { sha, run_id, source } = validated.payload;
+
+  // INSERT-or-no-op on UNIQUE(run_id). If the row already exists we treat the
+  // call as a duplicate and don't republish — the original publish carried
+  // the canonical started-at timestamp.
+  let inserted: { id: string; startedAt: Date } | null = null;
+  try {
+    const rows = await db
+      .insert(platformDeploys)
+      .values({
+        runId: run_id,
+        sha,
+        source,
+        status: "in_progress",
+      })
+      .onConflictDoNothing({ target: platformDeploys.runId })
+      .returning({ id: platformDeploys.id, startedAt: platformDeploys.startedAt });
+    inserted = rows[0] ?? null;
+  } catch (err) {
+    console.error("[events/deploy/started] insert failed:", err);
+    return c.json({ ok: false, error: "Failed to persist deploy event" }, 500);
+  }
+
+  if (!inserted) {
+    return c.json({ ok: true, duplicate: true });
+  }
+
+  publish(PLATFORM_DEPLOYS_TOPIC, {
+    event: "deploy.started",
+    data: {
+      id: inserted.id,
+      run_id,
+      sha,
+      source,
+      status: "in_progress",
+      started_at: inserted.startedAt.toISOString(),
+    },
+  });
+
+  return c.json({ ok: true, duplicate: false });
+});
+
+events.post("/deploy/finished", async (c) => {
+  const auth = verifyDeployBearer(c);
+  if (!auth.ok) {
+    return c.json({ ok: false, error: auth.error || "Unauthorized" }, 401);
+  }
+
+  let raw: unknown;
+  try {
+    raw = await c.req.json();
+  } catch {
+    return c.json({ ok: false, error: "Invalid JSON body" }, 400);
+  }
+
+  const validated = validateFinished(raw);
+  if (!validated.ok) {
+    return c.json({ ok: false, error: validated.error }, 400);
+  }
+  const payload = validated.payload;
+
+  const finishedAt = new Date();
+
+  let row:
+    | {
+        id: string;
+        runId: string;
+        sha: string;
+        source: string;
+        status: string;
+        startedAt: Date;
+        finishedAt: Date | null;
+        durationMs: number | null;
+        error: string | null;
+      }
+    | null = null;
+
+  try {
+    const updated = await db
+      .update(platformDeploys)
+      .set({
+        status: payload.status,
+        finishedAt,
+        durationMs: payload.duration_ms ?? null,
+        error: payload.error ?? null,
+      })
+      .where(eq(platformDeploys.runId, payload.run_id))
+      .returning({
+        id: platformDeploys.id,
+        runId: platformDeploys.runId,
+        sha: platformDeploys.sha,
+        source: platformDeploys.source,
+        status: platformDeploys.status,
+        startedAt: platformDeploys.startedAt,
+        finishedAt: platformDeploys.finishedAt,
+        durationMs: platformDeploys.durationMs,
+        error: platformDeploys.error,
+      });
+    row = updated[0] ?? null;
+  } catch (err) {
+    console.error("[events/deploy/finished] update failed:", err);
+    return c.json({ ok: false, error: "Failed to persist deploy event" }, 500);
+  }
+
+  // No matching started row — record a finished-only entry so the timeline
+  // still reflects the deploy. Source/sha fall back to defaults; this is the
+  // "started packet got dropped" recovery path.
+  if (!row) {
+    try {
+      const inserted = await db
+        .insert(platformDeploys)
+        .values({
+          runId: payload.run_id,
+          sha: payload.sha ?? "unknown",
+          source: "hetzner-deploy",
+          status: payload.status,
+          finishedAt,
+          durationMs: payload.duration_ms ?? null,
+          error: payload.error ?? null,
+        })
+        .returning({
+          id: platformDeploys.id,
+          runId: platformDeploys.runId,
+          sha: platformDeploys.sha,
+          source: platformDeploys.source,
+          status: platformDeploys.status,
+          startedAt: platformDeploys.startedAt,
+          finishedAt: platformDeploys.finishedAt,
+          durationMs: platformDeploys.durationMs,
+          error: platformDeploys.error,
+        });
+      row = inserted[0] ?? null;
+    } catch (err) {
+      console.error("[events/deploy/finished] backfill insert failed:", err);
+      return c.json({ ok: false, error: "Failed to persist deploy event" }, 500);
+    }
+  }
+
+  if (row) {
+    publish(PLATFORM_DEPLOYS_TOPIC, {
+      event: "deploy.finished",
+      data: {
+        id: row.id,
+        run_id: row.runId,
+        sha: row.sha,
+        source: row.source,
+        status: row.status,
+        started_at: row.startedAt.toISOString(),
+        finished_at: row.finishedAt ? row.finishedAt.toISOString() : null,
+        duration_ms: row.durationMs,
+        error: row.error,
+      },
+    });
+  }
+
+  return c.json({ ok: true });
+});
+
 // Test-only access for unit tests that want to exercise helpers directly.
 export const __test = {
   constantTimeEq,
   validatePayload,
   resolveRepo,
   findTargetDeployment,
+  validateStarted,
+  validateFinished,
+  verifyDeployBearer,
+  PLATFORM_DEPLOYS_TOPIC,
 };
 
 export default events;

@@ -60,6 +60,8 @@ import orgRoutes from "./routes/orgs";
 import notificationRoutes from "./routes/notifications";
 import onboardingRoutes from "./routes/onboarding";
 import adminRoutes from "./routes/admin";
+import adminDeploysRoutes from "./routes/admin-deploys";
+import adminDeploysPageRoutes from "./routes/admin-deploys-page";
 import advisoriesRoutes from "./routes/advisories";
 import aiChangelogRoutes from "./routes/ai-changelog";
 import aiExplainRoutes from "./routes/ai-explain";
@@ -324,6 +326,8 @@ app.route("/", onboardingRoutes);
 
 // Admin + feature routes
 app.route("/", adminRoutes);
+app.route("/", adminDeploysRoutes);
+app.route("/", adminDeploysPageRoutes);
 app.route("/", advisoriesRoutes);
 app.route("/", aiChangelogRoutes);
 app.route("/", aiExplainRoutes);

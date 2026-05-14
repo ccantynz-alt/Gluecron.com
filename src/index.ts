@@ -6,6 +6,7 @@ import { startAutopilot } from "./lib/autopilot";
 import { ensureDemoContent } from "./lib/demo-seed";
 import { ensureDemoActivity } from "./lib/demo-activity-seed";
 import { ensureEnvSiteAdmin } from "./lib/admin-bootstrap";
+import { notifySystemdReady } from "./lib/systemd-notify";
 
 // Ensure repos directory exists
 await mkdir(config.gitReposPath, { recursive: true });
@@ -44,6 +45,10 @@ console.log(`
   http://localhost:${config.port}
   repos: ${config.gitReposPath}
 `);
+
+// BLOCK N2 — tell systemd we're ready. No-op when NOTIFY_SOCKET is unset
+// (dev / non-systemd hosts). Fire-and-forget; never throws.
+void notifySystemdReady().catch(() => {});
 
 export default {
   port: config.port,

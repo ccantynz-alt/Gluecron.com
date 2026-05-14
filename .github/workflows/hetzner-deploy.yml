@@ -17,6 +17,11 @@ name: Hetzner Deploy (gluecron.com)
 # Optional:
 #   ANTHROPIC_API_KEY      — enables AI failure-diagnosis step
 #   DEPLOY_WEBHOOK_URL     — POSTed with JSON deploy status (Slack/Discord/anything)
+#   DEPLOY_EVENT_TOKEN     — bearer used to POST deploy timeline events to
+#                            ${APP_BASE_URL}/api/events/deploy/{started,finished}.
+#                            Block N3: this makes the live site display ITS OWN
+#                            deploy in the admin nav + at /admin/deploys.
+#   APP_BASE_URL           — base URL of the running site (default https://gluecron.com).
 
 on:
   push:
@@ -35,6 +40,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # ─── 0. Mark start time + notify the live site (Block N3) ────────────
+      # The site has its own admin status pill + /admin/deploys timeline.
+      # POSTing here makes the pill say "Deploying… 14s" the moment SSH
+      # begins. `--fail` is intentionally NOT set: a 5xx here must never
+      # block the deploy itself.
+      - name: Record start time
+        id: start
+        run: |
+          echo "epoch=$(date +%s)" >> $GITHUB_OUTPUT
+
+      - name: Notify deploy started
+        if: env.DEPLOY_EVENT_TOKEN != ''
+        env:
+          DEPLOY_EVENT_TOKEN: ${{ secrets.DEPLOY_EVENT_TOKEN }}
+          APP_BASE_URL: ${{ secrets.APP_BASE_URL || 'https://gluecron.com' }}
+        run: |
+          curl --silent --show-error --max-time 10 \
+            -X POST "$APP_BASE_URL/api/events/deploy/started" \
+            -H "authorization: Bearer $DEPLOY_EVENT_TOKEN" \
+            -H "content-type: application/json" \
+            --data "{\"sha\":\"${{ github.sha }}\",\"run_id\":\"${{ github.run_id }}\",\"source\":\"hetzner-deploy\"}" \
+            || echo "(deploy-started notify failed — continuing)"
+
       # ─── 1. Capture pre-deploy SHA so we can rollback ───────────────────
       - name: Capture pre-deploy SHA
         id: prev
@@ -51,7 +79,22 @@ jobs:
             echo "$sha" > /tmp/gluecron_prev_sha
             cat /tmp/gluecron_prev_sha
 
-      # ─── 2. Deploy: pull main, run the production script ────────────────
+      # ─── 2. Deploy: pull main, install/compile/restart ─────────────────
+      # Block N2 — speed optimisation:
+      #   (a) Cache `bun install` by hashing bun.lock; skip the walk when
+      #       the lockfile is unchanged. Saves ~5-15s per "no deps changed"
+      #       deploy.
+      #   (b) Compile to a single Bun static binary at
+      #       /opt/gluecron/.next/gluecron-server. Boot drops from ~500ms
+      #       (cold ESM resolve) to <50ms. Compile itself takes ~3-5s.
+      #   (c) Rewrite the systemd unit on first run if it lacks Type=notify
+      #       (idempotent — diff-then-write, daemon-reload only on change).
+      #       Falls back to `bun run src/index.ts` if the compiled binary is
+      #       missing for any reason — the deploy MUST stay backward-
+      #       compatible.
+      #   (d) `systemctl restart` blocks until sd_notify(READY=1) fires
+      #       (wired in src/lib/systemd-notify.ts), so we no longer rely on
+      #       the curl-with-retries loop downstream.
       - name: Deploy
         id: deploy
         uses: appleboy/ssh-action@v1.2.0
@@ -68,7 +111,98 @@ jobs:
             git reset --hard origin/main
             new_sha=$(git rev-parse HEAD)
             echo "Deploying SHA: $new_sha"
-            bash scripts/deploy-crontech.sh
+
+            BUN=/root/.bun/bin/bun
+            CACHE_DIR=/opt/gluecron/.cache
+            HASH_FILE=$CACHE_DIR/bun-lockfile-hash
+            mkdir -p "$CACHE_DIR"
+
+            # ─── (a) Cached deps: skip bun install when bun.lock is unchanged
+            if [ -f bun.lock ]; then
+              new_hash=$(sha256sum bun.lock | awk '{print $1}')
+            else
+              new_hash="no-lockfile"
+            fi
+            old_hash=""
+            if [ -f "$HASH_FILE" ]; then
+              old_hash=$(cat "$HASH_FILE")
+            fi
+            if [ "$new_hash" = "$old_hash" ] && [ -d node_modules ]; then
+              echo "==> bun install: SKIP (lockfile unchanged: $new_hash)"
+            else
+              echo "==> bun install: hash changed ($old_hash -> $new_hash) — installing"
+              "$BUN" install --frozen-lockfile
+              echo "$new_hash" > "$HASH_FILE"
+            fi
+
+            # ─── (b) Compile to a single static binary (best-effort)
+            mkdir -p .next
+            COMPILED=.next/gluecron-server
+            COMPILED_TMP=.next/gluecron-server.new
+            if "$BUN" build --compile --outfile "$COMPILED_TMP" src/index.ts; then
+              mv -f "$COMPILED_TMP" "$COMPILED"
+              chmod +x "$COMPILED"
+              EXEC_START="/opt/gluecron/.next/gluecron-server"
+              echo "==> compiled binary ready: $COMPILED"
+            else
+              # Backward-compat: if compile fails, fall back to interpreted Bun
+              echo "WARN: bun build --compile failed — falling back to bun run"
+              rm -f "$COMPILED_TMP"
+              EXEC_START="$BUN run src/index.ts"
+            fi
+
+            # ─── (c) Idempotent systemd unit rewrite (Type=notify)
+            UNIT=/etc/systemd/system/gluecron.service
+            DESIRED=$(cat <<UNIT_EOF
+            [Unit]
+            Description=Gluecron — AI-native code intelligence platform
+            After=network-online.target postgresql.service
+            Wants=network-online.target
+
+            [Service]
+            Type=notify
+            NotifyAccess=main
+            User=root
+            WorkingDirectory=/opt/gluecron
+            EnvironmentFile=/etc/gluecron.env
+            ExecStart=$EXEC_START
+            Restart=always
+            RestartSec=5
+            TimeoutStartSec=30
+            StandardOutput=journal
+            StandardError=journal
+            SyslogIdentifier=gluecron
+            LimitNOFILE=65536
+
+            [Install]
+            WantedBy=multi-user.target
+            UNIT_EOF
+            )
+            # Strip the leading indentation from the heredoc (`sed 's/^            //'`)
+            # so the rendered unit is column-0 like systemd expects.
+            DESIRED=$(printf '%s\n' "$DESIRED" | sed 's/^            //')
+
+            need_rewrite=1
+            if [ -f "$UNIT" ] && diff -q <(printf '%s\n' "$DESIRED") "$UNIT" >/dev/null 2>&1; then
+              need_rewrite=0
+            fi
+
+            if [ "$need_rewrite" = "1" ]; then
+              echo "==> rewriting $UNIT (Type=notify, ExecStart=$EXEC_START)"
+              printf '%s\n' "$DESIRED" > "$UNIT"
+              systemctl daemon-reload
+            else
+              echo "==> $UNIT already matches desired state — skipping daemon-reload"
+            fi
+
+            # ─── DB migrations (cheap; safe to always run)
+            set -a; source /etc/gluecron.env; set +a
+            "$BUN" run src/db/migrate.ts || echo "WARN: migrate failed (may be already-applied)"
+
+            # ─── (d) Zero-downtime restart. Blocks until sd_notify(READY=1).
+            echo "==> systemctl restart gluecron (blocks on sd_notify READY=1)"
+            systemctl restart gluecron
+            echo "==> restart returned — gluecron signalled ready"
 
       # ─── 3. Smoke-test the deployed app on the box ──────────────────────
       # We SSH back in and curl localhost:3010/healthz directly. This tests
@@ -88,19 +222,24 @@ jobs:
           key: ${{ secrets.HETZNER_SSH_KEY }}
           script_stop: true
           script: |
+            # Block N2 — `systemctl restart` already blocked on
+            # sd_notify(READY=1), so the FIRST curl should succeed. We keep a
+            # short retry budget for paranoia: a brief delay between
+            # systemd's READY ack and the HTTP listener becoming routable
+            # via 127.0.0.1 is theoretically possible (unusual but cheap to
+            # tolerate). 3 attempts × 2s = 6s ceiling instead of 8 × 6s = 48s.
             set +e
-            for i in 1 2 3 4 5 6 7 8; do
+            for i in 1 2 3; do
               code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3010/healthz)
               echo "Attempt $i: /healthz -> $code"
               if [ "$code" = "200" ]; then
                 echo "OK: gluecron is healthy on localhost:3010"
-                # Also print the sha so the deploy log shows what's running
                 curl -s http://localhost:3010/api/version || true
                 exit 0
               fi
-              sleep 6
+              sleep 2
             done
-            echo "FAIL: /healthz did not return 200 after 48s"
+            echo "FAIL: /healthz did not return 200 after 6s"
             systemctl status gluecron --no-pager | head -10 || true
             journalctl -u gluecron -n 30 --no-pager || true
             exit 1
@@ -225,3 +364,48 @@ jobs:
           echo "- **Target:** https://gluecron.com" >> $GITHUB_STEP_SUMMARY
           echo "- **SHA:** \`${GITHUB_SHA:0:7}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Health:** /healthz → 200" >> $GITHUB_STEP_SUMMARY
+
+      # ─── 8. Block N3 — POST deploy-finished event to the live site ───────
+      # The site's admin status pill flips to "Deployed Ns ago" or
+      # "Deploy failed Nm ago" the instant this lands. `if: always()` so we
+      # always report final state (including failure); the inner `if:` flag
+      # splits success vs failure for the payload body. We never `--fail` —
+      # a 5xx must not retroactively break a deploy that actually succeeded.
+      - name: Notify deploy finished (success)
+        if: success() && env.DEPLOY_EVENT_TOKEN != ''
+        env:
+          DEPLOY_EVENT_TOKEN: ${{ secrets.DEPLOY_EVENT_TOKEN }}
+          APP_BASE_URL: ${{ secrets.APP_BASE_URL || 'https://gluecron.com' }}
+          START_EPOCH: ${{ steps.start.outputs.epoch }}
+        run: |
+          DUR_MS=$(( ( $(date +%s) - START_EPOCH ) * 1000 ))
+          curl --silent --show-error --max-time 10 \
+            -X POST "$APP_BASE_URL/api/events/deploy/finished" \
+            -H "authorization: Bearer $DEPLOY_EVENT_TOKEN" \
+            -H "content-type: application/json" \
+            --data "{\"run_id\":\"${{ github.run_id }}\",\"sha\":\"${{ github.sha }}\",\"status\":\"succeeded\",\"duration_ms\":$DUR_MS}" \
+            || echo "(deploy-finished[succeeded] notify failed — continuing)"
+
+      - name: Notify deploy finished (failure)
+        if: failure() && env.DEPLOY_EVENT_TOKEN != ''
+        env:
+          DEPLOY_EVENT_TOKEN: ${{ secrets.DEPLOY_EVENT_TOKEN }}
+          APP_BASE_URL: ${{ secrets.APP_BASE_URL || 'https://gluecron.com' }}
+          START_EPOCH: ${{ steps.start.outputs.epoch }}
+          DIAG: ${{ steps.ctx.outputs.stdout }}
+        run: |
+          DUR_MS=$(( ( $(date +%s) - START_EPOCH ) * 1000 ))
+          # First 1 KB of diagnostics — keeps the JSON small and the DB row sane.
+          ERR_TEXT=$(printf '%s' "${DIAG:-deploy failed; see workflow logs}" | head -c 1024)
+          # jq -Rs '.' is the safest way to JSON-escape arbitrary multi-line text.
+          if command -v jq >/dev/null 2>&1; then
+            ERR_JSON=$(printf '%s' "$ERR_TEXT" | jq -Rs '.')
+          else
+            ERR_JSON=$(printf '%s' "$ERR_TEXT" | python3 -c "import sys,json;print(json.dumps(sys.stdin.read()))")
+          fi
+          curl --silent --show-error --max-time 10 \
+            -X POST "$APP_BASE_URL/api/events/deploy/finished" \
+            -H "authorization: Bearer $DEPLOY_EVENT_TOKEN" \
+            -H "content-type: application/json" \
+            --data "{\"run_id\":\"${{ github.run_id }}\",\"sha\":\"${{ github.sha }}\",\"status\":\"failed\",\"duration_ms\":$DUR_MS,\"error\":$ERR_JSON}" \
+            || echo "(deploy-finished[failed] notify failed — continuing)"

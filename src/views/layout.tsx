@@ -87,6 +87,24 @@ export const Layout: FC<
               </form>
             </div>
             <div class="nav-right">
+              {/* Block N3 — site-admin platform-deploy status pill. Hidden
+                  by default; revealed client-side once /admin/deploys/latest.json
+                  responds 200 (non-admins get 401/403 and the pill stays
+                  hidden). Subscribes to the `platform:deploys` SSE topic
+                  for live updates. See `deployPillScript` below. */}
+              {user && (
+                <a
+                  id="deploy-pill"
+                  href="/admin/deploys"
+                  class="nav-deploy-pill"
+                  style="display:none"
+                  aria-label="Platform deploy status"
+                  title="Platform deploy status"
+                >
+                  <span class="deploy-pill-dot" />
+                  <span class="deploy-pill-text">Deploys</span>
+                </a>
+              )}
               <a
                 href="/theme/toggle"
                 class="nav-link nav-theme"
@@ -195,6 +213,13 @@ export const Layout: FC<
           </button>
         </div>
         <script dangerouslySetInnerHTML={{ __html: versionPollerScript }} />
+        {/* Block N3 — site-admin deploy status pill (script-only). The pill
+            container is rendered above for authed users; this script bootstraps
+            it by fetching /admin/deploys/latest.json. Non-admins get 401/403
+            and the pill stays display:none — zero leak. */}
+        {user && (
+          <script dangerouslySetInnerHTML={{ __html: deployPillScript }} />
+        )}
         {/* Block I4 — Command palette shell (hidden by default) */}
         <div
           id="cmdk-backdrop"
@@ -255,6 +280,134 @@ const versionPollerScript = `
       if (btn) btn.addEventListener('click', function(){ window.location.reload(); });
       poll();
       setInterval(poll, 15000);
+    }
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', init);
+    } else {
+      init();
+    }
+  })();
+`;
+
+// Block N3 — site-admin deploy status pill. Fetches /admin/deploys/latest.json;
+// if 200, reveals the pill in the nav and subscribes to the `platform:deploys`
+// SSE topic for live status updates. Non-admins get 401/403 and the pill stays
+// display:none — there's no leakage of admin-only data to other users.
+//
+// Pill states (CSS classes on the container drive colour):
+//   .deploy-pill-success    🟢 "Deployed 12s ago"
+//   .deploy-pill-progress   🟡 "Deploying… 14s"   (pulsing dot)
+//   .deploy-pill-failed     🔴 "Deploy failed 1m ago"
+//   .deploy-pill-empty      ⚪ "No deploys yet"
+//
+// Relative-time auto-refreshes every 15s without re-fetching.
+export const deployPillScript = `
+  (function(){
+    var pill, dot, text;
+    var state = { latest: null, asOf: null };
+
+    function classifyAge(ms){
+      if (ms < 0) return 'just now';
+      var s = Math.floor(ms / 1000);
+      if (s < 5) return 'just now';
+      if (s < 60) return s + 's ago';
+      var m = Math.floor(s / 60);
+      if (m < 60) return m + 'm ago';
+      var h = Math.floor(m / 60);
+      if (h < 24) return h + 'h ago';
+      var d = Math.floor(h / 24);
+      return d + 'd ago';
+    }
+    function elapsed(ms){
+      if (ms < 0) ms = 0;
+      var s = Math.floor(ms / 1000);
+      if (s < 60) return s + 's';
+      var m = Math.floor(s / 60);
+      var rem = s - m * 60;
+      return m + 'm ' + rem + 's';
+    }
+
+    function render(){
+      if (!pill || !text || !dot) return;
+      var d = state.latest;
+      if (!d) {
+        pill.className = 'nav-deploy-pill deploy-pill-empty';
+        text.textContent = 'No deploys yet';
+        pill.style.display = 'inline-flex';
+        return;
+      }
+      pill.style.display = 'inline-flex';
+      var now = Date.now();
+      if (d.status === 'in_progress') {
+        pill.className = 'nav-deploy-pill deploy-pill-progress';
+        var started = Date.parse(d.started_at) || now;
+        text.textContent = 'Deploying… ' + elapsed(now - started);
+      } else if (d.status === 'succeeded') {
+        pill.className = 'nav-deploy-pill deploy-pill-success';
+        var ref = Date.parse(d.finished_at || d.started_at) || now;
+        text.textContent = 'Deployed ' + classifyAge(now - ref);
+      } else if (d.status === 'failed') {
+        pill.className = 'nav-deploy-pill deploy-pill-failed';
+        var refF = Date.parse(d.finished_at || d.started_at) || now;
+        text.textContent = 'Deploy failed ' + classifyAge(now - refF);
+      } else {
+        pill.className = 'nav-deploy-pill';
+        text.textContent = d.status;
+      }
+    }
+
+    function fetchLatest(){
+      fetch('/admin/deploys/latest.json', { cache: 'no-store', credentials: 'same-origin' })
+        .then(function(r){ if (!r.ok) return null; return r.json(); })
+        .then(function(j){
+          if (!j || j.ok !== true) return;
+          state.latest = j.latest;
+          state.asOf = j.asOf;
+          render();
+          subscribe();
+        })
+        .catch(function(){});
+    }
+
+    var subscribed = false;
+    function subscribe(){
+      if (subscribed) return;
+      if (typeof EventSource === 'undefined') return;
+      subscribed = true;
+      var es;
+      var delay = 1500;
+      function connect(){
+        try { es = new EventSource('/live-events/platform:deploys'); }
+        catch(e){ setTimeout(connect, delay); return; }
+        es.onmessage = function(m){
+          try {
+            var d = JSON.parse(m.data);
+            if (d && d.run_id) {
+              if (!state.latest || state.latest.run_id === d.run_id ||
+                  Date.parse(d.started_at) >= Date.parse(state.latest.started_at)) {
+                state.latest = d;
+                render();
+              }
+            }
+          } catch(e){}
+        };
+        es.onerror = function(){
+          try { es.close(); } catch(e){}
+          setTimeout(connect, delay);
+        };
+      }
+      connect();
+    }
+
+    function init(){
+      pill = document.getElementById('deploy-pill');
+      if (!pill) return;
+      dot = pill.querySelector('.deploy-pill-dot');
+      text = pill.querySelector('.deploy-pill-text');
+      fetchLatest();
+      // Refresh relative-time labels every 15s so "12s ago" → "27s ago"
+      // without a fresh fetch.
+      setInterval(render, 15000);
     }
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', init);
@@ -937,6 +1090,45 @@ const css = `
   }
 
   .nav-right { display: flex; align-items: center; gap: 2px; margin-left: auto; }
+
+  /* Block N3 — site-admin deploy status pill */
+  .nav-deploy-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    margin: 0 6px 0 0;
+    border-radius: 9999px;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1;
+    color: var(--text-strong);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    text-decoration: none;
+    transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+  }
+  .nav-deploy-pill:hover { background: var(--bg-hover); text-decoration: none; }
+  .nav-deploy-pill .deploy-pill-dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: #6b7280;
+  }
+  .deploy-pill-success .deploy-pill-dot { background: #34d399; box-shadow: 0 0 6px rgba(52,211,153,0.45); }
+  .deploy-pill-failed  .deploy-pill-dot { background: #f87171; box-shadow: 0 0 6px rgba(248,113,113,0.45); }
+  .deploy-pill-failed  { border-color: rgba(248,113,113,0.4); }
+  .deploy-pill-progress .deploy-pill-dot {
+    background: #fbbf24;
+    box-shadow: 0 0 6px rgba(251,191,36,0.55);
+    animation: deployPillPulse 1.2s ease-in-out infinite;
+  }
+  @keyframes deployPillPulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50%      { opacity: 0.45; transform: scale(0.8); }
+  }
+  .deploy-pill-empty .deploy-pill-dot { background: #9ca3af; }
+
   .nav-link {
     position: relative;
     color: var(--text-muted);

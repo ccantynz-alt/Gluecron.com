@@ -24,8 +24,11 @@ async function runMigrations() {
   let cleanup: (() => Promise<void>) | null = null;
 
   if (isNeonUrl(config.databaseUrl)) {
+    // @neondatabase/serverless 1.x: the tagged-template factory only accepts
+    // a TemplateStringsArray. Use the .query(string, params) helper for the
+    // dynamic-string flow this migration runner needs.
     const neonSql = neon(config.databaseUrl);
-    exec = (q, p = []) => neonSql(q, p);
+    exec = (q, p = []) => neonSql.query(q, p);
   } else {
     const client = postgres(config.databaseUrl, { max: 1, prepare: false });
     exec = (q, p) =>

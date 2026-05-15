@@ -197,6 +197,13 @@ dashboard.get("/dashboard", requireAuth, async (c) => {
               <span>
                 You've requested too many verification emails. Try again later.
               </span>
+            ) : verifyQuery === "not_configured" ? (
+              <span>
+                Email delivery isn't configured on this instance yet — your
+                site admin needs to set <code>EMAIL_PROVIDER=resend</code> and{" "}
+                <code>RESEND_API_KEY</code>. Until then the verification link
+                is written to the server log.
+              </span>
             ) : (
               <span>Verify your email to keep using Gluecron.</span>
             )}

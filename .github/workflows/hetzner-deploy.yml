@@ -343,6 +343,20 @@ jobs:
 
             notify_step "db-migrate" "succeeded" "$(( ( $(date +%s) - DM_START ) * 1000 ))"
 
+            # ─── (c.5) Pin BUILD_SHA into systemd before restart.
+            # Without this, src/routes/pwa.ts falls back to a stable
+            # "dev-stable" version string and the browser service worker
+            # never invalidates between real deploys. The drop-in survives
+            # daemon-reload; old contents are overwritten on every deploy.
+            mkdir -p /etc/systemd/system/gluecron.service.d
+            cat > /etc/systemd/system/gluecron.service.d/build-sha.conf <<EOF
+            [Service]
+            Environment="BUILD_SHA=$new_sha"
+            Environment="BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            EOF
+            systemctl daemon-reload
+            echo "==> pinned BUILD_SHA=${new_sha:0:12} in systemd drop-in"
+
             # ─── (d) Zero-downtime restart. Blocks until sd_notify(READY=1).
             notify_step "restart-service" "in_progress"
             RS_START=$(date +%s)

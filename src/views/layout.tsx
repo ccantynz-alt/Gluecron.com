@@ -230,6 +230,15 @@ export const Layout: FC<
           </nav>
         </header>
         <main id="main-content">{children}</main>
+        {/* Global toast host — populated by the toastScript below from
+            ?success= / ?error= / ?toast= query params. Replaces the
+            per-page banner pattern with one polished slide-in. */}
+        <div
+          id="toast-host"
+          aria-live="polite"
+          aria-atomic="true"
+          style="position:fixed;top:calc(var(--header-h) + 12px);right:16px;z-index:var(--z-toast,10000);display:flex;flex-direction:column;gap:8px;pointer-events:none"
+        />
         <footer>
           <div class="footer-inner">
             <div class="footer-brand">
@@ -327,6 +336,7 @@ export const Layout: FC<
         </div>
         <script dangerouslySetInnerHTML={{ __html: clientJs }} />
         <script dangerouslySetInnerHTML={{ __html: pwaRegisterScript }} />
+        <script dangerouslySetInnerHTML={{ __html: toastScript }} />
         {/* Block M2 — smart install banner + push-SW bootstrap. Authed
             users only; the banner respects a 3+ visits + 14-day cooldown
             heuristic. The push SW is registered on the same gate so we
@@ -537,6 +547,79 @@ const themeInitScript = `
 // Block G1 — register service worker for offline / install support.
 // Kept inline (and tiny) so we don't block first paint.
 //
+// Global toast notifications — reads ?success=, ?error=, ?toast= from the
+// URL on page load and surfaces a polished slide-in toast instead of the
+// per-page banner divs that crowded the layout. Toasts auto-dismiss after
+// 4.5s; query params are scrubbed from the URL via history.replaceState
+// so a subsequent Refresh doesn't re-fire the same toast.
+//
+// Variants: ?success=…, ?error=…, ?toast=info:…, ?toast=warn:…  All values
+// must be URI-encoded (callers already do this via encodeURIComponent
+// in c.redirect()).
+const toastScript = `
+  (function(){
+    function showToast(kind, message){
+      if (!message) return;
+      var host = document.getElementById('toast-host');
+      if (!host) return;
+      var el = document.createElement('div');
+      el.className = 'gx-toast gx-toast--' + kind;
+      el.setAttribute('role', kind === 'error' ? 'alert' : 'status');
+      var icon = document.createElement('span');
+      icon.className = 'gx-toast__icon';
+      icon.textContent = kind === 'success' ? '\\u2713'
+                       : kind === 'error'   ? '\\u00D7'
+                       : kind === 'warn'    ? '!'
+                       :                       'i';
+      el.appendChild(icon);
+      var text = document.createElement('span');
+      text.className = 'gx-toast__text';
+      text.textContent = message;
+      el.appendChild(text);
+      var close = document.createElement('button');
+      close.type = 'button';
+      close.className = 'gx-toast__close';
+      close.setAttribute('aria-label', 'Dismiss notification');
+      close.textContent = '\\u00D7';
+      close.addEventListener('click', function(){ dismiss(); });
+      el.appendChild(close);
+      host.appendChild(el);
+      // Force a reflow then add the visible class so the slide-in transitions.
+      void el.offsetWidth;
+      el.classList.add('gx-toast--in');
+      var timer = setTimeout(dismiss, 4500);
+      function dismiss(){
+        clearTimeout(timer);
+        el.classList.remove('gx-toast--in');
+        el.classList.add('gx-toast--out');
+        setTimeout(function(){
+          if (el.parentNode) el.parentNode.removeChild(el);
+        }, 220);
+      }
+    }
+    try {
+      var url = new URL(window.location.href);
+      var hits = 0;
+      var s = url.searchParams.get('success');
+      if (s) { showToast('success', s); url.searchParams.delete('success'); hits++; }
+      var e = url.searchParams.get('error');
+      if (e) { showToast('error', e); url.searchParams.delete('error'); hits++; }
+      var t = url.searchParams.get('toast');
+      if (t) {
+        var ix = t.indexOf(':');
+        var kind = ix > 0 ? t.slice(0, ix) : 'info';
+        var msg  = ix > 0 ? t.slice(ix + 1) : t;
+        showToast(kind, msg);
+        url.searchParams.delete('toast');
+        hits++;
+      }
+      if (hits > 0 && window.history && window.history.replaceState) {
+        window.history.replaceState({}, '', url.pathname + (url.searchParams.toString() ? '?' + url.searchParams.toString() : '') + url.hash);
+      }
+    } catch(_) {}
+  })();
+`;
+
 // Block S2 extension — when an UPDATED SW activates we force a single
 // reload so the user picks up the fresh HTML immediately instead of
 // being stuck on the previous deploy's cached page.
@@ -1003,12 +1086,42 @@ const css = `
     font-family: var(--font-sans);
     background: var(--bg);
     color: var(--text);
+    font-size: 15px;
     line-height: 1.55;
     letter-spacing: -0.011em;
     min-height: 100vh;
     display: flex;
     flex-direction: column;
     font-feature-settings: 'cv11', 'ss01', 'ss03', 'calt';
+    /* Subtle: prefers grayscale font smoothing on macOS for thin text,
+       and disables automatic synthesis of bold/italic which can produce
+       muddier rendering on certain weights. */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-synthesis: none;
+  }
+  /* Tighten heading rhythm — the body is 15/1.55, headings step down
+     line-height inversely with size so display text doesn't feel airy. */
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-display);
+    color: var(--text-strong);
+    letter-spacing: -0.022em;
+    line-height: 1.18;
+    font-weight: 650;
+    margin-top: 0;
+  }
+  h1 { font-size: 28px; letter-spacing: -0.028em; }
+  h2 { font-size: 22px; }
+  h3 { font-size: 18px; letter-spacing: -0.018em; }
+  h4 { font-size: 15.5px; letter-spacing: -0.012em; font-weight: 600; }
+  /* Link refinement — underline only on hover/focus, never by default
+     on internal nav. Prevents the "blue underline soup" look. */
+  a { color: var(--text-link); text-decoration: none; transition: color var(--t-fast) var(--ease); }
+  a:hover { color: var(--accent-hover); text-decoration: underline; text-underline-offset: 3px; }
+  a:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(109,77,255,0.32);
+    border-radius: 3px;
   }
 
   /* Whole-page atmosphere: very subtle gradient + dot-grid layered behind everything.
@@ -2841,6 +2954,73 @@ const css = `
   footer .footer-banner-info { border-color: rgba(96,165,250,0.40); color: var(--blue); }
   footer .footer-banner-warn { border-color: rgba(251,191,36,0.40); color: var(--yellow); }
   footer .footer-banner-error { border-color: rgba(248,113,113,0.45); color: var(--red); }
+
+  /* ============================================================ */
+  /* Global toast notifications.                                  */
+  /* Slide-in from right, auto-dismiss, ARIA-live for SR users.   */
+  /* ============================================================ */
+  .gx-toast {
+    pointer-events: auto;
+    display: inline-flex;
+    align-items: flex-start;
+    gap: 10px;
+    min-width: 280px;
+    max-width: min(440px, calc(100vw - 32px));
+    padding: 12px 14px 12px 12px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow:
+      0 12px 36px -10px rgba(15,16,28,0.18),
+      0 2px 6px rgba(15,16,28,0.04),
+      0 0 0 1px rgba(15,16,28,0.02);
+    color: var(--text);
+    font-size: 13.5px;
+    line-height: 1.45;
+    opacity: 0;
+    transform: translateX(16px);
+    transition:
+      opacity 220ms cubic-bezier(0.2, 0.8, 0.2, 1),
+      transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  .gx-toast--in { opacity: 1; transform: translateX(0); }
+  .gx-toast--out { opacity: 0; transform: translateX(16px); }
+  .gx-toast__icon {
+    flex-shrink: 0;
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1;
+    margin-top: 1px;
+  }
+  .gx-toast__text { flex: 1 1 auto; min-width: 0; padding-top: 2px; word-wrap: break-word; }
+  .gx-toast__close {
+    flex-shrink: 0;
+    width: 22px; height: 22px;
+    border: 0;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+    border-radius: 4px;
+    padding: 0;
+    margin: -2px -2px 0 0;
+    transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+  }
+  .gx-toast__close:hover { background: var(--bg-hover); color: var(--text); }
+  .gx-toast--success .gx-toast__icon { background: rgba(5,150,105,0.14); color: var(--green); }
+  .gx-toast--error   .gx-toast__icon { background: rgba(220,38,38,0.14); color: var(--red); }
+  .gx-toast--warn    .gx-toast__icon { background: rgba(217,119,6,0.16); color: var(--yellow); }
+  .gx-toast--info    .gx-toast__icon { background: rgba(109,77,255,0.14); color: var(--accent); }
+  @media (prefers-reduced-motion: reduce) {
+    .gx-toast { transition: opacity 60ms linear; transform: none; }
+    .gx-toast--in, .gx-toast--out { transform: none; }
+  }
 
   /* ============================================================ */
   /* Block U4 — cross-document view transitions.                  */

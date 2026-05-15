@@ -458,11 +458,24 @@ export const deployPillScript = `
       if (typeof EventSource === 'undefined') return;
       subscribed = true;
       var es;
-      var delay = 1500;
+      // Exponential backoff with cap. Previously a tight 1500ms reconnect
+      // produced visible looping in the nav whenever the proxy timed out
+      // or the connection blipped — the bottom-of-page deploy pill
+      // re-rendered the placeholder every 1.5s. Cap at 60s and reset on
+      // successful message receipt.
+      var delay = 2000;
+      var DELAY_MAX = 60000;
+      function bump(){
+        delay = Math.min(delay * 2, DELAY_MAX);
+      }
+      function resetDelay(){
+        delay = 2000;
+      }
       function connect(){
         try { es = new EventSource('/live-events/platform:deploys'); }
-        catch(e){ setTimeout(connect, delay); return; }
+        catch(e){ bump(); setTimeout(connect, delay); return; }
         es.onmessage = function(m){
+          resetDelay();
           try {
             var d = JSON.parse(m.data);
             if (d && d.run_id) {
@@ -476,6 +489,7 @@ export const deployPillScript = `
         };
         es.onerror = function(){
           try { es.close(); } catch(e){}
+          bump();
           setTimeout(connect, delay);
         };
       }

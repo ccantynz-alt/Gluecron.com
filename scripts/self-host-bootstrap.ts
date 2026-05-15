@@ -301,6 +301,16 @@ export const SELF_HOST_HOOK_BODY = `#!/usr/bin/env bash
 # SELF_HOST_REPO matches. This hook is the equivalent breadcrumb for SSH
 # receive-pack and external direct-push scenarios.
 set -euo pipefail
+# Source the operator env file so GLUECRON_SELF_DEPLOY_SCRIPT and any other
+# overrides set by the operator are visible to this shell hook. systemd's
+# EnvironmentFile only flows to the gluecron service, not to git hooks
+# invoked by direct receive-pack — without this source the hook used the
+# baked-in defaults which silently disagreed with /etc/gluecron.env.
+if [ -f /etc/gluecron.env ]; then
+  set -a
+  . /etc/gluecron.env
+  set +a
+fi
 SELF_DEPLOY="\${GLUECRON_SELF_DEPLOY_SCRIPT:-/opt/gluecron/scripts/self-deploy.sh}"
 LOG="\${GLUECRON_SELF_DEPLOY_LOG:-/var/log/gluecron-self-deploy.log}"
 if [ -x "$SELF_DEPLOY" ]; then

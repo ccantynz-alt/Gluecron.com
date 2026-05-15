@@ -125,6 +125,7 @@ import { authRateLimit, gitRateLimit, searchRateLimit } from "./middleware/rate-
 import { csrfToken, csrfProtect } from "./middleware/csrf";
 
 import type { AuthEnv } from "./middleware/auth";
+import { softAuth } from "./middleware/auth";
 
 const app = new Hono<AuthEnv>();
 
@@ -138,6 +139,12 @@ app.use("*", async (c, next) => {
   return logger()(c, next);
 });
 app.use("/api/*", cors());
+// Global softAuth — populates c.get("user") for every downstream middleware
+// + route. This was previously per-route, which meant rate-limit middleware
+// (and anything else inspecting auth state) always saw a null user. Keep
+// individual routes free to add requireAuth on top for hard gating; this
+// just establishes the user object cheaply.
+app.use("*", softAuth);
 
 // Force-revalidate HTML on every request — kills browser cache holding stale
 // pre-redesign markup. JSON / static assets keep their own cache rules; only

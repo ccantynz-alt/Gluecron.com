@@ -176,6 +176,15 @@ export async function runScheduledWorkflowsTick(
     result.errors += 1;
   }
 
+  // Defensive: if a leaked mock or DB driver returns a non-iterable, coerce
+  // to an empty array so `for (const w of candidates)` doesn't throw. This
+  // closes the cross-suite test-pollution failure where another test file's
+  // mock.module("../db", ...) leaked into this code path.
+  if (!Array.isArray(candidates)) {
+    candidates = [];
+    result.errors += 1;
+  }
+
   for (const w of candidates) {
     if (result.fired >= MAX_RUNS_PER_TICK) break;
     result.considered += 1;

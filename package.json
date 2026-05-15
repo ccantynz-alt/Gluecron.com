@@ -2,6 +2,14 @@
   "name": "gluecron",
   "version": "0.1.0",
   "description": "AI-native code intelligence platform — git hosting, automated CI, and green ecosystem enforcement",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://gluecron.com/ccantynz/Gluecron.com.git"
+  },
+  "engines": {
+    "node": ">=20"
+  },
   "type": "module",
   "scripts": {
     "dev": "bun run --hot src/index.ts",

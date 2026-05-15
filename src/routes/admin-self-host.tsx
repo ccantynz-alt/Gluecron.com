@@ -45,14 +45,39 @@ interface Deps {
   getEnv: () => Record<string, string | undefined>;
 }
 
+/**
+ * Bootstrap log path. The POST handler redirects stdout + stderr here so the
+ * operator can `tail -f` it (or we can read the last N lines on the next
+ * page render to surface errors). Previously every output stream was set to
+ * "ignore", which meant the operator saw "Bootstrap dispatched" toast even
+ * when the script crashed with bun-not-found / DATABASE_URL-missing /
+ * GitHub-clone-failed. P0 from the May 15 audit.
+ */
+export const BOOTSTRAP_LOG_PATH = "/var/log/gluecron-bootstrap.log";
+
 const REAL_DEPS: Deps = {
   audit: realAudit,
-  spawn: (cmd, _opts) =>
-    Bun.spawn(cmd, {
-      stdout: "ignore",
-      stderr: "ignore",
-      stdin: "ignore",
-    }),
+  spawn: (cmd, _opts) => {
+    // Open the log file for append; if the open fails (perm issue, missing
+    // /var/log) fall back to inherit so output at least goes to journalctl.
+    let stdout: any = "inherit";
+    let stderr: any = "inherit";
+    try {
+      const log = Bun.file(BOOTSTRAP_LOG_PATH);
+      // Truncate the previous run's output so the operator sees only the
+      // current attempt. `Bun.write` is sync-ish and returns a promise we
+      // don't need to await — the spawn happens regardless.
+      void Bun.write(
+        BOOTSTRAP_LOG_PATH,
+        `[${new Date().toISOString()}] bootstrap dispatched: ${cmd.join(" ")}\n`
+      );
+      stdout = log.writer();
+      stderr = log.writer();
+    } catch {
+      // Fall back to inherit
+    }
+    return Bun.spawn(cmd, { stdout, stderr, stdin: "ignore" });
+  },
   fsExists: existsSync,
   getEnv: () => process.env as Record<string, string | undefined>,
 };
@@ -334,6 +359,16 @@ selfHost.get("/admin/self-host", async (c) => {
               </span>
             </li>
           </ul>
+          {!envState.selfHostRepoSet && (
+            <div style="margin-top:12px;padding:10px 12px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);border-radius:6px;font-size:12px;line-height:1.5">
+              <strong style="color:#f59e0b">Hint:</strong>{" "}
+              <code>SELF_HOST_REPO</code> is read from{" "}
+              <code>/etc/gluecron.env</code> when the gluecron service starts.
+              If you just appended it via SSH, the running process won't see
+              it until you run:
+              <pre style="margin:8px 0 0 0;padding:6px 8px;background:var(--bg);border-radius:4px;font-size:11px;overflow-x:auto">systemctl restart gluecron</pre>
+            </div>
+          )}
           <div style="margin-top:14px;font-size:12px;color:var(--text-muted)">
             Overall:{" "}
             <Pill
@@ -459,6 +494,25 @@ selfHost.post("/admin/self-host/bootstrap", async (c) => {
     const scriptPath =
       _deps.getEnv().GLUECRON_BOOTSTRAP_SCRIPT ||
       "/opt/gluecron/scripts/self-host-bootstrap.ts";
+
+    // P0 audit #10/#11 — pre-check the binary + script paths exist before
+    // spawning. The old handler spawned blindly with stderr discarded, so a
+    // missing bun produced a "success" toast and a permanently broken state.
+    if (!_deps.fsExists(bunCmd)) {
+      return redirectWith(
+        c,
+        "error",
+        `Bootstrap aborted: bun binary not found at ${bunCmd}. Set GLUECRON_BUN_PATH or install bun on the box.`
+      );
+    }
+    if (!_deps.fsExists(scriptPath)) {
+      return redirectWith(
+        c,
+        "error",
+        `Bootstrap aborted: script not found at ${scriptPath}. The deploy may be incomplete.`
+      );
+    }
+
     const child = _deps.spawn([bunCmd, "run", scriptPath], { detached: true });
     try {
       (child as any)?.unref?.();
@@ -478,7 +532,7 @@ selfHost.post("/admin/self-host/bootstrap", async (c) => {
     return redirectWith(
       c,
       "success",
-      "Bootstrap dispatched — watch the system journal for progress."
+      `Bootstrap dispatched. Output streams to ${BOOTSTRAP_LOG_PATH} — refresh in ~30s to see status.`
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

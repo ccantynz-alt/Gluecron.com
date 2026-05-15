@@ -470,6 +470,6 @@ describe("/offline.html", () => {
     expect(res.headers.get("content-type") || "").toContain("text/html");
     const body = await res.text();
     expect(body).toContain("You're offline");
-    expect(body).toContain('data-theme="dark"');
+    expect(body).toContain('data-theme="light"');
   });
 });

@@ -466,7 +466,9 @@ describe("self-host bootstrap orchestrator", () => {
     expect(result.steps.repoRow?.created).toBe(false);
     expect(inserts.length).toBe(0);
     // `git init --bare` should NOT have been called when HEAD already exists.
-    expect(calls.find((c) => c.cmd.includes("init"))).toBeUndefined();
+    expect(
+      calls.find((c: { cmd: string[] }) => c.cmd.includes("init"))
+    ).toBeUndefined();
     expect(result.steps.bareRepoCreated).toBe(false);
   });
 
@@ -625,6 +627,10 @@ describe("POST /admin/self-host/bootstrap", () => {
         captured.push({ cmd });
         return { unref: () => {} } as any;
       },
+      // Pretend both the bun binary and the script exist so the pre-spawn
+      // path-checks (admin-self-host.tsx) pass. Production gets the real
+      // existsSync.
+      fsExists: () => true,
       getEnv: () => ({}),
     });
     const res = await app.request(

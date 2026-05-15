@@ -154,10 +154,16 @@ export async function onPostReceive(
 // BLOCK W — DI seam so the test suite can capture the spawn call without
 // actually shelling out to /opt/gluecron/scripts/self-deploy.sh. Production
 // callers go straight to Bun.spawn.
-let __selfHostSpawn: (cmd: string[], opts: any) => any = (cmd, opts) =>
+const __defaultSelfHostSpawn: (cmd: string[], opts: any) => any = (cmd, opts) =>
   Bun.spawn(cmd, opts);
-export function __setSelfHostSpawnForTests(fn: typeof __selfHostSpawn) {
-  __selfHostSpawn = fn;
+let __selfHostSpawn: (cmd: string[], opts: any) => any = __defaultSelfHostSpawn;
+/**
+ * Test-only: replace the spawn impl. Pass `null` to reset to Bun.spawn.
+ */
+export function __setSelfHostSpawnForTests(
+  fn: typeof __selfHostSpawn | null
+): void {
+  __selfHostSpawn = fn ?? __defaultSelfHostSpawn;
 }
 
 /**

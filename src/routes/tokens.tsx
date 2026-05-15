@@ -206,6 +206,121 @@ tokens.post("/settings/tokens/:id/delete", async (c) => {
   return c.redirect("/settings/tokens?success=Token+revoked");
 });
 
+/**
+ * Emergency PAT issuance — break-glass for when the web UI is broken
+ * (service-worker loop, css busted, whatever) and an operator needs
+ * a token to push a fix.
+ *
+ * Auth: bearer of the `EMERGENCY_PAT_SECRET` env var (set on the host).
+ * If the env var is unset, the endpoint returns 503 — we don't want it
+ * silently usable with an empty secret. This is the ONLY token route
+ * that isn't behind a normal session, by design.
+ *
+ * Issues a PAT for the user named in the JSON body's `username` field,
+ * defaulting to the site admin / oldest user (same heuristic the
+ * self-host bootstrap uses).
+ *
+ * Returns JSON: { user, token } — the token is shown ONCE.
+ *
+ * Use:
+ *   curl -X POST https://gluecron.com/api/admin/emergency-pat \
+ *     -H "Authorization: Bearer $EMERGENCY_PAT_SECRET" \
+ *     -H "content-type: application/json" \
+ *     -d '{"name":"break-glass","scopes":"admin"}'
+ */
+tokens.post("/api/admin/emergency-pat", async (c) => {
+  const secret = process.env.EMERGENCY_PAT_SECRET;
+  if (!secret) {
+    return c.json(
+      { error: "emergency PAT endpoint not configured (EMERGENCY_PAT_SECRET unset)" },
+      503
+    );
+  }
+  const provided = (c.req.header("authorization") || "").replace(/^Bearer\s+/i, "").trim();
+  if (provided !== secret) {
+    return c.json({ error: "invalid emergency secret" }, 401);
+  }
+
+  let body: { username?: string; name?: string; scopes?: string };
+  try {
+    body = await c.req.json();
+  } catch {
+    body = {};
+  }
+  const name = (body.name || "emergency-pat").trim();
+  const scopes = (body.scopes || "admin").trim();
+
+  // Resolve target user: explicit username → site admin → oldest user.
+  const { users, siteAdmins } = await import("../db/schema");
+  const { eq: eqOp, asc } = await import("drizzle-orm");
+  let target:
+    | { id: string; username: string }
+    | undefined;
+
+  if (body.username) {
+    const [u] = await db
+      .select({ id: users.id, username: users.username })
+      .from(users)
+      .where(eqOp(users.username, body.username))
+      .limit(1);
+    target = u;
+  }
+  if (!target) {
+    try {
+      const [u] = await db
+        .select({ id: users.id, username: users.username })
+        .from(siteAdmins)
+        .innerJoin(users, eqOp(siteAdmins.userId, users.id))
+        .limit(1);
+      target = u;
+    } catch {
+      // siteAdmins table may not exist on stale schemas — fall through.
+    }
+  }
+  if (!target) {
+    const [u] = await db
+      .select({ id: users.id, username: users.username })
+      .from(users)
+      .orderBy(asc(users.createdAt))
+      .limit(1);
+    target = u;
+  }
+  if (!target) {
+    return c.json({ error: "no user available to issue PAT for" }, 404);
+  }
+
+  // Token + hash — same algorithm the web flow uses.
+  const tokenBytes = crypto.getRandomValues(new Uint8Array(32));
+  const token =
+    "glc_" +
+    Array.from(tokenBytes)
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+  const hashBuf = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(token)
+  );
+  const tokenHash = Array.from(new Uint8Array(hashBuf))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+
+  await db.insert(apiTokens).values({
+    userId: target.id,
+    name,
+    tokenHash,
+    tokenPrefix: token.slice(0, 12),
+    scopes,
+  });
+
+  return c.json({
+    user: { id: target.id, username: target.username },
+    token,
+    name,
+    scopes,
+    note: "Token is shown once. Store it now.",
+  });
+});
+
 // API endpoint
 tokens.get("/api/user/tokens", async (c) => {
   const user = c.get("user")!;

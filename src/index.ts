@@ -6,10 +6,20 @@ import { startAutopilot } from "./lib/autopilot";
 import { ensureDemoContent } from "./lib/demo-seed";
 import { ensureDemoActivity } from "./lib/demo-activity-seed";
 import { ensureEnvSiteAdmin } from "./lib/admin-bootstrap";
+import { maybeSelfBootstrap } from "./lib/self-bootstrap";
 import { notifySystemdReady } from "./lib/systemd-notify";
 
 // Ensure repos directory exists
 await mkdir(config.gitReposPath, { recursive: true });
+
+// Self-bootstrap: if Gluecron's own canonical repo (`ccantynz/Gluecron.com.git`
+// by default) doesn't exist on disk yet, initialize it from the GitHub mirror
+// and install the post-receive hook. This is the platform's self-healing path
+// — once it runs successfully on a host, future deploys flow through Gluecron
+// itself with no external CI tooling. Fire-and-forget; never blocks startup.
+void maybeSelfBootstrap().catch((err) => {
+  console.warn(`[self-bootstrap] swallowed: ${(err as Error).message}`);
+});
 
 // Start the Actions-equivalent workflow worker (Block C1). Polls
 // workflow_runs for queued rows and executes them sequentially.

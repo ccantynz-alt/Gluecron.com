@@ -139,5 +139,8 @@ export function clearRateLimitStore() {
 
 export const apiRateLimit = rateLimit(100, 60_000, "api"); // 100 req/min
 export const authRateLimit = rateLimit(10, 60_000, "auth"); // 10 req/min (login/register)
-export const gitRateLimit = rateLimit(60, 60_000, "git"); // 60 req/min
+// 300/min for git Smart-HTTP. A clone of a busy repo fans out into many
+// info/refs + upload-pack requests; 60 was way too tight when the same IP
+// (a developer's laptop) was clicking around the UI in another tab.
+export const gitRateLimit = rateLimit(300, 60_000, "git");
 export const searchRateLimit = rateLimit(30, 60_000, "search"); // 30 req/min

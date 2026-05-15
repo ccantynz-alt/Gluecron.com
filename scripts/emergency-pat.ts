@@ -46,25 +46,44 @@ async function main() {
 
   let userRow: { id: string; username: string } | undefined;
   if (requestedUser) {
+    // Case-insensitive lookup — username is supposed to be unique-by-value
+    // but capitalization in some early signups varied.
     const rows = (await sql`
-      SELECT id, username FROM users WHERE username = ${requestedUser} LIMIT 1
+      SELECT id, username FROM users WHERE LOWER(username) = LOWER(${requestedUser}) LIMIT 1
     `) as Array<{ id: string; username: string }>;
     userRow = rows[0];
-    if (!userRow) {
-      console.error(`No user with username "${requestedUser}".`);
-      process.exit(1);
-    }
   } else {
     const rows = (await sql`
       SELECT id, username FROM users WHERE is_admin = true ORDER BY created_at ASC LIMIT 1
     `) as Array<{ id: string; username: string }>;
     userRow = rows[0];
-    if (!userRow) {
+  }
+
+  if (!userRow) {
+    // Dump the user list so the operator can see what's there.
+    const all = (await sql`
+      SELECT username, email, is_admin, created_at
+      FROM users ORDER BY created_at ASC LIMIT 30
+    `) as Array<{
+      username: string; email: string; is_admin: boolean; created_at: Date;
+    }>;
+    console.error("");
+    console.error(
+      requestedUser
+        ? `No user matched "${requestedUser}". Users in this DB:`
+        : "No admin user. All users in this DB:"
+    );
+    console.error("");
+    for (const u of all) {
       console.error(
-        "No admin user found. Set EMERGENCY_PAT_USER=<username> and rerun."
+        `  ${u.username.padEnd(24)} ${u.email.padEnd(40)} admin=${u.is_admin}`
       );
-      process.exit(1);
     }
+    console.error("");
+    console.error(
+      "Re-run with EMERGENCY_PAT_USER=<exact-username-from-above>"
+    );
+    process.exit(1);
   }
 
   const token = generateToken();

@@ -34,13 +34,14 @@
 import { Hono } from "hono";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "../db";
-import { branchProtection, repositories, users } from "../db/schema";
+import { apiTokens, branchProtection, repositories, users } from "../db/schema";
 import { platformDeploys } from "../db/schema-deploys";
 import { Layout } from "../views/layout";
 import { softAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
 import { isSiteAdmin } from "../lib/admin";
 import { audit as realAudit } from "../lib/notify";
+import { config } from "../lib/config";
 import {
   runEnableAutoMerge as realRunEnableAutoMerge,
   type DbLike,
@@ -463,6 +464,48 @@ ops.get("/admin/ops", async (c) => {
           </div>
         </CardShell>
 
+        {/* ---- GateTest scanner credentials card ---- */}
+        <CardShell title="GateTest scanner credentials">
+          <p style="font-size:13px;color:var(--text-muted);margin:0 0 12px 0">
+            Two values to paste into GateTest's environment so it can scan
+            this site. Token is admin-scoped — revoke at{" "}
+            <a href="/settings/tokens">/settings/tokens</a> when scanning is done.
+          </p>
+          <div style="display:grid;grid-template-columns:160px 1fr;gap:6px 10px;font-size:13px;margin-bottom:14px">
+            <code class="meta-mono">GLUECRON_BASE_URL</code>
+            <code class="meta-mono" style="word-break:break-all">
+              {config.appBaseUrl}
+            </code>
+            <code class="meta-mono">GLUECRON_API_TOKEN</code>
+            <code
+              class="meta-mono"
+              style={
+                c.req.query("gatetest_token")
+                  ? "word-break:break-all;color:var(--accent)"
+                  : "color:var(--text-muted)"
+              }
+            >
+              {c.req.query("gatetest_token") ||
+                "— click below to issue (shown once) —"}
+            </code>
+          </div>
+          {c.req.query("gatetest_token") && (
+            <p style="font-size:12px;color:#f59e0b;margin:0 0 12px 0">
+              Copy the token now. It is hashed in the DB and will not be shown
+              again.
+            </p>
+          )}
+          <form
+            method="post"
+            action="/admin/ops/gatetest-token"
+            style="margin:0"
+          >
+            <button type="submit" class="btn btn-sm btn-primary">
+              Issue scanner token
+            </button>
+          </form>
+        </CardShell>
+
         {/* ---- Rollback card ---- */}
         <CardShell title="Rollback">
           <div style="margin-bottom:12px;font-size:13px">
@@ -691,6 +734,70 @@ ops.post("/admin/ops/rollback", async (c) => {
     "success",
     `Rollback dispatched to ${shortSha(prev.sha)} — watch /admin/deploys for progress.`
   );
+});
+
+// ---------------------------------------------------------------------------
+// POST /admin/ops/gatetest-token
+// ---------------------------------------------------------------------------
+//
+// Mint a fresh admin-scoped API token for the GateTest scanner and surface
+// it once via the redirect query string. The DB stores only the SHA-256
+// hash (same shape tokens.tsx uses) so the plaintext is unrecoverable after
+// this redirect — operator must copy it immediately into GateTest's
+// environment.
+
+function generateGateTestToken(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  return (
+    "glc_" +
+    Array.from(bytes)
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("")
+  );
+}
+
+async function sha256Hex(input: string): Promise<string> {
+  const data = new TextEncoder().encode(input);
+  const hash = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(hash))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+ops.post("/admin/ops/gatetest-token", async (c) => {
+  const g = await gate(c);
+  if (g instanceof Response) return g;
+  const { user } = g;
+
+  const token = generateGateTestToken();
+  const tokenH = await sha256Hex(token);
+  const stamp = new Date().toISOString().slice(0, 10);
+
+  try {
+    await db.insert(apiTokens).values({
+      userId: user.id,
+      name: `GateTest scanner (${stamp})`,
+      tokenHash: tokenH,
+      tokenPrefix: token.slice(0, 12),
+      scopes: "admin",
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return redirectWith(c, "error", `Token insert failed: ${message}`);
+  }
+
+  try {
+    await _deps.audit({
+      userId: user.id,
+      action: "admin.ops.gatetest_token_issued",
+      targetType: "api_token",
+      metadata: { scope: "admin", prefix: token.slice(0, 12) },
+    });
+  } catch {
+    /* non-fatal */
+  }
+
+  return c.redirect(`/admin/ops?gatetest_token=${encodeURIComponent(token)}`);
 });
 
 export const __test = {

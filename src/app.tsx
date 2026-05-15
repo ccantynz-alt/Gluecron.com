@@ -70,6 +70,7 @@ import adminDeploysRoutes from "./routes/admin-deploys";
 import adminDeploysPageRoutes from "./routes/admin-deploys-page";
 import adminOpsRoutes from "./routes/admin-ops";
 import adminSelfHostRoutes from "./routes/admin-self-host";
+import adminDiagnoseRoutes from "./routes/admin-diagnose";
 import advisoriesRoutes from "./routes/advisories";
 import aiChangelogRoutes from "./routes/ai-changelog";
 import aiExplainRoutes from "./routes/ai-explain";
@@ -157,8 +158,22 @@ app.use("*", async (c, next) => {
     c.header("cache-control", "private, no-cache, must-revalidate");
   }
 });
-// Rate-limit API + auth endpoints (generous default)
-app.use("/api/*", rateLimit(120, 60_000, "api"));
+// Rate-limit API + auth endpoints.
+//
+// `/api/*`: anonymous IPs are capped at 200/min; authenticated users get 4×
+// (800/min) so an admin clicking around the operator console doesn't
+// exhaust the anonymous budget. Three dashboard-plumbing endpoints are
+// exempt entirely so they never count against the bucket:
+//   /api/version              — layout polls every 15s to detect new deploys
+//   /api/notifications/count  — nav bell unread-count fetcher
+//   /pwa/vapid-public-key     — fetched once per push-notification opt-in
+app.use(
+  "/api/*",
+  rateLimit(200, 60_000, "api", {
+    authedMultiplier: 4,
+    skipPaths: ["/api/version", "/api/notifications/count", "/pwa/vapid-public-key"],
+  })
+);
 app.use("/login", rateLimit(20, 60_000, "login"));
 app.use("/register", rateLimit(10, 60_000, "register"));
 // BLOCK P1 — throttle forgot-password to deter enumeration + mail spam.
@@ -335,6 +350,8 @@ app.route("/", healthDashboardRoutes);
 app.route("/", adminOpsRoutes);
 // BLOCK W — Self-host status + bootstrap dashboard.
 app.route("/", adminSelfHostRoutes);
+// BLOCK X — AI health-scan diagnose page (/admin/diagnose).
+app.route("/", adminDiagnoseRoutes);
 
 // Insights (time-travel, dependencies, rollback)
 app.route("/", insightRoutes);

@@ -122,6 +122,9 @@ admin.get("/admin", async (c) => {
         <a href="/admin/ops" class="btn btn-primary">
           Operations
         </a>
+        <a href="/admin/diagnose" class="btn">
+          Diagnose
+        </a>
         <a href="/admin/users" class="btn">
           Manage users
         </a>

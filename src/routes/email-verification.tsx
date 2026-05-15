@@ -16,6 +16,7 @@ import { users } from "../db/schema";
 import { Layout } from "../views/layout";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
+import { config } from "../lib/config";
 import {
   consumeVerificationToken,
   startEmailVerification,
@@ -109,7 +110,15 @@ verify.post("/verify-email/resend", requireAuth, async (c) => {
     return c.redirect("/dashboard?verify=rate_limited");
   }
 
+  // If the operator hasn't wired a real email provider, fire the verification
+  // anyway (it still writes a row + logs to stderr so the admin can grab the
+  // token), but redirect to a state the banner can describe honestly. Lying
+  // "Sent! Check your inbox" when the inbox will never receive it is the
+  // exact frustration the user flagged.
   void startEmailVerification(user.id, email);
+  if (config.emailProvider !== "resend" || !config.resendApiKey) {
+    return c.redirect("/dashboard?verify=not_configured");
+  }
   return c.redirect("/dashboard?verify=sent");
 });
 

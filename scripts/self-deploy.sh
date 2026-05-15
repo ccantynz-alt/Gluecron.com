@@ -167,6 +167,23 @@ if [ "$DEPLOY_FAILED" = "0" ]; then
   fi
 fi
 
+# ── 6.5 Pin BUILD_SHA into the systemd unit so the running process can
+# report it and the SW versioning rotates exactly per-deploy. Drop-in
+# survives daemon-reload; the OLD file is overwritten on every deploy.
+# Without this, src/routes/pwa.ts falls back to a stable "dev-stable"
+# string and the browser SW never invalidates between real deploys.
+if [ "$DEPLOY_FAILED" = "0" ]; then
+  DROPIN_DIR=/etc/systemd/system/gluecron.service.d
+  mkdir -p "$DROPIN_DIR"
+  cat > "$DROPIN_DIR/build-sha.conf" <<EOF
+[Service]
+Environment="BUILD_SHA=$NEW_SHA"
+Environment="BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+EOF
+  systemctl daemon-reload >>"$LOG" 2>&1 || log "    ! daemon-reload non-fatal warning"
+  log "    v pinned BUILD_SHA=${NEW_SHA:0:12} in systemd drop-in"
+fi
+
 # ── 7. systemctl restart (blocks on sd_notify READY=1) ────────────────────
 if [ "$DEPLOY_FAILED" = "0" ]; then
   RS_START=$(date +%s)

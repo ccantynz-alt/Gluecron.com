@@ -117,9 +117,14 @@ self.addEventListener('activate', (e) => {
  * version to actually reach returning visitors.
  *
  * BUILD_SHA is read from `process.env.BUILD_SHA` at request time so the
- * deploy pipeline can rotate it without a rebuild. Falls back to a stable
- * per-process `dev-<pid>` string when unset; a one-shot warn() is logged
- * so operators notice misconfigured deploys.
+ * deploy pipeline can rotate it without a rebuild. Falls back to a STABLE
+ * `dev-stable` constant when unset — the previous `dev-<pid>` fallback
+ * changed on every systemd restart, which invalidated the SW on every
+ * restart and triggered the layout's updatefound→reload hook, producing
+ * visible page flashing on long-lived admin tabs. Use a constant fallback
+ * so the SW only rotates when BUILD_SHA actually changes (real deploy).
+ * A one-shot warn() is logged so operators still notice misconfigured
+ * deploys.
  */
 
 // One-shot warning latch — exported only for tests to reset between cases.
@@ -137,9 +142,11 @@ export function buildSwVersion(): string {
       "[pwa] BUILD_SHA env not set — service worker will fall back to a dev-mode version string. Set BUILD_SHA in the deploy environment so cache-busting pins to the deploy SHA."
     );
   }
-  // Dev fallback: stable per-process so reloads don't churn the cache
-  // while developing locally, but distinct from any real SHA.
-  return `dev-${process.pid}`;
+  // Dev fallback: STABLE across systemd restarts (no `${process.pid}` —
+  // that was rotating on every restart and forcing browser reloads via
+  // the layout's updatefound hook). Distinct prefix `dev-` so operators
+  // can tell at a glance the deploy pipeline didn't set BUILD_SHA.
+  return "dev-stable";
 }
 
 export function buildVersionedServiceWorker(version: string): string {

@@ -6,17 +6,15 @@
 // the production database via DATABASE_URL.
 //
 // Run: bun run scripts/emergency-pat.ts
-// Required env: DATABASE_URL (from your local .env)
+// Required env: DATABASE_URL (from your local .env, or set inline)
 //
-// The script:
-//   1. Loads .env
-//   2. Finds the first admin user (or a user matching $EMERGENCY_PAT_USER)
-//   3. Inserts a fresh PAT with `admin` scope
-//   4. Prints the raw token — you only see it once, so copy it now
+// Uses RAW SQL via @neondatabase/serverless rather than drizzle's
+// schema layer. Reason: when this script is needed, production is
+// usually missing recent migrations, so drizzle's SELECT (which lists
+// every schema column) blows up on missing columns. Raw SQL only
+// touches the columns we name, so schema drift doesn't matter.
 
-import { db } from "../src/db/index";
-import { users, apiTokens } from "../src/db/schema";
-import { eq } from "drizzle-orm";
+import { neon } from "@neondatabase/serverless";
 
 function generateToken(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(32));
@@ -37,26 +35,31 @@ async function hashToken(token: string): Promise<string> {
 }
 
 async function main() {
-  const requestedUser = process.env.EMERGENCY_PAT_USER?.trim();
-  let user: typeof users.$inferSelect | undefined;
+  const url = process.env.DATABASE_URL;
+  if (!url) {
+    console.error("DATABASE_URL is not set.");
+    process.exit(1);
+  }
+  const sql = neon(url);
 
+  const requestedUser = process.env.EMERGENCY_PAT_USER?.trim();
+
+  let userRow: { id: string; username: string } | undefined;
   if (requestedUser) {
-    [user] = await db
-      .select()
-      .from(users)
-      .where(eq(users.username, requestedUser))
-      .limit(1);
-    if (!user) {
+    const rows = (await sql`
+      SELECT id, username FROM users WHERE username = ${requestedUser} LIMIT 1
+    `) as Array<{ id: string; username: string }>;
+    userRow = rows[0];
+    if (!userRow) {
       console.error(`No user with username "${requestedUser}".`);
       process.exit(1);
     }
   } else {
-    [user] = await db
-      .select()
-      .from(users)
-      .where(eq(users.isAdmin, true))
-      .limit(1);
-    if (!user) {
+    const rows = (await sql`
+      SELECT id, username FROM users WHERE is_admin = true ORDER BY created_at ASC LIMIT 1
+    `) as Array<{ id: string; username: string }>;
+    userRow = rows[0];
+    if (!userRow) {
       console.error(
         "No admin user found. Set EMERGENCY_PAT_USER=<username> and rerun."
       );
@@ -66,21 +69,20 @@ async function main() {
 
   const token = generateToken();
   const tokenHash = await hashToken(token);
-  await db.insert(apiTokens).values({
-    userId: user.id,
-    name: "emergency-deploy-fix",
-    tokenHash,
-    tokenPrefix: token.slice(0, 12),
-    scopes: "admin",
-  });
+  const tokenPrefix = token.slice(0, 12);
 
-  console.log(`User:    ${user.username} (id ${user.id})`);
+  await sql`
+    INSERT INTO api_tokens (user_id, name, token_hash, token_prefix, scopes)
+    VALUES (${userRow.id}, 'emergency-deploy-fix', ${tokenHash}, ${tokenPrefix}, 'admin')
+  `;
+
+  console.log("");
+  console.log(`User:    ${userRow.username}`);
   console.log(`Token:   ${token}`);
   console.log("");
-  console.log("Copy the token above NOW — it is hashed in the DB and");
-  console.log("cannot be recovered later. Then push with:");
+  console.log("Copy the token NOW (only shown once). Then run these two:");
   console.log("");
-  console.log(`  git remote set-url gluecron "https://${user.username}:${token}@gluecron.com/ccantynz/Gluecron.com.git"`);
+  console.log(`  git remote set-url gluecron "https://${userRow.username}:${token}@gluecron.com/ccantynz/Gluecron.com.git"`);
   console.log("  git push gluecron main");
   process.exit(0);
 }

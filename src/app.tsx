@@ -160,16 +160,24 @@ app.use("*", async (c, next) => {
 });
 // Rate-limit API + auth endpoints.
 //
-// `/api/*`: anonymous IPs are capped at 200/min; authenticated users get 4×
-// (800/min) so an admin clicking around the operator console doesn't
-// exhaust the anonymous budget. Three dashboard-plumbing endpoints are
-// exempt entirely so they never count against the bucket:
-//   /api/version              — layout polls every 15s to detect new deploys
+// `/api/*`: 1000/min per IP — generous so an admin clicking around the
+// operator console (or a CDN/proxy concentrating multiple users behind one
+// IP) doesn't hit the wall. Bot-resistant headroom comes from the auth
+// rate limits below, not this one.
+//
+// `authedMultiplier` is set but only fires when an upstream middleware has
+// already populated c.get("user") — most app.use() chains apply softAuth
+// per-route, so the multiplier is best-effort. Keep the anonymous base
+// high enough that humans never feel it.
+//
+// Skip-paths: dashboard plumbing endpoints that the layout polls on a
+// fixed cadence and that we don't want consuming any bucket:
+//   /api/version              — layout polls every 15s
 //   /api/notifications/count  — nav bell unread-count fetcher
 //   /pwa/vapid-public-key     — fetched once per push-notification opt-in
 app.use(
   "/api/*",
-  rateLimit(200, 60_000, "api", {
+  rateLimit(1000, 60_000, "api", {
     authedMultiplier: 4,
     skipPaths: ["/api/version", "/api/notifications/count", "/pwa/vapid-public-key"],
   })

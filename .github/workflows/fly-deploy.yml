@@ -5,10 +5,13 @@ name: Fly Deploy
 permissions: read-all
 
 on:
-  # Disabled automatic deploys until Fly.io credit card is added
-  # push:
-  #   branches:
-  #     - main
+  # Auto-deploy on every push to main. Re-enabled 2026-05-15 after the
+  # GitHub→Gluecron mirror sync silently broke and stranded 3 commits.
+  # Until we build GitHub→Gluecron sync into the platform itself,
+  # this GitHub Action is the trustworthy deploy path.
+  push:
+    branches:
+      - main
   workflow_dispatch: {}
 
 concurrency:

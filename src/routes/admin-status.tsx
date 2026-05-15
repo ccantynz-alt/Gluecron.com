@@ -100,7 +100,7 @@ adminStatus.get("/admin/status", async (c) => {
         </div>
         <p style="color: var(--text-muted); margin-bottom: 24px">
           Synthetic monitor — runs every autopilot tick. Last run{" "}
-          <span data-last-run-at>{fmtAgo(lastRunAt)}</span>.
+          <span data-last-run-at>{fmtAgo(lastRunAt ?? undefined)}</span>.
         </p>
 
         <div class="panel" style="margin-bottom: 20px">

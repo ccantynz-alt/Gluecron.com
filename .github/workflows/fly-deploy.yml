@@ -1,5 +1,9 @@
 name: Fly Deploy
 
+# Default-deny: scope GITHUB_TOKEN to read-only. Individual jobs can
+# escalate via their own `permissions:` block if they need write access.
+permissions: read-all
+
 on:
   push:
     branches:

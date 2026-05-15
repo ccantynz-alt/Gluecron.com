@@ -451,7 +451,7 @@ let _verificationCalls: Array<{ email: string }> = [];
 const _origSender = _real_email_verification.__setEmailForTests(
   async (msg: any) => {
     _verificationCalls.push({ email: String(msg.to) });
-    return { ok: true };
+    return { ok: true, provider: "log" as const };
   }
 );
 

@@ -1,5 +1,10 @@
 name: Hetzner Deploy (gluecron.com)
 
+# Default-deny: scope GITHUB_TOKEN to read-only. The deploy uses an SSH key
+# (HETZNER_SSH_KEY) to push to the box, not the GitHub token, so read-only
+# is sufficient. Individual jobs may escalate if they need write access.
+permissions: read-all
+
 # Triggered on every push to main and on manual dispatch.
 # Steps:
 #   1. Capture the current SHA on the box (for rollback)
@@ -576,18 +581,26 @@ jobs:
           COMMIT_MSG: ${{ github.event.head_commit.message }}
         run: |
           set +e
-          # Build the prompt
-          cat > /tmp/prompt.json <<EOF
-          {
-            "model": "claude-haiku-4-5-20251001",
-            "max_tokens": 600,
-            "system": "You are a senior SRE diagnosing a failed deploy. Read the systemd status, journal, and curl output. In 1 short paragraph (under 100 words), identify the most likely root cause and the single fastest fix. Be direct, no preamble.",
-            "messages": [{
-              "role": "user",
-              "content": "Commit: $COMMIT_SHA\nMessage: $COMMIT_MSG\n\nDeploy logs:\n$DEPLOY_LOGS"
-            }]
+          # Build the prompt. Use python3 to JSON-encode every untrusted input
+          # (commit message, deploy logs, SHA) so backticks, $(…), quotes, or
+          # newlines in a commit message cannot break out of the JSON string
+          # or execute on the runner. The previous unquoted heredoc allowed
+          # arbitrary command execution via crafted commit messages.
+          python3 - <<'PY' > /tmp/prompt.json
+          import json, os
+          payload = {
+              "model": "claude-haiku-4-5-20251001",
+              "max_tokens": 600,
+              "system": "You are a senior SRE diagnosing a failed deploy. Read the systemd status, journal, and curl output. In 1 short paragraph (under 100 words), identify the most likely root cause and the single fastest fix. Be direct, no preamble.",
+              "messages": [{
+                  "role": "user",
+                  "content": "Commit: " + os.environ.get("COMMIT_SHA", "") +
+                             "\nMessage: " + os.environ.get("COMMIT_MSG", "") +
+                             "\n\nDeploy logs:\n" + os.environ.get("DEPLOY_LOGS", ""),
+              }],
           }
-          EOF
+          print(json.dumps(payload))
+          PY
           response=$(curl -s https://api.anthropic.com/v1/messages \
             -H "x-api-key: $ANTHROPIC_API_KEY" \
             -H "anthropic-version: 2023-06-01" \

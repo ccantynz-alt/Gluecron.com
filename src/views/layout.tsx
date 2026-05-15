@@ -39,7 +39,11 @@ export const Layout: FC<
   siteBannerText,
   siteBannerLevel,
 }) => {
-  const initialTheme = theme === "light" ? "light" : "dark";
+  // Default to "light" — feedback from operators was the dark default
+  // felt too gamer-ish and not what senior platform engineers expect from
+  // a tool they'd evaluate alongside Vercel / Linear / Stripe. Users who
+  // explicitly want dark can flip via the theme toggle (cookie persists).
+  const initialTheme = theme === "dark" ? "dark" : "light";
   const build = getBuildInfo();
   // L10 — when `fullTitle` is provided, use it verbatim (no " — gluecron"
   // suffix); otherwise fall back to the existing `title` + suffix behaviour.
@@ -413,10 +417,12 @@ export const deployPillScript = `
     function render(){
       if (!pill || !text || !dot) return;
       var d = state.latest;
+      // When there's no deploy event yet, keep the pill HIDDEN. Showing
+      // "No deploys yet" was visible noise on every admin page load and
+      // flashed during reconnect cycles — admins don't need a placeholder.
+      // The pill reveals itself the first time a real deploy fires.
       if (!d) {
-        pill.className = 'nav-deploy-pill deploy-pill-empty';
-        text.textContent = 'No deploys yet';
-        pill.style.display = 'inline-flex';
+        pill.style.display = 'none';
         return;
       }
       pill.style.display = 'inline-flex';
@@ -515,13 +521,14 @@ export const deployPillScript = `
 `;
 
 // Runs before paint — reads the theme cookie and flips data-theme so there's
-// no dark-to-light flash on load. SSR default is dark.
+// no light-to-dark flash on load. SSR default is "light"; cookie-set "dark"
+// is honoured for users who explicitly opted in.
 const themeInitScript = `
   (function(){
     try {
       var m = document.cookie.match(/(?:^|; )theme=([^;]+)/);
-      var t = m ? decodeURIComponent(m[1]) : 'dark';
-      if (t !== 'light' && t !== 'dark') t = 'dark';
+      var t = m ? decodeURIComponent(m[1]) : 'light';
+      if (t !== 'light' && t !== 'dark') t = 'light';
       document.documentElement.setAttribute('data-theme', t);
     } catch(_){}
   })();

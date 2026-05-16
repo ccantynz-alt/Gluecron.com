@@ -278,7 +278,15 @@ export async function triggerAiReview(
           isAiReview: true,
           body: `${AI_REVIEW_MARKER}\n## AI review unavailable\n\nThe AI review attempt failed: ${reason}. The PR is otherwise unchanged.`,
         })
-        .catch(() => {});
+        .catch((err) => {
+          // Was a silent .catch(() => {}) — DB blips here meant the user
+          // saw no review comment AND no diagnostic. Log so operators
+          // can investigate, but don't re-throw (caller is fire-and-forget).
+          console.error(
+            `[ai-review] failed to insert API-failure advisory comment for PR ${prId}:`,
+            err instanceof Error ? err.message : err
+          );
+        });
       return;
     }
 
@@ -294,7 +302,12 @@ export async function triggerAiReview(
         isAiReview: true,
         body: summaryBody,
       })
-      .catch(() => {});
+      .catch((err) => {
+        console.error(
+          `[ai-review] failed to insert summary comment for PR ${prId}:`,
+          err instanceof Error ? err.message : err
+        );
+      });
 
     for (const c of result.comments) {
       if (!c || !c.body) continue;
@@ -314,7 +327,12 @@ export async function triggerAiReview(
           filePath,
           lineNumber,
         })
-        .catch(() => {});
+        .catch((err) => {
+          console.error(
+            `[ai-review] failed to insert inline comment for PR ${prId} (${filePath}:${lineNumber}):`,
+            err instanceof Error ? err.message : err
+          );
+        });
     }
 
     if (process.env.DEBUG_AI_REVIEW === "1") {

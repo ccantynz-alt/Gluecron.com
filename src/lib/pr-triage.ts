@@ -238,7 +238,12 @@ export async function triggerPrTriage(input: PrTriageInput): Promise<void> {
         body,
         isAiReview: true,
       })
-      .catch(() => {});
+      .catch((err) => {
+        console.error(
+          `[pr-triage] failed to insert triage comment for PR ${input.prId}:`,
+          err instanceof Error ? err.message : err
+        );
+      });
   } catch (err) {
     if (process.env.DEBUG_PR_TRIAGE === "1") {
       console.error("[pr-triage] crashed:", err);

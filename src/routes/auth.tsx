@@ -38,6 +38,11 @@ import type { AuthEnv } from "../middleware/auth";
 
 const auth = new Hono<AuthEnv>();
 
+// One-shot latch — log the auto-verify warning at most once per process,
+// since the misconfiguration is operator-level (env var) and won't change
+// between requests.
+let _autoVerifyWarned = false;
+
 // --- Web UI ---
 
 auth.get("/register", softAuth, (c) => {
@@ -219,8 +224,46 @@ auth.post("/register", async (c) => {
 
   setCookie(c, "session", token, sessionCookieOptions());
 
-  // Block P2 — fire-and-forget email verification. Never blocks registration.
-  import("../lib/email-verification").then((m) => m.startEmailVerification(user.id, email)).catch(() => {});
+  // Block P2 — email verification. If RESEND_API_KEY is configured the
+  // verification email goes out and the user clicks the link to verify.
+  // If email is NOT configured (EMAIL_PROVIDER=log, no RESEND_API_KEY,
+  // etc.), the email would silently never arrive and the user would be
+  // locked out — AUDIT-v2.md P0 #3. In that case, auto-verify the
+  // account on registration so the user can actually use the site.
+  // Operators who want real verification should set EMAIL_PROVIDER=resend
+  // + RESEND_API_KEY in their environment.
+  const { config: _emailConfig } = await import("../lib/config");
+  const emailConfigured =
+    _emailConfig.emailProvider === "resend" && !!_emailConfig.resendApiKey;
+  if (emailConfigured) {
+    import("../lib/email-verification")
+      .then((m) => m.startEmailVerification(user.id, email))
+      .catch((err) => {
+        console.error(
+          `[auth] startEmailVerification failed for ${user.id}:`,
+          err instanceof Error ? err.message : err
+        );
+      });
+  } else {
+    // Auto-verify immediately so the user isn't trapped in an unverified
+    // state. Log once so operators notice the misconfiguration.
+    if (!_autoVerifyWarned) {
+      _autoVerifyWarned = true;
+      console.warn(
+        "[auth] EMAIL_PROVIDER is not configured (set EMAIL_PROVIDER=resend + RESEND_API_KEY). Auto-verifying new account email addresses to avoid lockout."
+      );
+    }
+    await db
+      .update(users)
+      .set({ emailVerifiedAt: new Date() })
+      .where(eq(users.id, user.id))
+      .catch((err) => {
+        console.error(
+          `[auth] auto-verify failed for ${user.id}:`,
+          err instanceof Error ? err.message : err
+        );
+      });
+  }
 
   // P3 — default landing is /onboarding (the guided first-five-minutes
   // flow). The `redirect=` query is still honoured for OAuth-style flows.

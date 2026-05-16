@@ -113,6 +113,13 @@ async function lookupRepo(
  * rework" but nothing called it. CLAUDE.md claims "git push POSTs to
  * it" — this restores that contract.
  */
+// One-shot warning latch — operators only need to be told once that
+// GateTest is misconfigured. Reset between tests via the export below.
+let _gatetestAuthWarned = false;
+export function _resetGateTestAuthWarning(): void {
+  _gatetestAuthWarned = false;
+}
+
 export async function notifyGateTestOfPush(
   owner: string,
   repo: string,
@@ -126,6 +133,15 @@ export async function notifyGateTestOfPush(
     };
     if (config.gatetestApiKey) {
       headers["Authorization"] = `Bearer ${config.gatetestApiKey}`;
+    } else if (!_gatetestAuthWarned) {
+      // GATETEST_URL is set but GATETEST_API_KEY is missing. GateTest
+      // rejects unauthenticated requests with 401 — the scan never
+      // actually runs but the push looks like it fired. Warn once so
+      // operators notice (silent-fail audit, item §4 in AUDIT-v2.md).
+      _gatetestAuthWarned = true;
+      console.warn(
+        "[gatetest] GATETEST_URL is set but GATETEST_API_KEY is empty — push notifications will be rejected by GateTest with 401. Set GATETEST_API_KEY in the deploy environment to enable scans."
+      );
     }
     const res = await fetch(config.gatetestUrl, {
       method: "POST",

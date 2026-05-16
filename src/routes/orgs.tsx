@@ -333,8 +333,12 @@ orgRoutes.get("/orgs/:org", softAuth, requireAuth, async (c) => {
 // --- PEOPLE -----------------------------------------------------------------
 
 orgRoutes.get("/orgs/:slug/people", async (c) => {
-  const user = c.get("user")!;
+  const user = c.get("user");
   const slug = c.req.param("slug");
+  // Anonymous users get bounced to login; org membership is non-public.
+  // Previously dereferenced `user!.id` immediately and crashed for anon
+  // (smoke crawl: TypeError, null is not an object — orgs.tsx:338).
+  if (!user) return c.redirect(`/login?redirect=/orgs/${slug}/people`);
   const { org, role } = await loadOrgForUser(slug, user.id);
   if (!org) return c.notFound();
   if (!role) return c.redirect(`/orgs/${slug}`);

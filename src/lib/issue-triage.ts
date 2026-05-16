@@ -170,7 +170,12 @@ export async function triggerIssueTriage(
         authorId: input.authorId,
         body,
       })
-      .catch(() => {});
+      .catch((err) => {
+        console.error(
+          `[issue-triage] failed to insert triage comment for issue ${input.issueId}:`,
+          err instanceof Error ? err.message : err
+        );
+      });
   } catch (err) {
     if (process.env.DEBUG_ISSUE_TRIAGE === "1") {
       console.error("[issue-triage] crashed:", err);

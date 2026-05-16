@@ -138,6 +138,16 @@ jobs:
           APP_BASE_URL: ${{ secrets.APP_BASE_URL || 'https://gluecron.com' }}
           GH_RUN_ID: ${{ github.run_id }}
           GH_SHA: ${{ github.sha }}
+          # FIX (2026-05-16): the box's git remote was pointing at the
+          # self-hosted URL `https://gluecron.com/ccantynz/Gluecron.com.git`
+          # which the gluecron server itself returns 404 for (owner-case
+          # mismatch + push protection). That meant 16+ hours of failed
+          # deploys — the live site has been running stale since
+          # 2026-05-15 10:27 UTC. We now re-point the remote at GitHub on
+          # every deploy and authenticate with the workflow's GITHUB_TOKEN
+          # (which has contents:read — enough for fetch). Idempotent.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
         with:
           host: ${{ secrets.HETZNER_HOST }}
           username: ${{ secrets.HETZNER_USER }}
@@ -148,7 +158,7 @@ jobs:
           # share one SSH session across all phases (git pull → install →
           # build → migrate → restart) so the in-script curl posts give us
           # the live timeline a black-box step boundary can't.
-          envs: DEPLOY_EVENT_TOKEN,APP_BASE_URL,GH_RUN_ID,GH_SHA
+          envs: DEPLOY_EVENT_TOKEN,APP_BASE_URL,GH_RUN_ID,GH_SHA,GH_TOKEN,GH_REPO
           script: |
             set -euo pipefail
             cd /opt/gluecron
@@ -174,6 +184,11 @@ jobs:
 
             notify_step "git-pull" "in_progress"
             GP_START=$(date +%s)
+            # Repair the remote on every deploy. The box was historically
+            # pointed at the self-hosted gluecron-side URL which 404s; we
+            # now force it back to GitHub HTTPS with a workflow-scoped PAT
+            # for auth. `set-url` is idempotent.
+            git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git"
             git fetch --prune origin main
             git reset --hard origin/main
             new_sha=$(git rev-parse HEAD)

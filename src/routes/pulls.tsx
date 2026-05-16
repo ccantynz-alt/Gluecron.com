@@ -599,7 +599,14 @@ pulls.post(
     }).catch((err) => console.error("[pr-triage] Failed:", err));
 
     // R3 — fast-lane auto-merge evaluation. Fires after AI review lands.
-    import("../lib/auto-merge").then((m) => m.tryAutoMergeNow(pr.id)).catch(() => {});
+    import("../lib/auto-merge")
+      .then((m) => m.tryAutoMergeNow(pr.id))
+      .catch((err) => {
+        console.warn(
+          `[auto-merge] tryAutoMergeNow failed for PR ${pr.id}:`,
+          err instanceof Error ? err.message : err
+        );
+      });
 
     return c.redirect(`/${ownerName}/${repoName}/pulls/${pr.number}`);
   }
@@ -684,7 +691,12 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
     prRisk = await getCachedPrRisk(pr.id).catch(() => null);
     if (!prRisk) {
       prRiskCalculating = true;
-      void computePrRiskForPullRequest(pr.id).catch(() => {});
+      void computePrRiskForPullRequest(pr.id).catch((err) => {
+        console.warn(
+          `[pr-risk] computePrRiskForPullRequest failed for PR ${pr.id}:`,
+          err instanceof Error ? err.message : err
+        );
+      });
     }
   }
 
@@ -1383,7 +1395,12 @@ pulls.post(
       pr.baseBranch,
       pr.headBranch,
       { force: true }
-    ).catch(() => {});
+    ).catch((err) => {
+      console.warn(
+        `[ai-rereview] triggerAiReview failed for PR ${pr.id}:`,
+        err instanceof Error ? err.message : err
+      );
+    });
 
     return c.redirect(
       `/${ownerName}/${repoName}/pulls/${prNum}?info=${encodeURIComponent(

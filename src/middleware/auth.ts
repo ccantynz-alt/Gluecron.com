@@ -59,12 +59,18 @@ async function loadUserFromBearer(
       .where(eq(users.id, row.userId))
       .limit(1);
     if (!user) return null;
-    // Best-effort: update lastUsedAt. Never fail auth on this.
+    // Best-effort: update lastUsedAt. Never fail auth on this — but log so
+    // a persistent DB write failure surfaces (was a silent .catch(() => {}).)
     db
       .update(oauthAccessTokens)
       .set({ lastUsedAt: new Date() })
       .where(eq(oauthAccessTokens.id, row.id))
-      .catch(() => {});
+      .catch((err) => {
+        console.warn(
+          "[auth] oauth lastUsedAt update failed:",
+          err instanceof Error ? err.message : err
+        );
+      });
     return {
       user,
       scopes: row.scopes ? row.scopes.split(/\s+/).filter(Boolean) : [],
@@ -103,7 +109,12 @@ async function loadUserFromPat(
       .update(apiTokens)
       .set({ lastUsedAt: new Date() })
       .where(eq(apiTokens.id, row.id))
-      .catch(() => {});
+      .catch((err) => {
+        console.warn(
+          "[auth] PAT lastUsedAt update failed:",
+          err instanceof Error ? err.message : err
+        );
+      });
     return {
       user,
       scopes: row.scopes ? row.scopes.split(/[,\s]+/).filter(Boolean) : [],

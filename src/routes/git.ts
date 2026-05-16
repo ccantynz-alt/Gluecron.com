@@ -65,11 +65,17 @@ git.post("/:owner/:repo.git/git-upload-pack", async (c) => {
   if (!(await repoExists(owner, repo))) {
     return c.text("Repository not found", 404);
   }
-  // F1 — fire-and-forget clone tracking.
+  // F1 — fire-and-forget clone tracking. Log on failure so traffic-stats
+  // gaps are diagnosable (was a silent .catch(() => {}).)
   trackByName(owner, repo, "clone", {
     ip: c.req.header("x-forwarded-for") || c.req.header("x-real-ip") || null,
     userAgent: c.req.header("user-agent") || null,
-  }).catch(() => {});
+  }).catch((err) => {
+    console.warn(
+      `[git] clone tracking failed for ${owner}/${repo}:`,
+      err instanceof Error ? err.message : err
+    );
+  });
   return serviceRpc(owner, repo, "git-upload-pack", c.req.raw.body);
 });
 
@@ -118,7 +124,12 @@ git.post("/:owner/:repo.git/git-receive-pack", async (c) => {
               refs: refs.map((r) => r.refName),
               pusherSource: pusher?.source || "anonymous",
             },
-          }).catch(() => {});
+          }).catch((err) => {
+            console.warn(
+              `[git] push.rejected audit write failed for ${owner}/${repo}:`,
+              err instanceof Error ? err.message : err
+            );
+          });
           // Returning 403 with a plain-text body — git smart-HTTP clients
           // surface the body to the user (`remote: ` prefix). Existing
           // behaviour for repos with no policy is unchanged.

@@ -159,7 +159,12 @@ export async function mergeWithAutoResolve(
     return { success: true, resolvedFiles, commitSha: sha.trim() };
   } finally {
     // Clean up the worktree
-    await exec(["git", "worktree", "remove", "--force", worktree], { cwd: repoDir }).catch(() => {});
+    await exec(["git", "worktree", "remove", "--force", worktree], { cwd: repoDir }).catch((err) => {
+      console.warn(
+        `[merge-resolver] worktree cleanup failed for ${worktree}:`,
+        err instanceof Error ? err.message : err
+      );
+    });
   }
 }
 

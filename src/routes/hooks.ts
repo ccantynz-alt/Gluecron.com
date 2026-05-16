@@ -345,11 +345,17 @@ async function verifyPatAuth(
     if (row.expiresAt && row.expiresAt < new Date()) {
       return { ok: false, error: "Token expired" };
     }
-    // Update last-used timestamp (fire and forget)
+    // Update last-used timestamp (fire and forget). Log persistent
+    // failures so DB issues surface (was silent .catch(() => {}).)
     db.update(apiTokens)
       .set({ lastUsedAt: new Date() })
       .where(eq(apiTokens.id, row.id))
-      .catch(() => {});
+      .catch((err) => {
+        console.warn(
+          "[hooks] PAT lastUsedAt update failed:",
+          err instanceof Error ? err.message : err
+        );
+      });
     return { ok: true, userId: row.userId };
   } catch {
     return { ok: false, error: "Auth lookup failed" };

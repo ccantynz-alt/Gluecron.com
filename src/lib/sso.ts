@@ -320,7 +320,12 @@ export async function findOrCreateUserFromSso(
     await db
       .delete(ssoUserLinks)
       .where(eq(ssoUserLinks.subject, claims.sub))
-      .catch(() => {});
+      .catch((err) => {
+        console.warn(
+          "[sso] stale link cleanup failed:",
+          err instanceof Error ? err.message : err
+        );
+      });
   }
 
   // 2. Domain gate
@@ -569,7 +574,12 @@ export async function findOrCreateUserFromGithub(
     await db
       .delete(ssoUserLinks)
       .where(eq(ssoUserLinks.subject, subject))
-      .catch(() => {});
+      .catch((err) => {
+        console.warn(
+          "[sso] orphan link cleanup failed:",
+          err instanceof Error ? err.message : err
+        );
+      });
   }
 
   // 2. Domain gate (only meaningful if admin set one)

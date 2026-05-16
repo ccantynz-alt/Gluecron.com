@@ -64,7 +64,12 @@ async function extractArchive(content: Buffer, destDir: string): Promise<void> {
   } finally {
     try {
       const fs = await import("fs/promises");
-      await fs.unlink(tmpPath).catch(() => {});
+      await fs.unlink(tmpPath).catch((err) => {
+        console.warn(
+          `[download-artifact] tmpPath cleanup failed for ${tmpPath}:`,
+          err instanceof Error ? err.message : err
+        );
+      });
     } catch {
       /* noop */
     }

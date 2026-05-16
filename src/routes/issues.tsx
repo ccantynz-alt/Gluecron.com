@@ -278,7 +278,12 @@ issueRoutes.post(
       authorId: user.id,
       title,
       body: issueBody,
-    }).catch(() => {});
+    }).catch((err) => {
+      console.warn(
+        `[issue-triage] triage trigger failed for issue ${issue.id}:`,
+        err instanceof Error ? err.message : err
+      );
+    });
 
     return c.redirect(
       `/${ownerName}/${repoName}/issues/${issue.number}`
@@ -663,7 +668,12 @@ issueRoutes.post(
         body: issue.body || "",
       },
       { force: true }
-    ).catch(() => {});
+    ).catch((err) => {
+      console.warn(
+        `[issue-triage] re-triage failed for issue ${issue.id}:`,
+        err instanceof Error ? err.message : err
+      );
+    });
 
     return c.redirect(
       `/${ownerName}/${repoName}/issues/${issueNum}?info=${encodeURIComponent(

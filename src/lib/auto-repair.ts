@@ -93,10 +93,23 @@ async function createWorktree(
 }
 
 async function cleanupWorktree(repoDir: string, worktree: string): Promise<void> {
+  // Cleanup failures are non-fatal but should be visible — stale worktrees
+  // eat disk space and `git worktree prune` won't recover them if the
+  // directory itself is left behind.
   await exec(["git", "worktree", "remove", "--force", worktree], {
     cwd: repoDir,
-  }).catch(() => {});
-  await rm(worktree, { recursive: true, force: true }).catch(() => {});
+  }).catch((err) => {
+    console.warn(
+      `[auto-repair] git worktree remove failed for ${worktree}:`,
+      err instanceof Error ? err.message : err
+    );
+  });
+  await rm(worktree, { recursive: true, force: true }).catch((err) => {
+    console.warn(
+      `[auto-repair] rm worktree failed for ${worktree}:`,
+      err instanceof Error ? err.message : err
+    );
+  });
 }
 
 /**
@@ -113,7 +126,12 @@ async function applyAndCommit(
   for (const patch of patches) {
     const fullPath = join(worktree, patch.path);
     try {
-      await mkdir(join(fullPath, "..").replace(/[^/]+\/\.\.$/, ""), { recursive: true }).catch(() => {});
+      await mkdir(join(fullPath, "..").replace(/[^/]+\/\.\.$/, ""), { recursive: true }).catch((err) => {
+        console.warn(
+          `[auto-repair] mkdir parent failed for ${patch.path}:`,
+          err instanceof Error ? err.message : err
+        );
+      });
       await writeFile(fullPath, patch.content, "utf8");
       filesChanged.push(patch.path);
     } catch (err) {
@@ -417,7 +435,12 @@ export async function repairGateFailure(
       filesChanged: mech.filesChanged,
       commitSha: mech.commitSha,
       outcome: "success",
-    }).catch(() => {});
+    }).catch((err) => {
+      console.warn(
+        "[auto-repair] mechanical-tier audit-log insert failed:",
+        err instanceof Error ? err.message : err
+      );
+    });
     return {
       attempted: true,
       success: true,
@@ -438,7 +461,12 @@ export async function repairGateFailure(
       filesChanged: mech.filesChanged,
       commitSha: null,
       outcome: "failed",
-    }).catch(() => {});
+    }).catch((err) => {
+      console.warn(
+        "[auto-repair] mechanical-tier failure-audit insert failed:",
+        err instanceof Error ? err.message : err
+      );
+    });
   }
 
   // ── Tier 2: AI-powered repair via Claude Sonnet
@@ -517,7 +545,12 @@ ${parsed.patches.map((p) => `- ${p.path}: ${p.reason}`).join("\n")}
         filesChanged: result.filesChanged,
         commitSha: null,
         outcome: "failed",
-      }).catch(() => {});
+      }).catch((err) => {
+        console.warn(
+          "[auto-repair] ai-tier failure-audit insert failed:",
+          err instanceof Error ? err.message : err
+        );
+      });
       return {
         attempted: true,
         success: false,
@@ -535,7 +568,12 @@ ${parsed.patches.map((p) => `- ${p.path}: ${p.reason}`).join("\n")}
       filesChanged: result.filesChanged,
       commitSha: result.sha ?? null,
       outcome: "success",
-    }).catch(() => {});
+    }).catch((err) => {
+      console.warn(
+        "[auto-repair] ai-tier success-audit insert failed:",
+        err instanceof Error ? err.message : err
+      );
+    });
     return {
       attempted: true,
       success: true,

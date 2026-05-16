@@ -586,7 +586,12 @@ const createIssue: McpToolHandler = {
         title: `New issue: ${title}`,
         url: issueUrl(owner, repo, inserted.number),
         repositoryId: gate.repoId,
-      }).catch(() => {});
+      }).catch((err) => {
+        console.warn(
+          `[mcp] issue_opened notify failed for ${owner}/${repo}#${inserted.number}:`,
+          err instanceof Error ? err.message : err
+        );
+      });
     }
 
     return {
@@ -844,7 +849,12 @@ const createPr: McpToolHandler = {
         title: `New PR: ${title}`,
         url: prUrl(owner, repo, pr.number),
         repositoryId: gate.repoId,
-      }).catch(() => {});
+      }).catch((err) => {
+        console.warn(
+          `[mcp] pr_opened notify failed for ${owner}/${repo}#${pr.number}:`,
+          err instanceof Error ? err.message : err
+        );
+      });
     }
 
     return { number: pr.number, url: prUrl(owner, repo, pr.number) };

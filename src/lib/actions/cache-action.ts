@@ -153,7 +153,14 @@ async function unpackTar(content: Buffer, destDir: string): Promise<void> {
     try {
       await Bun.file(tmpPath).exists();
       // Best-effort cleanup; ignore errors.
-      await import("fs/promises").then((fs) => fs.unlink(tmpPath)).catch(() => {});
+      await import("fs/promises")
+        .then((fs) => fs.unlink(tmpPath))
+        .catch((err) => {
+          console.warn(
+            `[cache-action] tmpPath cleanup failed for ${tmpPath}:`,
+            err instanceof Error ? err.message : err
+          );
+        });
     } catch {
       /* noop */
     }

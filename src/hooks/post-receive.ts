@@ -94,7 +94,14 @@ export async function onPostReceive(
   //    default branch. The branch case (`Main` vs `main`) is determined by
   //    the bare repo's HEAD, not hardcoded.
   if (`${owner}/${repo}` === config.crontechRepo) {
-    let defaultBranch = (await getDefaultBranch(owner, repo).catch(() => null)) || "main";
+    let defaultBranch =
+      (await getDefaultBranch(owner, repo).catch((err) => {
+        console.warn(
+          `[post-receive] getDefaultBranch failed for ${owner}/${repo}, defaulting to "main":`,
+          err instanceof Error ? err.message : err
+        );
+        return null;
+      })) || "main";
     const targetRef = `refs/heads/${defaultBranch}`;
     const deployPush = refs.find(
       (r) => r.refName === targetRef && !r.newSha.startsWith("0000")

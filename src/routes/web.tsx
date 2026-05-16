@@ -489,7 +489,12 @@ web.get("/:owner/:repo", async (c) => {
     ip: c.req.header("x-forwarded-for") || c.req.header("x-real-ip") || null,
     userAgent: c.req.header("user-agent") || null,
     referer: c.req.header("referer") || null,
-  }).catch(() => {});
+  }).catch((err) => {
+    console.warn(
+      `[web] view tracking failed for ${owner}/${repo}:`,
+      err instanceof Error ? err.message : err
+    );
+  });
 
   if (!(await repoExists(owner, repo))) {
     return c.html(

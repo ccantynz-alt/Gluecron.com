@@ -415,11 +415,21 @@ async function cloneAt(
     const cloneExit = await cloneProc.exited;
     clearTimeout(cloneTimer);
     if (cloneExit !== 0) {
-      await rm(dir, { recursive: true, force: true }).catch(() => {});
+      await rm(dir, { recursive: true, force: true }).catch((err) => {
+        console.warn(
+          `[workflow-runner] cleanup rm failed for ${dir}:`,
+          err instanceof Error ? err.message : err
+        );
+      });
       return { error: `git clone failed: ${truncate(cloneErr, 2048)}` };
     }
   } catch (err) {
-    await rm(dir, { recursive: true, force: true }).catch(() => {});
+    await rm(dir, { recursive: true, force: true }).catch((err) => {
+        console.warn(
+          `[workflow-runner] cleanup rm failed for ${dir}:`,
+          err instanceof Error ? err.message : err
+        );
+      });
     return { error: `git clone spawn failed: ${(err as Error).message}` };
   }
 
@@ -437,11 +447,21 @@ async function cloneAt(
         .catch(() => "");
       const coExit = await coProc.exited;
       if (coExit !== 0) {
-        await rm(dir, { recursive: true, force: true }).catch(() => {});
+        await rm(dir, { recursive: true, force: true }).catch((err) => {
+        console.warn(
+          `[workflow-runner] cleanup rm failed for ${dir}:`,
+          err instanceof Error ? err.message : err
+        );
+      });
         return { error: `git checkout ${target} failed: ${truncate(coErr, 2048)}` };
       }
     } catch (err) {
-      await rm(dir, { recursive: true, force: true }).catch(() => {});
+      await rm(dir, { recursive: true, force: true }).catch((err) => {
+        console.warn(
+          `[workflow-runner] cleanup rm failed for ${dir}:`,
+          err instanceof Error ? err.message : err
+        );
+      });
       return { error: `git checkout spawn failed: ${(err as Error).message}` };
     }
   }

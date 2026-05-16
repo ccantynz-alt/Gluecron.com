@@ -32,7 +32,12 @@ startAutopilot();
 // Site-admin bootstrap from env (SITE_ADMIN_USERNAME). Idempotent — if the
 // user exists, they get a row in site_admins; if not, logged and retried
 // on next boot. Background-fired so a slow DB doesn't block startup.
-void ensureEnvSiteAdmin().catch(() => {});
+void ensureEnvSiteAdmin().catch((err) => {
+  console.warn(
+    "[admin-bootstrap] ensureEnvSiteAdmin failed:",
+    err instanceof Error ? err.message : err
+  );
+});
 
 // Opt-in demo content seed on boot (DEMO_SEED_ON_BOOT=1). Idempotent, never
 // throws — safe to run on every start. Block L3 layers extra activity (more
@@ -58,7 +63,12 @@ console.log(`
 
 // BLOCK N2 — tell systemd we're ready. No-op when NOTIFY_SOCKET is unset
 // (dev / non-systemd hosts). Fire-and-forget; never throws.
-void notifySystemdReady().catch(() => {});
+void notifySystemdReady().catch((err) => {
+  console.warn(
+    "[systemd] notifySystemdReady failed:",
+    err instanceof Error ? err.message : err
+  );
+});
 
 export default {
   port: config.port,

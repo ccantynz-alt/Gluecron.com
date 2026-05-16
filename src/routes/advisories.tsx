@@ -281,7 +281,12 @@ advisories.post(
         )}`
       );
     }
-    await seedAdvisories().catch(() => {});
+    await seedAdvisories().catch((err) => {
+      console.warn(
+        "[advisories] seedAdvisories failed:",
+        err instanceof Error ? err.message : err
+      );
+    });
     const result = await scanRepositoryForAlerts(repo.id);
     await audit({
       userId: user.id,

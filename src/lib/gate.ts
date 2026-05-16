@@ -98,6 +98,62 @@ async function lookupRepo(
 }
 
 /**
+ * Fire-and-forget post-receive notification to GateTest.
+ *
+ * Called from `src/hooks/post-receive.ts` for every push when
+ * `GATETEST_URL` is set. Unlike `runGateTestScan` (which is used by the
+ * PR merge gate and AWAITS a blocking result), this helper just notifies
+ * GateTest that a push happened and lets GateTest POST results back via
+ * the existing inbound webhook at `/api/hooks/gatetest`. Never throws,
+ * never blocks the push. 10-second timeout so a slow GateTest endpoint
+ * can't hang the post-receive hook chain.
+ *
+ * Was a stub before 2026-05-16; `src/hooks/post-receive.ts:80` had the
+ * comment "triggerGateTest helper is slated for the intelligence
+ * rework" but nothing called it. CLAUDE.md claims "git push POSTs to
+ * it" — this restores that contract.
+ */
+export async function notifyGateTestOfPush(
+  owner: string,
+  repo: string,
+  ref: string,
+  headSha: string
+): Promise<void> {
+  if (!process.env.GATETEST_URL) return;
+  try {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (config.gatetestApiKey) {
+      headers["Authorization"] = `Bearer ${config.gatetestApiKey}`;
+    }
+    const res = await fetch(config.gatetestUrl, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        repository: `${owner}/${repo}`,
+        ref,
+        sha: headSha,
+        source: "gluecron",
+        mode: "async",
+      }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      console.warn(
+        `[gatetest] push notify returned ${res.status} for ${owner}/${repo}@${headSha.slice(0, 7)}: ${body.slice(0, 200)}`
+      );
+    }
+  } catch (err) {
+    console.warn(
+      `[gatetest] push notify failed for ${owner}/${repo}@${headSha.slice(0, 7)}:`,
+      err instanceof Error ? err.message : err
+    );
+  }
+}
+
+/**
  * Run GateTest scan on a repository at a specific ref.
  */
 export async function runGateTestScan(

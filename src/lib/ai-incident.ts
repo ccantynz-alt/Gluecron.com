@@ -391,3 +391,140 @@ export async function getLatestIncidentIssueForRepo(
     return null;
   }
 }
+
+// ---------------------------------------------------------------------------
+// PLATFORM deploy-failure analysis (2026-05-16 reliability sweep, Level 3).
+//
+// `onDeployFailure` above is for DOWNSTREAM-APP deployments (the
+// `deployments` table — repos that gluecron is CI'ing). This sibling
+// function handles failures of gluecron's OWN deploy pipeline
+// (the `platform_deploys` table, populated by hetzner-deploy.yml).
+//
+// When a deploy event with status="failed" arrives at /deploy/finished,
+// this function:
+//   1. Loads the last 10 commits to main from the box-side repo.
+//   2. Asks Sonnet for a root-cause analysis as structured JSON.
+//   3. Returns the analysis as a markdown string ready to embed in the
+//      platform_deploys.error column or an audit-log entry.
+//
+// Never throws. Degrades to a deterministic "AI unavailable" body when
+// ANTHROPIC_API_KEY is unset or the Sonnet call fails — operators still
+// get the recent-commits context, just without the AI summary.
+// ---------------------------------------------------------------------------
+
+export interface PlatformDeployFailureInput {
+  runId: string;
+  sha: string;
+  errorMessage: string;
+  /** owner/repo of the gluecron platform repo (e.g. "ccantynz/Gluecron.com"). */
+  selfHostRepo?: string;
+}
+
+export interface PlatformDeployFailureResult {
+  /** Markdown-formatted RCA suitable for an issue body or audit log. */
+  rcaMarkdown: string;
+  /** Did Claude actually run, or did we fall back? */
+  aiAvailable: boolean;
+  /** First 7 chars of the sha or "unknown". */
+  shortSha: string;
+}
+
+export async function analyzePlatformDeployFailure(
+  input: PlatformDeployFailureInput
+): Promise<PlatformDeployFailureResult> {
+  const shortSha = input.sha ? input.sha.slice(0, 7) : "unknown";
+  const repoFullName = input.selfHostRepo || process.env.SELF_HOST_REPO || "ccantynz/Gluecron.com";
+  const [ownerName, repoName] = repoFullName.includes("/")
+    ? repoFullName.split("/")
+    : [repoFullName, "Gluecron.com"];
+
+  let commitSummary = "";
+  try {
+    const commits = await listCommits(ownerName, repoName, "main", 10);
+    commitSummary = commits
+      .map((c) => `- ${c.sha.slice(0, 7)} ${c.message.split("\n")[0].slice(0, 100)}`)
+      .join("\n");
+  } catch (err) {
+    console.warn(
+      `[platform-incident] listCommits failed for ${ownerName}/${repoName}:`,
+      err instanceof Error ? err.message : err
+    );
+  }
+
+  if (!isAiAvailable()) {
+    return {
+      rcaMarkdown: [
+        `## Platform deploy failure — run ${input.runId} (sha ${shortSha})`,
+        "",
+        "**AI analysis unavailable** — `ANTHROPIC_API_KEY` is not configured.",
+        "",
+        "### Error",
+        "```",
+        truncate(input.errorMessage, 4000),
+        "```",
+        "",
+        "### Recent commits",
+        commitSummary || "(none available)",
+      ].join("\n"),
+      aiAvailable: false,
+      shortSha,
+    };
+  }
+
+  const analysis = await askClaudeForAnalysis(
+    repoFullName,
+    "refs/heads/main",
+    shortSha,
+    input.errorMessage,
+    commitSummary
+  );
+
+  if (!analysis) {
+    return {
+      rcaMarkdown: [
+        `## Platform deploy failure — run ${input.runId} (sha ${shortSha})`,
+        "",
+        "**AI returned no parseable analysis.** Raw Sonnet call failed or returned malformed JSON.",
+        "",
+        "### Error",
+        "```",
+        truncate(input.errorMessage, 4000),
+        "```",
+        "",
+        "### Recent commits",
+        commitSummary || "(none available)",
+      ].join("\n"),
+      aiAvailable: true,
+      shortSha,
+    };
+  }
+
+  return {
+    rcaMarkdown: [
+      `## ${analysis.title}`,
+      "",
+      `**Run:** ${input.runId}  **SHA:** ${shortSha}`,
+      "",
+      "### Likely cause",
+      analysis.likelyCause,
+      "",
+      "### Suspected commit",
+      analysis.suspectedCommit
+        ? `\`${analysis.suspectedCommit.slice(0, 7)}\``
+        : "(none identified)",
+      "",
+      "### Suggested remediation",
+      analysis.remediation,
+      "",
+      "### Raw error",
+      "```",
+      truncate(input.errorMessage, 4000),
+      "```",
+      "",
+      "### Recent commits",
+      commitSummary || "(none available)",
+    ].join("\n"),
+    aiAvailable: true,
+    shortSha,
+  };
+}

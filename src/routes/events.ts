@@ -690,6 +690,63 @@ events.post("/deploy/finished", async (c) => {
         error: row.error,
       },
     });
+
+    // Level 3 — Self-diagnosing (2026-05-16 reliability sweep).
+    //
+    // On platform deploy failure, fire-and-forget call to Claude for a
+    // root-cause analysis. The RCA gets:
+    //   - console.warn'd as a structured log entry (operators grep
+    //     journalctl for [platform-incident])
+    //   - inserted into audit_log so /admin/audit + future /admin/health
+    //     can surface it without a fresh AI call
+    //
+    // Idempotent by run_id (same run_id can fire multiple finished
+    // events, but each will produce its own analysis — that's fine,
+    // operators get the freshest version).
+    if (row.status === "failed") {
+      void (async () => {
+        try {
+          const { analyzePlatformDeployFailure } = await import(
+            "../lib/ai-incident"
+          );
+          const result = await analyzePlatformDeployFailure({
+            runId: row.runId,
+            sha: row.sha,
+            errorMessage: row.error || payload.error || "(no error message)",
+          });
+          console.warn(
+            `[platform-incident] deploy ${row.runId} (${result.shortSha}) FAILED — RCA follows (aiAvailable=${result.aiAvailable}):\n${result.rcaMarkdown}`
+          );
+          try {
+            const { audit } = await import("../lib/notify");
+            await audit({
+              userId: null,
+              action: "platform.deploy.failed",
+              targetType: "platform_deploy",
+              targetId: row.id,
+              metadata: {
+                run_id: row.runId,
+                sha: row.sha,
+                short_sha: result.shortSha,
+                error: (row.error || "").slice(0, 500),
+                ai_rca: result.rcaMarkdown.slice(0, 8000),
+                ai_available: result.aiAvailable,
+              },
+            });
+          } catch (err) {
+            console.warn(
+              `[platform-incident] audit-log insert failed for run ${row.runId}:`,
+              err instanceof Error ? err.message : err
+            );
+          }
+        } catch (err) {
+          console.warn(
+            `[platform-incident] analysis pipeline failed for run ${row.runId}:`,
+            err instanceof Error ? err.message : err
+          );
+        }
+      })();
+    }
   }
 
   return c.json({ ok: true });

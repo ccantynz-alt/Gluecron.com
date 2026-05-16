@@ -178,7 +178,18 @@ jobs:
             BUN=/root/.bun/bin/bun
             "$BUN" install --frozen-lockfile
 
-            echo "=== STEP 3: pin BUILD_SHA in systemd drop-in ==="
+            echo "=== STEP 3: run db migrations ==="
+            # Source /etc/gluecron.env so DATABASE_URL is available to
+            # migrate.ts. Hard-fail if any migration errors — the previous
+            # `|| echo WARN` swallowed migration failures and left the DB
+            # out of sync with the schema, which produces 500s on every
+            # page that SELECTs a column added by a missed migration.
+            set -a
+            source /etc/gluecron.env
+            set +a
+            "$BUN" run src/db/migrate.ts
+
+            echo "=== STEP 4: pin BUILD_SHA in systemd drop-in ==="
             mkdir -p /etc/systemd/system/gluecron.service.d
             cat > /etc/systemd/system/gluecron.service.d/build-sha.conf <<EOF
             [Service]
@@ -187,7 +198,7 @@ jobs:
             EOF
             systemctl daemon-reload
 
-            echo "=== STEP 4: restart gluecron systemd unit ==="
+            echo "=== STEP 5: restart gluecron systemd unit ==="
             systemctl restart gluecron
             echo "=== DONE: service restarted with $new_sha ==="
 

@@ -287,18 +287,29 @@ async function checkMigrations(): Promise<CheckResult> {
 }
 
 async function checkAutoMerge(): Promise<CheckResult> {
+  // Resolve which repo to check. SELF_HOST_REPO is the canonical
+  // "this is the platform's own repo" pointer — falling back to
+  // `ccantynz/Gluecron.com` keeps the legacy default behaviour.
+  // Without this, the check used to hardcode `ccantynz` and report
+  // "Owner not found" for installs where the canonical owner is
+  // `ccantynz-alt` or anything else.
+  const selfRepo = process.env.SELF_HOST_REPO || "ccantynz/Gluecron.com";
+  const [ownerName, repoName] = selfRepo.includes("/")
+    ? selfRepo.split("/")
+    : [selfRepo, "Gluecron.com"];
   try {
     const [owner] = await db
       .select({ id: users.id })
       .from(users)
-      .where(eq(users.username, "ccantynz"))
+      .where(eq(users.username, ownerName))
       .limit(1);
     if (!owner) {
       return {
         category: "Auto-merge",
         name: "main protection",
         status: "yellow",
-        detail: "Owner user 'ccantynz' not found.",
+        detail: `Owner user '${ownerName}' not found in users table (looked up via SELF_HOST_REPO).`,
+        fix: "Set SELF_HOST_REPO=<actual-owner>/<repo> in /etc/gluecron.env, or register the owner.",
       };
     }
     const [repo] = await db
@@ -307,7 +318,7 @@ async function checkAutoMerge(): Promise<CheckResult> {
       .where(
         and(
           eq(repositories.ownerId, owner.id),
-          eq(repositories.name, "Gluecron.com")
+          eq(repositories.name, repoName)
         )
       )
       .limit(1);
@@ -316,7 +327,8 @@ async function checkAutoMerge(): Promise<CheckResult> {
         category: "Auto-merge",
         name: "main protection",
         status: "yellow",
-        detail: "Repository row for ccantynz/Gluecron.com not found.",
+        detail: `Repository row for ${ownerName}/${repoName} not found. Either the platform repo isn't registered in its own DB, or SELF_HOST_REPO points at the wrong owner/name.`,
+        fix: `Create the repo at /new (owner=${ownerName}, name=${repoName}), or correct SELF_HOST_REPO in /etc/gluecron.env.`,
       };
     }
     const [bp] = await db
@@ -335,7 +347,7 @@ async function checkAutoMerge(): Promise<CheckResult> {
         name: "main protection",
         status: "yellow",
         detail: "No branch_protection row for main yet.",
-        fix: "Visit /ccantynz/Gluecron.com/gates/protection to configure.",
+        fix: `Visit /${ownerName}/${repoName}/gates/protection to configure.`,
       };
     }
     return {

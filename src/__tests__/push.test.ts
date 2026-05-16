@@ -448,18 +448,36 @@ describe("/pwa/unsubscribe", () => {
   });
 });
 
-describe("/sw-push.js (offline + push handler service worker)", () => {
-  it("serves the push-aware service worker", async () => {
+describe("/sw-push.js (AA-loop self-unregister)", () => {
+  // 2026-05-16 — was previously a push + offline + fetch-fallback SW
+  // registered at scope `/`. That collided with `/sw.js` (also at `/`),
+  // causing the admin-dashboard reload loop. The body is now a self-
+  // unregister script so existing browsers that have it installed
+  // auto-recover on their next SW update check (which is every
+  // navigation since `Cache-Control: no-store`).
+  it("serves a self-unregistering service worker", async () => {
     const res = await app.request("/sw-push.js");
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type") || "").toContain(
       "application/javascript"
     );
     const body = await res.text();
-    expect(body).toContain("addEventListener('push'");
-    expect(body).toContain("addEventListener('notificationclick'");
-    expect(body).toContain("addEventListener('fetch'");
-    expect(body).toContain("/offline.html");
+    expect(body).toContain("self.registration.unregister");
+    expect(body).toContain("addEventListener('install'");
+    expect(body).toContain("addEventListener('activate'");
+  });
+
+  it("has no fetch handler — every request must hit the network", async () => {
+    const res = await app.request("/sw-push.js");
+    const body = await res.text();
+    expect(body).not.toContain("addEventListener('fetch'");
+  });
+
+  it("does not subscribe to push events anymore", async () => {
+    const res = await app.request("/sw-push.js");
+    const body = await res.text();
+    expect(body).not.toContain("addEventListener('push'");
+    expect(body).not.toContain("addEventListener('notificationclick'");
   });
 });
 

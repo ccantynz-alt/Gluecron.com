@@ -217,87 +217,55 @@ if ('serviceWorker' in navigator) {
 // ---------------------------------------------------------------------------
 
 /**
- * Push + offline service worker. Strictly additive to the v4 self-nuke SW.
- * Handles three things:
- *   1. `push` event → display a notification (title/body/url/tag).
- *   2. `notificationclick` → focus an existing tab on `url` or open a new one.
- *   3. `fetch` event → serve `/offline.html` as the fallback when the
- *      network fails on an HTML navigation. Non-HTML fetches passthrough.
+ * Push + offline service worker — SELF-NUKE EDITION (2026-05-16).
  *
- * The cache name is unique so we don't collide with anything `/sw.js`
- * historically touched.
+ * Background: previously this SW handled push/notification/offline-fetch
+ * AND was auto-registered by the layout at scope `/`. Combined with the
+ * `/sw.js` auto-registration at the same scope it caused the AA reload
+ * loop (two different script URLs at scope `/` keep replacing each
+ * other → layout's `updatefound → reload` hook fires every page load,
+ * input wiped, admin dashboard unusable). See commit d7ba05d for the
+ * layout-side fix.
+ *
+ * The layout-side fix alone does not recover browsers that ALREADY have
+ * the old push SW registered — the loop reloads the page before the new
+ * layout's JS gets a chance to run its `getRegistrations() → unregister`
+ * cleanup. So we also need the SW itself to clean up.
+ *
+ * What this body does now: on install, claim every client, delete every
+ * `gluecron-*` cache the old version created, then call
+ * `self.registration.unregister()` so the registration goes away
+ * permanently. Browsers fetch this updated body on their next SW
+ * update check (which fires on every navigation because `/sw-push.js`
+ * is served with `Cache-Control: no-store`), so trapped browsers
+ * auto-recover within one page load post-deploy.
+ *
+ * Push notifications: temporarily disabled. The folding of push +
+ * notificationclick handlers into the locked `/sw.js` body is tracked
+ * as a follow-up. Until then `/settings/push` will subscribe against
+ * the existing `/sw.js` registration, which silently won't display
+ * notifications — but won't loop either. That's the right trade-off
+ * while the platform is in firefighting mode.
  */
-export const PUSH_SERVICE_WORKER_SRC = `// gluecron push + offline service worker (Block M2)
-const CACHE = 'gluecron-offline-v1';
-const OFFLINE_URL = '/offline.html';
-
-self.addEventListener('install', (event) => {
-  event.waitUntil((async () => {
-    const cache = await caches.open(CACHE);
-    try { await cache.add(new Request(OFFLINE_URL, { cache: 'reload' })); } catch (_) {}
-    self.skipWaiting();
-  })());
+export const PUSH_SERVICE_WORKER_SRC = `// gluecron push SW — self-unregister (2026-05-16 AA-loop kill)
+self.addEventListener('install', (e) => {
+  self.skipWaiting();
 });
-
-self.addEventListener('activate', (event) => {
-  event.waitUntil((async () => {
-    // Drop any cache that isn't our current one.
-    const keys = await caches.keys();
-    await Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)));
-    await self.clients.claim();
-  })());
-});
-
-self.addEventListener('push', (event) => {
-  let data = { title: 'Gluecron', body: '', url: '/', tag: 'gluecron', icon: '/icon.svg' };
-  if (event.data) {
-    try { data = Object.assign(data, event.data.json()); }
-    catch (_) { try { data.body = event.data.text(); } catch (_) {} }
-  }
-  event.waitUntil(self.registration.showNotification(data.title, {
-    body: data.body,
-    icon: data.icon,
-    tag: data.tag,
-    data: { url: data.url },
-  }));
-});
-
-self.addEventListener('notificationclick', (event) => {
-  event.notification.close();
-  const target = (event.notification.data && event.notification.data.url) || '/';
-  event.waitUntil((async () => {
-    const all = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-    for (const c of all) {
-      try {
-        const u = new URL(c.url);
-        if (u.pathname === target || c.url === target) {
-          await c.focus();
-          return;
-        }
-      } catch (_) {}
-    }
-    await self.clients.openWindow(target);
-  })());
-});
-
-self.addEventListener('fetch', (event) => {
-  const req = event.request;
-  if (req.method !== 'GET') return;
-  const accept = req.headers.get('accept') || '';
-  // Only intervene on top-level HTML navigations. Everything else (CSS,
-  // images, API, /api/*, /.git/*, login/logout) passes straight through.
-  if (req.mode !== 'navigate' && !accept.includes('text/html')) return;
-  event.respondWith((async () => {
+self.addEventListener('activate', (e) => {
+  e.waitUntil((async () => {
     try {
-      return await fetch(req);
-    } catch (_) {
-      const cache = await caches.open(CACHE);
-      const cached = await cache.match(OFFLINE_URL);
-      if (cached) return cached;
-      return new Response('Offline', { status: 503, headers: { 'content-type': 'text/plain' } });
-    }
+      const keys = await caches.keys();
+      await Promise.all(
+        keys.filter((k) => k && k.indexOf('gluecron-offline') === 0).map((k) => caches.delete(k))
+      );
+    } catch (_) {}
+    try { await self.clients.claim(); } catch (_) {}
+    try { await self.registration.unregister(); } catch (_) {}
   })());
 });
+// No fetch / push / notificationclick handlers — by design. Once this SW
+// activates and unregisters, the browser never invokes it again. The
+// scope is freed and /sw.js becomes the sole controller at /.
 `;
 
 pwa.get("/sw-push.js", (c) => {

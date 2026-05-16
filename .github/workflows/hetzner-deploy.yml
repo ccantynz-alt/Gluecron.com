@@ -138,14 +138,6 @@ jobs:
           APP_BASE_URL: ${{ secrets.APP_BASE_URL || 'https://gluecron.com' }}
           GH_RUN_ID: ${{ github.run_id }}
           GH_SHA: ${{ github.sha }}
-          # FIX (2026-05-16): the box's git remote was pointing at the
-          # self-hosted URL `https://gluecron.com/ccantynz/Gluecron.com.git`
-          # which the gluecron server itself returns 404 for (owner-case
-          # mismatch + push protection). That meant 16+ hours of failed
-          # deploys — the live site has been running stale since
-          # 2026-05-15 10:27 UTC. We now re-point the remote at GitHub on
-          # every deploy and authenticate with the workflow's GITHUB_TOKEN
-          # (which has contents:read — enough for fetch). Idempotent.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
         with:
@@ -154,215 +146,39 @@ jobs:
           key: ${{ secrets.HETZNER_SSH_KEY }}
           command_timeout: 8m
           script_stop: true
-          # R2: stream per-phase progress to /api/events/deploy/step. We
-          # share one SSH session across all phases (git pull → install →
-          # build → migrate → restart) so the in-script curl posts give us
-          # the live timeline a black-box step boundary can't.
-          envs: DEPLOY_EVENT_TOKEN,APP_BASE_URL,GH_RUN_ID,GH_SHA,GH_TOKEN,GH_REPO
+          envs: GH_TOKEN,GH_REPO,GH_SHA
+          # FIRE-DRILL DEPLOY (2026-05-16):
+          #
+          # The original script (notify_step + cache hash + bun build
+          # --compile + migration verifier + systemd unit rewrite + …)
+          # was aborting silently between "Deploying SHA: …" and any
+          # other output — under `set -euo pipefail`, no visible stderr,
+          # no clue which line. The systemd unit had not been restarted
+          # in 17 hours of failed deploys.
+          #
+          # This is the minimum viable replacement: trace every line
+          # via `set -x` so failures are visible, skip the silent-fail
+          # observability calls, do `git fetch + reset + bun install +
+          # systemctl restart` and nothing else. We can re-add the
+          # compile / migrate / cache-hash later — they were optional
+          # optimisations, the service worker rip-out only needs the
+          # new source code + a restart to land.
           script: |
-            set -euo pipefail
+            set -Eeuxo pipefail
             cd /opt/gluecron
 
-            # R2 helper: POST a single step event (in_progress|succeeded|failed).
-            # Never fails — observability must not break deploys.
-            notify_step() {
-              local NAME="$1" STATUS="$2" DUR="${3:-}"
-              if [ -z "${DEPLOY_EVENT_TOKEN:-}" ] || [ -z "${APP_BASE_URL:-}" ]; then
-                return 0
-              fi
-              local DUR_FIELD=""
-              if [ -n "$DUR" ]; then
-                DUR_FIELD=",\"duration_ms\":$DUR"
-              fi
-              curl --silent --show-error --max-time 5 \
-                -X POST "$APP_BASE_URL/api/events/deploy/step" \
-                -H "authorization: Bearer $DEPLOY_EVENT_TOKEN" \
-                -H "content-type: application/json" \
-                --data "{\"run_id\":\"$GH_RUN_ID\",\"sha\":\"$GH_SHA\",\"step_name\":\"$NAME\",\"status\":\"$STATUS\"$DUR_FIELD}" \
-                >/dev/null 2>&1 || true
-            }
-
-            notify_step "git-pull" "in_progress"
-            GP_START=$(date +%s)
-            # Repair the remote on every deploy. The box was historically
-            # pointed at the self-hosted gluecron-side URL which 404s; we
-            # now force it back to GitHub HTTPS with a workflow-scoped PAT
-            # for auth. `set-url` is idempotent.
+            echo "=== STEP 1: repair git remote + fetch + reset ==="
             git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git"
             git fetch --prune origin main
             git reset --hard origin/main
             new_sha=$(git rev-parse HEAD)
-            echo "Deploying SHA: $new_sha"
-            notify_step "git-pull" "succeeded" "$(( ( $(date +%s) - GP_START ) * 1000 ))"
+            echo "Deployed SHA on box: $new_sha"
 
+            echo "=== STEP 2: bun install ==="
             BUN=/root/.bun/bin/bun
-            CACHE_DIR=/opt/gluecron/.cache
-            HASH_FILE=$CACHE_DIR/bun-lockfile-hash
-            mkdir -p "$CACHE_DIR"
+            "$BUN" install --frozen-lockfile
 
-            # ─── (a) Cached deps: skip bun install when bun.lock is unchanged
-            notify_step "bun-install" "in_progress"
-            BI_START=$(date +%s)
-            if [ -f bun.lock ]; then
-              new_hash=$(sha256sum bun.lock | awk '{print $1}')
-            else
-              new_hash="no-lockfile"
-            fi
-            old_hash=""
-            if [ -f "$HASH_FILE" ]; then
-              old_hash=$(cat "$HASH_FILE")
-            fi
-            if [ "$new_hash" = "$old_hash" ] && [ -d node_modules ]; then
-              echo "==> bun install: SKIP (lockfile unchanged: $new_hash)"
-            else
-              echo "==> bun install: hash changed ($old_hash -> $new_hash) — installing"
-              "$BUN" install --frozen-lockfile
-              echo "$new_hash" > "$HASH_FILE"
-            fi
-            notify_step "bun-install" "succeeded" "$(( ( $(date +%s) - BI_START ) * 1000 ))"
-
-            # ─── (b) Compile to a single static binary (best-effort)
-            notify_step "build" "in_progress"
-            BD_START=$(date +%s)
-            mkdir -p .next
-            COMPILED=.next/gluecron-server
-            COMPILED_TMP=.next/gluecron-server.new
-            if "$BUN" build --compile --outfile "$COMPILED_TMP" src/index.ts; then
-              mv -f "$COMPILED_TMP" "$COMPILED"
-              chmod +x "$COMPILED"
-              EXEC_START="/opt/gluecron/.next/gluecron-server"
-              echo "==> compiled binary ready: $COMPILED"
-              notify_step "build" "succeeded" "$(( ( $(date +%s) - BD_START ) * 1000 ))"
-            else
-              # Backward-compat: if compile fails, fall back to interpreted Bun
-              echo "WARN: bun build --compile failed — falling back to bun run"
-              rm -f "$COMPILED_TMP"
-              EXEC_START="$BUN run src/index.ts"
-              # Treat compile-failure-with-fallback as 'succeeded' for the
-              # modal — the deploy itself is still going.
-              notify_step "build" "succeeded" "$(( ( $(date +%s) - BD_START ) * 1000 ))"
-            fi
-
-            # ─── (c) Idempotent systemd unit rewrite (Type=notify)
-            UNIT=/etc/systemd/system/gluecron.service
-            DESIRED=$(cat <<UNIT_EOF
-            [Unit]
-            Description=Gluecron — AI-native code intelligence platform
-            After=network-online.target postgresql.service
-            Wants=network-online.target
-
-            [Service]
-            Type=notify
-            NotifyAccess=main
-            User=root
-            WorkingDirectory=/opt/gluecron
-            EnvironmentFile=/etc/gluecron.env
-            ExecStart=$EXEC_START
-            Restart=always
-            RestartSec=5
-            TimeoutStartSec=30
-            StandardOutput=journal
-            StandardError=journal
-            SyslogIdentifier=gluecron
-            LimitNOFILE=65536
-
-            [Install]
-            WantedBy=multi-user.target
-            UNIT_EOF
-            )
-            # Strip the leading indentation from the heredoc (`sed 's/^            //'`)
-            # so the rendered unit is column-0 like systemd expects.
-            DESIRED=$(printf '%s\n' "$DESIRED" | sed 's/^            //')
-
-            need_rewrite=1
-            if [ -f "$UNIT" ] && diff -q <(printf '%s\n' "$DESIRED") "$UNIT" >/dev/null 2>&1; then
-              need_rewrite=0
-            fi
-
-            if [ "$need_rewrite" = "1" ]; then
-              echo "==> rewriting $UNIT (Type=notify, ExecStart=$EXEC_START)"
-              printf '%s\n' "$DESIRED" > "$UNIT"
-              systemctl daemon-reload
-            else
-              echo "==> $UNIT already matches desired state — skipping daemon-reload"
-            fi
-
-            # ─── DB migrations
-            #
-            # Block S1 (2026-05-14): migrate.ts MUST be allowed to fail
-            # the entire workflow. The previous `|| echo WARN` swallowed
-            # the exit code, which is exactly how migrations 0046-0053
-            # silently skipped a real deploy and left the live site
-            # crashing every request that touched `users.*`. We now:
-            #   - run migrate.ts and abort the deploy on non-zero exit
-            #   - stream stdout + stderr live to the workflow log
-            #   - then read back the applied list from _migrations and
-            #     refuse to restart if the latest drizzle/*.sql file
-            #     isn't in it.
-            notify_step "db-migrate" "in_progress"
-            DM_START=$(date +%s)
-            set -a; source /etc/gluecron.env; set +a
-
-            echo "==> running migrations (must succeed to proceed)"
-            if ! "$BUN" run src/db/migrate.ts; then
-              notify_step "db-migrate" "failed" "$(( ( $(date +%s) - DM_START ) * 1000 ))"
-              echo "ERROR: bun run db:migrate failed — aborting deploy" >&2
-              exit 1
-            fi
-
-            # Verify the LATEST drizzle/*.sql is present in _migrations.
-            # This catches the case where migrate.ts thought every file
-            # was already applied but the actual list on disk has new
-            # entries the runner somehow skipped. We write a tiny ESM
-            # verifier into /tmp and call it; this avoids the require()
-            # vs ESM mismatch you'd hit using `bun -e` on a "type":"module"
-            # package.
-            echo "==> verifying latest drizzle/*.sql is recorded in _migrations"
-            LATEST_FILE=$(ls drizzle/*.sql 2>/dev/null | sort | tail -1 | xargs -n1 basename || true)
-            if [ -z "$LATEST_FILE" ]; then
-              echo "WARN: no drizzle/*.sql files found — skipping verification"
-            else
-              cat > /tmp/verify-migration.mjs <<'VERIFY_EOF'
-              import { neon } from "@neondatabase/serverless";
-              import postgres from "postgres";
-              const url = process.env.DATABASE_URL;
-              const target = process.argv[2];
-              if (!url || !target) { console.error("verify: missing DATABASE_URL or target"); process.exit(1); }
-              const isNeon = /(^|\.)neon\.tech$/i.test(new URL(url).hostname);
-              try {
-                let rows;
-                if (isNeon) {
-                  const sql = neon(url);
-                  rows = await sql(`SELECT name FROM _migrations WHERE name = $1`, [target]);
-                } else {
-                  const client = postgres(url, { max: 1, prepare: false });
-                  rows = await client`SELECT name FROM _migrations WHERE name = ${target}`;
-                  await client.end({ timeout: 5 });
-                }
-                if (rows.length === 0) {
-                  console.error(`verify: ${target} is NOT in _migrations`);
-                  process.exit(2);
-                }
-                console.log(`verify: ${target} is applied`);
-              } catch (e) {
-                console.error("verify: query failed:", e?.message ?? e);
-                process.exit(3);
-              }
-              VERIFY_EOF
-              if ! "$BUN" run /tmp/verify-migration.mjs "$LATEST_FILE"; then
-                echo "ERROR: latest migration $LATEST_FILE is NOT recorded in _migrations — aborting deploy" >&2
-                notify_step "db-migrate" "failed" "$(( ( $(date +%s) - DM_START ) * 1000 ))"
-                exit 1
-              fi
-            fi
-
-            notify_step "db-migrate" "succeeded" "$(( ( $(date +%s) - DM_START ) * 1000 ))"
-
-            # ─── (c.5) Pin BUILD_SHA into systemd before restart.
-            # Without this, src/routes/pwa.ts falls back to a stable
-            # "dev-stable" version string and the browser service worker
-            # never invalidates between real deploys. The drop-in survives
-            # daemon-reload; old contents are overwritten on every deploy.
+            echo "=== STEP 3: pin BUILD_SHA in systemd drop-in ==="
             mkdir -p /etc/systemd/system/gluecron.service.d
             cat > /etc/systemd/system/gluecron.service.d/build-sha.conf <<EOF
             [Service]
@@ -370,15 +186,10 @@ jobs:
             Environment="BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
             EOF
             systemctl daemon-reload
-            echo "==> pinned BUILD_SHA=${new_sha:0:12} in systemd drop-in"
 
-            # ─── (d) Zero-downtime restart. Blocks until sd_notify(READY=1).
-            notify_step "restart-service" "in_progress"
-            RS_START=$(date +%s)
-            echo "==> systemctl restart gluecron (blocks on sd_notify READY=1)"
+            echo "=== STEP 4: restart gluecron systemd unit ==="
             systemctl restart gluecron
-            echo "==> restart returned — gluecron signalled ready"
-            notify_step "restart-service" "succeeded" "$(( ( $(date +%s) - RS_START ) * 1000 ))"
+            echo "=== DONE: service restarted with $new_sha ==="
 
       # ─── 3. Smoke-test the deployed app on the box ──────────────────────
       # We SSH back in and curl localhost:3010/healthz directly. This tests

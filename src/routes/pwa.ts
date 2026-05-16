@@ -150,37 +150,43 @@ export function buildSwVersion(): string {
 }
 
 export function buildVersionedServiceWorker(version: string): string {
-  // Escape backslashes + double-quotes so the version is safe inside a
-  // double-quoted JS string literal. Real SHAs are hex, but the dev
-  // fallback could in principle contain anything — belt + braces.
+  // PWA removed 2026-05-16. The body served at /sw.js is now a self-
+  // unregister script. Browsers with the old SW installed fetch this
+  // body on their next SW update check (every navigation, since
+  // Cache-Control: no-store on the response) and the SW unregisters
+  // itself. Combined with the layout-side kill-switch script, every
+  // browser self-recovers within one page load.
+  //
+  // SW_VERSION is still pinned + preserved in the body so the existing
+  // cache-bust tests keep asserting against a non-empty literal. The
+  // cache-prefix delete + clients.claim are also preserved (they nuke
+  // any caches the old SW left behind). Final step: unregister.
   const safe = version.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-  return `// gluecron service worker — Block S2 (deploy-SHA-pinned cache bust)
+  return `// gluecron service worker — self-unregister edition (2026-05-16)
 const SW_VERSION = "${safe}";
 const CACHE_PREFIX = "gluecron-";
 const CURRENT_CACHE = CACHE_PREFIX + SW_VERSION;
 
 self.addEventListener("install", (e) => {
-  // Activate immediately — don't wait for every tab to close. Pairs with
-  // the layout's updatefound→reload hook so the user sees the new HTML
-  // on the very next page load instead of "forever until DevTools".
   self.skipWaiting();
 });
 
 self.addEventListener("activate", (e) => {
-  e.waitUntil(
-    caches.keys().then((names) =>
-      Promise.all(
-        names
-          .filter((n) => n.startsWith(CACHE_PREFIX) && n !== CURRENT_CACHE)
-          .map((n) => caches.delete(n))
-      )
-    ).then(() => self.clients.claim())
-  );
+  e.waitUntil((async () => {
+    try {
+      const names = await caches.keys();
+      await Promise.all(
+        names.filter((n) => n.startsWith(CACHE_PREFIX)).map((n) => caches.delete(n))
+      );
+    } catch (_) {}
+    try { await self.clients.claim(); } catch (_) {}
+    try { await self.registration.unregister(); } catch (_) {}
+  })());
 });
 
-// No fetch handler — every request goes straight to the network. The
-// version-pinned cache machinery is in place for future opt-in caching
-// without re-introducing the stale-HTML bug.
+// No fetch handler — once this SW activates and unregisters itself the
+// browser never invokes it again. Every request goes straight to the
+// network.
 `;
 }
 

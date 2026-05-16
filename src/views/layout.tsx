@@ -58,7 +58,10 @@ export const Layout: FC<
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <meta name="theme-color" content="#0d1117" />
-        <link rel="manifest" href="/manifest.webmanifest" />
+        {/* PWA removed 2026-05-16 — repeated reload-loop bugs (admin
+            dashboard, deploy pill, admin-screen flash). A git host has
+            no use for service workers or install-as-app. Manifest link
+            and SW registrations are gone permanently. */}
         <link rel="icon" type="image/svg+xml" href="/icon.svg" />
         <title>{renderedTitle}</title>
         {description && <meta name="description" content={description} />}
@@ -335,17 +338,11 @@ export const Layout: FC<
           <div id="cmdk-list" style="max-height:60vh;overflow-y:auto" />
         </div>
         <script dangerouslySetInnerHTML={{ __html: clientJs }} />
-        <script dangerouslySetInnerHTML={{ __html: pwaRegisterScript }} />
+        {/* PWA-kill script: actively unregisters any service worker
+            previously installed under gluecron.com. Recovers any browser
+            still trapped in the SW reload loop from the legacy registrations. */}
+        <script dangerouslySetInnerHTML={{ __html: pwaKillSwitchScript }} />
         <script dangerouslySetInnerHTML={{ __html: toastScript }} />
-        {/* Block M2 — smart install banner + push-SW bootstrap. Authed
-            users only; the banner respects a 3+ visits + 14-day cooldown
-            heuristic. The push SW is registered on the same gate so we
-            don't ask anonymous visitors to opt into anything. */}
-        {user && (
-          <script
-            dangerouslySetInnerHTML={{ __html: pwaInstallBannerScript }}
-          />
-        )}
         <script dangerouslySetInnerHTML={{ __html: navScript }} />
       </body>
     </html>
@@ -620,127 +617,43 @@ const toastScript = `
   })();
 `;
 
-// Block S2 extension — when an UPDATED SW activates we force a single
-// reload so the user picks up the fresh HTML immediately instead of
-// being stuck on the previous deploy's cached page.
+// PWA kill-switch (2026-05-16) — replaces the previous pwaRegisterScript
+// and pwaInstallBannerScript. Those two scripts registered /sw.js and
+// /sw-push.js at the same scope, causing a reload loop that made the
+// admin dashboard unusable (deploy pill flashing, typing wiped, buttons
+// uncllickable). Per the SW spec, only one SW can control a scope; two
+// different script URLs at the same scope keep replacing each other.
 //
-// Critical: snapshot \`navigator.serviceWorker.controller\` BEFORE
-// registration. The SW's activate handler calls clients.claim() which
-// sets the controller during first install — so checking the controller
-// at statechange-time was always truthy and produced an infinite reload
-// loop on every first visit (incognito tab, fresh browser, etc).
-//
-// New guard: only reload if there was a previously-controlling SW at
-// page load. First-install path stays a single page render.
-const pwaRegisterScript = `
-  if ('serviceWorker' in navigator) {
-    var hadControllerAtLoad = !!navigator.serviceWorker.controller;
-    window.addEventListener('load', function(){
-      navigator.serviceWorker.register('/sw.js').then(function(reg){
-        var reloaded = false;
-        reg.addEventListener('updatefound', function(){
-          var newSW = reg.installing;
-          if (!newSW) return;
-          newSW.addEventListener('statechange', function(){
-            if (
-              newSW.state === 'activated' &&
-              hadControllerAtLoad &&
-              !reloaded
-            ) {
-              reloaded = true;
-              window.location.reload();
-            }
-          });
-        });
-      }).catch(function(){});
-    });
-  }
-`;
-
-// Block M2 — smart install banner (authed users only). Three heuristics:
-//   1. user is authenticated (gated server-side via the `{user &&}` JSX)
-//   2. visit counter (localStorage) ≥ 3
-//   3. dismissed-cooldown < 14 days ago
-//
-// AA-LOOP FIX (2026-05-16): this script previously also registered
-// `/sw-push.js` at scope `/`. Combined with `pwaRegisterScript` registering
-// `/sw.js` at the same scope, every page load alternated which SW
-// controlled the scope. `pwaRegisterScript`'s `updatefound → reload` hook
-// then fired on every subsequent load — infinite reload loop on the admin
-// dashboard (input wiped, deploy pill flashing). Per the SW spec, only one
-// SW can be active per scope; registering two different script URLs at the
-// same scope makes each replace the other.
-//
-// Fix: stop registering `/sw-push.js` from the banner script entirely, and
-// proactively unregister any existing `/sw-push.js` SW so users already
-// caught in the loop recover on next refresh. Push notifications opted in
-// via /settings still register the SW from settings.tsx when (and only
-// when) the user clicks Subscribe.
-const pwaInstallBannerScript = `
+// PWA is gone for good. A git host has no use for service workers,
+// install-as-app, or push notifications via SW. This script actively
+// unregisters every previously installed SW on the gluecron.com origin
+// so any browser still trapped in the loop recovers on the very next
+// page load — without needing the user to clear site data or open
+// DevTools. Idempotent and safe to keep running forever; once all
+// browsers have been cleaned, it's a no-op.
+const pwaKillSwitchScript = `
 (function(){
   try {
-    var DISMISS_KEY = 'gc:pwa-banner-dismissed-at';
-    var VISITS_KEY  = 'gc:pwa-visit-count';
-    var DISMISS_MS  = 14 * 24 * 60 * 60 * 1000;
-    var visits = parseInt(localStorage.getItem(VISITS_KEY) || '0', 10) || 0;
-    visits++;
-    try { localStorage.setItem(VISITS_KEY, String(visits)); } catch(_){}
-    // Recover stuck tabs: if a previous build registered /sw-push.js at
-    // scope '/', it is still fighting /sw.js for that scope. Unregister
-    // only the /sw-push.js registration; leave /sw.js intact.
-    if ('serviceWorker' in navigator && navigator.serviceWorker.getRegistrations) {
-      navigator.serviceWorker.getRegistrations().then(function(regs){
-        regs.forEach(function(reg){
-          var url = (reg.active && reg.active.scriptURL) || '';
-          if (url.indexOf('/sw-push.js') !== -1) {
-            try { reg.unregister(); } catch(_){}
+    if (!('serviceWorker' in navigator)) return;
+    if (!navigator.serviceWorker.getRegistrations) return;
+    navigator.serviceWorker.getRegistrations().then(function(regs){
+      if (!regs || regs.length === 0) return;
+      regs.forEach(function(reg){
+        try { reg.unregister(); } catch(_){}
+      });
+    }).catch(function(){});
+    // Also drop any caches the old SWs left behind so the user gets
+    // truly fresh HTML on every page load. Restricted to gluecron-*
+    // namespaced caches so we don't trample anything a future opt-in
+    // feature might create under a different name.
+    if ('caches' in self) {
+      caches.keys().then(function(keys){
+        keys.forEach(function(k){
+          if (typeof k === 'string' && k.indexOf('gluecron') === 0) {
+            try { caches.delete(k); } catch(_){}
           }
         });
       }).catch(function(){});
-    }
-    var deferredPrompt = null;
-    window.addEventListener('beforeinstallprompt', function(e){
-      e.preventDefault();
-      deferredPrompt = e;
-      maybeShow();
-    });
-    function maybeShow(){
-      if (!deferredPrompt) return;
-      if (visits < 3) return;
-      var dismissedAt = parseInt(localStorage.getItem(DISMISS_KEY) || '0', 10) || 0;
-      if (dismissedAt && (Date.now() - dismissedAt) < DISMISS_MS) return;
-      if (document.getElementById('gc-install-banner')) return;
-      var bar = document.createElement('div');
-      bar.id = 'gc-install-banner';
-      bar.setAttribute('role', 'dialog');
-      bar.setAttribute('aria-label', 'Install Gluecron');
-      bar.style.cssText = 'position:fixed;left:12px;right:12px;bottom:12px;z-index:9997;'
-        + 'background:var(--bg-elevated,#161b22);color:var(--text,#c9d1d9);'
-        + 'border:1px solid var(--border,#30363d);border-radius:8px;padding:12px 14px;'
-        + 'display:flex;gap:10px;align-items:center;justify-content:space-between;'
-        + 'box-shadow:0 8px 24px rgba(0,0,0,0.45);font-size:13px;line-height:1.3;'
-        + 'max-width:560px;margin:0 auto';
-      bar.innerHTML = '<span style="flex:1">'
-        + '<strong>Install Gluecron</strong> to keep working when offline + get push notifications.'
-        + '</span>'
-        + '<button type="button" id="gc-install-go" style="background:#238636;color:#fff;'
-        + 'border:0;border-radius:6px;padding:6px 12px;font-size:12px;cursor:pointer;'
-        + 'font-family:inherit">Install</button>'
-        + '<button type="button" id="gc-install-no" style="background:transparent;color:inherit;'
-        + 'border:1px solid var(--border,#30363d);border-radius:6px;padding:6px 12px;'
-        + 'font-size:12px;cursor:pointer;font-family:inherit">Not now</button>';
-      document.body.appendChild(bar);
-      var go = bar.querySelector('#gc-install-go');
-      var no = bar.querySelector('#gc-install-no');
-      if (go) go.addEventListener('click', function(){
-        try { deferredPrompt.prompt(); } catch(_){}
-        bar.parentNode && bar.parentNode.removeChild(bar);
-        deferredPrompt = null;
-      });
-      if (no) no.addEventListener('click', function(){
-        try { localStorage.setItem(DISMISS_KEY, String(Date.now())); } catch(_){}
-        bar.parentNode && bar.parentNode.removeChild(bar);
-      });
     }
   } catch(_) {}
 })();

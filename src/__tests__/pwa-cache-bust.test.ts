@@ -69,6 +69,14 @@ describe("pwa cache-bust (S2) — GET /sw.js", () => {
     expect(body).toContain('"gluecron-"');
   });
 
+  // 2026-05-16 — PWA rip-out. /sw.js now self-unregisters on activate so
+  // any browser with the old SW installed recovers automatically.
+  it("body unregisters itself on activate", async () => {
+    const res = await app.request("/sw.js");
+    const body = await res.text();
+    expect(body).toContain("self.registration.unregister");
+  });
+
   it("when BUILD_SHA is set, that exact value appears as SW_VERSION", async () => {
     process.env.BUILD_SHA = "abc123deadbeef";
     const res = await app.request("/sw.js");

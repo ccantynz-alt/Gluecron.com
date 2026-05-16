@@ -661,8 +661,21 @@ const pwaRegisterScript = `
 //   1. user is authenticated (gated server-side via the `{user &&}` JSX)
 //   2. visit counter (localStorage) ≥ 3
 //   3. dismissed-cooldown < 14 days ago
-// Also bootstraps the push + offline SW at /sw-push.js. Idempotent — safe
-// to load on every page; only inserts DOM nodes if all conditions match.
+//
+// AA-LOOP FIX (2026-05-16): this script previously also registered
+// `/sw-push.js` at scope `/`. Combined with `pwaRegisterScript` registering
+// `/sw.js` at the same scope, every page load alternated which SW
+// controlled the scope. `pwaRegisterScript`'s `updatefound → reload` hook
+// then fired on every subsequent load — infinite reload loop on the admin
+// dashboard (input wiped, deploy pill flashing). Per the SW spec, only one
+// SW can be active per scope; registering two different script URLs at the
+// same scope makes each replace the other.
+//
+// Fix: stop registering `/sw-push.js` from the banner script entirely, and
+// proactively unregister any existing `/sw-push.js` SW so users already
+// caught in the loop recover on next refresh. Push notifications opted in
+// via /settings still register the SW from settings.tsx when (and only
+// when) the user clicks Subscribe.
 const pwaInstallBannerScript = `
 (function(){
   try {
@@ -672,12 +685,18 @@ const pwaInstallBannerScript = `
     var visits = parseInt(localStorage.getItem(VISITS_KEY) || '0', 10) || 0;
     visits++;
     try { localStorage.setItem(VISITS_KEY, String(visits)); } catch(_){}
-    // Bootstrap the push + offline SW (separate from /sw.js's locked behaviour).
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', function(){
-        navigator.serviceWorker.register('/sw-push.js', { scope: '/' })
-          .catch(function(){});
-      });
+    // Recover stuck tabs: if a previous build registered /sw-push.js at
+    // scope '/', it is still fighting /sw.js for that scope. Unregister
+    // only the /sw-push.js registration; leave /sw.js intact.
+    if ('serviceWorker' in navigator && navigator.serviceWorker.getRegistrations) {
+      navigator.serviceWorker.getRegistrations().then(function(regs){
+        regs.forEach(function(reg){
+          var url = (reg.active && reg.active.scriptURL) || '';
+          if (url.indexOf('/sw-push.js') !== -1) {
+            try { reg.unregister(); } catch(_){}
+          }
+        });
+      }).catch(function(){});
     }
     var deferredPrompt = null;
     window.addEventListener('beforeinstallprompt', function(e){

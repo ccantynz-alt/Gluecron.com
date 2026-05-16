@@ -87,4 +87,15 @@ describe("pwa — layout wiring", () => {
     expect(body).toContain("serviceWorker.register");
     expect(body).toContain("/sw.js");
   });
+
+  // AA-LOOP REGRESSION (2026-05-16): two SWs at the same scope = infinite
+  // reload. Layout MUST NOT auto-register `/sw-push.js`. The /sw-push.js
+  // route still exists for explicit-opt-in push subscriptions (gated to
+  // /settings) but no anonymous or default page may register it.
+  it("layout never auto-registers /sw-push.js at scope /", async () => {
+    const res = await app.request("/");
+    const body = await res.text();
+    expect(body).not.toContain("register('/sw-push.js'");
+    expect(body).not.toContain('register("/sw-push.js"');
+  });
 });

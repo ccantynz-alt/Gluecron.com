@@ -14,6 +14,7 @@ import { createHmac } from "crypto";
 import { and, eq } from "drizzle-orm";
 import { config } from "../lib/config";
 import { autoRepair } from "../lib/autorepair";
+import { notifyGateTestOfPush } from "../lib/gate";
 import { analyzePush, computeHealthScore } from "../lib/intelligence";
 import { db } from "../db";
 import { deployments, repositories, users } from "../db/schema";
@@ -77,8 +78,16 @@ export async function onPostReceive(
     });
   }
 
-  // 4. GateTest scan — fire-and-forget via generic webhook; the standalone
-  //    triggerGateTest helper is slated for the intelligence rework.
+  // 4. GateTest scan — fire-and-forget notification on every push. The
+  //    helper short-circuits if `GATETEST_URL` is unset, so non-GateTest
+  //    deployments pay no overhead. Results flow back via the inbound
+  //    webhook at POST /api/hooks/gatetest.
+  for (const ref of refs) {
+    if (ref.newSha.startsWith("0000")) continue;
+    notifyGateTestOfPush(owner, repo, ref.refName, ref.newSha).catch((err) =>
+      console.warn("[gatetest] notify error:", err)
+    );
+  }
 
   // 5. Crontech deploy (BLK-016) — only fires for the configured Crontech repo
   //    (CRONTECH_REPO, default `ccantynz-alt/crontech`) on a push to its

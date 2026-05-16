@@ -101,11 +101,11 @@ auth.get("/register", softAuth, (c) => {
               />
               <span>
                 I agree to the{" "}
-                <a href="/legal/terms" target="_blank" rel="noopener">
+                <a href="/terms" target="_blank" rel="noopener">
                   Terms of Service
                 </a>{" "}
                 and{" "}
-                <a href="/legal/privacy" target="_blank" rel="noopener">
+                <a href="/privacy" target="_blank" rel="noopener">
                   Privacy Policy
                 </a>
                 .

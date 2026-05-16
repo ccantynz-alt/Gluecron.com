@@ -110,23 +110,34 @@ ${diffText.slice(0, 100000)}
     // Extract JSON from response (may be wrapped in markdown code block)
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
+      // FAIL-CLOSED: parsing failure must NOT count as approval. Previously
+      // this returned approved:true, which silently auto-approved PRs
+      // whenever Claude's output drifted off the JSON spec — a real auto-
+      // merge hazard. Surface the failure in the summary instead.
       return {
-        summary: "AI review completed but could not parse structured output.",
+        summary:
+          "AI review failed: model returned output that could not be parsed as JSON. Treating as not-approved; a human reviewer should look at this PR.",
         comments: [],
-        approved: true,
+        approved: false,
       };
     }
     const parsed = JSON.parse(jsonMatch[0]);
     return {
       summary: parsed.summary || "Review complete.",
       comments: Array.isArray(parsed.comments) ? parsed.comments : [],
-      approved: parsed.approved !== false,
+      // Require explicit `approved: true` — undefined or any other value
+      // is treated as not-approved. Same fail-closed principle as above.
+      approved: parsed.approved === true,
     };
-  } catch {
+  } catch (err) {
+    // FAIL-CLOSED: JSON.parse threw (truncated output, schema-shaped
+    // garbage, etc.). Echo a short error tail so operators have a
+    // breadcrumb in the comment body, but never approve.
+    const tail = err instanceof Error ? err.message.slice(0, 200) : String(err);
     return {
-      summary: text.slice(0, 500),
+      summary: `AI review failed to parse model output (${tail}). Treating as not-approved; a human reviewer should look at this PR.`,
       comments: [],
-      approved: true,
+      approved: false,
     };
   }
 }

@@ -64,3 +64,83 @@ modes** in observability, integrations, and the deploy pipeline.
 This commit adds AUDIT-v2.md. The next batch of commits will burn
 through P0s 1, 3, 4, 5, 6, 7, 8 — each as a small commit pushed
 straight to main. P1s and P2s will get their own session.
+
+---
+
+## RELIABILITY SWEEP — 2026-05-16 (executed)
+
+After AUDIT-v2.md landed, a four-phase reliability sweep targeting
+the systemic issues was executed in a single session. All P0s above
+are fixed; key P1s and Level 1–4 of the AI-intelligent-server stack
+shipped:
+
+### Phase A — Silent failure sweep (Level 1) — `a28cede`
+Replaced every `.catch(() => {})` in production code (~30 sites across
+18 files) with structured `console.warn` calls that include the
+operation name, relevant identifier, and error message. Operators can
+now `journalctl -u gluecron | grep '\[<component>\]'` to find why
+something stopped working, instead of guessing. Sites: boot path,
+auth surface, git surface, AI flows, auto-repair, background workers,
+SSO, MCP tools, action cleanup.
+
+### Phase B — `/admin/health` + JSON endpoint (Level 2) — `115c66b`
+Built on the existing `/admin/diagnose` traffic-light dashboard:
+  - Added `/admin/health` as a friendly alias (302 to /admin/diagnose)
+  - Added `/admin/diagnose.json` for programmatic monitoring (same
+    site-admin gate — never leaks deploy state)
+  - Added 4 new health checks: Autopilot (background loop ticking on
+    schedule), Latest deploy (red on failed / yellow if > 48h stale),
+    Workflow queue (red if > 25 queued), Crontech webhook (red on
+    misconfigured HMAC)
+  - Updated /admin dashboard button: "Diagnose" → "Health / Diagnose"
+  - Regression test in `src/__tests__/admin-health.test.ts`
+
+External monitors can now poll `GET /admin/diagnose.json` every
+minute and alert on any red status. The "17 hours of silent deploy
+failure" failure mode is mitigated by the autopilot + deploy-staleness
+checks visible in one URL.
+
+### Phase C — AI incident responder for platform deploys (Level 3) — `89a0761`
+`src/lib/ai-incident.ts` previously had `onDeployFailure` for
+downstream-app deploys only. Added sibling `analyzePlatformDeployFailure`
+that targets the `platform_deploys` table (populated by
+hetzner-deploy.yml). When a deploy event with status="failed" arrives
+at `/deploy/finished`:
+  1. Loads last 10 commits to main from the box-side repo
+  2. Calls Claude Sonnet for a structured RCA (title, likely cause,
+     suspected commit, remediation)
+  3. Logs the analysis as `[platform-incident]` to journalctl
+  4. Inserts an `audit_log` row with action=`platform.deploy.failed`
+     containing the run_id, sha, error excerpt, and AI RCA
+
+Degrades gracefully when ANTHROPIC_API_KEY is unset (falls back to
+deterministic markdown with raw error + recent commits, marked
+"AI unavailable"). Operators get the diagnosis at the same moment
+the failure happens — no manual investigation required.
+
+### Phase D — Deploy path unification (Level 4 partial) — `ff4423b`
+`scripts/self-deploy.sh` and `.github/workflows/hetzner-deploy.yml`
+had drifted into two divergent deploy scripts. Collapsed them: the
+GH workflow now does `cd /opt/gluecron && git fetch + reset && bash
+scripts/self-deploy.sh --inline`. The script is the single source of
+truth, invoked by both the GH workflow and the post-receive hook on
+the gluecron-hosted git server. No more drift.
+
+Bonus: `self-deploy.sh` gains `set -x` tracing (was opaque on
+failure). And the GH workflow gains the script's full robustness:
+real post-deploy smoke suite, healthz polling, bun build --compile,
+automatic rollback to previous SHA on failure.
+
+### What's still open (P1 follow-ups not in this sweep)
+
+- Repo-scoped routes that 500 instead of 404/empty on missing record
+  (issues.tsx, pulls.tsx, packages.tsx, releases.tsx, etc.) — each
+  needs a try/catch around the drizzle query
+- Request-level resilience middleware (catch DB connection errors,
+  return graceful 503) — design + implementation
+- No Fly rollback path (`fly-deploy.yml` doesn't have one yet)
+- Workflow log truncation has no UX warning
+- Dead schema (`pr_risk_scores` table)
+- Dead code (`scripts/deploy-crontech.sh`)
+
+These are tractable individually but didn't fit in this session.

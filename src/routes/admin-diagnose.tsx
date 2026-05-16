@@ -22,7 +22,7 @@
  */
 
 import { Hono } from "hono";
-import { eq, and, desc, gt } from "drizzle-orm";
+import { eq, and, desc, gt, sql } from "drizzle-orm";
 import { readdir } from "fs/promises";
 import { join } from "path";
 import {
@@ -30,7 +30,9 @@ import {
   repositories,
   syntheticChecks,
   users,
+  workflowRuns,
 } from "../db/schema";
+import { platformDeploys } from "../db/schema-deploys";
 import { db } from "../db";
 import { Layout } from "../views/layout";
 import { softAuth } from "../middleware/auth";
@@ -39,6 +41,7 @@ import { isSiteAdmin } from "../lib/admin";
 import { config } from "../lib/config";
 import { sendEmail } from "../lib/email";
 import { latestMigration } from "../lib/post-deploy-smoke";
+import { getLastTick, getTickCount } from "../lib/autopilot";
 
 type CheckStatus = "green" | "yellow" | "red";
 
@@ -415,6 +418,232 @@ function checkSelfHost(): CheckResult {
   };
 }
 
+// ─── New checks (2026-05-16 reliability sweep) ───────────────────────────
+
+/**
+ * Is the autopilot loop ticking on schedule? If not, half the platform's
+ * self-healing breaks silently — mirror sync, advisory rescans, scheduled
+ * workflows, auto-merge sweep, stale-sweep all skip.
+ */
+function checkAutopilot(): CheckResult {
+  if (process.env.AUTOPILOT_DISABLED === "1") {
+    return {
+      category: "Autopilot",
+      name: "Background loop",
+      status: "yellow",
+      detail: "AUTOPILOT_DISABLED=1 — background maintenance loop is OFF.",
+      fix: "Remove or unset AUTOPILOT_DISABLED in /etc/gluecron.env to re-enable.",
+    };
+  }
+  const total = getTickCount();
+  const tick = getLastTick();
+  const intervalRaw = process.env.AUTOPILOT_INTERVAL_MS;
+  const intervalMs =
+    intervalRaw && Number.isFinite(Number(intervalRaw)) && Number(intervalRaw) > 0
+      ? Number(intervalRaw)
+      : 5 * 60 * 1000;
+  // Allow 2x the interval before flagging — accounts for slow ticks.
+  const staleMs = intervalMs * 2;
+  if (!tick) {
+    if (total === 0) {
+      return {
+        category: "Autopilot",
+        name: "Background loop",
+        status: "yellow",
+        detail: `Loop is enabled but has not ticked yet. First tick fires after ${Math.round(intervalMs / 1000)}s.`,
+      };
+    }
+    return {
+      category: "Autopilot",
+      name: "Background loop",
+      status: "red",
+      detail: `${total} tick(s) recorded but last tick result is missing — loop may have crashed.`,
+      fix: "Check journalctl -u gluecron for [autopilot] errors. Run a tick manually at /admin/autopilot.",
+    };
+  }
+  const finishedAt = new Date(tick.finishedAt).getTime();
+  const ageMs = Date.now() - finishedAt;
+  if (ageMs > staleMs) {
+    return {
+      category: "Autopilot",
+      name: "Background loop",
+      status: "red",
+      detail: `Last tick was ${Math.round(ageMs / 1000)}s ago (interval is ${Math.round(intervalMs / 1000)}s). Loop is stalled.`,
+      fix: "Run a tick manually at /admin/autopilot. Check journalctl for [autopilot] errors.",
+    };
+  }
+  const failed = tick.tasks.filter((t) => !t.ok).length;
+  if (failed > 0) {
+    return {
+      category: "Autopilot",
+      name: "Background loop",
+      status: "yellow",
+      detail: `Loop running but ${failed}/${tick.tasks.length} tasks failed in the last tick.`,
+      fix: "Open /admin/autopilot for the per-task error list.",
+    };
+  }
+  return {
+    category: "Autopilot",
+    name: "Background loop",
+    status: "green",
+    detail: `Ticking on schedule (${total} tick${total === 1 ? "" : "s"} this process; last ${Math.round(ageMs / 1000)}s ago).`,
+  };
+}
+
+/**
+ * When did we last successfully deploy? Stale deploys are an early
+ * warning sign the deploy pipeline is broken silently (which is exactly
+ * what happened on 2026-05-15 — 17 hours of failed deploys, no alert).
+ */
+async function checkRecentDeploy(): Promise<CheckResult> {
+  try {
+    const [latest] = await db
+      .select({
+        sha: platformDeploys.sha,
+        status: platformDeploys.status,
+        startedAt: platformDeploys.startedAt,
+        finishedAt: platformDeploys.finishedAt,
+        error: platformDeploys.error,
+      })
+      .from(platformDeploys)
+      .orderBy(desc(platformDeploys.startedAt))
+      .limit(1);
+    if (!latest) {
+      return {
+        category: "Deploy",
+        name: "Latest deploy",
+        status: "yellow",
+        detail: "No deploys recorded yet. The hetzner-deploy.yml workflow posts events to /api/events/deploy/* — set DEPLOY_EVENT_TOKEN in the workflow env to enable.",
+      };
+    }
+    const ref = latest.finishedAt || latest.startedAt;
+    const ageHours = (Date.now() - new Date(ref).getTime()) / (60 * 60 * 1000);
+    const sha7 = (latest.sha || "").slice(0, 7);
+    if (latest.status === "failed") {
+      return {
+        category: "Deploy",
+        name: "Latest deploy",
+        status: "red",
+        detail: `Last deploy (${sha7}) FAILED ${ageHours.toFixed(1)}h ago: ${(latest.error || "no error message").slice(0, 200)}.`,
+        fix: "Open /admin/deploys for the run timeline. Trigger a new deploy after fixing.",
+      };
+    }
+    if (latest.status === "in_progress") {
+      return {
+        category: "Deploy",
+        name: "Latest deploy",
+        status: "yellow",
+        detail: `Deploy in progress (${sha7}, started ${ageHours.toFixed(1)}h ago).`,
+      };
+    }
+    if (latest.status === "succeeded" && ageHours > 48) {
+      return {
+        category: "Deploy",
+        name: "Latest deploy",
+        status: "yellow",
+        detail: `Last deploy was ${sha7} ${ageHours.toFixed(1)}h ago. If you pushed to main since then, the deploy pipeline may have silently failed.`,
+        fix: "Check the GitHub Actions Hetzner deploy run for the latest main commit.",
+      };
+    }
+    return {
+      category: "Deploy",
+      name: "Latest deploy",
+      status: "green",
+      detail: `${sha7} deployed cleanly ${ageHours.toFixed(1)}h ago.`,
+    };
+  } catch (err) {
+    return {
+      category: "Deploy",
+      name: "Latest deploy",
+      status: "yellow",
+      detail: `Couldn't read platform_deploys: ${(err as Error).message.slice(0, 100)}`,
+    };
+  }
+}
+
+/**
+ * Is the workflow worker draining the queue? A backed-up queue or a
+ * stuck queued row means CI gates aren't firing.
+ */
+async function checkWorkflowQueue(): Promise<CheckResult> {
+  try {
+    const [queued] = await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(workflowRuns)
+      .where(eq(workflowRuns.status, "queued"));
+    const queuedN = Number(queued?.n || 0);
+    const [running] = await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(workflowRuns)
+      .where(eq(workflowRuns.status, "running"));
+    const runningN = Number(running?.n || 0);
+    if (queuedN > 25) {
+      return {
+        category: "Workflows",
+        name: "Run queue",
+        status: "red",
+        detail: `${queuedN} runs queued (running: ${runningN}). The worker is backed up.`,
+        fix: "Check journalctl for [workflow-runner] errors. Restart gluecron if persistent.",
+      };
+    }
+    if (queuedN > 5) {
+      return {
+        category: "Workflows",
+        name: "Run queue",
+        status: "yellow",
+        detail: `${queuedN} runs queued, ${runningN} running. Worker may be slow.`,
+      };
+    }
+    return {
+      category: "Workflows",
+      name: "Run queue",
+      status: "green",
+      detail: `${queuedN} queued, ${runningN} running.`,
+    };
+  } catch (err) {
+    return {
+      category: "Workflows",
+      name: "Run queue",
+      status: "yellow",
+      detail: `Couldn't read workflow_runs: ${(err as Error).message.slice(0, 100)}`,
+    };
+  }
+}
+
+/**
+ * Crontech deploy webhook secret — without it, the webhook POSTs
+ * unsigned and Crontech rejects with 401, but our hook side never sees
+ * the rejection because the request is fire-and-forget.
+ */
+function checkCrontechWebhook(): CheckResult {
+  const url = process.env.CRONTECH_DEPLOY_URL;
+  const secret = process.env.CRONTECH_HMAC_SECRET;
+  if (!url) {
+    return {
+      category: "Crontech",
+      name: "Deploy webhook",
+      status: "yellow",
+      detail: "CRONTECH_DEPLOY_URL unset — pushes to the Crontech repo don't notify the deploy pipeline.",
+      fix: "Optional integration. Set CRONTECH_DEPLOY_URL + CRONTECH_HMAC_SECRET if you want push-triggered Crontech deploys.",
+    };
+  }
+  if (!secret) {
+    return {
+      category: "Crontech",
+      name: "Deploy webhook",
+      status: "red",
+      detail: "CRONTECH_DEPLOY_URL set but CRONTECH_HMAC_SECRET empty — webhook will be rejected as unsigned.",
+      fix: "Add CRONTECH_HMAC_SECRET to /etc/gluecron.env (match the value configured on Crontech's side).",
+    };
+  }
+  return {
+    category: "Crontech",
+    name: "Deploy webhook",
+    status: "green",
+    detail: `Configured (POST to ${url}).`,
+  };
+}
+
 // ─── Page handler ────────────────────────────────────────────────────────
 
 function pill(status: CheckStatus): any {
@@ -433,12 +662,8 @@ function pill(status: CheckStatus): any {
   );
 }
 
-diagnose.get("/admin/diagnose", async (c) => {
-  const g = await gate(c);
-  if (g instanceof Response) return g;
-  const { user } = g;
-
-  const results: CheckResult[] = [
+async function runAllChecks(c: any): Promise<CheckResult[]> {
+  return [
     checkEmail(),
     checkAnthropic(),
     checkGateTest(),
@@ -449,7 +674,49 @@ diagnose.get("/admin/diagnose", async (c) => {
     await checkAutoMerge(),
     await checkSyntheticMonitor(),
     checkSelfHost(),
+    // 2026-05-16 reliability sweep additions:
+    checkAutopilot(),
+    await checkRecentDeploy(),
+    await checkWorkflowQueue(),
+    checkCrontechWebhook(),
   ];
+}
+
+// JSON endpoint for programmatic monitoring. Same gate as the HTML page
+// (site-admin only) so deploy state isn't public.
+diagnose.get("/admin/diagnose.json", async (c) => {
+  const g = await gate(c);
+  if (g instanceof Response) return g;
+  const results = await runAllChecks(c);
+  const counts = {
+    green: results.filter((r) => r.status === "green").length,
+    yellow: results.filter((r) => r.status === "yellow").length,
+    red: results.filter((r) => r.status === "red").length,
+  };
+  const overall =
+    counts.red > 0 ? "red" : counts.yellow > 0 ? "yellow" : "green";
+  return c.json({
+    ok: true,
+    overall,
+    counts,
+    checks: results,
+    asOf: new Date().toISOString(),
+  });
+});
+
+// /admin/health alias — same handler, friendlier URL. The user expected
+// this to exist; making the expectation reality is cheaper than arguing
+// about naming.
+diagnose.get("/admin/health", async (c) => {
+  return c.redirect("/admin/diagnose");
+});
+
+diagnose.get("/admin/diagnose", async (c) => {
+  const g = await gate(c);
+  if (g instanceof Response) return g;
+  const { user } = g;
+
+  const results: CheckResult[] = await runAllChecks(c);
 
   const counts = {
     green: results.filter((r) => r.status === "green").length,

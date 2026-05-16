@@ -15,6 +15,46 @@ import { isNeonUrl } from "./index";
 
 type Exec = (query: string, params?: unknown[]) => Promise<unknown>;
 
+/**
+ * Split a migration file into individual SQL statements.
+ *
+ * Two formats are supported:
+ *   1. Drizzle-generated migrations use `--> statement-breakpoint` markers
+ *      between statements. Detect and split on those.
+ *   2. Hand-written migrations (like `0000_init.sql`) just have multiple
+ *      `CREATE TABLE` etc statements separated by `;`. Detect when the
+ *      drizzle marker isn't present and fall back to a semicolon split
+ *      that's safe for our schemas (no PL/pgSQL `$$...$$` blocks today).
+ *
+ * Comment-only lines (`--`) are stripped before splitting so a `;`
+ * inside a comment doesn't trigger a false split. Empty fragments are
+ * dropped. Trailing semicolons are removed.
+ */
+function splitMigrationStatements(content: string): string[] {
+  if (/-->\s*statement-breakpoint/.test(content)) {
+    return content
+      .split(/-->\s*statement-breakpoint/)
+      .map((s) =>
+        s
+          .split("\n")
+          .filter((line) => !line.trim().startsWith("--"))
+          .join("\n")
+          .trim()
+      )
+      .filter((s) => s.length > 0);
+  }
+  // No breakpoint markers — split on `;` at end of (logical) line. Strip
+  // pure-comment lines first.
+  const stripped = content
+    .split("\n")
+    .filter((line) => !line.trim().startsWith("--"))
+    .join("\n");
+  return stripped
+    .split(/;\s*\n/)
+    .map((s) => s.trim().replace(/;\s*$/, "").trim())
+    .filter((s) => s.length > 0);
+}
+
 async function runMigrations() {
   if (!config.databaseUrl) {
     throw new Error("DATABASE_URL is not set");
@@ -70,21 +110,9 @@ async function runMigrations() {
 
       console.log(`[migrate] applying ${file}...`);
       const content = await readFile(join(migrationsDir, file), "utf8");
+      const statements = splitMigrationStatements(content);
 
-      // Split on the drizzle breakpoint marker. Each chunk is one statement.
-      const statements = content
-        .split(/-->\s*statement-breakpoint/)
-        .map((s) => s.trim())
-        .filter((s) => s.length > 0);
-
-      for (const raw of statements) {
-        const stripped = raw
-          .split("\n")
-          .filter((line) => !line.trim().startsWith("--"))
-          .join("\n")
-          .trim();
-        if (!stripped) continue;
-
+      for (const stripped of statements) {
         try {
           await exec(stripped);
         } catch (err) {

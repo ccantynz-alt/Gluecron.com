@@ -27,7 +27,12 @@
 # TODO(ops): configure /etc/logrotate.d/gluecron-self-deploy for the log.
 # =============================================================================
 
-set -euo pipefail
+# `set -E` so traps propagate into subshells; `-x` traces every command
+# to stderr (captured into $LOG via the `>>"$LOG" 2>&1` redirects on the
+# detached re-exec line). Reliability sweep 2026-05-16: when this script
+# fails, the trace tells us EXACTLY which line broke instead of leaving
+# us guessing as we did for 17 hours of failed Hetzner deploys.
+set -Eeuxo pipefail
 
 WORKING_DIR="${GLUECRON_WORKING_DIR:-/opt/gluecron}"
 LOG="${GLUECRON_SELF_DEPLOY_LOG:-/var/log/gluecron-self-deploy.log}"

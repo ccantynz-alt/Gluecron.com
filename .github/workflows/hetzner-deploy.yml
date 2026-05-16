@@ -147,22 +147,29 @@ jobs:
           command_timeout: 8m
           script_stop: true
           envs: GH_TOKEN,GH_REPO,GH_SHA
-          # FIRE-DRILL DEPLOY (2026-05-16):
+          # UNIFIED DEPLOY (2026-05-16 reliability sweep, Phase D).
           #
-          # The original script (notify_step + cache hash + bun build
-          # --compile + migration verifier + systemd unit rewrite + …)
-          # was aborting silently between "Deploying SHA: …" and any
-          # other output — under `set -euo pipefail`, no visible stderr,
-          # no clue which line. The systemd unit had not been restarted
-          # in 17 hours of failed deploys.
+          # Both deploy paths now share ONE source of truth:
+          # `scripts/self-deploy.sh`. The GitHub Actions Hetzner
+          # workflow (this file) and the post-receive hook on the
+          # gluecron-hosted git server both invoke the same script.
+          # Drift between deploy paths — flagged in AUDIT-v2.md P1
+          # #11 — is eliminated.
           #
-          # This is the minimum viable replacement: trace every line
-          # via `set -x` so failures are visible, skip the silent-fail
-          # observability calls, do `git fetch + reset + bun install +
-          # systemctl restart` and nothing else. We can re-add the
-          # compile / migrate / cache-hash later — they were optional
-          # optimisations, the service worker rip-out only needs the
-          # new source code + a restart to land.
+          # The script handles: bun install, db migrations, bun build
+          # --compile, BUILD_SHA pin into systemd drop-in, systemctl
+          # restart, healthz wait, post-deploy smoke suite, AND
+          # automatic rollback to the previous SHA on failure.
+          #
+          # All we do here:
+          #   1. Repair the git remote (still needed because the box
+          #      historically pointed at the self-hosted URL which 404s).
+          #   2. git fetch + reset --hard to the new SHA.
+          #   3. `bash scripts/self-deploy.sh --inline` (the `--inline`
+          #      flag prevents the script's normal background re-exec
+          #      so the SSH session blocks until completion, which is
+          #      what we want for GH Actions to mirror the script's
+          #      exit code).
           script: |
             set -Eeuxo pipefail
             cd /opt/gluecron
@@ -174,33 +181,10 @@ jobs:
             new_sha=$(git rev-parse HEAD)
             echo "Deployed SHA on box: $new_sha"
 
-            echo "=== STEP 2: bun install ==="
-            BUN=/root/.bun/bin/bun
-            "$BUN" install --frozen-lockfile
-
-            echo "=== STEP 3: run db migrations ==="
-            # Source /etc/gluecron.env so DATABASE_URL is available to
-            # migrate.ts. Hard-fail if any migration errors — the previous
-            # `|| echo WARN` swallowed migration failures and left the DB
-            # out of sync with the schema, which produces 500s on every
-            # page that SELECTs a column added by a missed migration.
-            set -a
-            source /etc/gluecron.env
-            set +a
-            "$BUN" run src/db/migrate.ts
-
-            echo "=== STEP 4: pin BUILD_SHA in systemd drop-in ==="
-            mkdir -p /etc/systemd/system/gluecron.service.d
-            cat > /etc/systemd/system/gluecron.service.d/build-sha.conf <<EOF
-            [Service]
-            Environment="BUILD_SHA=$new_sha"
-            Environment="BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-            EOF
-            systemctl daemon-reload
-
-            echo "=== STEP 5: restart gluecron systemd unit ==="
-            systemctl restart gluecron
-            echo "=== DONE: service restarted with $new_sha ==="
+            echo "=== STEP 2: hand off to scripts/self-deploy.sh (the canonical deploy path) ==="
+            chmod +x scripts/self-deploy.sh
+            bash scripts/self-deploy.sh --inline
+            echo "=== DONE: self-deploy.sh exited cleanly ==="
 
       # ─── 3. Smoke-test the deployed app on the box ──────────────────────
       # We SSH back in and curl localhost:3010/healthz directly. This tests

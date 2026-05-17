@@ -14,21 +14,538 @@ import { requireRepoAccess } from "../middleware/repo-access";
 import { listBranches } from "../git/repository";
 import { audit } from "../lib/notify";
 import { rm } from "fs/promises";
-import {
-  Container,
-  Form,
-  FormGroup,
-  Input,
-  Select,
-  Button,
-  Alert,
-  EmptyState,
-  Text,
-} from "../views/ui";
+import { EmptyState } from "../views/ui";
 
 const repoSettings = new Hono<AuthEnv>();
 
 repoSettings.use("*", softAuth);
+
+// Inline, scoped CSS — every class prefixed `.repo-settings-` so styles cannot
+// bleed into other surfaces. Pattern mirrors the user-settings polish
+// (commit 98eb360) and the admin-panel polish (commit 07f4b70).
+const repoSettingsStyles = `
+  .repo-settings-container { max-width: 880px; margin: 0 auto; padding: 0 var(--space-3); }
+
+  /* ─── Hero ─── */
+  .repo-settings-hero {
+    position: relative;
+    margin: var(--space-5) 0 var(--space-5);
+    padding: var(--space-5) var(--space-6);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+  .repo-settings-hero::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent 0%, #8c6dff 30%, #36c5d6 70%, transparent 100%);
+    opacity: 0.7;
+    pointer-events: none;
+  }
+  .repo-settings-hero-bg {
+    position: absolute;
+    inset: -20% -10% auto auto;
+    width: 360px; height: 360px;
+    pointer-events: none;
+    z-index: 0;
+  }
+  .repo-settings-hero-orb {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle, rgba(140,109,255,0.18), rgba(54,197,214,0.09) 45%, transparent 70%);
+    filter: blur(80px);
+    opacity: 0.65;
+    animation: repoSettingsHeroOrb 14s ease-in-out infinite;
+  }
+  @keyframes repoSettingsHeroOrb {
+    0%, 100% { transform: scale(1) translate(0, 0); opacity: 0.55; }
+    50%      { transform: scale(1.08) translate(-8px, 6px); opacity: 0.78; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .repo-settings-hero-orb { animation: none; }
+  }
+  .repo-settings-hero-inner {
+    position: relative;
+    z-index: 1;
+    max-width: 640px;
+  }
+  .repo-settings-hero-eyebrow {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-bottom: var(--space-2);
+    letter-spacing: -0.005em;
+  }
+  .repo-settings-hero-eyebrow .repo-settings-hero-repo {
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .repo-settings-hero-title {
+    font-size: clamp(28px, 4vw, 40px);
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: -0.028em;
+    line-height: 1.05;
+    margin: 0 0 var(--space-2);
+    color: var(--text-strong);
+  }
+  .repo-settings-hero-title .gradient-text {
+    background-image: linear-gradient(135deg, #a48bff 0%, #8c6dff 50%, #36c5d6 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+  }
+  .repo-settings-hero-sub {
+    font-size: 15px;
+    color: var(--text-muted);
+    margin: 0;
+    line-height: 1.5;
+  }
+  .repo-settings-hero-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: var(--space-3);
+    font-size: 13.5px;
+    color: var(--text-link, var(--accent));
+    text-decoration: none;
+    font-weight: 500;
+  }
+  .repo-settings-hero-link:hover { text-decoration: underline; }
+  .repo-settings-hero-link .arrow { transition: transform 120ms ease; }
+  .repo-settings-hero-link:hover .arrow { transform: translateX(2px); }
+
+  /* ─── Banners (success / error) ─── */
+  .repo-settings-banner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    border-radius: 12px;
+    font-size: 13.5px;
+    margin-bottom: var(--space-4);
+    line-height: 1.5;
+  }
+  .repo-settings-banner-success {
+    background: rgba(52,211,153,0.08);
+    color: #6ee7b7;
+    box-shadow: inset 0 0 0 1px rgba(52,211,153,0.30);
+  }
+  .repo-settings-banner-error {
+    background: rgba(248,113,113,0.08);
+    color: #fca5a5;
+    box-shadow: inset 0 0 0 1px rgba(248,113,113,0.30);
+  }
+  .repo-settings-banner-icon {
+    width: 18px; height: 18px;
+    border-radius: 9999px;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 700;
+  }
+  .repo-settings-banner-success .repo-settings-banner-icon {
+    background: rgba(52,211,153,0.18);
+    color: #34d399;
+  }
+  .repo-settings-banner-error .repo-settings-banner-icon {
+    background: rgba(248,113,113,0.18);
+    color: #f87171;
+  }
+
+  /* ─── Section cards ─── */
+  .repo-settings-section {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    margin-bottom: var(--space-5);
+    overflow: hidden;
+  }
+  .repo-settings-section-head {
+    padding: var(--space-4) var(--space-5) var(--space-3);
+    border-bottom: 1px solid var(--border);
+  }
+  .repo-settings-section-eyebrow {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 6px;
+  }
+  .repo-settings-section-title {
+    font-family: var(--font-display);
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: -0.018em;
+    margin: 0 0 4px;
+    color: var(--text-strong);
+  }
+  .repo-settings-section-desc {
+    font-size: 13.5px;
+    color: var(--text-muted);
+    margin: 0;
+    line-height: 1.5;
+  }
+  .repo-settings-section-body { padding: var(--space-4) var(--space-5); }
+  .repo-settings-section-foot {
+    padding: var(--space-3) var(--space-5);
+    border-top: 1px solid var(--border);
+    background: rgba(255,255,255,0.012);
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-2);
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .repo-settings-section-foot .repo-settings-foot-hint {
+    margin-right: auto;
+    font-size: 12.5px;
+    color: var(--text-muted);
+  }
+
+  /* ─── Form rows ─── */
+  .repo-settings-field { margin-bottom: var(--space-4); }
+  .repo-settings-field:last-child { margin-bottom: 0; }
+  .repo-settings-field-label {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-strong);
+    margin-bottom: 6px;
+    letter-spacing: -0.005em;
+  }
+  .repo-settings-field-hint {
+    font-size: 12.5px;
+    color: var(--text-muted);
+    margin-top: 6px;
+    line-height: 1.45;
+  }
+  .repo-settings-input,
+  .repo-settings-select {
+    width: 100%;
+    padding: 9px 12px;
+    font-size: 14px;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--border-strong, var(--border));
+    border-radius: 8px;
+    outline: none;
+    transition: border-color 120ms ease, box-shadow 120ms ease;
+    font-family: var(--font-sans);
+  }
+  .repo-settings-input:focus,
+  .repo-settings-select:focus {
+    border-color: var(--border-focus, var(--accent));
+    box-shadow: 0 0 0 3px rgba(140,109,255,0.18);
+  }
+
+  /* ─── Visibility radio cards ─── */
+  .repo-settings-visibility {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-2);
+  }
+  @media (max-width: 600px) {
+    .repo-settings-visibility { grid-template-columns: 1fr; }
+  }
+  .repo-settings-vis-card {
+    display: flex;
+    gap: 10px;
+    padding: 14px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    cursor: pointer;
+    transition: border-color 120ms ease, background 120ms ease;
+  }
+  .repo-settings-vis-card:hover { border-color: var(--border-strong, var(--border)); }
+  .repo-settings-vis-card:has(input:checked) {
+    border-color: rgba(140,109,255,0.55);
+    background: rgba(140,109,255,0.06);
+    box-shadow: 0 0 0 1px rgba(140,109,255,0.25);
+  }
+  .repo-settings-vis-radio {
+    margin-top: 3px;
+    accent-color: var(--accent);
+  }
+  .repo-settings-vis-body { display: flex; flex-direction: column; gap: 4px; }
+  .repo-settings-vis-label {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-strong);
+  }
+  .repo-settings-vis-desc {
+    font-size: 12.5px;
+    color: var(--text-muted);
+    line-height: 1.4;
+  }
+
+  /* ─── Toggle rows (stale-sweep) ─── */
+  .repo-settings-toggle-row {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-3);
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: 1px solid var(--border-subtle, var(--border));
+    background: var(--bg-secondary, var(--bg));
+    margin-bottom: 8px;
+    transition: border-color 120ms ease, background 120ms ease;
+    cursor: pointer;
+  }
+  .repo-settings-toggle-row:last-of-type { margin-bottom: 0; }
+  .repo-settings-toggle-row:hover {
+    border-color: var(--border);
+    background: rgba(255,255,255,0.02);
+  }
+  .repo-settings-toggle-row:has(input:checked) {
+    border-color: rgba(140,109,255,0.45);
+    background: rgba(140,109,255,0.05);
+  }
+  .repo-settings-toggle-row input[type="checkbox"] {
+    margin-top: 2px;
+    flex-shrink: 0;
+    width: 16px; height: 16px;
+    accent-color: var(--accent);
+    cursor: pointer;
+  }
+  .repo-settings-toggle-text {
+    flex: 1;
+    font-size: 14px;
+    color: var(--text);
+    line-height: 1.45;
+  }
+  .repo-settings-toggle-text-title {
+    display: block;
+    font-weight: 600;
+    color: var(--text-strong);
+    margin-bottom: 2px;
+  }
+  .repo-settings-toggle-text-hint {
+    display: block;
+    margin-top: 3px;
+    font-size: 12.5px;
+    color: var(--text-muted);
+  }
+
+  /* ─── Primary CTA ─── */
+  .repo-settings-cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 9px 16px;
+    font-size: 14px;
+    font-weight: 600;
+    color: white;
+    background: linear-gradient(135deg, #8c6dff 0%, #5b7bff 100%);
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: transform 120ms ease, box-shadow 120ms ease, filter 120ms ease;
+    text-decoration: none;
+    font-family: inherit;
+  }
+  .repo-settings-cta:hover {
+    filter: brightness(1.08);
+    box-shadow: 0 6px 18px rgba(140,109,255,0.25);
+    transform: translateY(-1px);
+  }
+  .repo-settings-cta .arrow { transition: transform 120ms ease; }
+  .repo-settings-cta:hover .arrow { transform: translateX(2px); }
+  .repo-settings-cta-secondary {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    font-size: 13.5px;
+    font-weight: 500;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--border-strong, var(--border));
+    border-radius: 8px;
+    cursor: pointer;
+    text-decoration: none;
+    transition: border-color 120ms ease, background 120ms ease;
+    font-family: inherit;
+  }
+  .repo-settings-cta-secondary:hover {
+    border-color: var(--accent);
+    background: rgba(140,109,255,0.06);
+  }
+
+  /* ─── Inline transfer row ─── */
+  .repo-settings-inline-row {
+    display: flex;
+    gap: var(--space-2);
+    align-items: stretch;
+    flex-wrap: wrap;
+  }
+  .repo-settings-inline-row .repo-settings-input { flex: 1; min-width: 220px; }
+
+  /* ─── Status pill (template / archived) ─── */
+  .repo-settings-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 9999px;
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    margin-bottom: var(--space-2);
+  }
+  .repo-settings-pill.is-on {
+    background: rgba(140,109,255,0.14);
+    color: #b69dff;
+    box-shadow: inset 0 0 0 1px rgba(140,109,255,0.35);
+  }
+  .repo-settings-pill.is-off {
+    background: rgba(255,255,255,0.04);
+    color: var(--text-muted);
+    box-shadow: inset 0 0 0 1px var(--border);
+  }
+  .repo-settings-pill .dot {
+    width: 6px; height: 6px;
+    border-radius: 9999px;
+    background: currentColor;
+    box-shadow: 0 0 8px currentColor;
+  }
+  .repo-settings-pill.is-off .dot { box-shadow: none; opacity: 0.6; }
+
+  /* ─── Danger zone ─── */
+  .repo-settings-danger {
+    position: relative;
+    margin-top: var(--space-6);
+    padding: 0;
+    border: 1px solid rgba(248,113,113,0.30);
+    border-radius: 14px;
+    background:
+      linear-gradient(180deg, rgba(248,113,113,0.05) 0%, rgba(248,113,113,0.02) 100%),
+      var(--bg-elevated);
+    overflow: hidden;
+  }
+  .repo-settings-danger::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent 0%, #f87171 30%, #ffb45e 70%, transparent 100%);
+    opacity: 0.7;
+    pointer-events: none;
+  }
+  .repo-settings-danger-head {
+    padding: var(--space-4) var(--space-5) var(--space-3);
+    border-bottom: 1px solid rgba(248,113,113,0.15);
+  }
+  .repo-settings-danger-eyebrow {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #f87171;
+    margin-bottom: 6px;
+  }
+  .repo-settings-danger-title {
+    font-family: var(--font-display);
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: -0.018em;
+    margin: 0 0 4px;
+    color: var(--text-strong);
+  }
+  .repo-settings-danger-desc {
+    font-size: 13.5px;
+    color: var(--text-muted);
+    margin: 0;
+    line-height: 1.5;
+  }
+  .repo-settings-danger-body { padding: var(--space-4) var(--space-5); }
+  .repo-settings-danger-body p { margin: 0 0 var(--space-3); font-size: 14px; line-height: 1.55; }
+  .repo-settings-danger-body p:last-child { margin-bottom: 0; }
+  .repo-settings-danger-body p.muted { color: var(--text-muted); font-size: 13px; }
+  .repo-settings-danger-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 9px 16px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #fff;
+    background: linear-gradient(135deg, #f87171 0%, #ef4444 100%);
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-family: inherit;
+    transition: filter 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+  }
+  .repo-settings-danger-btn:hover {
+    filter: brightness(1.08);
+    box-shadow: 0 6px 18px rgba(248,113,113,0.25);
+    transform: translateY(-1px);
+  }
+
+  /* ─── Responsive ─── */
+  @media (max-width: 720px) {
+    .repo-settings-hero { padding: var(--space-4) var(--space-4); }
+    .repo-settings-section-head,
+    .repo-settings-section-body,
+    .repo-settings-section-foot,
+    .repo-settings-danger-head,
+    .repo-settings-danger-body { padding-left: var(--space-4); padding-right: var(--space-4); }
+  }
+`;
+
+/** Hero header for the repo settings page. */
+function RepoSettingsHero(props: { owner: string; repo: string }) {
+  const { owner, repo } = props;
+  return (
+    <div class="repo-settings-hero">
+      <div class="repo-settings-hero-bg" aria-hidden="true">
+        <div class="repo-settings-hero-orb" />
+      </div>
+      <div class="repo-settings-hero-inner">
+        <div class="repo-settings-hero-eyebrow">
+          Repository settings ·{" "}
+          <span class="repo-settings-hero-repo">
+            {owner}/{repo}
+          </span>
+        </div>
+        <h1 class="repo-settings-hero-title">
+          <span class="gradient-text">Configure</span>.
+        </h1>
+        <p class="repo-settings-hero-sub">
+          Description, visibility, branches, automation. Owners only.
+        </p>
+        <a
+          href={`/${owner}/${repo}/settings/collaborators`}
+          class="repo-settings-hero-link"
+        >
+          Manage collaborators <span class="arrow">→</span>
+        </a>
+      </div>
+    </div>
+  );
+}
+
+function Banner(props: { kind: "success" | "error"; text: string }) {
+  return (
+    <div
+      class={`repo-settings-banner repo-settings-banner-${props.kind}`}
+      role="status"
+    >
+      <span class="repo-settings-banner-icon" aria-hidden="true">
+        {props.kind === "success" ? "✓" : "!"}
+      </span>
+      <span>{props.text}</span>
+    </div>
+  );
+}
 
 // Settings page
 repoSettings.get("/:owner/:repo/settings", requireAuth, requireRepoAccess("admin"), async (c) => {
@@ -69,235 +586,352 @@ repoSettings.get("/:owner/:repo/settings", requireAuth, requireRepoAccess("admin
   return c.html(
     <Layout title={`Settings — ${ownerName}/${repoName}`} user={user}>
       <RepoHeader owner={ownerName} repo={repoName} />
-      <Container maxWidth={600}>
-        <h2 style="margin-bottom: 20px">Repository settings</h2>
-        <p style="margin-bottom: 16px">
-          <a href={`/${ownerName}/${repoName}/settings/collaborators`}>
-            Manage collaborators →
-          </a>
-        </p>
+      <style dangerouslySetInnerHTML={{ __html: repoSettingsStyles }} />
+      <div class="repo-settings-container">
+        <RepoSettingsHero owner={ownerName} repo={repoName} />
+
         {success && (
-          <Alert variant="success">{decodeURIComponent(success)}</Alert>
+          <Banner kind="success" text={decodeURIComponent(success)} />
         )}
-        {error && (
-          <Alert variant="error">{decodeURIComponent(error)}</Alert>
-        )}
+        {error && <Banner kind="error" text={decodeURIComponent(error)} />}
 
-        <Form
-          method="post"
-          action={`/${ownerName}/${repoName}/settings`}
-        >
-          <FormGroup label="Description" htmlFor="description">
-            <Input
-              name="description"
-              id="description"
-              value={repo.description || ""}
-              placeholder="A short description"
-            />
-          </FormGroup>
-          <FormGroup label="Default branch" htmlFor="default_branch">
-            <Select name="default_branch" id="default_branch" value={repo.defaultBranch}>
-              {branches.length === 0 ? (
-                <option value={repo.defaultBranch}>
-                  {repo.defaultBranch}
-                </option>
-              ) : (
-                branches.map((b) => (
-                  <option value={b} selected={b === repo.defaultBranch}>
-                    {b}
-                  </option>
-                ))
-              )}
-            </Select>
-          </FormGroup>
-          <FormGroup label="Visibility">
-            <div class="visibility-options">
-              <label class="visibility-option">
-                <input
-                  type="radio"
-                  name="visibility"
-                  value="public"
-                  checked={!repo.isPrivate}
-                  aria-label="Public"
-                />
-                <div class="vis-label">Public</div>
-              </label>
-              <label class="visibility-option">
-                <input
-                  type="radio"
-                  name="visibility"
-                  value="private"
-                  checked={repo.isPrivate}
-                  aria-label="Private"
-                />
-                <div class="vis-label">Private</div>
-              </label>
-            </div>
-          </FormGroup>
-          <Button type="submit" variant="primary">
-            Save changes
-          </Button>
-        </Form>
-
-        <div
-          style="margin-top: 32px; padding: 20px; border: 1px solid var(--border); border-radius: var(--radius)"
-        >
-          <h3 style="margin-bottom: 8px">Spec to PR (experimental)</h3>
-          <p style="font-size: 14px; color: var(--text-muted); margin-bottom: 12px">
-            Paste a plain-English feature spec and let Claude draft a pull
-            request for you. PRs are opened as drafts — review every line
-            before merging.
-          </p>
-          <a
-            href={`/${ownerName}/${repoName}/spec`}
-            class="btn"
-          >
-            Open Spec to PR
-          </a>
-        </div>
-
-        <div
-          style="margin-top: 20px; padding: 20px; border: 1px solid var(--border); border-radius: var(--radius)"
-        >
-          <h3 style="margin-bottom: 8px">Template repository</h3>
-          <p style="font-size: 14px; color: var(--text-muted); margin-bottom: 12px">
-            {repo.isTemplate
-              ? "This repository is a template. Users can click \u201cUse this template\u201d to create a new repository with the same files."
-              : "Mark this repository as a template so others can seed new repositories from its files."}
-          </p>
+        {/* ─── General: description + default branch + visibility ─── */}
+        <section class="repo-settings-section">
+          <div class="repo-settings-section-head">
+            <div class="repo-settings-section-eyebrow">General</div>
+            <h2 class="repo-settings-section-title">Repository basics</h2>
+            <p class="repo-settings-section-desc">
+              The headline details visitors see — description, the default
+              branch they land on, and who can browse the code.
+            </p>
+          </div>
           <form
             method="post"
-            action={`/${ownerName}/${repoName}/settings/template`}
+            action={`/${ownerName}/${repoName}/settings`}
           >
-            <input
-              type="hidden"
-              name="template"
-              value={repo.isTemplate ? "0" : "1"}
-            />
-            <button type="submit" class="btn">
-              {repo.isTemplate
-                ? "Unmark as template"
-                : "Mark as template"}
-            </button>
+            <div class="repo-settings-section-body">
+              <div class="repo-settings-field">
+                <label class="repo-settings-field-label" for="description">
+                  Description
+                </label>
+                <input
+                  class="repo-settings-input"
+                  name="description"
+                  id="description"
+                  value={repo.description || ""}
+                  placeholder="A short description"
+                />
+                <div class="repo-settings-field-hint">
+                  Shown on the repo home, search results, and explore pages.
+                </div>
+              </div>
+              <div class="repo-settings-field">
+                <label
+                  class="repo-settings-field-label"
+                  for="default_branch"
+                >
+                  Default branch
+                </label>
+                <select
+                  class="repo-settings-select"
+                  name="default_branch"
+                  id="default_branch"
+                >
+                  {branches.length === 0 ? (
+                    <option value={repo.defaultBranch}>
+                      {repo.defaultBranch}
+                    </option>
+                  ) : (
+                    branches.map((b) => (
+                      <option value={b} selected={b === repo.defaultBranch}>
+                        {b}
+                      </option>
+                    ))
+                  )}
+                </select>
+                <div class="repo-settings-field-hint">
+                  Where pulls land, where compare views start, and what
+                  clones check out by default.
+                </div>
+              </div>
+              <div class="repo-settings-field">
+                <label class="repo-settings-field-label">Visibility</label>
+                <div class="repo-settings-visibility">
+                  <label class="repo-settings-vis-card">
+                    <input
+                      type="radio"
+                      name="visibility"
+                      value="public"
+                      checked={!repo.isPrivate}
+                      class="repo-settings-vis-radio"
+                      aria-label="Public"
+                    />
+                    <span class="repo-settings-vis-body">
+                      <span class="repo-settings-vis-label">Public</span>
+                      <span class="repo-settings-vis-desc">
+                        Anyone can see this repository. You choose who can
+                        commit.
+                      </span>
+                    </span>
+                  </label>
+                  <label class="repo-settings-vis-card">
+                    <input
+                      type="radio"
+                      name="visibility"
+                      value="private"
+                      checked={repo.isPrivate}
+                      class="repo-settings-vis-radio"
+                      aria-label="Private"
+                    />
+                    <span class="repo-settings-vis-body">
+                      <span class="repo-settings-vis-label">Private</span>
+                      <span class="repo-settings-vis-desc">
+                        Only you (and collaborators you invite) can see this
+                        repository.
+                      </span>
+                    </span>
+                  </label>
+                </div>
+              </div>
+            </div>
+            <div class="repo-settings-section-foot">
+              <button type="submit" class="repo-settings-cta">
+                Save changes <span class="arrow">→</span>
+              </button>
+            </div>
           </form>
-        </div>
+        </section>
 
-        <div
-          style="margin-top: 20px; padding: 20px; border: 1px solid var(--border); border-radius: var(--radius)"
-        >
-          <h3 style="margin-bottom: 8px">Transfer ownership</h3>
-          <p style="font-size: 14px; color: var(--text-muted); margin-bottom: 12px">
-            Transfer this repository to another user. The new owner can
-            accept or decline the transfer by attempting to view it.
-          </p>
+        {/* ─── Spec to PR ─── */}
+        <section class="repo-settings-section">
+          <div class="repo-settings-section-head">
+            <div class="repo-settings-section-eyebrow">
+              Automation · experimental
+            </div>
+            <h2 class="repo-settings-section-title">Spec to PR</h2>
+            <p class="repo-settings-section-desc">
+              Paste a plain-English feature spec and let Claude draft a pull
+              request for you. PRs open as drafts — review every line before
+              merging.
+            </p>
+          </div>
+          <div class="repo-settings-section-body">
+            <a
+              href={`/${ownerName}/${repoName}/spec`}
+              class="repo-settings-cta"
+            >
+              Open Spec to PR <span class="arrow">→</span>
+            </a>
+          </div>
+        </section>
+
+        {/* ─── Template repository ─── */}
+        <section class="repo-settings-section">
+          <div class="repo-settings-section-head">
+            <div class="repo-settings-section-eyebrow">Template</div>
+            <h2 class="repo-settings-section-title">Template repository</h2>
+            <p class="repo-settings-section-desc">
+              {repo.isTemplate
+                ? "This repository is a template. Users can click “Use this template” to create a new repository with the same files."
+                : "Mark this repository as a template so others can seed new repositories from its files."}
+            </p>
+          </div>
+          <div class="repo-settings-section-body">
+            <span
+              class={`repo-settings-pill ${repo.isTemplate ? "is-on" : "is-off"}`}
+            >
+              <span class="dot" aria-hidden="true" />
+              {repo.isTemplate ? "Template enabled" : "Not a template"}
+            </span>
+            <form
+              method="post"
+              action={`/${ownerName}/${repoName}/settings/template`}
+              style="margin-top: var(--space-3)"
+            >
+              <input
+                type="hidden"
+                name="template"
+                value={repo.isTemplate ? "0" : "1"}
+              />
+              <button type="submit" class="repo-settings-cta-secondary">
+                {repo.isTemplate ? "Unmark as template" : "Mark as template"}
+              </button>
+            </form>
+          </div>
+        </section>
+
+        {/* ─── Transfer ownership ─── */}
+        <section class="repo-settings-section">
+          <div class="repo-settings-section-head">
+            <div class="repo-settings-section-eyebrow">Ownership</div>
+            <h2 class="repo-settings-section-title">Transfer ownership</h2>
+            <p class="repo-settings-section-desc">
+              Hand this repository to another user. The new owner can accept
+              or decline the transfer by viewing it.
+            </p>
+          </div>
           <form
             method="post"
             action={`/${ownerName}/${repoName}/settings/transfer`}
             onsubmit="return confirm('Transfer this repository? The new owner will have full control.')"
           >
-            <input
-              type="text"
-              name="new_owner"
-              placeholder="new-owner-username"
-              required
-              aria-label="New owner username"
-              style="width:60%"
-            />{" "}
-            <button type="submit" class="btn">
-              Transfer
-            </button>
+            <div class="repo-settings-section-body">
+              <div class="repo-settings-field">
+                <label class="repo-settings-field-label" for="new_owner">
+                  New owner username
+                </label>
+                <div class="repo-settings-inline-row">
+                  <input
+                    type="text"
+                    name="new_owner"
+                    id="new_owner"
+                    class="repo-settings-input"
+                    placeholder="new-owner-username"
+                    required
+                    aria-label="New owner username"
+                  />
+                  <button type="submit" class="repo-settings-cta-secondary">
+                    Transfer
+                  </button>
+                </div>
+                <div class="repo-settings-field-hint">
+                  Transfers are immediate. The new owner can rename or delete
+                  the repository at any time.
+                </div>
+              </div>
+            </div>
           </form>
-        </div>
+        </section>
 
-        <div
-          style="margin-top: 20px; padding: 20px; border: 1px solid var(--border); border-radius: var(--radius)"
-        >
-          <h3 style="margin-bottom: 8px">
-            {repo.isArchived ? "Unarchive repository" : "Archive repository"}
-          </h3>
-          <p style="font-size: 14px; color: var(--text-muted); margin-bottom: 12px">
-            {repo.isArchived
-              ? "This repository is archived and read-only. Unarchive to allow pushes and issue/PR activity again."
-              : "Mark this repository as archived. It will become read-only — no pushes, no new issues or PRs. You can unarchive at any time."}
-          </p>
-          <form
-            method="post"
-            action={`/${ownerName}/${repoName}/settings/archive`}
-          >
-            <input
-              type="hidden"
-              name="archive"
-              value={repo.isArchived ? "0" : "1"}
-            />
-            <button type="submit" class="btn">
-              {repo.isArchived ? "Unarchive" : "Archive"} this repository
-            </button>
-          </form>
-        </div>
+        {/* ─── Archive ─── */}
+        <section class="repo-settings-section">
+          <div class="repo-settings-section-head">
+            <div class="repo-settings-section-eyebrow">Lifecycle</div>
+            <h2 class="repo-settings-section-title">
+              {repo.isArchived ? "Unarchive repository" : "Archive repository"}
+            </h2>
+            <p class="repo-settings-section-desc">
+              {repo.isArchived
+                ? "This repository is archived and read-only. Unarchive to allow pushes and issue/PR activity again."
+                : "Mark this repository as archived. It becomes read-only — no pushes, no new issues or PRs. You can unarchive at any time."}
+            </p>
+          </div>
+          <div class="repo-settings-section-body">
+            <span
+              class={`repo-settings-pill ${repo.isArchived ? "is-on" : "is-off"}`}
+            >
+              <span class="dot" aria-hidden="true" />
+              {repo.isArchived ? "Archived" : "Active"}
+            </span>
+            <form
+              method="post"
+              action={`/${ownerName}/${repoName}/settings/archive`}
+              style="margin-top: var(--space-3)"
+            >
+              <input
+                type="hidden"
+                name="archive"
+                value={repo.isArchived ? "0" : "1"}
+              />
+              <button type="submit" class="repo-settings-cta-secondary">
+                {repo.isArchived ? "Unarchive" : "Archive"} this repository
+              </button>
+            </form>
+          </div>
+        </section>
 
-        <div
-          style="margin-top: 20px; padding: 20px; border: 1px solid var(--border); border-radius: var(--radius)"
-        >
-          <h3 style="margin-bottom: 8px">Stale activity</h3>
-          <p style="font-size: 14px; color: var(--text-muted); margin-bottom: 12px">
-            Autopilot pokes PRs and issues that have gone quiet, then offers
-            a one-click close path. Each setting controls the final close
-            step — pokes always happen, but they're harmless reminders.
-          </p>
+        {/* ─── Stale activity ─── */}
+        <section class="repo-settings-section">
+          <div class="repo-settings-section-head">
+            <div class="repo-settings-section-eyebrow">Stale sweep</div>
+            <h2 class="repo-settings-section-title">Stale activity</h2>
+            <p class="repo-settings-section-desc">
+              Autopilot pokes PRs and issues that have gone quiet, then offers
+              a one-click close path. Each toggle controls the final close
+              step — pokes always happen, but they&apos;re harmless reminders.
+            </p>
+          </div>
           <form
             method="post"
             action={`/${ownerName}/${repoName}/settings/stale`}
           >
-            <label
-              style="display:block;margin-bottom:8px;font-size:14px"
-              aria-label="Auto-close stale PRs after 14 days of no activity post-poke"
-            >
-              <input
-                type="checkbox"
-                name="auto_close_stale_prs"
-                value="1"
-                checked={repo.autoCloseStalePrs}
-                style="margin-right:8px"
-              />
-              Auto-close stale PRs after 14 days of no activity post-poke
-            </label>
-            <label
-              style="display:block;margin-bottom:12px;font-size:14px"
-              aria-label="Auto-close stale issues after 60 days of no activity post-poke"
-            >
-              <input
-                type="checkbox"
-                name="auto_close_stale_issues"
-                value="1"
-                checked={repo.autoCloseStaleIssues}
-                style="margin-right:8px"
-              />
-              Auto-close stale issues after 60 days of no activity post-poke
-            </label>
-            <button type="submit" class="btn">
-              Save stale settings
-            </button>
+            <div class="repo-settings-section-body">
+              <label
+                class="repo-settings-toggle-row"
+                aria-label="Auto-close stale PRs after 14 days of no activity post-poke"
+              >
+                <input
+                  type="checkbox"
+                  name="auto_close_stale_prs"
+                  value="1"
+                  checked={repo.autoCloseStalePrs}
+                />
+                <span class="repo-settings-toggle-text">
+                  <span class="repo-settings-toggle-text-title">
+                    Auto-close stale PRs
+                  </span>
+                  <span class="repo-settings-toggle-text-hint">
+                    Close PRs that go quiet for 14 days after autopilot pokes
+                    them.
+                  </span>
+                </span>
+              </label>
+              <label
+                class="repo-settings-toggle-row"
+                aria-label="Auto-close stale issues after 60 days of no activity post-poke"
+              >
+                <input
+                  type="checkbox"
+                  name="auto_close_stale_issues"
+                  value="1"
+                  checked={repo.autoCloseStaleIssues}
+                />
+                <span class="repo-settings-toggle-text">
+                  <span class="repo-settings-toggle-text-title">
+                    Auto-close stale issues
+                  </span>
+                  <span class="repo-settings-toggle-text-hint">
+                    Close issues that go quiet for 60 days after autopilot
+                    pokes them.
+                  </span>
+                </span>
+              </label>
+            </div>
+            <div class="repo-settings-section-foot">
+              <button type="submit" class="repo-settings-cta">
+                Save stale settings <span class="arrow">→</span>
+              </button>
+            </div>
           </form>
-        </div>
+        </section>
 
-        <div
-          style="margin-top: 20px; padding: 20px; border: 1px solid var(--red); border-radius: var(--radius)"
-        >
-          <h3 style="color: var(--red); margin-bottom: 12px">Danger zone</h3>
-          <Text size={14} muted style="display:block;margin-bottom:12px">
-            Permanently delete this repository and all its data.
-          </Text>
-          <form
-            method="post"
-            action={`/${ownerName}/${repoName}/settings/delete`}
-            onsubmit="return confirm('Are you sure? This cannot be undone.')"
-          >
-            <Button type="submit" variant="danger">
-              Delete this repository
-            </Button>
-          </form>
-        </div>
-      </Container>
+        {/* ─── Danger zone ─── */}
+        <section class="repo-settings-danger">
+          <div class="repo-settings-danger-head">
+            <div class="repo-settings-danger-eyebrow">Danger zone</div>
+            <h2 class="repo-settings-danger-title">Delete this repository</h2>
+            <p class="repo-settings-danger-desc">
+              Permanently remove this repository and every byte of its history,
+              issues, PRs, stars, and webhooks. There is no undo.
+            </p>
+          </div>
+          <div class="repo-settings-danger-body">
+            <p class="muted">
+              Once deleted, the URL <code>{ownerName}/{repoName}</code> frees
+              up immediately. Open clones will fail to fetch or push.
+            </p>
+            <form
+              method="post"
+              action={`/${ownerName}/${repoName}/settings/delete`}
+              onsubmit="return confirm('Are you sure? This cannot be undone.')"
+            >
+              <button type="submit" class="repo-settings-danger-btn">
+                Delete this repository
+              </button>
+            </form>
+          </div>
+        </section>
+      </div>
     </Layout>
   );
 });

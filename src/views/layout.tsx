@@ -1455,6 +1455,35 @@ const css = `
     padding: 36px 24px 80px;
     flex: 1;
     width: 100%;
+    /* 2026 polish — subtle entrance animation on every page load.
+       Content fades up 4px over 360ms, giving the site that "alive"
+       quality that 2026 SaaS expects. Honors prefers-reduced-motion. */
+    animation: gxMainEnter 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  @keyframes gxMainEnter {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    main { animation: none; }
+  }
+  /* 2026 polish — accent focus ring across all focusable elements.
+     The default browser ring is utilitarian; this is the same width
+     but tinted to the brand accent so keyboard navigation feels
+     intentional, not jarring. :focus-visible only — mouse users
+     never see it. */
+  :focus-visible {
+    outline: none;
+  }
+  a:focus-visible,
+  button:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible,
+  [tabindex]:focus-visible {
+    outline: 2px solid rgba(140, 109, 255, 0.55);
+    outline-offset: 2px;
+    border-radius: 4px;
   }
 
   /* Editorial footer: link grid + tagline row */

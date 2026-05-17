@@ -87,10 +87,18 @@ describe("L8 — /pricing public page", () => {
     expect(res.status).not.toBe(401);
   });
 
-  it("hero copy contains the L8 tagline", async () => {
+  it("hero copy reflects the 2026 polish — bundle-math positioning", async () => {
+    // 2026-05-16 polish — pricing hero copy rewritten to emphasise the
+    // "GitHub bundle math" positioning instead of the original
+    // "Free for the AI-curious" line. The new hero leads with "One
+    // subscription. Replaces three on GitHub." and the sub-copy lands
+    // the $89/user/mo GitHub-stack comparison.
     const res = await app.request("/pricing");
     const body = await res.text();
-    expect(body).toContain("Free for the AI-curious.");
-    expect(body).toContain("Pay only when you&#39;re ready to scale.");
+    expect(body).toContain("One subscription.");
+    expect(body).toContain("Replaces three on GitHub.");
+    // The "vs GitHub bundle math" comparison block must render.
+    expect(body).toContain("Bundle math vs GitHub");
+    expect(body).toContain("$89");
   });
 });

@@ -85,15 +85,19 @@ const PricingPage: FC<{ plans: Plan[]; loggedIn: boolean }> = ({
       <header class="pl-hero">
         <div class="eyebrow">Pricing</div>
         <h1 class="display pl-hero-title">
-          Free for the AI-curious.{" "}
-          <span class="gradient-text">Pay only when you're ready to scale.</span>
+          One subscription.{" "}
+          <span class="gradient-text">
+            Replaces three on GitHub.
+          </span>
         </h1>
         <p class="pl-hero-sub">
-          Self-host on your own server and pay zero per-seat fees. Or use
-          Gluecron Cloud for managed convenience.
+          AI code review, autonomous PRs, code completion, and the git host
+          itself — bundled. What costs $89/user on GitHub + Copilot + Advanced
+          Security starts at $0 here.
         </p>
         <div class="pl-hero-jumps">
-          <a href="#free" class="pl-jump">What's free →</a>
+          <a href="#compare" class="pl-jump">Bundle math vs GitHub →</a>
+          <a href="#free" class="pl-jump">What's free</a>
           <a href="#self-host" class="pl-jump">Self-host vs Cloud</a>
           <a href="#faq" class="pl-jump">FAQ</a>
         </div>
@@ -104,6 +108,56 @@ const PricingPage: FC<{ plans: Plan[]; loggedIn: boolean }> = ({
         {plans.map((p) => (
           <PlanCard plan={p} loggedIn={loggedIn} />
         ))}
+      </section>
+
+      {/* ------------------- Bundle math vs GitHub ------------------- */}
+      <section id="compare" class="pl-section pl-compare">
+        <div class="section-header">
+          <div class="eyebrow">Bundle math</div>
+          <h2>
+            What you'd actually pay on GitHub
+            <span class="gradient-text"> for the same features.</span>
+          </h2>
+          <p>
+            GitHub charges separately for Copilot, Advanced Security, and the
+            base plan. Gluecron bundles everything. Here's the receipt.
+          </p>
+        </div>
+        <div class="pl-compare-grid">
+          <div class="pl-compare-col">
+            <div class="pl-compare-name">GitHub stack</div>
+            <div class="pl-compare-price">$89<span class="pl-compare-per">/user/mo</span></div>
+            <ul class="pl-compare-feats">
+              <li><span class="pl-compare-bullet">$21</span> GitHub Enterprise (per-user)</li>
+              <li><span class="pl-compare-bullet">$19</span> GitHub Copilot Business</li>
+              <li><span class="pl-compare-bullet">$49</span> GitHub Advanced Security add-on</li>
+              <li class="pl-compare-missing">— No AI auto-merge</li>
+              <li class="pl-compare-missing">— No AI incident responder</li>
+              <li class="pl-compare-missing">— No AI spec-to-PR</li>
+              <li class="pl-compare-missing">— No MCP-native integration</li>
+            </ul>
+          </div>
+          <div class="pl-compare-col pl-compare-us">
+            <div class="pl-compare-name">Gluecron Team</div>
+            <div class="pl-compare-price">$29<span class="pl-compare-per">/user/mo</span></div>
+            <ul class="pl-compare-feats">
+              <li><span class="pl-compare-check">✓</span> Unlimited private repos + git host</li>
+              <li><span class="pl-compare-check">✓</span> AI code review on every PR (Claude Sonnet)</li>
+              <li><span class="pl-compare-check">✓</span> AI auto-merge when gates pass</li>
+              <li><span class="pl-compare-check">✓</span> AI incident responder on deploy failure</li>
+              <li><span class="pl-compare-check">✓</span> AI spec-to-PR (label an issue, get a PR)</li>
+              <li><span class="pl-compare-check">✓</span> AI completion + commit messages + tests</li>
+              <li><span class="pl-compare-check">✓</span> MCP server — drive it from Claude Desktop</li>
+              <li><span class="pl-compare-check">✓</span> SSO, audit log, branch protection, rulesets</li>
+            </ul>
+          </div>
+        </div>
+        <p class="pl-compare-footer">
+          For a 10-person team, the math is{" "}
+          <strong>$10,680/year on GitHub vs $3,480/year on Gluecron</strong>
+          {" — "}
+          and you get the AI features that don't exist on GitHub at any price.
+        </p>
       </section>
 
       {/* ------------------- What's on the free tier ------------------- */}
@@ -546,6 +600,130 @@ const pricingCss = `
     color: var(--accent);
   }
   .pl-host-cta { margin-top: auto; }
+
+  /* ------------------- Bundle-math comparison (vs GitHub) ------------------- */
+  /* 2026 polish — side-by-side cost comparison that makes the AI-bundled
+     value proposition unmissable. Same visual rhythm as .pl-host-grid; the
+     "us" side wins via accent border + subtle gradient glow. */
+  .pl-compare {
+    margin-top: var(--space-7);
+  }
+  .pl-compare-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-5);
+    max-width: 1040px;
+    margin: 0 auto;
+  }
+  .pl-compare-col {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: var(--space-5) var(--space-5) var(--space-6);
+    display: flex;
+    flex-direction: column;
+    transition: transform var(--t-base, 180ms) var(--ease, ease),
+                box-shadow var(--t-base, 180ms) var(--ease, ease);
+  }
+  .pl-compare-col:hover { transform: translateY(-2px); }
+  .pl-compare-us {
+    position: relative;
+    border: 1px solid transparent;
+    background-image:
+      linear-gradient(var(--bg-elevated), var(--bg-elevated)),
+      linear-gradient(135deg, #8c6dff 0%, #36c5d6 100%);
+    background-origin: border-box;
+    background-clip: padding-box, border-box;
+    box-shadow: 0 16px 56px -12px rgba(140, 109, 255, 0.20);
+  }
+  .pl-compare-us::before {
+    content: 'Better deal';
+    position: absolute;
+    top: -12px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 4px 12px;
+    border-radius: 999px;
+    background: linear-gradient(135deg, #8c6dff 0%, #36c5d6 100%);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .pl-compare-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: var(--space-2);
+  }
+  .pl-compare-us .pl-compare-name {
+    color: var(--accent);
+  }
+  .pl-compare-price {
+    font-family: var(--font-display);
+    font-size: 56px;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    line-height: 1;
+    color: var(--text-strong);
+    margin-bottom: var(--space-5);
+  }
+  .pl-compare-per {
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--text-muted);
+    margin-left: 4px;
+    letter-spacing: 0;
+  }
+  .pl-compare-feats {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    font-size: 14.5px;
+    line-height: 1.5;
+    color: var(--text);
+  }
+  .pl-compare-bullet {
+    display: inline-block;
+    min-width: 44px;
+    font-family: var(--font-mono);
+    font-weight: 600;
+    color: var(--text-muted);
+    margin-right: 8px;
+  }
+  .pl-compare-check {
+    display: inline-block;
+    min-width: 22px;
+    color: var(--accent);
+    font-weight: 700;
+  }
+  .pl-compare-missing {
+    color: var(--text-muted);
+    font-style: italic;
+  }
+  .pl-compare-footer {
+    max-width: 720px;
+    margin: var(--space-6) auto 0;
+    text-align: center;
+    font-size: 16px;
+    line-height: 1.55;
+    color: var(--text);
+  }
+  .pl-compare-footer strong {
+    color: var(--text-strong);
+    background-image: linear-gradient(transparent 62%, rgba(140, 109, 255, 0.18) 62%);
+  }
+  @media (max-width: 720px) {
+    .pl-compare-grid { grid-template-columns: 1fr; }
+    .pl-compare-price { font-size: 44px; }
+  }
 
   /* FAQ */
   .pl-faq {

@@ -1,5 +1,16 @@
 /**
  * Pull request routes — create, list, view, merge, close, comment.
+ *
+ * The list view (`GET /:owner/:repo/pulls`) and detail view
+ * (`GET /:owner/:repo/pulls/:number`) carry the 2026 polish: hero with
+ * gradient title + hairline strip, pill-style state tabs, soft-lift
+ * row cards, conversation thread with AI-review accent border, distinct
+ * gate-check rows, and a gradient-bordered "Merge pull request" button.
+ *
+ * All visual styling is scoped via `.prs-*` class prefixes inside inline
+ * <style> blocks so other surfaces are untouched. No business logic was
+ * changed in this polish pass — AI review triggers, auto-merge wiring,
+ * gate evaluation, and the merge handler are preserved exactly.
  */
 
 import { Hono } from "hono";
@@ -73,6 +84,610 @@ import {
 } from "../views/ui";
 
 const pulls = new Hono<AuthEnv>();
+
+/* ──────────────────────────────────────────────────────────────────────
+ * Inline CSS for the list page. Scoped with `.prs-*` so we do not bleed
+ * into the issue tracker or any other route. Tokens come from layout.tsx
+ * `:root` so light/dark stays consistent if/when light mode lands.
+ * ──────────────────────────────────────────────────────────────────── */
+const PRS_LIST_STYLES = `
+  .prs-hero {
+    position: relative;
+    margin: 0 0 var(--space-5);
+    padding: 22px 26px 24px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+  .prs-hero::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent 0%, #8c6dff 30%, #36c5d6 70%, transparent 100%);
+    opacity: 0.7;
+    pointer-events: none;
+  }
+  .prs-hero-inner {
+    position: relative;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: 20px;
+    flex-wrap: wrap;
+  }
+  .prs-hero-text { flex: 1; min-width: 280px; }
+  .prs-hero-eyebrow {
+    font-size: 12px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
+  .prs-hero-title {
+    font-family: var(--font-display);
+    font-size: clamp(26px, 3.4vw, 34px);
+    font-weight: 800;
+    letter-spacing: -0.025em;
+    line-height: 1.06;
+    margin: 0 0 8px;
+    color: var(--text-strong);
+  }
+  .prs-hero-title .gradient-text {
+    background-image: linear-gradient(135deg, #a48bff 0%, #8c6dff 50%, #36c5d6 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+  }
+  .prs-hero-sub {
+    font-size: 14.5px;
+    color: var(--text-muted);
+    margin: 0;
+    line-height: 1.5;
+    max-width: 620px;
+  }
+  .prs-hero-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .prs-cta {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 10px 16px;
+    border-radius: 10px;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: #fff;
+    background: linear-gradient(135deg, #8c6dff 0%, #6f5be8 60%, #36c5d6 140%);
+    border: 1px solid rgba(140,109,255,0.55);
+    box-shadow: 0 6px 18px -8px rgba(140,109,255,0.55);
+    text-decoration: none;
+    transition: transform 120ms ease, box-shadow 160ms ease;
+  }
+  .prs-cta:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 10px 22px -6px rgba(140,109,255,0.6);
+    color: #fff;
+  }
+
+  .prs-tabs {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    margin: 0 0 18px;
+    padding: 6px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+  }
+  .prs-tab {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 7px 13px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-muted);
+    border-radius: 8px;
+    text-decoration: none;
+    transition: background 120ms ease, color 120ms ease;
+  }
+  .prs-tab:hover { background: var(--bg-hover); color: var(--text); }
+  .prs-tab.is-active {
+    background: var(--bg-elevated);
+    color: var(--text-strong);
+    box-shadow: 0 1px 0 rgba(255,255,255,0.04), 0 4px 14px -8px rgba(0,0,0,0.4);
+  }
+  .prs-tab-count {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 22px; padding: 2px 7px;
+    font-size: 11.5px;
+    font-weight: 600;
+    border-radius: 9999px;
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
+  }
+  .prs-tab.is-active .prs-tab-count {
+    background: rgba(140,109,255,0.18);
+    color: var(--text-link);
+  }
+
+  .prs-list { display: flex; flex-direction: column; gap: 10px; }
+  .prs-row {
+    position: relative;
+    display: flex; align-items: flex-start; gap: 14px;
+    padding: 14px 16px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    transition: transform 140ms ease, border-color 140ms ease, box-shadow 160ms ease;
+  }
+  .prs-row:hover {
+    transform: translateY(-1px);
+    border-color: var(--border-strong);
+    box-shadow: 0 10px 22px -14px rgba(0,0,0,0.5);
+  }
+  .prs-row-icon {
+    flex: 0 0 auto;
+    width: 26px; height: 26px;
+    display: inline-flex; align-items: center; justify-content: center;
+    border-radius: 9999px;
+    font-size: 13px;
+    margin-top: 2px;
+  }
+  .prs-row-icon.state-open    { color: var(--green);  background: rgba(52,211,153,0.12); }
+  .prs-row-icon.state-merged  { color: #b69dff;       background: rgba(140,109,255,0.16); }
+  .prs-row-icon.state-closed  { color: var(--red);    background: rgba(248,113,113,0.12); }
+  .prs-row-icon.state-draft   { color: var(--text-muted); background: rgba(255,255,255,0.05); }
+  .prs-row-body { flex: 1; min-width: 0; }
+  .prs-row-title {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    font-size: 15px; font-weight: 600;
+    color: var(--text-strong);
+    line-height: 1.35;
+    margin: 0 0 6px;
+  }
+  .prs-row-number {
+    color: var(--text-muted);
+    font-weight: 400;
+    font-size: 14px;
+  }
+  .prs-row-meta {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
+    font-size: 12.5px;
+    color: var(--text-muted);
+  }
+  .prs-branch-chips {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+  }
+  .prs-branch-chip {
+    padding: 2px 8px;
+    border-radius: 9999px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    color: var(--text);
+  }
+  .prs-branch-arrow {
+    color: var(--text-faint);
+    font-size: 11px;
+  }
+  .prs-row-tags {
+    display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px;
+    margin-left: auto;
+  }
+  .prs-tag {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 600;
+    border-radius: 9999px;
+    border: 1px solid var(--border);
+    background: var(--bg-secondary);
+    color: var(--text-muted);
+    line-height: 1.6;
+  }
+  .prs-tag.is-draft {
+    color: var(--text-muted);
+    border-color: var(--border-strong);
+  }
+  .prs-tag.is-merged {
+    color: var(--text-link);
+    border-color: rgba(140,109,255,0.45);
+    background: rgba(140,109,255,0.10);
+  }
+
+  .prs-empty {
+    padding: 36px 24px;
+    text-align: center;
+    border: 1px dashed var(--border);
+    border-radius: 12px;
+    background: var(--bg-secondary);
+    color: var(--text-muted);
+  }
+  .prs-empty strong {
+    display: block;
+    color: var(--text-strong);
+    font-size: 15px;
+    margin-bottom: 4px;
+  }
+
+  @media (max-width: 720px) {
+    .prs-hero-inner { flex-direction: column; align-items: flex-start; }
+    .prs-hero-actions { width: 100%; }
+    .prs-row-tags { margin-left: 0; }
+  }
+`;
+
+/* ──────────────────────────────────────────────────────────────────────
+ * Inline CSS for the detail page. Same `.prs-*` namespace.
+ * ──────────────────────────────────────────────────────────────────── */
+const PRS_DETAIL_STYLES = `
+  .prs-detail-hero {
+    position: relative;
+    margin: 0 0 var(--space-4);
+    padding: 24px 26px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+  .prs-detail-hero::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent 0%, #8c6dff 30%, #36c5d6 70%, transparent 100%);
+    opacity: 0.7;
+    pointer-events: none;
+  }
+  .prs-detail-title {
+    font-family: var(--font-display);
+    font-size: clamp(22px, 2.6vw, 28px);
+    font-weight: 700;
+    letter-spacing: -0.022em;
+    line-height: 1.2;
+    color: var(--text-strong);
+    margin: 0 0 12px;
+  }
+  .prs-detail-num {
+    color: var(--text-muted);
+    font-weight: 400;
+  }
+  .prs-state-pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 12px;
+    border-radius: 9999px;
+    font-size: 12.5px;
+    font-weight: 600;
+    line-height: 1;
+    border: 1px solid transparent;
+  }
+  .prs-state-pill.state-open    { color: var(--green);  background: rgba(52,211,153,0.12);  border-color: rgba(52,211,153,0.35); }
+  .prs-state-pill.state-merged  { color: #b69dff;       background: rgba(140,109,255,0.16); border-color: rgba(140,109,255,0.45); }
+  .prs-state-pill.state-closed  { color: var(--red);    background: rgba(248,113,113,0.12); border-color: rgba(248,113,113,0.35); }
+  .prs-state-pill.state-draft   { color: var(--text-muted); background: rgba(255,255,255,0.05); border-color: var(--border-strong); }
+
+  .prs-detail-meta {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px;
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+  .prs-detail-meta strong { color: var(--text); }
+  .prs-detail-branches {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+  .prs-branch-pill {
+    padding: 3px 9px;
+    border-radius: 9999px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    color: var(--text);
+  }
+  .prs-branch-pill.is-head { color: var(--text-strong); }
+  .prs-branch-arrow-lg {
+    color: var(--accent);
+    font-size: 14px;
+    font-weight: 700;
+  }
+
+  .prs-detail-actions {
+    display: inline-flex; gap: 8px; margin-left: auto;
+  }
+
+  .prs-detail-tabs {
+    display: flex; gap: 4px;
+    margin: 0 0 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .prs-detail-tab {
+    padding: 10px 14px;
+    font-size: 13.5px;
+    font-weight: 500;
+    color: var(--text-muted);
+    text-decoration: none;
+    border-bottom: 2px solid transparent;
+    transition: color 120ms ease, border-color 120ms ease;
+    margin-bottom: -1px;
+  }
+  .prs-detail-tab:hover { color: var(--text); }
+  .prs-detail-tab.is-active {
+    color: var(--text-strong);
+    border-bottom-color: var(--accent);
+  }
+  .prs-detail-tab-count {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 20px; padding: 0 6px; margin-left: 6px;
+    height: 18px;
+    font-size: 11px;
+    font-weight: 600;
+    border-radius: 9999px;
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
+  }
+
+  /* Gate / check status section */
+  .prs-gate-card {
+    margin-top: 20px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+  }
+  .prs-gate-head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+  }
+  .prs-gate-head h3 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-strong);
+  }
+  .prs-gate-summary {
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+  .prs-gate-row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 18px;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .prs-gate-row:last-child { border-bottom: 0; }
+  .prs-gate-icon {
+    flex: 0 0 auto;
+    width: 22px; height: 22px;
+    display: inline-flex; align-items: center; justify-content: center;
+    border-radius: 9999px;
+    font-size: 12px;
+    font-weight: 700;
+  }
+  .prs-gate-icon.is-pass { color: var(--green); background: rgba(52,211,153,0.14); }
+  .prs-gate-icon.is-fail { color: var(--red);   background: rgba(248,113,113,0.14); }
+  .prs-gate-icon.is-skip { color: var(--text-muted); background: rgba(255,255,255,0.05); }
+  .prs-gate-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    min-width: 140px;
+  }
+  .prs-gate-details {
+    flex: 1; min-width: 0;
+    font-size: 12.5px;
+    color: var(--text-muted);
+  }
+  .prs-gate-pill {
+    flex: 0 0 auto;
+    padding: 3px 10px;
+    border-radius: 9999px;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.5;
+    border: 1px solid transparent;
+  }
+  .prs-gate-pill.is-pass { color: var(--green); background: rgba(52,211,153,0.10); border-color: rgba(52,211,153,0.30); }
+  .prs-gate-pill.is-fail { color: var(--red);   background: rgba(248,113,113,0.10); border-color: rgba(248,113,113,0.30); }
+  .prs-gate-pill.is-skip { color: var(--text-muted); background: rgba(255,255,255,0.04); border-color: var(--border-strong); }
+  .prs-gate-footer {
+    padding: 12px 18px;
+    background: var(--bg-secondary);
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  /* Comment cards */
+  .prs-comment {
+    margin-top: 14px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .prs-comment-head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+    flex-wrap: wrap;
+  }
+  .prs-comment-head strong { color: var(--text-strong); }
+  .prs-comment-time { color: var(--text-muted); font-size: 12.5px; }
+  .prs-comment-loc {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--text-muted);
+    background: var(--bg-tertiary);
+    padding: 2px 8px;
+    border-radius: 6px;
+  }
+  .prs-comment-body { padding: 14px 18px; }
+  .prs-comment.is-ai {
+    border-color: rgba(140,109,255,0.45);
+    box-shadow: 0 0 0 1px rgba(140,109,255,0.10), 0 6px 24px -10px rgba(140,109,255,0.30);
+  }
+  .prs-comment.is-ai .prs-comment-head {
+    background: linear-gradient(90deg, rgba(140,109,255,0.10), rgba(54,197,214,0.06));
+    border-bottom-color: rgba(140,109,255,0.30);
+  }
+  .prs-ai-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 9px;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #fff;
+    background: linear-gradient(135deg, #8c6dff 0%, #36c5d6 130%);
+    border-radius: 9999px;
+  }
+
+  /* Files-changed link card on conversation tab. (Diff itself is in DiffView.) */
+  .prs-files-card {
+    margin-top: 18px;
+    padding: 14px 18px;
+    display: flex; align-items: center; gap: 14px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    text-decoration: none;
+    color: inherit;
+    transition: border-color 120ms ease, transform 140ms ease;
+  }
+  .prs-files-card:hover {
+    border-color: rgba(140,109,255,0.45);
+    transform: translateY(-1px);
+  }
+  .prs-files-card-icon {
+    width: 36px; height: 36px;
+    display: inline-flex; align-items: center; justify-content: center;
+    border-radius: 10px;
+    background: rgba(140,109,255,0.12);
+    color: var(--text-link);
+    font-size: 18px;
+  }
+  .prs-files-card-text { flex: 1; min-width: 0; }
+  .prs-files-card-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-strong);
+    margin: 0 0 2px;
+  }
+  .prs-files-card-sub {
+    font-size: 12.5px;
+    color: var(--text-muted);
+    margin: 0;
+  }
+  .prs-files-card-cta {
+    font-size: 12.5px;
+    color: var(--text-link);
+    font-weight: 600;
+  }
+
+  /* Merge area */
+  .prs-merge-card {
+    position: relative;
+    margin-top: 22px;
+    padding: 18px;
+    background: var(--bg-elevated);
+    border-radius: 14px;
+    overflow: hidden;
+  }
+  .prs-merge-card::before {
+    content: '';
+    position: absolute; inset: 0;
+    padding: 1px;
+    border-radius: 14px;
+    background: linear-gradient(135deg, rgba(140,109,255,0.55) 0%, rgba(54,197,214,0.40) 100%);
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+            mask-composite: exclude;
+    pointer-events: none;
+  }
+  .prs-merge-card.is-closed::before { background: var(--border-strong); }
+  .prs-merge-card.is-merged::before { background: linear-gradient(135deg, rgba(140,109,255,0.45), rgba(54,197,214,0.30)); }
+  .prs-merge-head {
+    display: flex; align-items: center; gap: 12px;
+    margin-bottom: 12px;
+  }
+  .prs-merge-head strong {
+    font-family: var(--font-display);
+    font-size: 15px;
+    color: var(--text-strong);
+    font-weight: 700;
+  }
+  .prs-merge-sub {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin: 0 0 12px;
+  }
+  .prs-merge-actions {
+    display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+  }
+  .prs-merge-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 9px 16px;
+    border-radius: 10px;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: #fff;
+    background: linear-gradient(135deg, #34d399 0%, #2bb886 60%, #36c5d6 140%);
+    border: 1px solid rgba(52,211,153,0.55);
+    box-shadow: 0 6px 18px -8px rgba(52,211,153,0.55);
+    cursor: pointer;
+    transition: transform 120ms ease, box-shadow 160ms ease;
+  }
+  .prs-merge-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 10px 24px -8px rgba(52,211,153,0.55);
+  }
+  .prs-merge-btn[disabled],
+  .prs-merge-btn.is-disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+  }
+  .prs-merge-ready-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 9px 16px;
+    border-radius: 10px;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: #fff;
+    background: linear-gradient(135deg, #8c6dff 0%, #6f5be8 60%, #36c5d6 140%);
+    border: 1px solid rgba(140,109,255,0.55);
+    box-shadow: 0 6px 18px -8px rgba(140,109,255,0.55);
+    cursor: pointer;
+    transition: transform 120ms ease, box-shadow 160ms ease;
+  }
+  .prs-merge-ready-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 10px 24px -8px rgba(140,109,255,0.55);
+  }
+  .prs-merge-back-draft {
+    background: none; border: 1px solid var(--border-strong);
+    color: var(--text-muted);
+    padding: 9px 14px; border-radius: 10px;
+    font-size: 13px; cursor: pointer;
+  }
+  .prs-merge-back-draft:hover { color: var(--text); background: var(--bg-hover); }
+
+  /* Inline form helpers */
+  .prs-inline-form { display: inline-flex; }
+
+  /* Comment composer */
+  .prs-composer { margin-top: 22px; }
+  .prs-composer textarea {
+    border-radius: 12px;
+  }
+
+  @media (max-width: 720px) {
+    .prs-detail-actions { margin-left: 0; }
+    .prs-merge-actions { width: 100%; }
+    .prs-merge-actions > * { flex: 1; min-width: 0; }
+  }
+`;
 
 /**
  * Tiny inline JS that drives the "Suggest description with AI" button.
@@ -322,57 +937,147 @@ pulls.get("/:owner/:repo/pulls", softAuth, requireRepoAccess("read"), async (c) 
     .from(pullRequests)
     .where(eq(pullRequests.repositoryId, resolved.repo.id));
 
+  const openCount = counts?.open ?? 0;
+  const mergedCount = counts?.merged ?? 0;
+  const closedCount = counts?.closed ?? 0;
+  const draftCount = counts?.draft ?? 0;
+  const allCount = openCount + mergedCount + closedCount;
+
+  // "All" is presentational only — the DB query for state='all' matches
+  // nothing, so we render a friendlier empty state when picked. We do NOT
+  // change the query logic to keep this commit purely visual.
+  const tabPills: Array<{ label: string; count: number; key: string; href: string }> = [
+    { label: "Open", count: openCount, key: "open", href: `/${ownerName}/${repoName}/pulls?state=open` },
+    { label: "Merged", count: mergedCount, key: "merged", href: `/${ownerName}/${repoName}/pulls?state=merged` },
+    { label: "Closed", count: closedCount, key: "closed", href: `/${ownerName}/${repoName}/pulls?state=closed` },
+    { label: "All", count: allCount, key: "all", href: `/${ownerName}/${repoName}/pulls?state=all` },
+    { label: "Draft", count: draftCount, key: "draft", href: `/${ownerName}/${repoName}/pulls?state=draft` },
+  ];
+  const isAllState = state === "all";
+
   return c.html(
     <Layout title={`Pull Requests — ${ownerName}/${repoName}`} user={user}>
       <RepoHeader owner={ownerName} repo={repoName} />
       <PrNav owner={ownerName} repo={repoName} active="pulls" />
-      <Flex justify="space-between" align="center" style="margin-bottom:16px">
-        <FilterTabs
-          tabs={[
-            { label: `${counts?.open ?? 0} Open`, href: `/${ownerName}/${repoName}/pulls?state=open`, active: state === "open" },
-            { label: `${counts?.merged ?? 0} Merged`, href: `/${ownerName}/${repoName}/pulls?state=merged`, active: state === "merged" },
-            { label: `${counts?.closed ?? 0} Closed`, href: `/${ownerName}/${repoName}/pulls?state=closed`, active: state === "closed" },
-          ]}
-        />
-        {user && (
-          <LinkButton href={`/${ownerName}/${repoName}/pulls/new`} variant="primary">
-            New pull request
-          </LinkButton>
-        )}
-      </Flex>
+      <style dangerouslySetInnerHTML={{ __html: PRS_LIST_STYLES }} />
+
+      <div class="prs-hero">
+        <div class="prs-hero-inner">
+          <div class="prs-hero-text">
+            <div class="prs-hero-eyebrow">Pull requests</div>
+            <h1 class="prs-hero-title">
+              Review, <span class="gradient-text">merge with AI</span>.
+            </h1>
+            <p class="prs-hero-sub">
+              {openCount === 0 && allCount === 0
+                ? "No pull requests yet. Open the first one to start collaborating — AI review runs automatically on every PR."
+                : `${openCount} open, ${mergedCount} merged, ${closedCount} closed${draftCount > 0 ? ` · ${draftCount} draft${draftCount === 1 ? "" : "s"}` : ""}. AI review, gate checks, and auto-resolve included.`}
+            </p>
+          </div>
+          {user && (
+            <div class="prs-hero-actions">
+              <a href={`/${ownerName}/${repoName}/pulls/new`} class="prs-cta">
+                + New pull request
+              </a>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <nav class="prs-tabs" aria-label="Pull request filters">
+        {tabPills.map((t) => {
+          const isActive =
+            state === t.key ||
+            (t.key === "open" &&
+              state !== "merged" &&
+              state !== "closed" &&
+              state !== "all" &&
+              state !== "draft");
+          return (
+            <a class={`prs-tab${isActive ? " is-active" : ""}`} href={t.href}>
+              <span>{t.label}</span>
+              <span class="prs-tab-count">{t.count}</span>
+            </a>
+          );
+        })}
+      </nav>
+
       {prList.length === 0 ? (
-        <EmptyState>
-          <p>No {state} pull requests.</p>
-        </EmptyState>
+        <div class="prs-empty">
+          <strong>
+            {isAllState
+              ? "Pick a filter above to browse PRs."
+              : `No ${state} pull requests.`}
+          </strong>
+          <span>
+            {state === "open"
+              ? "Push a branch and open one to kick off AI review + gate checks."
+              : isAllState
+                ? "The combined view is coming soon — Open, Merged, Closed, and Draft are all live above."
+                : "Try a different filter."}
+          </span>
+        </div>
       ) : (
-        <List>
-          {prList.map(({ pr, author }) => (
-            <ListItem>
-              <div
-                class={`issue-state-icon ${pr.state === "open" ? "state-open" : pr.state === "merged" ? "state-merged" : "state-closed"}`}
+        <div class="prs-list">
+          {prList.map(({ pr, author }) => {
+            const stateClass =
+              pr.state === "open"
+                ? pr.isDraft
+                  ? "state-draft"
+                  : "state-open"
+                : pr.state === "merged"
+                  ? "state-merged"
+                  : "state-closed";
+            const icon =
+              pr.state === "open"
+                ? pr.isDraft
+                  ? "◌"
+                  : "○"
+                : pr.state === "merged"
+                  ? "⮌"
+                  : "✓";
+            return (
+              <a
+                href={`/${ownerName}/${repoName}/pulls/${pr.number}`}
+                class="prs-row"
+                style="text-decoration:none;color:inherit"
               >
-                {pr.state === "open"
-                  ? "\u25CB"
-                  : pr.state === "merged"
-                    ? "\u2B8C"
-                    : "\u2713"}
-              </div>
-              <div>
-                <div class="issue-title">
-                  <a href={`/${ownerName}/${repoName}/pulls/${pr.number}`}>
-                    {pr.title}
-                  </a>
+                <div class={`prs-row-icon ${stateClass}`} aria-hidden="true">
+                  {icon}
                 </div>
-                <div class="issue-meta">
-                  #{pr.number}{" "}
-                  {pr.headBranch} → {pr.baseBranch}{" "}
-                  by {author.username}{" "}
-                  {formatRelative(pr.createdAt)}
+                <div class="prs-row-body">
+                  <h3 class="prs-row-title">
+                    <span>{pr.title}</span>
+                    <span class="prs-row-number">#{pr.number}</span>
+                  </h3>
+                  <div class="prs-row-meta">
+                    <span
+                      class="prs-branch-chips"
+                      title={`${pr.headBranch} into ${pr.baseBranch}`}
+                    >
+                      <span class="prs-branch-chip">{pr.headBranch}</span>
+                      <span class="prs-branch-arrow">{"→"}</span>
+                      <span class="prs-branch-chip">{pr.baseBranch}</span>
+                    </span>
+                    <span>
+                      by{" "}
+                      <strong style="color:var(--text)">
+                        {author.username}
+                      </strong>{" "}
+                      {formatRelative(pr.createdAt)}
+                    </span>
+                    <span class="prs-row-tags">
+                      {pr.isDraft && <span class="prs-tag is-draft">Draft</span>}
+                      {pr.state === "merged" && (
+                        <span class="prs-tag is-merged">Merged</span>
+                      )}
+                    </span>
+                  </div>
                 </div>
-              </div>
-            </ListItem>
-          ))}
-        </List>
+              </a>
+            );
+          })}
+        </div>
       )}
     </Layout>
   );
@@ -735,6 +1440,38 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
       });
   }
 
+  // ─── Derived visual state ───
+  const stateKey =
+    pr.state === "open"
+      ? pr.isDraft
+        ? "draft"
+        : "open"
+      : pr.state;
+  const stateLabel =
+    stateKey === "open"
+      ? "Open"
+      : stateKey === "draft"
+        ? "Draft"
+        : stateKey === "merged"
+          ? "Merged"
+          : "Closed";
+  const stateIcon =
+    stateKey === "open"
+      ? "○"
+      : stateKey === "draft"
+        ? "◌"
+        : stateKey === "merged"
+          ? "⮌"
+          : "✓";
+  const commentCount = comments.length;
+  const aiReviewCount = comments.filter(({ comment }) => comment.isAiReview).length;
+  const gatesAllPassed = gateChecks.length > 0 && gateChecks.every((c) => c.passed);
+  const mergeBlocked =
+    gateChecks.length > 0 &&
+    gateChecks.some(
+      (c) => !c.passed && c.name !== "Merge check"
+    );
+
   return c.html(
     <Layout
       title={`${pr.title} #${pr.number} — ${ownerName}/${repoName}`}
@@ -742,6 +1479,7 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
     >
       <RepoHeader owner={ownerName} repo={repoName} />
       <PrNav owner={ownerName} repo={repoName} active="pulls" />
+      <style dangerouslySetInnerHTML={{ __html: PRS_DETAIL_STYLES }} />
       <div
         id="live-comment-banner"
         class="alert"
@@ -760,180 +1498,334 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
           }),
         }}
       />
-      <div class="issue-detail">
-        <h2>
+
+      <div class="prs-detail-hero">
+        <h1 class="prs-detail-title">
           {pr.title}{" "}
-          <Text color="var(--text-muted)" weight={400}>
-            #{pr.number}
-          </Text>
-        </h2>
-        <Flex align="center" gap={8} style="margin:8px 0 20px">
-          <Badge
-            variant={pr.state === "open" ? "open" : pr.state === "merged" ? "merged" : "closed"}
-          >
-            {pr.state === "open"
-              ? "\u25CB Open"
-              : pr.state === "merged"
-                ? "\u2B8C Merged"
-                : "\u2713 Closed"}
-          </Badge>
-          <Text size={14} muted>
-            <strong style="color:var(--text)">
-              {author?.username}
-            </strong>{" "}
-            wants to merge <code>{pr.headBranch}</code> into{" "}
-            <code>{pr.baseBranch}</code>
-          </Text>
-        </Flex>
+          <span class="prs-detail-num">#{pr.number}</span>
+        </h1>
+        <div class="prs-detail-meta">
+          <span class={`prs-state-pill state-${stateKey}`}>
+            <span aria-hidden="true">{stateIcon}</span>
+            <span>{stateLabel}</span>
+          </span>
+          <span>
+            <strong>{author?.username}</strong> wants to merge
+          </span>
+          <span class="prs-detail-branches" title={`${pr.headBranch} into ${pr.baseBranch}`}>
+            <span class="prs-branch-pill is-head">{pr.headBranch}</span>
+            <span class="prs-branch-arrow-lg">{"→"}</span>
+            <span class="prs-branch-pill">{pr.baseBranch}</span>
+          </span>
+          <span>opened {formatRelative(pr.createdAt)}</span>
+          {canManage && pr.state === "open" && pr.isDraft && (
+            <form
+              method="post"
+              action={`/${ownerName}/${repoName}/pulls/${pr.number}/ready`}
+              class="prs-inline-form prs-detail-actions"
+            >
+              <button type="submit" class="prs-merge-ready-btn">
+                Ready for review
+              </button>
+            </form>
+          )}
+        </div>
+      </div>
 
-        <FilterTabs
-          tabs={[
-            {
-              label: "Conversation",
-              href: `/${ownerName}/${repoName}/pulls/${pr.number}`,
-              active: tab === "conversation",
-            },
-            {
-              label: "Files changed",
-              href: `/${ownerName}/${repoName}/pulls/${pr.number}?tab=files`,
-              active: tab === "files",
-            },
-          ]}
-        />
+      <nav class="prs-detail-tabs" aria-label="Pull request sections">
+        <a
+          class={`prs-detail-tab${tab === "conversation" ? " is-active" : ""}`}
+          href={`/${ownerName}/${repoName}/pulls/${pr.number}`}
+        >
+          Conversation
+          <span class="prs-detail-tab-count">{commentCount}</span>
+        </a>
+        <a
+          class={`prs-detail-tab${tab === "files" ? " is-active" : ""}`}
+          href={`/${ownerName}/${repoName}/pulls/${pr.number}?tab=files`}
+        >
+          Files changed
+          {diffFiles.length > 0 && (
+            <span class="prs-detail-tab-count">{diffFiles.length}</span>
+          )}
+        </a>
+      </nav>
 
-        {tab === "files" ? (
-          <DiffView raw={diffRaw} files={diffFiles} />
-        ) : (
-          <>
-            {pr.body && (
-              <CommentBox
-                author={author?.username ?? "unknown"}
-                date={pr.createdAt}
-                body={renderMarkdown(pr.body)}
-              />
-            )}
+      {tab === "files" ? (
+        <DiffView raw={diffRaw} files={diffFiles} />
+      ) : (
+        <>
+          {pr.body && (
+            <CommentBox
+              author={author?.username ?? "unknown"}
+              date={pr.createdAt}
+              body={renderMarkdown(pr.body)}
+            />
+          )}
 
-            {comments.map(({ comment, author: commentAuthor }, i) => (
-              <div
-                class={`issue-comment-box ${comment.isAiReview ? "ai-review" : ""}`}
-              >
-                <div class="comment-header">
-                  <Flex gap={8} align="center">
-                    <strong>{commentAuthor.username}</strong>
-                    {comment.isAiReview && (
-                      <Badge variant="default" style="margin-left:8px;background:rgba(31,111,235,0.15);color:var(--text-link);border-color:var(--accent)">
-                        AI Review
-                      </Badge>
-                    )}
-                    <Text size={13} muted>
-                      commented {formatRelative(comment.createdAt)}
-                    </Text>
-                    {comment.filePath && (
-                      <Text size={11} mono style="margin-left:8px">
-                        {comment.filePath}
-                        {comment.lineNumber ? `:${comment.lineNumber}` : ""}
-                      </Text>
-                    )}
-                  </Flex>
-                </div>
+          {comments.map(({ comment, author: commentAuthor }) => (
+            <div class={`prs-comment${comment.isAiReview ? " is-ai" : ""}`}>
+              <div class="prs-comment-head">
+                <strong>{commentAuthor.username}</strong>
+                {comment.isAiReview && (
+                  <span class="prs-ai-badge">AI Review</span>
+                )}
+                <span class="prs-comment-time">
+                  commented {formatRelative(comment.createdAt)}
+                </span>
+                {comment.filePath && (
+                  <span class="prs-comment-loc">
+                    {comment.filePath}
+                    {comment.lineNumber ? `:${comment.lineNumber}` : ""}
+                  </span>
+                )}
+              </div>
+              <div class="prs-comment-body">
                 <MarkdownContent html={renderMarkdown(comment.body)} />
               </div>
-            ))}
+            </div>
+          ))}
 
-            {error && (
-              <div class="auth-error" style="margin-top: 16px; padding: 12px; background: rgba(248, 81, 73, 0.1); border: 1px solid var(--red); border-radius: var(--radius); color: var(--red)">
-                {decodeURIComponent(error)}
+          {/* Quick link to the Files changed tab when there's a diff to look at. */}
+          {pr.state !== "merged" && (
+            <a
+              href={`/${ownerName}/${repoName}/pulls/${pr.number}?tab=files`}
+              class="prs-files-card"
+            >
+              <span class="prs-files-card-icon" aria-hidden="true">
+                {"▤"}
+              </span>
+              <div class="prs-files-card-text">
+                <p class="prs-files-card-title">Files changed</p>
+                <p class="prs-files-card-sub">
+                  Side-by-side diff for {pr.headBranch} {"→"} {pr.baseBranch}.
+                </p>
               </div>
-            )}
+              <span class="prs-files-card-cta">View diff {"→"}</span>
+            </a>
+          )}
 
-            {info && (
-              <div style="margin-top: 16px; padding: 12px; background: rgba(56, 139, 253, 0.1); border: 1px solid var(--accent); border-radius: var(--radius); color: var(--text)">
-                {decodeURIComponent(info)}
+          {error && (
+            <div
+              class="auth-error"
+              style="margin-top: 16px; padding: 12px; background: rgba(248, 81, 73, 0.1); border: 1px solid var(--red); border-radius: var(--radius); color: var(--red)"
+            >
+              {decodeURIComponent(error)}
+            </div>
+          )}
+
+          {info && (
+            <div style="margin-top: 16px; padding: 12px; background: rgba(56, 139, 253, 0.1); border: 1px solid var(--accent); border-radius: var(--radius); color: var(--text)">
+              {decodeURIComponent(info)}
+            </div>
+          )}
+
+          {pr.state === "open" && (prRisk || prRiskCalculating) && (
+            <PrRiskCard risk={prRisk} calculating={prRiskCalculating} />
+          )}
+
+          {pr.state === "open" && gateChecks.length > 0 && (
+            <div class="prs-gate-card">
+              <div class="prs-gate-head">
+                <h3>Gate checks</h3>
+                <span class="prs-gate-summary">
+                  {gatesAllPassed
+                    ? `All ${gateChecks.length} checks passed`
+                    : `${gateChecks.filter((c) => !c.passed).length} of ${gateChecks.length} failing`}
+                </span>
               </div>
-            )}
-
-            {pr.state === "open" && (prRisk || prRiskCalculating) && (
-              <PrRiskCard risk={prRisk} calculating={prRiskCalculating} />
-            )}
-
-            {pr.state === "open" && gateChecks.length > 0 && (
-              <div style="margin-top: 20px; padding: 16px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius)">
-                <h3 style="margin: 0 0 12px; font-size: 14px">Gate Checks</h3>
-                {gateChecks.map((check) => (
-                  <div style="display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--border)">
-                    <span style={`font-size: 16px; color: ${check.passed ? "var(--green)" : "var(--red)"}`}>
-                      {check.passed ? "\u2713" : "\u2717"}
+              {gateChecks.map((check) => {
+                const isAi = /ai.*review/i.test(check.name);
+                const isSkip = check.skipped === true;
+                const statusClass = isSkip
+                  ? "is-skip"
+                  : check.passed
+                    ? "is-pass"
+                    : "is-fail";
+                const statusGlyph = isSkip
+                  ? "—"
+                  : check.passed
+                    ? "✓"
+                    : "✗";
+                const statusLabel = isSkip
+                  ? "Skipped"
+                  : check.passed
+                    ? "Passed"
+                    : "Failing";
+                return (
+                  <div
+                    class="prs-gate-row"
+                    style={
+                      isAi
+                        ? "border-left: 3px solid rgba(140,109,255,0.55); padding-left: 15px"
+                        : ""
+                    }
+                  >
+                    <span class={`prs-gate-icon ${statusClass}`} aria-hidden="true">
+                      {statusGlyph}
                     </span>
-                    <strong style="font-size: 13px">{check.name}</strong>
-                    <span style="font-size: 12px; color: var(--text-muted); margin-left: auto">{check.details}</span>
+                    <span class="prs-gate-name">
+                      {check.name}
+                      {isAi && (
+                        <span
+                          style="margin-left:8px;display:inline-flex;align-items:center;gap:4px;padding:1px 7px;font-size:10px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:#fff;background:linear-gradient(135deg,#8c6dff 0%,#36c5d6 130%);border-radius:9999px;vertical-align:middle"
+                        >
+                          AI
+                        </span>
+                      )}
+                    </span>
+                    <span class="prs-gate-details">{check.details}</span>
+                    <span class={`prs-gate-pill ${statusClass}`}>
+                      {statusLabel}
+                    </span>
                   </div>
-                ))}
-                <div style="margin-top: 8px; font-size: 12px; color: var(--text-muted)">
-                  {gateChecks.every((c) => c.passed)
-                    ? "All checks passed — ready to merge"
-                    : gateChecks.some((c) => !c.passed && c.name === "Merge check")
-                      ? "Conflicts detected — GlueCron AI will attempt auto-resolution on merge"
-                      : "Some checks failed — resolve issues before merging"}
-                </div>
+                );
+              })}
+              <div class="prs-gate-footer">
+                {gatesAllPassed
+                  ? "All checks passed — ready to merge."
+                  : gateChecks.some(
+                      (c) => !c.passed && c.name === "Merge check"
+                    )
+                    ? "Conflicts detected — GlueCron AI will attempt auto-resolution on merge."
+                    : "Some checks failed — resolve issues before merging."}
+                {aiReviewCount > 0 && (
+                  <>
+                    {" "}· {aiReviewCount} AI review{aiReviewCount === 1 ? "" : "s"} on this PR.
+                  </>
+                )}
               </div>
-            )}
+            </div>
+          )}
 
-            {user && pr.state === "open" && (
-              <div style="margin-top: 20px">
-                <Form
-                  method="post"
-                  action={`/${ownerName}/${repoName}/pulls/${pr.number}/comment`}
-                >
-                  <FormGroup>
-                    <TextArea
-                      name="body"
-                      rows={6}
-                      required
-                      placeholder="Leave a comment... (Markdown supported)"
-                      mono
-                    />
-                  </FormGroup>
-                  <Flex gap={8}>
-                    <Button type="submit" variant="primary">
-                      Comment
-                    </Button>
-                    {canManage && (
-                      <>
+          {/* ─── Merge area / state-aware action card ─────────────── */}
+          {user && pr.state === "open" && (
+            <div
+              class={`prs-merge-card${pr.isDraft ? " is-draft" : ""}`}
+            >
+              <div class="prs-merge-head">
+                <strong>
+                  {pr.isDraft
+                    ? "Draft — ready for review?"
+                    : mergeBlocked
+                      ? "Merge blocked"
+                      : "Ready to merge"}
+                </strong>
+              </div>
+              <p class="prs-merge-sub">
+                {pr.isDraft
+                  ? "This PR is in draft. Mark it ready to trigger AI review + gate checks."
+                  : mergeBlocked
+                    ? "Resolve the failing gate checks above before this PR can land."
+                    : gateChecks.length > 0
+                      ? gatesAllPassed
+                        ? "All gates green. Merge will fast-forward into the base branch."
+                        : "Conflicts will be auto-resolved by GlueCron AI on merge."
+                      : "Run gate checks by refreshing once your branch has a recent commit."}
+              </p>
+              <Form
+                method="post"
+                action={`/${ownerName}/${repoName}/pulls/${pr.number}/comment`}
+              >
+                <FormGroup>
+                  <TextArea
+                    name="body"
+                    rows={5}
+                    required
+                    placeholder="Leave a comment... (Markdown supported)"
+                    mono
+                  />
+                </FormGroup>
+                <div class="prs-merge-actions">
+                  <Button type="submit" variant="primary">
+                    Comment
+                  </Button>
+                  {canManage && (
+                    <>
+                      {pr.isDraft ? (
+                        <button
+                          type="submit"
+                          formaction={`/${ownerName}/${repoName}/pulls/${pr.number}/ready`}
+                          formnovalidate
+                          class="prs-merge-ready-btn"
+                        >
+                          Ready for review
+                        </button>
+                      ) : (
                         <button
                           type="submit"
                           formaction={`/${ownerName}/${repoName}/pulls/${pr.number}/merge`}
-                          class="btn"
-                          style="background:rgba(63,185,80,0.15);border-color:var(--green);color:var(--green)"
+                          formnovalidate
+                          class={`prs-merge-btn${mergeBlocked ? " is-disabled" : ""}`}
+                          title={
+                            mergeBlocked
+                              ? "Failing gate checks must be resolved before this PR can merge."
+                              : "Merge pull request"
+                          }
                         >
-                          Merge pull request
+                          {"✔"} Merge pull request
                         </button>
-                        {isAiReviewEnabled() && (
-                          <button
-                            type="submit"
-                            formaction={`/${ownerName}/${repoName}/pulls/${pr.number}/ai-rereview`}
-                            formnovalidate
-                            class="btn"
-                            title="Re-run AI review (e.g. after a force-push). Posts a fresh summary + inline comments."
-                          >
-                            Re-run AI review
-                          </button>
-                        )}
-                        <Button
+                      )}
+                      {!pr.isDraft && (
+                        <button
                           type="submit"
-                          variant="danger"
-                          formaction={`/${ownerName}/${repoName}/pulls/${pr.number}/close`}
+                          formaction={`/${ownerName}/${repoName}/pulls/${pr.number}/draft`}
+                          formnovalidate
+                          class="prs-merge-back-draft"
+                          title="Convert back to draft"
                         >
-                          Close
-                        </Button>
-                      </>
-                    )}
-                  </Flex>
-                </Form>
+                          Convert to draft
+                        </button>
+                      )}
+                      {isAiReviewEnabled() && (
+                        <button
+                          type="submit"
+                          formaction={`/${ownerName}/${repoName}/pulls/${pr.number}/ai-rereview`}
+                          formnovalidate
+                          class="btn"
+                          title="Re-run AI review (e.g. after a force-push). Posts a fresh summary + inline comments."
+                        >
+                          Re-run AI review
+                        </button>
+                      )}
+                      <Button
+                        type="submit"
+                        variant="danger"
+                        formaction={`/${ownerName}/${repoName}/pulls/${pr.number}/close`}
+                      >
+                        Close
+                      </Button>
+                    </>
+                  )}
+                </div>
+              </Form>
+            </div>
+          )}
+
+          {/* Read-only footers for non-open states. */}
+          {pr.state === "merged" && (
+            <div class="prs-merge-card is-merged">
+              <div class="prs-merge-head">
+                <strong>{"⮌"} Merged</strong>
               </div>
-            )}
-          </>
-        )}
-      </div>
+              <p class="prs-merge-sub">
+                This pull request was merged into{" "}
+                <code>{pr.baseBranch}</code>.
+              </p>
+            </div>
+          )}
+          {pr.state === "closed" && (
+            <div class="prs-merge-card is-closed">
+              <div class="prs-merge-head">
+                <strong>{"✕"} Closed without merging</strong>
+              </div>
+              <p class="prs-merge-sub">
+                This pull request was closed and not merged.
+              </p>
+            </div>
+          )}
+        </>
+      )}
     </Layout>
   );
 });

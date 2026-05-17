@@ -14,3 +14,8 @@ drizzle/meta/
 # isolation: "worktree" stages each agent's copy here so they don't
 # collide on the main working tree. Never commit these.
 .claude/worktrees/
+
+# GateTest local cache + reports. The .gatetest.json marker file is
+# kept (it's the protected-platform pointer); the .gatetest/ directory
+# is scanner state (memory + reports) that should not be committed.
+.gatetest/

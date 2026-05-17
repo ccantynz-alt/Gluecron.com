@@ -137,6 +137,12 @@ admin.get("/admin", async (c) => {
         <a href="/admin/digests" class="btn">
           Email digests
         </a>
+        <a href="/admin/google-oauth" class="btn">
+          Sign in with Google
+        </a>
+        <a href="/admin/github-oauth" class="btn">
+          Sign in with GitHub
+        </a>
         <a href="/admin/sso" class="btn">
           Enterprise SSO
         </a>

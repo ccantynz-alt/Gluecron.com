@@ -1863,6 +1863,72 @@ const css = `
     font-weight: 600;
     margin-top: 4px;
   }
+
+  /* OAuth provider buttons (Google / GitHub / SSO). Single-line layout
+     with a brand-coloured logo on the left and a label centred-trailing.
+     Hover lifts 1px with a subtle shadow — matches the rest of the
+     button system but reads as a brand-affiliated action, not a brand-
+     coloured primary CTA. */
+  .auth-container .oauth-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    width: 100%;
+    padding: 11px 16px;
+    background: var(--bg-surface, var(--bg-elevated));
+    border: 1px solid var(--border);
+    border-radius: var(--r-md, 8px);
+    color: var(--text-strong);
+    font-family: var(--font-sans);
+    font-size: 14.5px;
+    font-weight: 500;
+    text-decoration: none;
+    transition:
+      transform var(--t-base, 180ms) var(--ease, ease),
+      box-shadow var(--t-base, 180ms) var(--ease, ease),
+      background var(--t-fast, 120ms) var(--ease, ease),
+      border-color var(--t-fast, 120ms) var(--ease, ease);
+  }
+  .auth-container .oauth-btn:hover {
+    transform: translateY(-1px);
+    background: var(--bg-hover);
+    border-color: var(--text-muted);
+    color: var(--text-strong);
+    box-shadow: 0 4px 14px -4px rgba(0,0,0,0.25);
+    text-decoration: none;
+  }
+  .auth-container .oauth-btn:focus-visible {
+    outline: 2px solid rgba(140, 109, 255, 0.55);
+    outline-offset: 2px;
+  }
+  .auth-container .oauth-btn .oauth-icon {
+    flex-shrink: 0;
+  }
+  /* GitHub icon adopts the text colour so it reads in both themes. */
+  .auth-container .oauth-github .oauth-icon {
+    color: var(--text-strong);
+  }
+  /* Google logo uses the official 4-colour treatment via inline SVG fill
+     attributes — nothing to override here. */
+  /* "or" divider between the password form and provider buttons */
+  .auth-container .auth-divider {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 20px 0 12px;
+    color: var(--text-faint);
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .auth-container .auth-divider::before,
+  .auth-container .auth-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
   .auth-error {
     background: rgba(248,113,113,0.08);
     border: 1px solid rgba(248,113,113,0.35);

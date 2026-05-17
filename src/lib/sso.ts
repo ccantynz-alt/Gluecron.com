@@ -660,6 +660,206 @@ export function githubOauthRedirectUri(): string {
 }
 
 // ----------------------------------------------------------------------------
+// "Sign in with Google" — mirrors the GitHub OAuth surface above.
+//
+// Storage: a separate row in `sso_config` keyed by id='google'. Subject in
+// `sso_user_links` is prefixed `google:` so it never collides with
+// `github:` or the default OIDC `default:`.
+// ----------------------------------------------------------------------------
+
+const GOOGLE_OAUTH_CONFIG_ID = "google";
+
+export async function getGoogleOauthConfig(): Promise<SsoConfig | null> {
+  try {
+    const [row] = await db
+      .select()
+      .from(ssoConfig)
+      .where(eq(ssoConfig.id, GOOGLE_OAUTH_CONFIG_ID))
+      .limit(1);
+    return row || null;
+  } catch {
+    return null;
+  }
+}
+
+export async function upsertGoogleOauthConfig(
+  input: Partial<
+    Pick<
+      SsoConfigInput,
+      "enabled" | "clientId" | "clientSecret" | "autoCreateUsers" | "allowedEmailDomains"
+    >
+  >
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const now = new Date();
+    const values = {
+      id: GOOGLE_OAUTH_CONFIG_ID,
+      enabled: !!input.enabled,
+      providerName: "Google",
+      issuer: "https://accounts.google.com",
+      authorizationEndpoint: "https://accounts.google.com/o/oauth2/v2/auth",
+      tokenEndpoint: "https://oauth2.googleapis.com/token",
+      userinfoEndpoint: "https://openidconnect.googleapis.com/v1/userinfo",
+      clientId: emptyToNull(input.clientId),
+      clientSecret: emptyToNull(input.clientSecret),
+      scopes: "openid email profile",
+      allowedEmailDomains: emptyToNull(input.allowedEmailDomains ?? null),
+      autoCreateUsers: input.autoCreateUsers !== false,
+      updatedAt: now,
+    };
+    await db
+      .insert(ssoConfig)
+      .values(values)
+      .onConflictDoUpdate({
+        target: ssoConfig.id,
+        set: {
+          enabled: values.enabled,
+          providerName: values.providerName,
+          issuer: values.issuer,
+          authorizationEndpoint: values.authorizationEndpoint,
+          tokenEndpoint: values.tokenEndpoint,
+          userinfoEndpoint: values.userinfoEndpoint,
+          clientId: values.clientId,
+          clientSecret: values.clientSecret,
+          scopes: values.scopes,
+          allowedEmailDomains: values.allowedEmailDomains,
+          autoCreateUsers: values.autoCreateUsers,
+          updatedAt: now,
+        },
+      });
+    return { ok: true };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Failed to save",
+    };
+  }
+}
+
+export interface GoogleProfile {
+  sub: string;
+  email: string | null;
+  emailVerified: boolean;
+  name: string | null;
+  picture: string | null;
+}
+
+/**
+ * Find-or-create a user from a Google profile. Same flow as the GitHub
+ * variant: existing link → match by email → auto-create (if enabled and
+ * email is verified). Refuses to auto-create on unverified emails (Google
+ * users can have unverified addresses on some legacy account states).
+ */
+export async function findOrCreateUserFromGoogle(
+  profile: GoogleProfile,
+  cfg: SsoConfig
+): Promise<{ ok: true; user: User } | { ok: false; error: string }> {
+  const subject = `google:${profile.sub}`;
+
+  // 1. Existing link
+  const link = await findSsoLinkBySubject(subject);
+  if (link) {
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(eq(users.id, link.userId))
+      .limit(1);
+    if (user) return { ok: true, user };
+    await db
+      .delete(ssoUserLinks)
+      .where(eq(ssoUserLinks.subject, subject))
+      .catch((err) => {
+        console.warn(
+          "[google-oauth] orphan link cleanup failed:",
+          err instanceof Error ? err.message : err
+        );
+      });
+  }
+
+  // 2. Domain gate
+  if (!emailDomainAllowed(profile.email, cfg.allowedEmailDomains)) {
+    return {
+      ok: false,
+      error: "Your email domain is not permitted for Google sign-in.",
+    };
+  }
+
+  // 3. Match by email (only if Google says the email is verified)
+  if (profile.email && profile.emailVerified) {
+    const [existing] = await db
+      .select()
+      .from(users)
+      .where(eq(users.email, profile.email))
+      .limit(1);
+    if (existing) {
+      await db
+        .insert(ssoUserLinks)
+        .values({
+          userId: existing.id,
+          subject,
+          emailAtLink: profile.email,
+        })
+        .onConflictDoNothing();
+      return { ok: true, user: existing };
+    }
+  }
+
+  // 4. Auto-create
+  if (!cfg.autoCreateUsers) {
+    return {
+      ok: false,
+      error:
+        "No matching account, and the administrator has disabled Google account creation.",
+    };
+  }
+
+  if (!profile.email) {
+    return {
+      ok: false,
+      error: "Google did not return an email address. Try signing up manually.",
+    };
+  }
+  if (!profile.emailVerified) {
+    return {
+      ok: false,
+      error:
+        "Google reports this email as unverified. Verify it in your Google account and retry.",
+    };
+  }
+
+  const usernameSeed =
+    profile.email.split("@")[0] || profile.name || "user";
+  const username = await pickAvailableUsername(usernameSeed);
+
+  const fakeHash = "sso-only:" + randomToken(32);
+
+  const [user] = await db
+    .insert(users)
+    .values({
+      username,
+      email: profile.email,
+      passwordHash: fakeHash,
+    })
+    .returning();
+
+  await db
+    .insert(ssoUserLinks)
+    .values({
+      userId: user.id,
+      subject,
+      emailAtLink: profile.email,
+    })
+    .onConflictDoNothing();
+
+  return { ok: true, user };
+}
+
+/** Compute the Google OAuth redirect URI for this deployment. */
+export function googleOauthRedirectUri(): string {
+  return `${config.appBaseUrl}/login/google/callback`;
+}
+
+// ----------------------------------------------------------------------------
 // Test-only exports
 // ----------------------------------------------------------------------------
 

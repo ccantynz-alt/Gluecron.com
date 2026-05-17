@@ -9,3 +9,8 @@ drizzle/meta/
 .test-repos-*/
 *.pem
 *.key
+
+# Parallel-agent isolated worktrees. The Agent tool with
+# isolation: "worktree" stages each agent's copy here so they don't
+# collide on the main working tree. Never commit these.
+.claude/worktrees/

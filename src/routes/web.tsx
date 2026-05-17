@@ -531,6 +531,10 @@ web.get("/:owner/:repo", async (c) => {
             starred: false,
             archived: false,
             isTemplate: false,
+            forkCount: 0,
+            description: null as string | null,
+            pushedAt: null as Date | null,
+            createdAt: null as Date | null,
           };
         const [repoRow] = await db
           .select()
@@ -548,6 +552,10 @@ web.get("/:owner/:repo", async (c) => {
             starred: false,
             archived: false,
             isTemplate: false,
+            forkCount: 0,
+            description: null as string | null,
+            pushedAt: null as Date | null,
+            createdAt: null as Date | null,
           };
         let starred = false;
         if (user) {
@@ -568,6 +576,10 @@ web.get("/:owner/:repo", async (c) => {
           starred,
           archived: repoRow.isArchived,
           isTemplate: repoRow.isTemplate,
+          forkCount: repoRow.forkCount,
+          description: repoRow.description as string | null,
+          pushedAt: (repoRow.pushedAt as Date | null) ?? null,
+          createdAt: (repoRow.createdAt as Date | null) ?? null,
         };
       } catch {
         return {
@@ -575,30 +587,437 @@ web.get("/:owner/:repo", async (c) => {
           starred: false,
           archived: false,
           isTemplate: false,
+          forkCount: 0,
+          description: null as string | null,
+          pushedAt: null as Date | null,
+          createdAt: null as Date | null,
         };
       }
     })(),
   ]);
-  const { starCount, starred, archived, isTemplate } = starInfo;
+  const {
+    starCount,
+    starred,
+    archived,
+    isTemplate,
+    forkCount,
+    description,
+    pushedAt,
+    createdAt,
+  } = starInfo;
+
+  // Repo-home polish — shared style block (Block 2.A — parallel session 2.A).
+  // Scoped via .repo-home-* class prefix to prevent bleed into other surfaces.
+  const repoHomeCss = `
+    .repo-home-hero {
+      position: relative;
+      margin-bottom: var(--space-5);
+      padding: var(--space-5) var(--space-6);
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      overflow: hidden;
+    }
+    .repo-home-hero::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, transparent 0%, #8c6dff 30%, #36c5d6 70%, transparent 100%);
+      opacity: 0.7;
+      pointer-events: none;
+    }
+    .repo-home-hero-orb-wrap {
+      position: absolute;
+      inset: -25% -10% auto auto;
+      width: 360px;
+      height: 360px;
+      pointer-events: none;
+      z-index: 0;
+    }
+    .repo-home-hero-orb {
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(circle, rgba(140,109,255,0.18), rgba(54,197,214,0.09) 45%, transparent 70%);
+      filter: blur(80px);
+      opacity: 0.7;
+      animation: repoHomeOrb 14s ease-in-out infinite;
+    }
+    @keyframes repoHomeOrb {
+      0%, 100% { transform: scale(1) translate(0, 0); opacity: 0.55; }
+      50%      { transform: scale(1.1) translate(-10px, 8px); opacity: 0.8; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .repo-home-hero-orb { animation: none; }
+    }
+    .repo-home-hero-inner {
+      position: relative;
+      z-index: 1;
+    }
+    .repo-home-hero .repo-header { margin-bottom: var(--space-3); }
+    .repo-home-eyebrow {
+      font-size: 12px;
+      font-family: var(--font-mono);
+      color: var(--text-muted);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-bottom: var(--space-2);
+    }
+    .repo-home-eyebrow strong { color: var(--accent); font-weight: 600; }
+    .repo-home-description {
+      font-size: 15px;
+      line-height: 1.55;
+      color: var(--text);
+      margin: 0;
+      max-width: 720px;
+    }
+    .repo-home-description-empty {
+      font-size: 14px;
+      color: var(--text-muted);
+      font-style: italic;
+      margin: 0;
+    }
+    .repo-home-stat-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-4);
+      margin-top: var(--space-3);
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+    .repo-home-stat {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .repo-home-stat strong {
+      color: var(--text-strong);
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+    }
+    .repo-home-stat .repo-home-stat-icon {
+      color: var(--text-faint);
+      font-size: 14px;
+      line-height: 1;
+    }
+    .repo-home-stat a {
+      color: var(--text-muted);
+      transition: color var(--t-fast) var(--ease);
+    }
+    .repo-home-stat a:hover { color: var(--accent); text-decoration: none; }
+
+    /* Two-column layout: file tree + sidebar */
+    .repo-home-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 280px;
+      gap: var(--space-5);
+      align-items: start;
+    }
+    @media (max-width: 960px) {
+      .repo-home-grid { grid-template-columns: minmax(0, 1fr); }
+    }
+    .repo-home-main { min-width: 0; }
+
+    /* Sidebar card */
+    .repo-home-side {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-4);
+    }
+    .repo-home-side-card {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: var(--space-4);
+    }
+    .repo-home-side-title {
+      font-size: 11px;
+      font-family: var(--font-mono);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin: 0 0 var(--space-3);
+      font-weight: 600;
+    }
+    .repo-home-side-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: var(--space-2);
+      font-size: 13px;
+      padding: 6px 0;
+      border-top: 1px solid var(--border);
+    }
+    .repo-home-side-row:first-of-type { border-top: 0; padding-top: 0; }
+    .repo-home-side-key {
+      color: var(--text-muted);
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .repo-home-side-val {
+      color: var(--text-strong);
+      font-weight: 500;
+      font-variant-numeric: tabular-nums;
+      max-width: 60%;
+      text-align: right;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .repo-home-side-val a { color: var(--text-strong); }
+    .repo-home-side-val a:hover { color: var(--accent); text-decoration: none; }
+
+    /* Clone / Code tabs */
+    .repo-home-clone {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    .repo-home-clone-tabs {
+      display: flex;
+      gap: 0;
+      background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border);
+      padding: 0 var(--space-2);
+    }
+    .repo-home-clone-tab {
+      appearance: none;
+      background: transparent;
+      border: 0;
+      border-bottom: 2px solid transparent;
+      padding: 9px 12px;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+      font-family: inherit;
+      margin-bottom: -1px;
+    }
+    .repo-home-clone-tab:hover { color: var(--text-strong); }
+    .repo-home-clone-tab[aria-selected="true"] {
+      color: var(--text-strong);
+      border-bottom-color: var(--accent);
+    }
+    .repo-home-clone-body {
+      padding: var(--space-3);
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+    }
+    .repo-home-clone-input {
+      flex: 1;
+      min-width: 0;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 10px;
+      color: var(--text-strong);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .repo-home-clone-copy {
+      appearance: none;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      color: var(--text-strong);
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+      font-family: inherit;
+    }
+    .repo-home-clone-copy:hover { background: var(--bg-hover); border-color: var(--border-strong, var(--border)); }
+    .repo-home-clone-pane { display: none; }
+    .repo-home-clone-pane[data-active="true"] { display: flex; }
+
+    /* README card */
+    .repo-home-readme {
+      margin-top: var(--space-5);
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    .repo-home-readme-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 16px;
+      background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+    .repo-home-readme-head .repo-home-readme-icon {
+      color: var(--accent);
+      font-size: 14px;
+    }
+    .repo-home-readme-body {
+      padding: var(--space-5) var(--space-6);
+    }
+
+    /* Empty-state CTA */
+    .repo-home-empty {
+      position: relative;
+      margin-top: var(--space-4);
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: var(--space-6);
+      overflow: hidden;
+    }
+    .repo-home-empty::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, transparent 0%, #8c6dff 30%, #36c5d6 70%, transparent 100%);
+      opacity: 0.7;
+      pointer-events: none;
+    }
+    .repo-home-empty-eyebrow {
+      font-size: 12px;
+      font-family: var(--font-mono);
+      color: var(--accent);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      margin-bottom: var(--space-2);
+      font-weight: 600;
+    }
+    .repo-home-empty-title {
+      font-family: var(--font-display);
+      font-weight: 800;
+      letter-spacing: -0.025em;
+      font-size: clamp(22px, 3vw, 30px);
+      line-height: 1.1;
+      margin: 0 0 var(--space-2);
+      color: var(--text-strong);
+    }
+    .repo-home-empty-sub {
+      color: var(--text-muted);
+      font-size: 14px;
+      line-height: 1.55;
+      max-width: 640px;
+      margin: 0 0 var(--space-4);
+    }
+    .repo-home-empty-snippet {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: var(--space-3) var(--space-4);
+      font-family: var(--font-mono);
+      font-size: 12.5px;
+      line-height: 1.7;
+      color: var(--text-strong);
+      overflow-x: auto;
+      white-space: pre;
+      margin: 0;
+    }
+    .repo-home-empty-snippet .repo-home-cmt { color: var(--text-faint); }
+    .repo-home-empty-snippet .repo-home-cmd { color: var(--accent); }
+
+    @media (max-width: 720px) {
+      .repo-home-hero { padding: var(--space-4) var(--space-4); }
+      .repo-home-clone-body { flex-direction: column; align-items: stretch; }
+      .repo-home-clone-copy { width: 100%; }
+    }
+  `;
+  const cloneHttpsUrl = `${config.appBaseUrl}/${owner}/${repo}.git`;
+  // Best-effort SSH URL. If APP_BASE_URL is a hostname, this looks right; for
+  // localhost it'll still render and just be slightly silly (which is fine for dev).
+  let cloneSshUrl = `git@gluecron.com:${owner}/${repo}.git`;
+  try {
+    const host = new URL(config.appBaseUrl).hostname;
+    if (host && host !== "localhost" && host !== "127.0.0.1") {
+      cloneSshUrl = `git@${host}:${owner}/${repo}.git`;
+    }
+  } catch {
+    // Fall through to default.
+  }
+  const cloneCliCmd = `gluecron clone ${owner}/${repo}`;
+  const formatRelative = (date: Date | null): string => {
+    if (!date) return "never";
+    const ms = Date.now() - date.getTime();
+    const s = Math.max(0, Math.round(ms / 1000));
+    if (s < 60) return "just now";
+    const m = Math.round(s / 60);
+    if (m < 60) return `${m} min ago`;
+    const h = Math.round(m / 60);
+    if (h < 24) return `${h}h ago`;
+    const d = Math.round(h / 24);
+    if (d < 30) return `${d}d ago`;
+    const mo = Math.round(d / 30);
+    if (mo < 12) return `${mo}mo ago`;
+    const y = Math.round(d / 365);
+    return `${y}y ago`;
+  };
 
   if (tree.length === 0) {
     return c.html(
       <Layout title={`${owner}/${repo}`} user={user}>
-        <RepoHeader
-          owner={owner}
-          repo={repo}
-          starCount={starCount}
-          starred={starred}
-          currentUser={user?.username}
-          archived={archived}
-          isTemplate={isTemplate}
-        />
+        <style dangerouslySetInnerHTML={{ __html: repoHomeCss }} />
+        <div class="repo-home-hero">
+          <div class="repo-home-hero-orb-wrap" aria-hidden="true">
+            <div class="repo-home-hero-orb" />
+          </div>
+          <div class="repo-home-hero-inner">
+            <div class="repo-home-eyebrow">
+              <strong>Repository</strong> · {owner}
+            </div>
+            <RepoHeader
+              owner={owner}
+              repo={repo}
+              starCount={starCount}
+              starred={starred}
+              forkCount={forkCount}
+              currentUser={user?.username}
+              archived={archived}
+              isTemplate={isTemplate}
+            />
+            {description ? (
+              <p class="repo-home-description">{description}</p>
+            ) : (
+              <p class="repo-home-description-empty">
+                No description yet — push a README to tell the world what this
+                ships.
+              </p>
+            )}
+          </div>
+        </div>
         <RepoNav owner={owner} repo={repo} active="code" />
-        <div class="empty-state">
-          <h2>Empty repository</h2>
-          <p>Get started by pushing code:</p>
-          <pre>{`git remote add gluecron ${config.appBaseUrl}/${owner}/${repo}.git
-git push -u gluecron main`}</pre>
+        <div class="repo-home-empty">
+          <div class="repo-home-empty-eyebrow">Getting started</div>
+          <h2 class="repo-home-empty-title">
+            Push your first commit to{" "}
+            <span class="gradient-text">{repo}</span>.
+          </h2>
+          <p class="repo-home-empty-sub">
+            This repository is empty. Paste the snippet below in an existing
+            project directory to wire it up to Gluecron — your push triggers
+            gate checks and AI review automatically.
+          </p>
+          <pre class="repo-home-empty-snippet">
+            <span class="repo-home-cmt">
+              # from an existing project directory
+            </span>
+            {"\n"}
+            <span class="repo-home-cmd">git remote add</span>
+            {` origin ${cloneHttpsUrl}`}
+            {"\n"}
+            <span class="repo-home-cmd">git branch</span>
+            {` -M main`}
+            {"\n"}
+            <span class="repo-home-cmd">git push</span>
+            {` -u origin main`}
+          </pre>
         </div>
       </Layout>
     );
@@ -606,17 +1025,71 @@ git push -u gluecron main`}</pre>
 
   const readme = await getReadme(owner, repo, defaultBranch);
 
+  // Sidebar facts — derived from data we already have.
+  const fileCount = tree.filter((e: any) => e.type !== "tree").length;
+  const dirCount = tree.filter((e: any) => e.type === "tree").length;
+
   return c.html(
     <Layout title={`${owner}/${repo}`} user={user}>
-      <RepoHeader
-        owner={owner}
-        repo={repo}
-        starCount={starCount}
-        starred={starred}
-        currentUser={user?.username}
-        archived={archived}
-        isTemplate={isTemplate}
-      />
+      <style dangerouslySetInnerHTML={{ __html: repoHomeCss }} />
+      <div class="repo-home-hero">
+        <div class="repo-home-hero-orb-wrap" aria-hidden="true">
+          <div class="repo-home-hero-orb" />
+        </div>
+        <div class="repo-home-hero-inner">
+          <div class="repo-home-eyebrow">
+            <strong>Repository</strong> · {owner}
+          </div>
+          <RepoHeader
+            owner={owner}
+            repo={repo}
+            starCount={starCount}
+            starred={starred}
+            forkCount={forkCount}
+            currentUser={user?.username}
+            archived={archived}
+            isTemplate={isTemplate}
+          />
+          {description ? (
+            <p class="repo-home-description">{description}</p>
+          ) : (
+            <p class="repo-home-description-empty">
+              No description yet.
+            </p>
+          )}
+          <div class="repo-home-stat-row" aria-label="Repository stats">
+            <span class="repo-home-stat" title="Default branch">
+              <span class="repo-home-stat-icon">{"⎇"}</span>
+              <strong>{defaultBranch}</strong>
+            </span>
+            <a
+              href={`/${owner}/${repo}/commits/${defaultBranch}`}
+              class="repo-home-stat"
+              title="Browse all branches"
+            >
+              <span class="repo-home-stat-icon">{"⊢"}</span>
+              <strong>{branches.length}</strong>{" "}
+              branch{branches.length === 1 ? "" : "es"}
+            </a>
+            <span class="repo-home-stat" title="Top-level entries">
+              <span class="repo-home-stat-icon">{"■"}</span>
+              <strong>{fileCount}</strong> file{fileCount === 1 ? "" : "s"}
+              {dirCount > 0 && (
+                <>
+                  {" · "}
+                  <strong>{dirCount}</strong> dir{dirCount === 1 ? "" : "s"}
+                </>
+              )}
+            </span>
+            {pushedAt && (
+              <span class="repo-home-stat" title={`Last push: ${pushedAt.toISOString()}`}>
+                <span class="repo-home-stat-icon">{"↻"}</span>
+                Updated <strong>{formatRelative(pushedAt)}</strong>
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
       {isTemplate && user && user.username !== owner && (
         <div
           class="panel"
@@ -646,32 +1119,237 @@ git push -u gluecron main`}</pre>
         </div>
       )}
       <RepoNav owner={owner} repo={repo} active="code" />
-      <BranchSwitcher
-        owner={owner}
-        repo={repo}
-        currentRef={defaultBranch}
-        branches={branches}
-        pathType="tree"
-      />
-      <FileTable
-        entries={tree}
-        owner={owner}
-        repo={repo}
-        ref={defaultBranch}
-        path=""
-      />
-      {readme && (() => {
-        const readmeHtml = renderMarkdown(readme);
-        return (
-          <div class="blob-view" style="margin-top: 20px">
-            <div class="blob-header">README.md</div>
-            <style>{markdownCss}</style>
-            <div class="markdown-body">
-              {html([readmeHtml] as unknown as TemplateStringsArray)}
+      <div class="repo-home-grid">
+        <div class="repo-home-main">
+          <BranchSwitcher
+            owner={owner}
+            repo={repo}
+            currentRef={defaultBranch}
+            branches={branches}
+            pathType="tree"
+          />
+          <FileTable
+            entries={tree}
+            owner={owner}
+            repo={repo}
+            ref={defaultBranch}
+            path=""
+          />
+          {readme && (() => {
+            const readmeHtml = renderMarkdown(readme);
+            return (
+              <div class="repo-home-readme">
+                <div class="repo-home-readme-head">
+                  <span class="repo-home-readme-icon">{"☰"}</span>
+                  <span>README.md</span>
+                </div>
+                <style>{markdownCss}</style>
+                <div class="markdown-body repo-home-readme-body">
+                  {html([readmeHtml] as unknown as TemplateStringsArray)}
+                </div>
+              </div>
+            );
+          })()}
+        </div>
+        <aside class="repo-home-side" aria-label="Repository details">
+          <div class="repo-home-clone">
+            <div class="repo-home-clone-tabs" role="tablist" aria-label="Clone protocol">
+              <button
+                type="button"
+                class="repo-home-clone-tab"
+                role="tab"
+                aria-selected="true"
+                data-pane="https"
+                data-repo-home-clone-tab
+              >
+                HTTPS
+              </button>
+              <button
+                type="button"
+                class="repo-home-clone-tab"
+                role="tab"
+                aria-selected="false"
+                data-pane="ssh"
+                data-repo-home-clone-tab
+              >
+                SSH
+              </button>
+              <button
+                type="button"
+                class="repo-home-clone-tab"
+                role="tab"
+                aria-selected="false"
+                data-pane="cli"
+                data-repo-home-clone-tab
+              >
+                CLI
+              </button>
+            </div>
+            <div
+              class="repo-home-clone-pane"
+              data-pane="https"
+              data-active="true"
+              role="tabpanel"
+            >
+              <div class="repo-home-clone-body">
+                <input
+                  class="repo-home-clone-input"
+                  type="text"
+                  value={cloneHttpsUrl}
+                  readonly
+                  aria-label="HTTPS clone URL"
+                  data-repo-home-clone-input
+                />
+                <button
+                  type="button"
+                  class="repo-home-clone-copy"
+                  data-repo-home-copy={cloneHttpsUrl}
+                >
+                  Copy
+                </button>
+              </div>
+            </div>
+            <div
+              class="repo-home-clone-pane"
+              data-pane="ssh"
+              data-active="false"
+              role="tabpanel"
+            >
+              <div class="repo-home-clone-body">
+                <input
+                  class="repo-home-clone-input"
+                  type="text"
+                  value={cloneSshUrl}
+                  readonly
+                  aria-label="SSH clone URL"
+                  data-repo-home-clone-input
+                />
+                <button
+                  type="button"
+                  class="repo-home-clone-copy"
+                  data-repo-home-copy={cloneSshUrl}
+                >
+                  Copy
+                </button>
+              </div>
+            </div>
+            <div
+              class="repo-home-clone-pane"
+              data-pane="cli"
+              data-active="false"
+              role="tabpanel"
+            >
+              <div class="repo-home-clone-body">
+                <input
+                  class="repo-home-clone-input"
+                  type="text"
+                  value={cloneCliCmd}
+                  readonly
+                  aria-label="Gluecron CLI clone command"
+                  data-repo-home-clone-input
+                />
+                <button
+                  type="button"
+                  class="repo-home-clone-copy"
+                  data-repo-home-copy={cloneCliCmd}
+                >
+                  Copy
+                </button>
+              </div>
             </div>
           </div>
-        );
-      })()}
+          <div class="repo-home-side-card">
+            <h3 class="repo-home-side-title">About</h3>
+            <div class="repo-home-side-row">
+              <span class="repo-home-side-key">Default branch</span>
+              <span class="repo-home-side-val">{defaultBranch}</span>
+            </div>
+            <div class="repo-home-side-row">
+              <span class="repo-home-side-key">Branches</span>
+              <span class="repo-home-side-val">
+                <a href={`/${owner}/${repo}/commits/${defaultBranch}`}>
+                  {branches.length}
+                </a>
+              </span>
+            </div>
+            <div class="repo-home-side-row">
+              <span class="repo-home-side-key">Stars</span>
+              <span class="repo-home-side-val">{starCount}</span>
+            </div>
+            <div class="repo-home-side-row">
+              <span class="repo-home-side-key">Forks</span>
+              <span class="repo-home-side-val">{forkCount}</span>
+            </div>
+            {pushedAt && (
+              <div class="repo-home-side-row">
+                <span class="repo-home-side-key">Last push</span>
+                <span class="repo-home-side-val">
+                  {formatRelative(pushedAt)}
+                </span>
+              </div>
+            )}
+            {createdAt && (
+              <div class="repo-home-side-row">
+                <span class="repo-home-side-key">Created</span>
+                <span class="repo-home-side-val">
+                  {formatRelative(createdAt)}
+                </span>
+              </div>
+            )}
+            {(archived || isTemplate) && (
+              <div class="repo-home-side-row">
+                <span class="repo-home-side-key">State</span>
+                <span class="repo-home-side-val">
+                  {archived ? "Archived" : "Template"}
+                </span>
+              </div>
+            )}
+          </div>
+        </aside>
+      </div>
+      <script
+        dangerouslySetInnerHTML={{
+          __html: `
+            (function(){
+              var tabs = document.querySelectorAll('[data-repo-home-clone-tab]');
+              tabs.forEach(function(tab){
+                tab.addEventListener('click', function(){
+                  var target = tab.getAttribute('data-pane');
+                  tabs.forEach(function(t){
+                    t.setAttribute('aria-selected', t === tab ? 'true' : 'false');
+                  });
+                  var panes = document.querySelectorAll('.repo-home-clone-pane');
+                  panes.forEach(function(p){
+                    p.setAttribute('data-active', p.getAttribute('data-pane') === target ? 'true' : 'false');
+                  });
+                });
+              });
+              var copyBtns = document.querySelectorAll('[data-repo-home-copy]');
+              copyBtns.forEach(function(btn){
+                btn.addEventListener('click', function(){
+                  var text = btn.getAttribute('data-repo-home-copy') || '';
+                  var done = function(){
+                    var prev = btn.textContent;
+                    btn.textContent = 'Copied';
+                    setTimeout(function(){ btn.textContent = prev; }, 1200);
+                  };
+                  if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(text).then(done, done);
+                  } else {
+                    var ta = document.createElement('textarea');
+                    ta.value = text;
+                    document.body.appendChild(ta);
+                    ta.select();
+                    try { document.execCommand('copy'); } catch (e) {}
+                    document.body.removeChild(ta);
+                    done();
+                  }
+                });
+              });
+            })();
+          `,
+        }}
+      />
     </Layout>
   );
 });

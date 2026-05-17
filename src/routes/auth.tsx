@@ -55,7 +55,11 @@ auth.get("/register", softAuth, (c) => {
   return c.html(
     <Layout title="Register" user={null}>
       <div class="auth-container">
-        <h2>Create account</h2>
+        <h2>Create your account</h2>
+        <p class="auth-subtitle">
+          Get the full AI suite — code review, auto-merge, spec-to-PR — on
+          unlimited public repos. No credit card.
+        </p>
         {error && <div class="auth-error">{decodeURIComponent(error)}</div>}
         <Form method="post" action="/register" csrfToken={csrf}>
           <FormGroup label="Username" htmlFor="username">
@@ -302,7 +306,10 @@ auth.get("/login", softAuth, async (c) => {
   return c.html(
     <Layout title="Sign in" user={null}>
       <div class="auth-container">
-        <h2>Sign in</h2>
+        <h2>Welcome back</h2>
+        <p class="auth-subtitle">
+          Sign in to your gluecron account.
+        </p>
         {error && <div class="auth-error">{decodeURIComponent(error)}</div>}
         {success && (
           <div class="auth-success">{decodeURIComponent(success)}</div>

@@ -1777,25 +1777,63 @@ const css = `
   /* Auth (register / login / verify)                             */
   /* ============================================================ */
   .auth-container {
-    max-width: 420px;
-    margin: 64px auto;
-    padding: 32px;
+    /* 2026 polish — wider, more generous, with a subtle accent-glow
+       border and gradient top-edge so it reads as a premium product
+       gateway, not a stock form. The 480px width feels intentional
+       (not cramped, not endless). */
+    max-width: 480px;
+    margin: 72px auto;
+    padding: 40px 40px 36px;
     background: var(--bg-elevated);
     border: 1px solid var(--border);
-    border-radius: var(--r-lg);
-    box-shadow: var(--elev-2);
+    border-radius: 16px;
+    box-shadow:
+      var(--elev-2),
+      0 24px 64px -16px rgba(140, 109, 255, 0.12);
+    position: relative;
+    overflow: hidden;
+  }
+  .auth-container::before {
+    /* Hairline gradient accent on the top edge — signals 'AI-native'
+       without shouting. Pointer-events disabled so it never interferes
+       with form interactions. */
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent 0%, #8c6dff 30%, #36c5d6 70%, transparent 100%);
+    opacity: 0.7;
+    pointer-events: none;
   }
   .auth-container h2 {
-    margin-bottom: 6px;
-    font-size: var(--t-lg);
-    letter-spacing: -0.02em;
+    margin: 0 0 8px;
+    font-size: 28px;
+    font-weight: 700;
+    font-family: var(--font-display);
+    letter-spacing: -0.025em;
+    color: var(--text-strong);
+    line-height: 1.15;
+  }
+  .auth-container .auth-subtitle {
+    color: var(--text-muted);
+    font-size: 14.5px;
+    line-height: 1.5;
+    margin: 0 0 24px;
   }
   .auth-container > p {
     color: var(--text-muted);
     font-size: var(--t-sm);
     margin-bottom: 24px;
   }
-  .auth-container .btn-primary { width: 100%; padding: 10px 16px; }
+  .auth-container .btn-primary {
+    width: 100%;
+    padding: 12px 16px;
+    font-size: 15px;
+    font-weight: 600;
+    margin-top: 4px;
+  }
   .auth-error {
     background: rgba(248,113,113,0.08);
     border: 1px solid rgba(248,113,113,0.35);

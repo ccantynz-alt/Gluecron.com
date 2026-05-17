@@ -95,7 +95,8 @@
       "src/__tests__/**",
       "scripts/**",
       "cli/**",
-      "vscode-extension/**"
+      "vscode-extension/**",
+      ".claude/worktrees/**"
     ]
   }
 }

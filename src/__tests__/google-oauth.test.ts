@@ -115,7 +115,7 @@ describe("google-oauth — exchangeGoogleCode + fetchGoogleUserinfo", () => {
         JSON.stringify({ access_token: "tok-1", id_token: "id-1" }),
         { status: 200, headers: { "content-type": "application/json" } }
       );
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
 
     const result = await exchangeGoogleCode(
       {
@@ -146,7 +146,7 @@ describe("google-oauth — exchangeGoogleCode + fetchGoogleUserinfo", () => {
           picture: "https://lh.example/avatar.jpg",
         }),
         { status: 200, headers: { "content-type": "application/json" } }
-      )) as typeof fetch;
+      )) as unknown as typeof fetch;
 
     const info = await fetchGoogleUserinfo(
       { userinfoEndpoint: "https://openidconnect.googleapis.com/v1/userinfo" },
@@ -170,7 +170,7 @@ describe("google-oauth — exchangeGoogleCode + fetchGoogleUserinfo", () => {
           picture: null,
         }),
         { status: 200, headers: { "content-type": "application/json" } }
-      )) as typeof fetch;
+      )) as unknown as typeof fetch;
 
     const info = await fetchGoogleUserinfo(
       { userinfoEndpoint: "https://openidconnect.googleapis.com/v1/userinfo" },

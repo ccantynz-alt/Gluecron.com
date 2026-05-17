@@ -236,18 +236,140 @@ dashboard.get("/dashboard", requireAuth, async (c) => {
           </form>
         </div>
       )}
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px">
-        <div>
-          <h1 style="font-size: 28px; margin-bottom: 4px">Command Center</h1>
-          <p style="color: var(--text-muted); font-size: 14px">
-            Real-time overview of all your repositories
-          </p>
+      <div class="dash-hero">
+        <div class="dash-hero-bg" aria-hidden="true">
+          <div class="dash-hero-orb" />
         </div>
-        <div style="display: flex; gap: var(--space-2)">
-          <a href="/new" class="btn btn-primary">+ New repo</a>
-          <a href="/settings" class="btn">Settings</a>
+        <div class="dash-hero-inner">
+          <div class="dash-hero-text">
+            <div class="dash-hero-eyebrow">
+              {(() => {
+                const hour = new Date().getHours();
+                if (hour < 5) return "Late night,";
+                if (hour < 12) return "Good morning,";
+                if (hour < 17) return "Good afternoon,";
+                if (hour < 21) return "Good evening,";
+                return "Late night,";
+              })()}{" "}
+              <span class="dash-hero-username">{user.username}</span>
+            </div>
+            <h1 class="dash-hero-title">
+              Your{" "}
+              <span class="gradient-text">command center</span>.
+            </h1>
+            <p class="dash-hero-sub">
+              {repos.length === 0
+                ? "Create your first repository to start shipping with AI."
+                : `${repos.length} repo${repos.length === 1 ? "" : "s"} · real-time health, AI activity, and gate status across everything you own.`}
+            </p>
+          </div>
+          <div class="dash-hero-actions">
+            <a href="/new" class="btn btn-primary">+ New repo</a>
+            <a href="/import" class="btn">Import from GitHub</a>
+            <a href="/settings" class="btn">Settings</a>
+          </div>
         </div>
       </div>
+      <style
+        dangerouslySetInnerHTML={{
+          __html: `
+            .dash-hero {
+              position: relative;
+              margin-bottom: var(--space-6);
+              padding: var(--space-5) var(--space-6) var(--space-5);
+              background: var(--bg-elevated);
+              border: 1px solid var(--border);
+              border-radius: 16px;
+              overflow: hidden;
+            }
+            .dash-hero::before {
+              content: '';
+              position: absolute;
+              top: 0; left: 0; right: 0;
+              height: 2px;
+              background: linear-gradient(90deg, transparent 0%, #8c6dff 30%, #36c5d6 70%, transparent 100%);
+              opacity: 0.7;
+              pointer-events: none;
+            }
+            .dash-hero-bg {
+              position: absolute;
+              inset: -20% -10% auto auto;
+              width: 380px;
+              height: 380px;
+              pointer-events: none;
+              z-index: 0;
+            }
+            .dash-hero-orb {
+              position: absolute;
+              inset: 0;
+              background: radial-gradient(circle, rgba(140,109,255,0.20), rgba(54,197,214,0.10) 45%, transparent 70%);
+              filter: blur(80px);
+              opacity: 0.7;
+              animation: dashHeroOrb 14s ease-in-out infinite;
+            }
+            @keyframes dashHeroOrb {
+              0%, 100% { transform: scale(1) translate(0, 0); opacity: 0.6; }
+              50%      { transform: scale(1.1) translate(-10px, 8px); opacity: 0.8; }
+            }
+            @media (prefers-reduced-motion: reduce) {
+              .dash-hero-orb { animation: none; }
+            }
+            .dash-hero-inner {
+              position: relative;
+              z-index: 1;
+              display: flex;
+              justify-content: space-between;
+              align-items: flex-end;
+              gap: var(--space-4);
+              flex-wrap: wrap;
+            }
+            .dash-hero-text { flex: 1; min-width: 280px; }
+            .dash-hero-eyebrow {
+              font-size: 13px;
+              color: var(--text-muted);
+              margin-bottom: var(--space-2);
+              letter-spacing: -0.005em;
+            }
+            .dash-hero-username {
+              color: var(--accent);
+              font-weight: 600;
+            }
+            .dash-hero-title {
+              font-size: clamp(28px, 4vw, 40px);
+              font-family: var(--font-display);
+              font-weight: 800;
+              letter-spacing: -0.028em;
+              line-height: 1.05;
+              margin: 0 0 var(--space-2);
+              color: var(--text-strong);
+            }
+            .dash-hero-title .gradient-text {
+              background-image: linear-gradient(135deg, #a48bff 0%, #8c6dff 50%, #36c5d6 100%);
+              -webkit-background-clip: text;
+              background-clip: text;
+              -webkit-text-fill-color: transparent;
+              color: transparent;
+            }
+            .dash-hero-sub {
+              font-size: 15px;
+              color: var(--text-muted);
+              margin: 0;
+              line-height: 1.5;
+              max-width: 580px;
+            }
+            .dash-hero-actions {
+              display: flex;
+              gap: var(--space-2);
+              flex-wrap: wrap;
+            }
+            @media (max-width: 720px) {
+              .dash-hero-inner { flex-direction: column; align-items: flex-start; }
+              .dash-hero-actions { width: 100%; }
+              .dash-hero-actions .btn { flex: 1; min-width: 0; }
+            }
+          `,
+        }}
+      />
 
       {/* ─── L9: AI hours-saved hero widget ─── */}
       <AiHoursSavedWidget week={savingsWeek} lifetime={savingsLifetime} />

@@ -63,6 +63,930 @@ const web = new Hono<AuthEnv>();
 // Soft auth on all web routes — c.get("user") available but may be null
 web.use("*", softAuth);
 
+/**
+ * Shared CSS for the polished code-browse surfaces (parallel session 3.E).
+ *
+ * Inlined here rather than in `src/views/layout.tsx` because session 3.E's
+ * scope is route-local and `layout.tsx` is locked. Each polished handler
+ * injects this via a `<style>` tag; the rules are namespaced by surface
+ * prefix (`.new-repo-*`, `.profile-*`, `.tree-*`, `.blob-*`, `.commits-*`,
+ * `.commit-detail-*`, `.blame-*`, `.search-*`) so nothing bleeds into the
+ * `.repo-home-*` styling Agent A already shipped.
+ */
+const codeBrowseCss = `
+  /* ───────── shared primitives ───────── */
+  .cb-hairline::before,
+  .new-repo-hero::before,
+  .profile-hero::before,
+  .commits-hero::before,
+  .commit-detail-card::before,
+  .search-hero::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent 0%, #8c6dff 30%, #36c5d6 70%, transparent 100%);
+    opacity: 0.7;
+    pointer-events: none;
+  }
+  @keyframes cbHeroOrb {
+    0%, 100% { transform: scale(1) translate(0, 0); opacity: 0.55; }
+    50%      { transform: scale(1.1) translate(-10px, 8px); opacity: 0.8; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .new-repo-hero-orb,
+    .profile-hero-orb,
+    .commits-hero-orb { animation: none; }
+  }
+
+  /* ───────── new-repo ───────── */
+  .new-repo-hero {
+    position: relative;
+    margin-bottom: var(--space-5);
+    padding: var(--space-5) var(--space-6);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+  .new-repo-hero-orb-wrap {
+    position: absolute;
+    inset: -25% -10% auto auto;
+    width: 360px;
+    height: 360px;
+    pointer-events: none;
+    z-index: 0;
+  }
+  .new-repo-hero-orb {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle, rgba(140,109,255,0.18), rgba(54,197,214,0.09) 45%, transparent 70%);
+    filter: blur(80px);
+    opacity: 0.7;
+    animation: cbHeroOrb 14s ease-in-out infinite;
+  }
+  .new-repo-hero-inner { position: relative; z-index: 1; }
+  .new-repo-eyebrow {
+    font-size: 12px;
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: var(--space-2);
+  }
+  .new-repo-eyebrow strong { color: var(--accent); font-weight: 600; }
+  .new-repo-title {
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: -0.028em;
+    font-size: clamp(28px, 4vw, 40px);
+    line-height: 1.05;
+    margin: 0 0 var(--space-2);
+    color: var(--text-strong);
+  }
+  .new-repo-sub {
+    font-size: 15px;
+    color: var(--text-muted);
+    margin: 0;
+    line-height: 1.55;
+    max-width: 620px;
+  }
+  .new-repo-form {
+    max-width: 680px;
+  }
+  .new-repo-error {
+    background: rgba(218, 54, 51, 0.12);
+    border: 1px solid rgba(218, 54, 51, 0.35);
+    color: #ffb3b3;
+    padding: 10px 14px;
+    border-radius: 10px;
+    margin-bottom: var(--space-4);
+    font-size: 14px;
+  }
+  .new-repo-form-grid {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+  .new-repo-row { display: flex; flex-direction: column; gap: 6px; }
+  .new-repo-label {
+    font-size: 13px;
+    color: var(--text-strong);
+    font-weight: 600;
+  }
+  .new-repo-label-optional {
+    color: var(--text-muted);
+    font-weight: 400;
+    font-size: 12px;
+  }
+  .new-repo-input {
+    appearance: none;
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text-strong);
+    border-radius: 10px;
+    padding: 10px 12px;
+    font-size: 14px;
+    font-family: inherit;
+    transition: border-color var(--t-fast, 0.15s) ease, box-shadow var(--t-fast, 0.15s) ease;
+  }
+  .new-repo-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(140,109,255,0.18);
+  }
+  .new-repo-input-disabled {
+    color: var(--text-muted);
+    background: var(--bg-secondary);
+    cursor: not-allowed;
+  }
+  .new-repo-hint {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin: 4px 0 0;
+  }
+  .new-repo-hint code {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 1px 5px;
+    color: var(--text-strong);
+  }
+  .new-repo-visibility {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-2);
+  }
+  @media (max-width: 600px) {
+    .new-repo-visibility { grid-template-columns: 1fr; }
+  }
+  .new-repo-vis-card {
+    display: flex;
+    gap: 10px;
+    padding: 14px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    cursor: pointer;
+    transition: border-color var(--t-fast, 0.15s) ease, background var(--t-fast, 0.15s) ease;
+  }
+  .new-repo-vis-card:hover { border-color: var(--border-strong, var(--border)); }
+  .new-repo-vis-card:has(input:checked) {
+    border-color: rgba(140,109,255,0.55);
+    background: rgba(140,109,255,0.06);
+    box-shadow: 0 0 0 1px rgba(140,109,255,0.25);
+  }
+  .new-repo-vis-radio {
+    margin-top: 3px;
+    accent-color: var(--accent);
+  }
+  .new-repo-vis-body { display: flex; flex-direction: column; gap: 4px; }
+  .new-repo-vis-label {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-strong);
+  }
+  .new-repo-vis-desc {
+    font-size: 12.5px;
+    color: var(--text-muted);
+    line-height: 1.45;
+  }
+  .new-repo-callout {
+    margin-top: var(--space-2);
+    padding: var(--space-3) var(--space-4);
+    background: var(--accent-gradient-faint, rgba(140,109,255,0.06));
+    border: 1px solid rgba(140,109,255,0.2);
+    border-radius: 12px;
+  }
+  .new-repo-callout-eyebrow {
+    font-size: 11px;
+    font-family: var(--font-mono);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--accent);
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+  .new-repo-callout-body {
+    font-size: 13px;
+    color: var(--text);
+    line-height: 1.5;
+    margin: 0;
+  }
+  .new-repo-callout-body code {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--accent);
+    background: rgba(140,109,255,0.1);
+    border-radius: 4px;
+    padding: 1px 5px;
+  }
+  .new-repo-actions {
+    display: flex;
+    gap: var(--space-2);
+    margin-top: var(--space-2);
+  }
+  .new-repo-submit { min-width: 180px; }
+
+  /* ───────── profile ───────── */
+  .profile-hero {
+    position: relative;
+    margin-bottom: var(--space-5);
+    padding: var(--space-5) var(--space-6);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+  .profile-hero-orb-wrap {
+    position: absolute;
+    inset: -25% -10% auto auto;
+    width: 360px;
+    height: 360px;
+    pointer-events: none;
+    z-index: 0;
+  }
+  .profile-hero-orb {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle, rgba(140,109,255,0.18), rgba(54,197,214,0.09) 45%, transparent 70%);
+    filter: blur(80px);
+    opacity: 0.7;
+    animation: cbHeroOrb 14s ease-in-out infinite;
+  }
+  .profile-hero-inner {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-5);
+  }
+  .profile-hero-avatar {
+    flex: 0 0 auto;
+    width: 88px;
+    height: 88px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #8c6dff 0%, #36c5d6 100%);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 38px;
+    font-weight: 700;
+    font-family: var(--font-display);
+    box-shadow: 0 8px 24px -8px rgba(140,109,255,0.55);
+  }
+  .profile-hero-text { flex: 1; min-width: 0; }
+  .profile-eyebrow {
+    font-size: 12px;
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: var(--space-2);
+  }
+  .profile-eyebrow strong { color: var(--accent); font-weight: 600; }
+  .profile-name {
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: -0.028em;
+    font-size: clamp(28px, 3.6vw, 36px);
+    line-height: 1.05;
+    margin: 0 0 4px;
+    color: var(--text-strong);
+  }
+  .profile-handle {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-bottom: var(--space-2);
+  }
+  .profile-bio {
+    font-size: 14.5px;
+    color: var(--text);
+    line-height: 1.55;
+    margin: 0 0 var(--space-3);
+    max-width: 640px;
+  }
+  .profile-meta {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    flex-wrap: wrap;
+    font-size: 13px;
+  }
+  .profile-meta-link {
+    color: var(--text-muted);
+    transition: color var(--t-fast, 0.15s) ease;
+  }
+  .profile-meta-link:hover { color: var(--accent); text-decoration: none; }
+  .profile-meta-link strong {
+    color: var(--text-strong);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .profile-follow-form { margin: 0; }
+  @media (max-width: 600px) {
+    .profile-hero-inner { flex-direction: column; align-items: flex-start; gap: var(--space-3); }
+    .profile-hero-avatar { width: 64px; height: 64px; font-size: 28px; }
+  }
+  .profile-readme {
+    margin-bottom: var(--space-6);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .profile-readme-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+  .profile-readme-icon { color: var(--accent); font-size: 14px; }
+  .profile-readme-body { padding: var(--space-5) var(--space-6); }
+  .profile-section-head {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    margin-bottom: var(--space-3);
+  }
+  .profile-section-title {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 20px;
+    letter-spacing: -0.015em;
+    margin: 0;
+    color: var(--text-strong);
+  }
+  .profile-section-count {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-muted);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 2px 10px;
+    font-variant-numeric: tabular-nums;
+  }
+  .profile-empty {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: var(--space-4) var(--space-5);
+    background: var(--bg-elevated);
+    border: 1px dashed var(--border);
+    border-radius: 12px;
+  }
+  .profile-empty-text { color: var(--text-muted); font-size: 14px; margin: 0; }
+
+  /* ───────── tree (file browser) ───────── */
+  .tree-header {
+    margin-bottom: var(--space-3);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+  .tree-header-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+  }
+  .tree-header-stats {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+  .tree-stat strong {
+    color: var(--text-strong);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .tree-stat-link {
+    color: var(--text-muted);
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--bg-elevated);
+    transition: color var(--t-fast, 0.15s) ease, border-color var(--t-fast, 0.15s) ease;
+  }
+  .tree-stat-link:hover {
+    color: var(--accent);
+    border-color: rgba(140,109,255,0.45);
+    text-decoration: none;
+  }
+  .tree-breadcrumb-row {
+    font-size: 13px;
+  }
+
+  /* ───────── blob (file viewer) ───────── */
+  .blob-toolbar {
+    margin-bottom: var(--space-3);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+  .blob-breadcrumb { font-size: 13px; }
+  .blob-card {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .blob-header-polished {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: 10px 14px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border);
+  }
+  .blob-header-meta {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+    flex: 1;
+  }
+  .blob-header-icon { font-size: 14px; opacity: 0.85; }
+  .blob-header-name {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--text-strong);
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .blob-header-size {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+    border-left: 1px solid var(--border);
+    padding-left: var(--space-2);
+    margin-left: 2px;
+  }
+  .blob-header-actions {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+  .blob-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 12px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    transition: color var(--t-fast, 0.15s) ease, border-color var(--t-fast, 0.15s) ease, background var(--t-fast, 0.15s) ease;
+  }
+  .blob-pill:hover {
+    color: var(--accent);
+    border-color: rgba(140,109,255,0.45);
+    text-decoration: none;
+    background: rgba(140,109,255,0.06);
+  }
+  .blob-pill-accent {
+    color: var(--accent);
+    border-color: rgba(140,109,255,0.35);
+    background: rgba(140,109,255,0.08);
+  }
+  .blob-pill-accent:hover {
+    background: rgba(140,109,255,0.14);
+  }
+  .blob-binary {
+    padding: var(--space-5);
+    color: var(--text-muted);
+    text-align: center;
+    font-size: 13px;
+    background: var(--bg);
+  }
+
+  /* ───────── commits list ───────── */
+  .commits-hero {
+    position: relative;
+    margin-bottom: var(--space-4);
+    padding: var(--space-5) var(--space-6);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+  .commits-hero-orb-wrap {
+    position: absolute;
+    inset: -25% -10% auto auto;
+    width: 320px;
+    height: 320px;
+    pointer-events: none;
+    z-index: 0;
+  }
+  .commits-hero-orb {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle, rgba(140,109,255,0.16), rgba(54,197,214,0.08) 45%, transparent 70%);
+    filter: blur(80px);
+    opacity: 0.7;
+    animation: cbHeroOrb 14s ease-in-out infinite;
+  }
+  .commits-hero-inner { position: relative; z-index: 1; }
+  .commits-eyebrow {
+    font-size: 12px;
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: var(--space-2);
+  }
+  .commits-eyebrow strong { color: var(--accent); font-weight: 600; }
+  .commits-title {
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: -0.025em;
+    font-size: clamp(22px, 3vw, 30px);
+    line-height: 1.15;
+    margin: 0 0 var(--space-2);
+    color: var(--text-strong);
+  }
+  .commits-branch {
+    font-family: var(--font-mono);
+    font-size: 0.7em;
+    color: var(--text);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 2px 8px;
+    font-weight: 500;
+    vertical-align: middle;
+  }
+  .commits-sub {
+    font-size: 14px;
+    color: var(--text-muted);
+    margin: 0;
+    line-height: 1.55;
+    max-width: 640px;
+  }
+  .commits-toolbar { margin-bottom: var(--space-3); }
+  .commits-list-wrap {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .commits-empty {
+    padding: var(--space-6);
+    text-align: center;
+    color: var(--text-muted);
+    background: var(--bg-elevated);
+    border: 1px dashed var(--border);
+    border-radius: 12px;
+  }
+
+  /* ───────── commit detail ───────── */
+  .commit-detail-card {
+    position: relative;
+    margin-bottom: var(--space-5);
+    padding: var(--space-5) var(--space-5);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+  }
+  .commit-detail-eyebrow {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: 12px;
+    font-family: var(--font-mono);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-muted);
+    margin-bottom: var(--space-2);
+  }
+  .commit-detail-eyebrow strong { color: var(--accent); font-weight: 600; }
+  .commit-detail-sha-pill {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--text-strong);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 2px 10px;
+    letter-spacing: 0.04em;
+  }
+  .commit-detail-verify {
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 700;
+    color: #fff;
+  }
+  .commit-detail-verify-ok {
+    background: linear-gradient(135deg, #2ea043, #34d399);
+  }
+  .commit-detail-verify-warn {
+    background: linear-gradient(135deg, #d29922, #f59e0b);
+  }
+  .commit-detail-title {
+    font-family: var(--font-display);
+    font-weight: 700;
+    letter-spacing: -0.018em;
+    font-size: clamp(20px, 2.5vw, 26px);
+    line-height: 1.25;
+    margin: 0 0 var(--space-2);
+    color: var(--text-strong);
+  }
+  .commit-detail-body {
+    white-space: pre-wrap;
+    color: var(--text-muted);
+    font-size: 14px;
+    line-height: 1.55;
+    margin: 0 0 var(--space-3);
+    font-family: var(--font-mono);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: var(--space-3) var(--space-4);
+    max-height: 280px;
+    overflow: auto;
+  }
+  .commit-detail-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-bottom: var(--space-3);
+  }
+  .commit-detail-author strong { color: var(--text-strong); font-weight: 600; }
+  .commit-detail-parents { font-size: 13px; color: var(--text-muted); }
+  .commit-detail-sha-link {
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    color: var(--accent);
+    background: rgba(140,109,255,0.08);
+    border-radius: 6px;
+    padding: 1px 6px;
+    margin-left: 2px;
+  }
+  .commit-detail-sha-link:hover { background: rgba(140,109,255,0.16); text-decoration: none; }
+  .commit-detail-stats {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--border);
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+  .commit-detail-stat {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-variant-numeric: tabular-nums;
+  }
+  .commit-detail-stat strong { color: var(--text-strong); font-weight: 600; }
+  .commit-detail-stat-add strong { color: #34d399; }
+  .commit-detail-stat-del strong { color: #f87171; }
+  .commit-detail-stat-mark {
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: 14px;
+  }
+  .commit-detail-stat-add .commit-detail-stat-mark { color: #34d399; }
+  .commit-detail-stat-del .commit-detail-stat-mark { color: #f87171; }
+  .commit-detail-sha-full {
+    margin-left: auto;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--text-faint);
+    letter-spacing: 0.02em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100%;
+  }
+  .commit-detail-checks {
+    margin-top: var(--space-3);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--border);
+  }
+  .commit-detail-checks-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+  }
+  .commit-detail-checks-head strong { color: var(--text-strong); font-weight: 600; }
+  .commit-detail-check-state-success { color: #34d399; font-weight: 600; }
+  .commit-detail-check-state-failure { color: #f87171; font-weight: 600; }
+  .commit-detail-check-state-pending { color: #d29922; font-weight: 600; }
+  .commit-detail-check-row { display: flex; flex-wrap: wrap; gap: 6px; }
+  .commit-detail-check {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    color: #fff;
+    font-weight: 500;
+  }
+  .commit-detail-check a { color: inherit; text-decoration: none; }
+  .commit-detail-check-success { background: #2ea043; }
+  .commit-detail-check-pending { background: #d29922; }
+  .commit-detail-check-failure { background: #da3633; }
+
+  /* ───────── blame ───────── */
+  .blame-toolbar {
+    margin-bottom: var(--space-3);
+    font-size: 13px;
+  }
+  .blame-card { background: var(--bg-elevated); }
+  .blame-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: 10px 14px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border);
+  }
+  .blame-header-meta {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+    flex-wrap: wrap;
+  }
+  .blame-header-icon { color: var(--accent); font-size: 14px; }
+  .blame-header-name {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--text-strong);
+    font-weight: 600;
+  }
+  .blame-header-tag {
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-family: var(--font-mono);
+    background: rgba(140,109,255,0.12);
+    color: var(--accent);
+    border-radius: 999px;
+    padding: 2px 8px;
+    font-weight: 600;
+  }
+  .blame-header-stats {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+    border-left: 1px solid var(--border);
+    padding-left: var(--space-2);
+  }
+  .blame-header-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+  /* ───────── search ───────── */
+  .search-hero {
+    position: relative;
+    margin-bottom: var(--space-4);
+    padding: var(--space-5) var(--space-6);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+  .search-eyebrow {
+    font-size: 12px;
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: var(--space-2);
+  }
+  .search-eyebrow strong { color: var(--accent); font-weight: 600; }
+  .search-title {
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: -0.025em;
+    font-size: clamp(22px, 3vw, 30px);
+    line-height: 1.15;
+    margin: 0 0 var(--space-3);
+    color: var(--text-strong);
+  }
+  .search-form {
+    display: flex;
+    gap: var(--space-2);
+    align-items: stretch;
+  }
+  .search-input-wrap {
+    position: relative;
+    flex: 1;
+    display: flex;
+    align-items: center;
+  }
+  .search-input-icon {
+    position: absolute;
+    left: 12px;
+    color: var(--text-muted);
+    font-size: 15px;
+    pointer-events: none;
+  }
+  .search-input {
+    appearance: none;
+    width: 100%;
+    padding: 10px 12px 10px 34px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text-strong);
+    font-size: 14px;
+    font-family: inherit;
+    transition: border-color var(--t-fast, 0.15s) ease, box-shadow var(--t-fast, 0.15s) ease;
+  }
+  .search-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(140,109,255,0.18);
+  }
+  .search-submit { min-width: 96px; }
+  .search-results-head {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    margin-bottom: var(--space-3);
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+  .search-results-count strong {
+    color: var(--text-strong);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .search-results-q { color: var(--text-strong); font-weight: 600; }
+  .search-results-head code {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 1px 6px;
+    color: var(--text);
+  }
+  .search-empty {
+    padding: var(--space-5) var(--space-6);
+    background: var(--bg-elevated);
+    border: 1px dashed var(--border);
+    border-radius: 12px;
+    color: var(--text-muted);
+    font-size: 14px;
+  }
+  .search-empty strong { color: var(--text-strong); }
+  .search-results {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+  .search-file-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+  }
+  .search-file-link {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--text-strong);
+    font-weight: 600;
+  }
+  .search-file-link:hover { color: var(--accent); text-decoration: none; }
+  .search-file-count {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+`;
+
 // Home page
 web.get("/", async (c) => {
   const user = c.get("user");
@@ -162,16 +1086,45 @@ web.get("/new", requireAuth, (c) => {
 
   return c.html(
     <Layout title="New repository" user={user}>
-      <div class="new-repo-form">
-        <h2>Create a new repository</h2>
-        {error && <div class="auth-error">{decodeURIComponent(error)}</div>}
-        <form method="post" action="/new">
-          <div class="form-group">
-            <label>Owner</label>
-            <input type="text" value={user.username} disabled aria-label="Owner" class="input-disabled" />
+      <style dangerouslySetInnerHTML={{ __html: codeBrowseCss }} />
+      <div class="new-repo-hero">
+        <div class="new-repo-hero-orb-wrap" aria-hidden="true">
+          <div class="new-repo-hero-orb" />
+        </div>
+        <div class="new-repo-hero-inner">
+          <div class="new-repo-eyebrow">
+            <strong>Create</strong> · {user.username}
           </div>
-          <div class="form-group">
-            <label for="name">Repository name</label>
+          <h1 class="new-repo-title">
+            Spin up a <span class="gradient-text">repository</span>.
+          </h1>
+          <p class="new-repo-sub">
+            Push your first commit, and Gluecron wires up gate checks, AI review,
+            and auto-merge from the moment your branch lands.
+          </p>
+        </div>
+      </div>
+      <div class="new-repo-form">
+        {error && (
+          <div class="new-repo-error" role="alert">
+            {decodeURIComponent(error)}
+          </div>
+        )}
+        <form method="post" action="/new" class="new-repo-form-grid">
+          <div class="new-repo-row">
+            <label class="new-repo-label">Owner</label>
+            <input
+              type="text"
+              value={user.username}
+              disabled
+              aria-label="Owner"
+              class="new-repo-input new-repo-input-disabled"
+            />
+          </div>
+          <div class="new-repo-row">
+            <label class="new-repo-label" for="name">
+              Repository name
+            </label>
             <input
               type="text"
               id="name"
@@ -180,32 +1133,77 @@ web.get("/new", requireAuth, (c) => {
               pattern="^[a-zA-Z0-9._-]+$"
               placeholder="my-project"
               autocomplete="off"
+              class="new-repo-input"
             />
+            <p class="new-repo-hint">
+              Lowercase, numbers, dots, dashes, and underscores. The URL will be{" "}
+              <code>{user.username}/&lt;name&gt;</code>.
+            </p>
           </div>
-          <div class="form-group">
-            <label for="description">Description (optional)</label>
+          <div class="new-repo-row">
+            <label class="new-repo-label" for="description">
+              Description{" "}
+              <span class="new-repo-label-optional">(optional)</span>
+            </label>
             <input
               type="text"
               id="description"
               name="description"
               placeholder="A short description of your repository"
+              class="new-repo-input"
             />
           </div>
-          <div class="visibility-options">
-            <label class="visibility-option">
-              <input type="radio" name="visibility" value="public" checked />
-              <div class="vis-label">Public</div>
-              <div class="vis-desc">Anyone can see this repository</div>
-            </label>
-            <label class="visibility-option">
-              <input type="radio" name="visibility" value="private" />
-              <div class="vis-label">Private</div>
-              <div class="vis-desc">Only you can see this repository</div>
-            </label>
+          <div class="new-repo-row">
+            <span class="new-repo-label">Visibility</span>
+            <div class="new-repo-visibility">
+              <label class="new-repo-vis-card">
+                <input
+                  type="radio"
+                  name="visibility"
+                  value="public"
+                  checked
+                  class="new-repo-vis-radio"
+                />
+                <span class="new-repo-vis-body">
+                  <span class="new-repo-vis-label">Public</span>
+                  <span class="new-repo-vis-desc">
+                    Anyone can see this repository. You choose who can commit.
+                  </span>
+                </span>
+              </label>
+              <label class="new-repo-vis-card">
+                <input
+                  type="radio"
+                  name="visibility"
+                  value="private"
+                  class="new-repo-vis-radio"
+                />
+                <span class="new-repo-vis-body">
+                  <span class="new-repo-vis-label">Private</span>
+                  <span class="new-repo-vis-desc">
+                    Only you (and collaborators you invite) can see this
+                    repository.
+                  </span>
+                </span>
+              </label>
+            </div>
           </div>
-          <button type="submit" class="btn btn-primary">
-            Create repository
-          </button>
+          <div class="new-repo-callout">
+            <div class="new-repo-callout-eyebrow">AI-native by default</div>
+            <p class="new-repo-callout-body">
+              Every push is gate-checked and reviewed by Claude automatically.
+              Label an issue <code>ai-build</code> and Gluecron will open the PR
+              for you.
+            </p>
+          </div>
+          <div class="new-repo-actions">
+            <button type="submit" class="btn btn-primary new-repo-submit">
+              Create repository
+            </button>
+            <a href="/dashboard" class="btn new-repo-cancel">
+              Cancel
+            </a>
+          </div>
         </form>
       </div>
     </Layout>
@@ -348,67 +1346,102 @@ web.get("/:owner", async (c) => {
     profileReadmeHtml = null;
   }
 
+  const displayName = ownerUser?.displayName || ownerName;
+  const memberSince = ownerUser?.createdAt
+    ? new Date(ownerUser.createdAt as unknown as string | number | Date)
+    : null;
+
   return c.html(
     <Layout title={ownerName} user={user}>
-      <div class="user-profile">
-        <div class="user-avatar">
-          {(ownerUser?.displayName || ownerName)[0].toUpperCase()}
+      <style dangerouslySetInnerHTML={{ __html: codeBrowseCss }} />
+      <div class="profile-hero">
+        <div class="profile-hero-orb-wrap" aria-hidden="true">
+          <div class="profile-hero-orb" />
         </div>
-        <div class="user-info">
-          <h2>{ownerUser?.displayName || ownerName}</h2>
-          <div class="username">@{ownerName}</div>
-          {ownerUser?.bio && <div class="bio">{ownerUser.bio}</div>}
-          <div
-            style="margin-top:var(--space-2);display:flex;gap:var(--space-3);align-items:center;flex-wrap:wrap;font-size:13px"
-          >
-            <a
-              href={`/${ownerName}/followers`}
-              style="color:var(--text-muted)"
-            >
-              <strong style="color:var(--text)">
-                {followState.followers}
-              </strong>{" "}
-              follower{followState.followers === 1 ? "" : "s"}
-            </a>
-            <a
-              href={`/${ownerName}/following`}
-              style="color:var(--text-muted)"
-            >
-              <strong style="color:var(--text)">
-                {followState.following}
-              </strong>{" "}
-              following
-            </a>
-            {canFollow && (
-              <form
-                method="post"
-                action={`/${ownerName}/${
-                  followState.viewerFollows ? "unfollow" : "follow"
-                }`}
-              >
-                <button
-                  type="submit"
-                  class={`btn ${
-                    followState.viewerFollows ? "" : "btn-primary"
-                  } btn-sm`}
+        <div class="profile-hero-inner">
+          <div class="profile-hero-avatar" aria-hidden="true">
+            {displayName[0].toUpperCase()}
+          </div>
+          <div class="profile-hero-text">
+            <div class="profile-eyebrow">
+              <strong>Developer</strong>
+              {memberSince && !Number.isNaN(memberSince.getTime()) && (
+                <>
+                  {" "}· Joined{" "}
+                  {memberSince.toLocaleDateString("en-US", {
+                    month: "short",
+                    year: "numeric",
+                  })}
+                </>
+              )}
+            </div>
+            <h1 class="profile-name">
+              <span class="gradient-text">{displayName}</span>
+            </h1>
+            <div class="profile-handle">@{ownerName}</div>
+            {ownerUser?.bio && <p class="profile-bio">{ownerUser.bio}</p>}
+            <div class="profile-meta">
+              <a href={`/${ownerName}/followers`} class="profile-meta-link">
+                <strong>{followState.followers}</strong> follower
+                {followState.followers === 1 ? "" : "s"}
+              </a>
+              <a href={`/${ownerName}/following`} class="profile-meta-link">
+                <strong>{followState.following}</strong> following
+              </a>
+              <a href={`/${ownerName}`} class="profile-meta-link">
+                <strong>{repos.length}</strong> repo
+                {repos.length === 1 ? "" : "s"}
+              </a>
+              {canFollow && (
+                <form
+                  method="post"
+                  action={`/${ownerName}/${
+                    followState.viewerFollows ? "unfollow" : "follow"
+                  }`}
+                  class="profile-follow-form"
                 >
-                  {followState.viewerFollows ? "Unfollow" : "Follow"}
-                </button>
-              </form>
-            )}
+                  <button
+                    type="submit"
+                    class={`btn ${
+                      followState.viewerFollows ? "" : "btn-primary"
+                    } btn-sm`}
+                  >
+                    {followState.viewerFollows ? "Unfollow" : "Follow"}
+                  </button>
+                </form>
+              )}
+            </div>
           </div>
         </div>
       </div>
       {profileReadmeHtml && (
-        <div
-          class="markdown-body"
-          style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius);padding:var(--space-5) var(--space-6);margin-bottom:var(--space-6)"
-          dangerouslySetInnerHTML={{ __html: profileReadmeHtml }}
-        />
+        <div class="profile-readme">
+          <div class="profile-readme-head">
+            <span class="profile-readme-icon">{"☰"}</span>
+            <span>{ownerName}/{ownerName} README.md</span>
+          </div>
+          <div
+            class="markdown-body profile-readme-body"
+            dangerouslySetInnerHTML={{ __html: profileReadmeHtml }}
+          />
+        </div>
       )}
-      <h3 style="margin-bottom: 16px">Repositories</h3>
+      <div class="profile-section-head">
+        <h2 class="profile-section-title">Repositories</h2>
+        <span class="profile-section-count">{repos.length}</span>
+      </div>
       {repos.length === 0 ? (
-        <p style="color: var(--text-muted)">No repositories yet.</p>
+        <div class="profile-empty">
+          <p class="profile-empty-text">
+            No repositories yet
+            {user?.id === ownerUser?.id ? "." : ` — ${ownerName} is just getting started.`}
+          </p>
+          {user?.id === ownerUser?.id && (
+            <a href="/new" class="btn btn-primary btn-sm">
+              + Create your first
+            </a>
+          )}
+        </div>
       ) : (
         <div class="card-grid">
           {repos.map((repo) => (
@@ -1383,20 +2416,47 @@ web.get("/:owner/:repo/tree/:ref{.+$}", async (c) => {
   }
 
   const tree = await getTree(owner, repo, ref, treePath);
+  const fileCount = tree.filter((e: any) => e.type !== "tree").length;
+  const dirCount = tree.filter((e: any) => e.type === "tree").length;
 
   return c.html(
     <Layout title={`${treePath || "/"} — ${owner}/${repo}`} user={user}>
+      <style dangerouslySetInnerHTML={{ __html: codeBrowseCss }} />
       <RepoHeader owner={owner} repo={repo} />
       <RepoNav owner={owner} repo={repo} active="code" />
-      <BranchSwitcher
-        owner={owner}
-        repo={repo}
-        currentRef={ref}
-        branches={branches}
-        pathType="tree"
-        subPath={treePath}
-      />
-      <Breadcrumb owner={owner} repo={repo} ref={ref} path={treePath} />
+      <div class="tree-header">
+        <div class="tree-header-row">
+          <BranchSwitcher
+            owner={owner}
+            repo={repo}
+            currentRef={ref}
+            branches={branches}
+            pathType="tree"
+            subPath={treePath}
+          />
+          <div class="tree-header-stats">
+            <span class="tree-stat" title="Entries in this directory">
+              <strong>{fileCount}</strong> file{fileCount === 1 ? "" : "s"}
+              {dirCount > 0 && (
+                <>
+                  {" · "}
+                  <strong>{dirCount}</strong> dir{dirCount === 1 ? "" : "s"}
+                </>
+              )}
+            </span>
+            <a
+              href={`/${owner}/${repo}/search`}
+              class="tree-stat tree-stat-link"
+              title="Search code in this repository"
+            >
+              {"⌕"} Search
+            </a>
+          </div>
+        </div>
+        <div class="tree-breadcrumb-row">
+          <Breadcrumb owner={owner} repo={repo} ref={ref} path={treePath} />
+        </div>
+      </div>
       <FileTable
         entries={tree}
         owner={owner}
@@ -1446,42 +2506,83 @@ web.get("/:owner/:repo/blob/:ref{.+$}", async (c) => {
   }
 
   const fileName = filePath.split("/").pop() || filePath;
+  const lineCount = blob.isBinary
+    ? 0
+    : (blob.content.endsWith("\n")
+        ? blob.content.split("\n").length - 1
+        : blob.content.split("\n").length);
+  const formatBytes = (n: number): string => {
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+    return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  };
 
   return c.html(
     <Layout title={`${filePath} — ${owner}/${repo}`} user={user}>
+      <style dangerouslySetInnerHTML={{ __html: codeBrowseCss }} />
       <RepoHeader owner={owner} repo={repo} />
       <RepoNav owner={owner} repo={repo} active="code" />
-      <BranchSwitcher
-        owner={owner}
-        repo={repo}
-        currentRef={ref}
-        branches={branches}
-        pathType="blob"
-        subPath={filePath}
-      />
-      <Breadcrumb owner={owner} repo={repo} ref={ref} path={filePath} />
-      <div class="blob-view">
-        <div class="blob-header">
-          <span>{fileName} — {blob.size} bytes</span>
-          <span style="display: flex; gap: var(--space-3)">
-            <a href={`/${owner}/${repo}/raw/${ref}/${filePath}`} style="font-size: 12px">
+      <div class="blob-toolbar">
+        <BranchSwitcher
+          owner={owner}
+          repo={repo}
+          currentRef={ref}
+          branches={branches}
+          pathType="blob"
+          subPath={filePath}
+        />
+        <div class="blob-breadcrumb">
+          <Breadcrumb owner={owner} repo={repo} ref={ref} path={filePath} />
+        </div>
+      </div>
+      <div class="blob-view blob-card">
+        <div class="blob-header blob-header-polished">
+          <div class="blob-header-meta">
+            <span class="blob-header-icon" aria-hidden="true">
+              {"📄"}
+            </span>
+            <span class="blob-header-name">{fileName}</span>
+            <span class="blob-header-size">
+              {formatBytes(blob.size)}
+              {!blob.isBinary && (
+                <>
+                  {" · "}
+                  {lineCount} line{lineCount === 1 ? "" : "s"}
+                </>
+              )}
+            </span>
+          </div>
+          <div class="blob-header-actions">
+            <a
+              href={`/${owner}/${repo}/raw/${ref}/${filePath}`}
+              class="blob-pill"
+            >
               Raw
             </a>
-            <a href={`/${owner}/${repo}/blame/${ref}/${filePath}`} style="font-size: 12px">
+            <a
+              href={`/${owner}/${repo}/blame/${ref}/${filePath}`}
+              class="blob-pill"
+            >
               Blame
             </a>
-            <a href={`/${owner}/${repo}/timeline/${ref}/${filePath}`} style="font-size: 12px">
+            <a
+              href={`/${owner}/${repo}/timeline/${ref}/${filePath}`}
+              class="blob-pill"
+            >
               History
             </a>
             {user && (
-              <a href={`/${owner}/${repo}/edit/${ref}/${filePath}`} style="font-size: 12px">
+              <a
+                href={`/${owner}/${repo}/edit/${ref}/${filePath}`}
+                class="blob-pill blob-pill-accent"
+              >
                 Edit
               </a>
             )}
-          </span>
+          </div>
         </div>
         {blob.isBinary ? (
-          <div style="padding: var(--space-4); color: var(--text-muted)">
+          <div class="blob-binary">
             Binary file not shown.
           </div>
         ) : (() => {
@@ -1489,16 +2590,11 @@ web.get("/:owner/:repo/blob/:ref{.+$}", async (c) => {
             blob.content,
             fileName
           );
-          const lineCount = blob.content.split("\n").length;
-          // Trim trailing newline from count
-          const adjustedCount =
-            blob.content.endsWith("\n") ? lineCount - 1 : lineCount;
-
           if (language) {
             return (
               <HighlightedCode
                 highlightedHtml={highlighted}
-                lineCount={adjustedCount}
+                lineCount={lineCount}
               />
             );
           }
@@ -1567,26 +2663,50 @@ web.get("/:owner/:repo/commits/:ref?", async (c) => {
 
   return c.html(
     <Layout title={`Commits — ${owner}/${repo}`} user={user}>
+      <style dangerouslySetInnerHTML={{ __html: codeBrowseCss }} />
       <RepoHeader owner={owner} repo={repo} />
       <RepoNav owner={owner} repo={repo} active="commits" />
-      <BranchSwitcher
-        owner={owner}
-        repo={repo}
-        currentRef={ref}
-        branches={branches}
-        pathType="commits"
-      />
-      {commits.length === 0 ? (
-        <div class="empty-state">
-          <p>No commits yet.</p>
+      <div class="commits-hero">
+        <div class="commits-hero-orb-wrap" aria-hidden="true">
+          <div class="commits-hero-orb" />
         </div>
-      ) : (
-        <CommitList
-          commits={commits}
+        <div class="commits-hero-inner">
+          <div class="commits-eyebrow">
+            <strong>History</strong> · {owner}/{repo}
+          </div>
+          <h1 class="commits-title">
+            <span class="gradient-text">{commits.length}</span> recent commit
+            {commits.length === 1 ? "" : "s"} on{" "}
+            <span class="commits-branch">{ref}</span>
+          </h1>
+          <p class="commits-sub">
+            Browse the project's history. Click any commit to see the full
+            diff, AI review notes, and signature status.
+          </p>
+        </div>
+      </div>
+      <div class="commits-toolbar">
+        <BranchSwitcher
           owner={owner}
           repo={repo}
-          verifications={verifications}
+          currentRef={ref}
+          branches={branches}
+          pathType="commits"
         />
+      </div>
+      {commits.length === 0 ? (
+        <div class="commits-empty">
+          <p>No commits yet on this branch.</p>
+        </div>
+      ) : (
+        <div class="commits-list-wrap">
+          <CommitList
+            commits={commits}
+            owner={owner}
+            repo={repo}
+            verifications={verifications}
+          />
+        </div>
       )}
     </Layout>
   );
@@ -1682,34 +2802,51 @@ web.get("/:owner/:repo/commit/:sha", async (c) => {
 
   const { files, raw } = diffResult;
 
+  // Diff stats: count additions / deletions across all files for the
+  // header summary bar. Computed here from the parsed diff so we don't
+  // touch the DiffView component.
+  let additions = 0;
+  let deletions = 0;
+  for (const f of files) {
+    const hunks = (f as any).hunks as Array<any> | undefined;
+    if (Array.isArray(hunks)) {
+      for (const h of hunks) {
+        const lines = (h?.lines || []) as Array<any>;
+        for (const ln of lines) {
+          const t = ln?.type || ln?.kind;
+          if (t === "add" || t === "added" || t === "+") additions += 1;
+          else if (t === "del" || t === "deleted" || t === "delete" || t === "-")
+            deletions += 1;
+        }
+      }
+    }
+  }
+  // Fall back: scan raw if file-level counting yielded zero (it's just a
+  // header polish — never let a parsing miss break the page).
+  if (additions === 0 && deletions === 0 && typeof raw === "string") {
+    for (const line of raw.split("\n")) {
+      if (line.startsWith("+") && !line.startsWith("+++")) additions += 1;
+      else if (line.startsWith("-") && !line.startsWith("---")) deletions += 1;
+    }
+  }
+  const fileCount = files.length;
+
   return c.html(
     <Layout title={`${commit.message} — ${owner}/${repo}`} user={user}>
+      <style dangerouslySetInnerHTML={{ __html: codeBrowseCss }} />
       <RepoHeader owner={owner} repo={repo} />
-      <div
-        style="background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--space-4); margin-bottom: var(--space-5)"
-      >
-        <div style="font-size: 18px; font-weight: 600; margin-bottom: 8px">
-          {commit.message}
-        </div>
-        {fullMessage !== commit.message && (
-          <div style="white-space: pre-wrap; color: var(--text-muted); font-size: 14px; margin-bottom: 12px">
-            {fullMessage}
-          </div>
-        )}
-        <div style="font-size: 13px; color: var(--text-muted)">
-          <strong style="color: var(--text)">{commit.author}</strong>{" "}
-          committed on{" "}
-          {new Date(commit.date).toLocaleDateString("en-US", {
-            month: "long",
-            day: "numeric",
-            year: "numeric",
-          })}
+      <div class="commit-detail-card">
+        <div class="commit-detail-eyebrow">
+          <strong>Commit</strong>
+          <span class="commit-detail-sha-pill" title={commit.sha}>
+            {commit.sha.slice(0, 7)}
+          </span>
           {verification && verification.reason !== "unsigned" && (
             <span
-              style={`margin-left:10px;font-size:10px;padding:1px 6px;border-radius:3px;text-transform:uppercase;letter-spacing:.4px;color:#fff;background:${
+              class={`commit-detail-verify ${
                 verification.verified
-                  ? "var(--green,#2ea043)"
-                  : "var(--yellow,#d29922)"
+                  ? "commit-detail-verify-ok"
+                  : "commit-detail-verify-warn"
               }`}
               title={`${verification.signatureType?.toUpperCase() || ""} · ${verification.reason}`}
             >
@@ -1717,58 +2854,74 @@ web.get("/:owner/:repo/commit/:sha", async (c) => {
             </span>
           )}
         </div>
-        <div style="margin-top: 8px">
-          <span class="commit-sha">{commit.sha}</span>
+        <h1 class="commit-detail-title">{commit.message}</h1>
+        {fullMessage !== commit.message && (
+          <pre class="commit-detail-body">{fullMessage}</pre>
+        )}
+        <div class="commit-detail-meta">
+          <span class="commit-detail-author">
+            <strong>{commit.author}</strong> committed on{" "}
+            {new Date(commit.date).toLocaleDateString("en-US", {
+              month: "long",
+              day: "numeric",
+              year: "numeric",
+            })}
+          </span>
           {commit.parentShas.length > 0 && (
-            <span style="margin-left: 12px; font-size: 13px; color: var(--text-muted)">
-              Parent:{" "}
-              {commit.parentShas.map((p) => (
-                <a
-                  href={`/${owner}/${repo}/commit/${p}`}
-                  class="commit-sha"
-                  style="margin-left: 4px"
-                >
-                  {p.slice(0, 7)}
-                </a>
+            <span class="commit-detail-parents">
+              {commit.parentShas.length === 1 ? "Parent" : "Parents"}:{" "}
+              {commit.parentShas.map((p, idx) => (
+                <>
+                  {idx > 0 && " "}
+                  <a
+                    href={`/${owner}/${repo}/commit/${p}`}
+                    class="commit-detail-sha-link"
+                  >
+                    {p.slice(0, 7)}
+                  </a>
+                </>
               ))}
             </span>
           )}
         </div>
+        <div class="commit-detail-stats">
+          <span class="commit-detail-stat">
+            <strong>{fileCount}</strong>{" "}
+            file{fileCount === 1 ? "" : "s"} changed
+          </span>
+          <span class="commit-detail-stat commit-detail-stat-add">
+            <span class="commit-detail-stat-mark">+</span>
+            <strong>{additions}</strong>
+          </span>
+          <span class="commit-detail-stat commit-detail-stat-del">
+            <span class="commit-detail-stat-mark">−</span>
+            <strong>{deletions}</strong>
+          </span>
+          <span class="commit-detail-sha-full" title="Full SHA">
+            {commit.sha}
+          </span>
+        </div>
         {statusCombined && (
-          <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); font-size: 13px">
-            <strong style="color: var(--text)">Checks</strong>
-            <span style="margin-left: 8px; color: var(--text-muted)">
-              {statusCombined.total} total —{" "}
-              <span
-                style={`color:${
-                  statusCombined.state === "success"
-                    ? "var(--green,#2ea043)"
-                    : statusCombined.state === "failure"
-                      ? "var(--red,#da3633)"
-                      : "var(--yellow,#d29922)"
-                }`}
-              >
-                {statusCombined.state}
+          <div class="commit-detail-checks">
+            <div class="commit-detail-checks-head">
+              <strong>Checks</strong>
+              <span class="commit-detail-checks-summary">
+                {statusCombined.total} total ·{" "}
+                <span
+                  class={`commit-detail-check-state commit-detail-check-state-${statusCombined.state}`}
+                >
+                  {statusCombined.state}
+                </span>
               </span>
-            </span>
-            <div style="margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px">
+            </div>
+            <div class="commit-detail-check-row">
               {statusCombined.contexts.map((cx) => (
                 <span
-                  style={`font-size:11px;padding:2px 6px;border-radius:3px;color:#fff;background:${
-                    cx.state === "success"
-                      ? "var(--green,#2ea043)"
-                      : cx.state === "pending"
-                        ? "var(--yellow,#d29922)"
-                        : "var(--red,#da3633)"
-                  }`}
+                  class={`commit-detail-check commit-detail-check-${cx.state}`}
                   title={cx.description || cx.context}
                 >
                   {cx.targetUrl ? (
-                    <a
-                      href={cx.targetUrl}
-                      style="color: inherit; text-decoration: none"
-                      rel="noopener"
-                    >
+                    <a href={cx.targetUrl} rel="noopener">
                       {cx.context}: {cx.state}
                     </a>
                   ) : (
@@ -1862,18 +3015,44 @@ web.get("/:owner/:repo/blame/:ref{.+$}", async (c) => {
   }
 
   const fileName = filePath.split("/").pop() || filePath;
+  // Unique contributors (by author) tracked once for the header chip.
+  const blameAuthors = new Set<string>();
+  for (const ln of blameLines) blameAuthors.add(ln.author);
 
   return c.html(
     <Layout title={`Blame: ${filePath} — ${owner}/${repo}`} user={user}>
+      <style dangerouslySetInnerHTML={{ __html: codeBrowseCss }} />
       <RepoHeader owner={owner} repo={repo} />
       <RepoNav owner={owner} repo={repo} active="code" />
-      <Breadcrumb owner={owner} repo={repo} ref={ref} path={filePath} />
-      <div class="blob-view">
-        <div class="blob-header">
-          <span>{fileName} — blame</span>
-          <a href={`/${owner}/${repo}/blob/${ref}/${filePath}`} style="font-size: 12px">
-            Normal view
-          </a>
+      <div class="blame-toolbar">
+        <Breadcrumb owner={owner} repo={repo} ref={ref} path={filePath} />
+      </div>
+      <div class="blob-view blame-card">
+        <div class="blob-header blame-header">
+          <div class="blame-header-meta">
+            <span class="blame-header-icon" aria-hidden="true">{"⎙"}</span>
+            <span class="blame-header-name">{fileName}</span>
+            <span class="blame-header-tag">Blame</span>
+            <span class="blame-header-stats">
+              {blameLines.length} line{blameLines.length === 1 ? "" : "s"} ·{" "}
+              {blameAuthors.size} contributor
+              {blameAuthors.size === 1 ? "" : "s"}
+            </span>
+          </div>
+          <div class="blame-header-actions">
+            <a
+              href={`/${owner}/${repo}/blob/${ref}/${filePath}`}
+              class="blob-pill"
+            >
+              Normal view
+            </a>
+            <a
+              href={`/${owner}/${repo}/raw/${ref}/${filePath}`}
+              class="blob-pill"
+            >
+              Raw
+            </a>
+          </div>
         </div>
         <div class="blob-code" style="overflow-x: auto">
           <table style="width: 100%; border-collapse: collapse; font-size: 13px; font-family: var(--font-mono)">
@@ -1928,34 +3107,60 @@ web.get("/:owner/:repo/search", async (c) => {
 
   return c.html(
     <Layout title={`Search — ${owner}/${repo}`} user={user}>
+      <style dangerouslySetInnerHTML={{ __html: codeBrowseCss }} />
       <RepoHeader owner={owner} repo={repo} />
       <RepoNav owner={owner} repo={repo} active="code" />
-      <form
-        method="get"
-        action={`/${owner}/${repo}/search`}
-        style="margin-bottom: 20px"
-      >
-        <div style="display: flex; gap: var(--space-2)">
-          <input
-            type="text"
-            name="q"
-            value={q}
-            placeholder="Search code..."
-            aria-label="Search code"
-            style="flex: 1; padding: var(--space-2) var(--space-3); background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); font-size: 14px"
-          />
-          <button type="submit" class="btn btn-primary">
+      <div class="search-hero">
+        <div class="search-eyebrow">
+          <strong>Search</strong> · {owner}/{repo}
+        </div>
+        <h1 class="search-title">
+          Find any line in <span class="gradient-text">{repo}</span>
+        </h1>
+        <form
+          method="get"
+          action={`/${owner}/${repo}/search`}
+          class="search-form"
+          role="search"
+        >
+          <div class="search-input-wrap">
+            <span class="search-input-icon" aria-hidden="true">{"⌕"}</span>
+            <input
+              type="text"
+              name="q"
+              value={q}
+              placeholder="Search code on the default branch…"
+              aria-label="Search code"
+              class="search-input"
+              autocomplete="off"
+              autofocus
+            />
+          </div>
+          <button type="submit" class="btn btn-primary search-submit">
             Search
           </button>
-        </div>
-      </form>
+        </form>
+      </div>
       {q && (
-        <p style="font-size: 14px; color: var(--text-muted); margin-bottom: 16px">
-          {results.length} result{results.length !== 1 ? "s" : ""} for{" "}
-          <strong style="color: var(--text)">"{q}"</strong>
-        </p>
+        <div class="search-results-head">
+          <span class="search-results-count">
+            <strong>{results.length}</strong> result
+            {results.length !== 1 ? "s" : ""}
+          </span>
+          <span class="search-results-query">
+            for <span class="search-results-q">"{q}"</span> on{" "}
+            <code>{defaultBranch}</code>
+          </span>
+        </div>
       )}
-      {results.length > 0 && (
+      {q && results.length === 0 ? (
+        <div class="search-empty">
+          <p>
+            No matches for <strong>"{q}"</strong>. Try a shorter query or check
+            you're on the right branch.
+          </p>
+        </div>
+      ) : results.length > 0 ? (
         <div class="search-results">
           {(() => {
             // Group by file
@@ -1968,13 +3173,17 @@ web.get("/:owner/:repo/search", async (c) => {
               grouped[r.file].push({ lineNum: r.lineNum, line: r.line });
             }
             return Object.entries(grouped).map(([file, matches]) => (
-              <div class="diff-file" style="margin-bottom: 12px">
-                <div class="diff-file-header">
+              <div class="search-file diff-file">
+                <div class="search-file-head diff-file-header">
                   <a
                     href={`/${owner}/${repo}/blob/${defaultBranch}/${file}`}
+                    class="search-file-link"
                   >
                     {file}
                   </a>
+                  <span class="search-file-count">
+                    {matches.length} match{matches.length === 1 ? "" : "es"}
+                  </span>
                 </div>
                 <div class="blob-code">
                   <table>
@@ -1992,7 +3201,7 @@ web.get("/:owner/:repo/search", async (c) => {
             ));
           })()}
         </div>
-      )}
+      ) : null}
     </Layout>
   );
 });

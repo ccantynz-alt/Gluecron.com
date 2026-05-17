@@ -58,6 +58,16 @@ export const Layout: FC<
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <meta name="theme-color" content="#0d1117" />
+        {/* 2026 polish — load Inter + Inter Tight + JetBrains Mono for
+            crisp modern typography. `preconnect` keeps the handshake
+            cost off the critical path; `display=swap` means we never
+            block first paint waiting on fonts. */}
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="" />
+        <link
+          rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Inter+Tight:wght@600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
+        />
         {/* PWA removed 2026-05-16 — repeated reload-loop bugs (admin
             dashboard, deploy pill, admin-screen flash). A git host has
             no use for service workers or install-as-app. Manifest link
@@ -869,12 +879,14 @@ const css = `
     --amber:  #fbbf24;
     --blue:   #60a5fa;
 
-    /* Type — system fonts FIRST so we never depend on Google Fonts loading.
-       Segoe UI (Win), -apple-system / SF (Mac), Roboto (Android), Inter as
-       optional upgrade if the user already has it. NEVER falls back to serif. */
-    --font-mono: ui-monospace, 'SF Mono', 'Cascadia Code', 'Cascadia Mono', Menlo, Consolas, 'Courier New', monospace;
-    --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI Variable', 'Segoe UI', system-ui, Roboto, 'Helvetica Neue', Arial, 'Inter', sans-serif;
-    --font-display: -apple-system, BlinkMacSystemFont, 'Segoe UI Variable', 'Segoe UI', system-ui, Roboto, 'Helvetica Neue', Arial, 'Inter Tight', 'Inter', sans-serif;
+    /* Type — 2026 polish pass. Inter is the primary sans, Inter Tight for
+       display (headlines), JetBrains Mono for code. All three loaded from
+       Google Fonts with display:swap so we never block first paint. System
+       fallbacks remain in place — if the CDN is unreachable the site still
+       renders cleanly with Segoe UI (Win) / SF (Mac) / Roboto (Android). */
+    --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', 'Cascadia Code', 'Cascadia Mono', Menlo, Consolas, 'Courier New', monospace;
+    --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI Variable', 'Segoe UI', system-ui, Roboto, 'Helvetica Neue', Arial, sans-serif;
+    --font-display: 'Inter Tight', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI Variable', 'Segoe UI', system-ui, Roboto, 'Helvetica Neue', Arial, sans-serif;
     --mono-feat: 'calt', 'liga', 'ss01';
 
     /* Radius — sharper than before */

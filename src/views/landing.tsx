@@ -1566,37 +1566,57 @@ const landingCss = `
     border-radius: 50%;
     filter: blur(80px);
     opacity: 0.55;
+    will-change: transform;
   }
   .landing-hero-blob-1 {
     top: -10%;
     left: 30%;
     width: 480px;
     height: 480px;
-    background: radial-gradient(circle, rgba(140,109,255,0.55), transparent 65%);
+    background: radial-gradient(circle, rgba(140,109,255,0.65), transparent 65%);
+    /* 2026 polish — slow drift gives the hero "this is a live product"
+       feel without being distracting. 24s loop, eased, contained motion. */
+    animation: landingBlobDrift1 24s ease-in-out infinite;
   }
   .landing-hero-blob-2 {
     top: 10%;
     left: 50%;
     width: 380px;
     height: 380px;
-    background: radial-gradient(circle, rgba(54,197,214,0.40), transparent 65%);
+    background: radial-gradient(circle, rgba(54,197,214,0.50), transparent 65%);
+    animation: landingBlobDrift2 28s ease-in-out infinite;
   }
   /* U1 — subtle, low-opacity accent-gradient orb behind the headline.
      Sits dead-centre, very blurred, so the hero reads as a real product
-     surface rather than flat-bg + text. */
+     surface rather than flat-bg + text. 2026 polish — gentle breathing
+     pulse to give the surface a soft heartbeat. */
   .landing-hero-orb {
     top: 18%;
     left: 50%;
     transform: translateX(-50%);
     width: 720px;
     height: 720px;
-    background: radial-gradient(circle, rgba(140,109,255,0.22), rgba(54,197,214,0.12) 45%, transparent 70%);
+    background: radial-gradient(circle, rgba(140,109,255,0.28), rgba(54,197,214,0.16) 45%, transparent 70%);
     filter: blur(120px);
-    opacity: 0.55;
+    opacity: 0.6;
     z-index: 0;
+    animation: landingOrbBreath 12s ease-in-out infinite;
   }
   :root[data-theme='light'] .landing-hero-orb {
     opacity: 0.32;
+  }
+  @keyframes landingBlobDrift1 {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    33%      { transform: translate(40px, -30px) scale(1.08); }
+    66%      { transform: translate(-30px, 25px) scale(0.95); }
+  }
+  @keyframes landingBlobDrift2 {
+    0%, 100% { transform: translate(0, 0) scale(1); }
+    50%      { transform: translate(-50px, 35px) scale(1.12); }
+  }
+  @keyframes landingOrbBreath {
+    0%, 100% { opacity: 0.55; transform: translateX(-50%) scale(1); }
+    50%      { opacity: 0.72; transform: translateX(-50%) scale(1.06); }
   }
   @media (prefers-reduced-motion: reduce) {
     .landing-hero-blob-1,
@@ -1649,28 +1669,36 @@ const landingCss = `
   }
 
   .landing-hero-title {
-    font-size: clamp(32px, 5.5vw, 64px);
-    line-height: 1.05;
-    letter-spacing: -0.025em;
-    font-weight: 700;
+    /* 2026 polish — bigger, bolder, tighter. Inter Tight at 800 weight
+       with -0.03em tracking is the modern "AI-startup hero" look that
+       Vercel/Linear/Cursor all use. clamp() scales gracefully on mobile. */
+    font-size: clamp(40px, 7vw, 84px);
+    line-height: 1.02;
+    letter-spacing: -0.032em;
+    font-weight: 800;
+    font-family: var(--font-display);
     margin: 0 0 var(--space-6);
     color: var(--text-strong);
   }
   .landing-hero-title .gradient-text {
-    background-image: linear-gradient(135deg, #a48bff 0%, #8c6dff 50%, #6d4dff 100%);
+    /* Richer gradient with a third stop for more depth. Drop-shadow
+       gives the impression of subtle glow without overpowering the type. */
+    background-image: linear-gradient(135deg, #c2a8ff 0%, #8c6dff 40%, #5d3dff 70%, #36c5d6 100%);
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;
     color: transparent;
+    filter: drop-shadow(0 4px 32px rgba(140, 109, 255, 0.18));
   }
 
   .landing-hero-sub {
-    font-size: clamp(15px, 1.6vw, 19px);
+    font-size: clamp(16px, 1.8vw, 22px);
     color: var(--text-muted);
     max-width: 680px;
     margin: 0 auto var(--space-6);
-    line-height: 1.55;
-    letter-spacing: -0.005em;
+    line-height: 1.5;
+    letter-spacing: -0.008em;
+    font-weight: 400;
   }
 
   .landing-hero-ctas {

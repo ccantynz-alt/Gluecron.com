@@ -1853,6 +1853,21 @@ export const siteAdmins = pgTable("site_admins", {
 
 export type SiteAdmin = typeof siteAdmins.$inferSelect;
 
+// /admin/integrations — DB-stored platform integration secrets (migration 0055).
+// Loaded into process.env at boot so the existing synchronous config getters
+// keep working transparently. Never exposes DATABASE_URL / SELF_HOST_REPO /
+// PORT / GIT_REPOS_PATH — those stay env-only.
+export const systemConfig = pgTable("system_config", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull().default(""),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  updatedByUserId: uuid("updated_by_user_id").references(() => users.id, {
+    onDelete: "set null",
+  }),
+});
+
+export type SystemConfig = typeof systemConfig.$inferSelect;
+
 // F4 — Billing + quotas
 export const billingPlans = pgTable("billing_plans", {
   id: uuid("id").primaryKey().defaultRandom(),

@@ -8,9 +8,27 @@ import { ensureDemoActivity } from "./lib/demo-activity-seed";
 import { ensureEnvSiteAdmin } from "./lib/admin-bootstrap";
 import { maybeSelfBootstrap } from "./lib/self-bootstrap";
 import { notifySystemdReady } from "./lib/systemd-notify";
+import { loadConfigIntoEnv } from "./lib/system-config";
 
 // Ensure repos directory exists
 await mkdir(config.gitReposPath, { recursive: true });
+
+// /admin/integrations boot hook — pull saved integration secrets out of the
+// system_config table and into process.env BEFORE anything else reads them.
+// This is the magic that lets the existing synchronous config getters
+// (config.anthropicApiKey, config.resendApiKey, …) transparently pick up
+// values an admin saved through the UI, with no restart needed. If the DB
+// is unreachable at boot, env vars stay as the fallback — never blocks
+// startup.
+try {
+  const n = await loadConfigIntoEnv();
+  if (n > 0) console.log(`[system-config] loaded ${n} key(s) from DB into env`);
+} catch (err) {
+  console.warn(
+    "[system-config] boot load failed (env vars remain authoritative):",
+    err instanceof Error ? err.message : err
+  );
+}
 
 // Self-bootstrap: if Gluecron's own canonical repo (`ccantynz/Gluecron.com.git`
 // by default) doesn't exist on disk yet, initialize it from the GitHub mirror

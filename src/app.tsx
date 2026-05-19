@@ -71,6 +71,7 @@ import adminDeploysPageRoutes from "./routes/admin-deploys-page";
 import adminOpsRoutes from "./routes/admin-ops";
 import adminSelfHostRoutes from "./routes/admin-self-host";
 import adminDiagnoseRoutes from "./routes/admin-diagnose";
+import adminIntegrationsRoutes from "./routes/admin-integrations";
 import advisoriesRoutes from "./routes/advisories";
 import aiChangelogRoutes from "./routes/ai-changelog";
 import aiExplainRoutes from "./routes/ai-explain";
@@ -396,6 +397,7 @@ app.route("/", onboardingRoutes);
 
 // Admin + feature routes
 app.route("/", adminRoutes);
+app.route("/", adminIntegrationsRoutes);
 app.route("/", adminDeploysRoutes);
 app.route("/", adminDeploysPageRoutes);
 // Note: adminOpsRoutes is mounted earlier (before insightRoutes) — see comment above.

@@ -637,6 +637,31 @@ settings.get("/settings", (c) => {
         />
         <SettingsSubnav active="profile" />
 
+        {/* Connect Claude · /connect/claude — visually distinct row that sits
+            above the standard settings sections. Tiny, intentional break from
+            the surrounding card density so it reads as a different *kind* of
+            action ("connect another app") rather than another setting. */}
+        <a
+          href="/connect/claude"
+          style={
+            "display:flex;align-items:center;justify-content:space-between;" +
+            "gap:12px;margin-bottom:var(--space-4);padding:14px 16px;" +
+            "background:linear-gradient(135deg,rgba(140,109,255,0.10),rgba(54,197,214,0.08));" +
+            "border:1px solid rgba(140,109,255,0.35);border-radius:12px;" +
+            "color:var(--text-strong);text-decoration:none;font-size:14px;"
+          }
+        >
+          <span>
+            <strong style="font-weight:600">Connect Claude →</strong>{" "}
+            <span style="color:var(--text-muted)">
+              one-click setup for Claude Desktop, Claude Code, and any MCP client.
+            </span>
+          </span>
+          <span style="color:var(--text-muted);font-size:13px;white-space:nowrap">
+            /connect/claude
+          </span>
+        </a>
+
         {success && (
           <Banner kind="success" text={decodeURIComponent(success)} />
         )}

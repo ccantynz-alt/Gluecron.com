@@ -912,6 +912,10 @@ admin.get("/admin", async (c) => {
             <span class="admin-action-icon">{Icons.bot}</span>
             Autopilot
           </a>
+          <a href="/connect/claude" class="admin-action is-primary">
+            <span class="admin-action-icon">{Icons.bot}</span>
+            Connect Claude
+          </a>
           <form
             method="post"
             action="/admin/demo/reseed"

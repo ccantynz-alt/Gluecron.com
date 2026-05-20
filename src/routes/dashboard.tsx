@@ -1021,10 +1021,10 @@ const HealthCoach = ({
               </div>
             </div>
             <a
-              href={`/${username}/${p.repo.name}/explain`}
+              href={`/${username}/${p.repo.name}/health`}
               class="btn"
               style="font-size: 12px; padding: 4px 10px"
-              title="Run AI explain on this repo"
+              title="Open health score with AI suggestions"
             >
               Coach me
             </a>

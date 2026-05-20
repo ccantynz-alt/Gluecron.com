@@ -663,6 +663,11 @@ apiv2.post("/repos/:owner/:repo/issues/:number/comments", requireApiAuth, requir
 apiv2.get("/repos/:owner/:repo/pulls", async (c) => {
   const { owner, repo } = c.req.param();
   const state = c.req.query("state") || "open";
+  // Match the issue-list pagination contract: default 30, max 100,
+  // 0-indexed offset for cursor-style scrolling. Bounded so a buggy
+  // client can't accidentally pull the whole table.
+  const limit = Math.min(100, Math.max(1, Number(c.req.query("limit")) || 30));
+  const offset = Math.max(0, Number(c.req.query("offset")) || 0);
 
   const resolved = await resolveRepo(owner, repo);
   if (!resolved) return c.json({ error: "Not found" }, 404);
@@ -675,7 +680,9 @@ apiv2.get("/repos/:owner/:repo/pulls", async (c) => {
     .from(pullRequests)
     .innerJoin(users, eq(pullRequests.authorId, users.id))
     .where(and(eq(pullRequests.repositoryId, (resolved.repo as any).id), eq(pullRequests.state, state)))
-    .orderBy(desc(pullRequests.createdAt));
+    .orderBy(desc(pullRequests.createdAt))
+    .limit(limit)
+    .offset(offset);
 
   return c.json(prList.map(({ pr, author }) => ({ ...pr, author })));
 });

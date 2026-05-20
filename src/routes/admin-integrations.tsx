@@ -288,6 +288,106 @@ const styles = `
     color: var(--text-strong);
   }
   .admin-int-403 p { color: var(--text-muted); margin: 0; font-size: 14px; }
+
+  /* Solid white .env spec block — high-contrast block the operator copies
+     and pastes into their /etc/gluecron.env file. Intentionally light so
+     it reads like a printed spec on the dark admin page. */
+  .admin-int-spec {
+    margin-bottom: var(--space-5);
+    background: #ffffff;
+    color: #0a0a0a;
+    border: 1px solid #e5e7eb;
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 0 1px 0 rgba(255,255,255,0.04), 0 8px 32px rgba(0,0,0,0.18);
+  }
+  .admin-int-spec-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 16px;
+    background: #f9fafb;
+    border-bottom: 1px solid #e5e7eb;
+    flex-wrap: wrap;
+  }
+  .admin-int-spec-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-family: var(--font-display, system-ui, sans-serif);
+    font-size: 14px;
+    font-weight: 700;
+    color: #111827;
+    letter-spacing: -0.005em;
+    margin: 0;
+  }
+  .admin-int-spec-title-dot {
+    width: 8px; height: 8px;
+    border-radius: 9999px;
+    background: linear-gradient(135deg, #8c6dff, #36c5d6);
+    box-shadow: 0 0 0 3px rgba(140,109,255,0.18);
+  }
+  .admin-int-spec-sub {
+    font-size: 12px;
+    color: #6b7280;
+    margin-left: 16px;
+  }
+  .admin-int-spec-copy {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: #111827;
+    background: #ffffff;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    cursor: pointer;
+    font-family: inherit;
+    transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+  }
+  .admin-int-spec-copy:hover {
+    background: #f3f4f6;
+    border-color: #9ca3af;
+  }
+  .admin-int-spec-copy.is-copied {
+    background: #ecfdf5;
+    border-color: #6ee7b7;
+    color: #047857;
+  }
+  .admin-int-spec-copy svg { display: block; }
+  .admin-int-spec-pre {
+    margin: 0;
+    padding: 18px 20px;
+    font-family: var(--font-mono, ui-monospace, "SF Mono", Menlo, monospace);
+    font-size: 13px;
+    line-height: 1.7;
+    color: #0a0a0a;
+    background: #ffffff;
+    white-space: pre;
+    overflow-x: auto;
+    tab-size: 2;
+  }
+  .admin-int-spec-pre .c { color: #6b7280; }
+  .admin-int-spec-pre .k { color: #1f2937; font-weight: 600; }
+  .admin-int-spec-pre .v { color: #047857; }
+  .admin-int-spec-pre .vp { color: #9ca3af; }
+  .admin-int-spec-foot {
+    padding: 10px 16px;
+    border-top: 1px solid #e5e7eb;
+    background: #f9fafb;
+    font-size: 12px;
+    color: #6b7280;
+  }
+  .admin-int-spec-foot code {
+    background: #eef2ff;
+    color: #4338ca;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 11.5px;
+  }
 `;
 
 interface GroupDef {
@@ -381,6 +481,35 @@ integrations.get("/admin/integrations", async (c) => {
 
   const totalConfigured = values.filter((v) => v.value.trim().length > 0).length;
 
+  // Build the copyable .env spec — same key order as the form, grouped by
+  // section, with placeholders for unset keys. Real secrets are NOT inlined
+  // here (mask them); operators paste this into /etc/gluecron.env and fill
+  // in the blanks. Lines are joined with \n; the inline copy JS reads
+  // textContent so the rendered string is exactly what the operator pastes.
+  const specLines: string[] = [];
+  specLines.push("# Gluecron platform integrations");
+  specLines.push("# Generated from /admin/integrations — paste into /etc/gluecron.env");
+  specLines.push("");
+  for (const gid of groupOrder) {
+    const items = groups.get(gid);
+    if (!items || items.length === 0) continue;
+    const g = GROUPS[gid]!;
+    specLines.push(`# ─── ${g.title} ───`);
+    specLines.push(`# ${g.blurb}`);
+    for (const { field, value } of items) {
+      const v = value.trim();
+      if (field.isSecret) {
+        // Never leak the real secret into the spec — always a placeholder
+        // for paste-and-fill.
+        specLines.push(`${field.key}=${v ? "<unchanged — already set>" : `<paste-${field.key.toLowerCase()}>`}`);
+      } else {
+        specLines.push(`${field.key}=${v || `<set-${field.key.toLowerCase()}>`}`);
+      }
+    }
+    specLines.push("");
+  }
+  const specText = specLines.join("\n").trimEnd();
+
   return c.html(
     <Layout title="Integrations — admin" user={user}>
       <div class="admin-int-wrap">
@@ -410,6 +539,36 @@ integrations.get("/admin/integrations", async (c) => {
             {decodeURIComponent(msg)}
           </div>
         )}
+
+        <section class="admin-int-spec" aria-labelledby="env-spec-title">
+          <header class="admin-int-spec-head">
+            <div>
+              <p class="admin-int-spec-title" id="env-spec-title">
+                <span class="admin-int-spec-title-dot" aria-hidden="true" />
+                .env spec
+              </p>
+              <span class="admin-int-spec-sub">
+                Copy top-to-bottom, paste into <code style="font-family:var(--font-mono);background:#eef2ff;color:#4338ca;padding:1px 5px;border-radius:4px;font-size:11.5px">/etc/gluecron.env</code>, fill in the placeholders.
+              </span>
+            </div>
+            <button
+              type="button"
+              class="admin-int-spec-copy"
+              data-spec-copy
+              aria-label="Copy .env spec to clipboard"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+              </svg>
+              <span data-spec-copy-label>Copy</span>
+            </button>
+          </header>
+          <pre class="admin-int-spec-pre" data-spec-text>{specText}</pre>
+          <div class="admin-int-spec-foot">
+            Reload after editing the env file: <code>sudo systemctl restart gluecron</code> · or save inline below for no-restart updates.
+          </div>
+        </section>
 
         <form method="post" action="/admin/integrations">
           {groupOrder.map((gid) => {
@@ -502,6 +661,45 @@ integrations.get("/admin/integrations", async (c) => {
         </div>
       </div>
       <style dangerouslySetInnerHTML={{ __html: styles }} />
+      <script
+        dangerouslySetInnerHTML={{
+          __html: `
+            (function(){
+              var btn = document.querySelector('[data-spec-copy]');
+              var pre = document.querySelector('[data-spec-text]');
+              var label = document.querySelector('[data-spec-copy-label]');
+              if (!btn || !pre || !label) return;
+              btn.addEventListener('click', function(){
+                var text = pre.textContent || '';
+                var done = function(){
+                  btn.classList.add('is-copied');
+                  label.textContent = 'Copied';
+                  setTimeout(function(){
+                    btn.classList.remove('is-copied');
+                    label.textContent = 'Copy';
+                  }, 1800);
+                };
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                  navigator.clipboard.writeText(text).then(done).catch(function(){
+                    // Fallback for older browsers / non-secure contexts
+                    var ta = document.createElement('textarea');
+                    ta.value = text; ta.style.position='fixed'; ta.style.left='-9999px';
+                    document.body.appendChild(ta); ta.select();
+                    try { document.execCommand('copy'); done(); } catch(e){}
+                    document.body.removeChild(ta);
+                  });
+                } else {
+                  var ta = document.createElement('textarea');
+                  ta.value = text; ta.style.position='fixed'; ta.style.left='-9999px';
+                  document.body.appendChild(ta); ta.select();
+                  try { document.execCommand('copy'); done(); } catch(e){}
+                  document.body.removeChild(ta);
+                }
+              });
+            })();
+          `,
+        }}
+      />
     </Layout>
   );
 });

@@ -1030,10 +1030,22 @@ apiv2.delete(
       repoDir,
       `index.tmp.${process.pid}.${Date.now()}.${crypto.randomUUID().replace(/-/g, "").slice(0, 8)}`
     );
+    // `update-index --remove` checks `is_inside_work_tree()`, so a bare
+    // repo needs a transient stand-in. Empty directory is sufficient —
+    // git only consults it for safety checks, never writes blobs through it.
+    const tmpWorkTree = join(
+      repoDir,
+      `worktree.tmp.${process.pid}.${Date.now()}.${crypto.randomUUID().replace(/-/g, "").slice(0, 8)}`
+    );
+    const { mkdir } = await import("fs/promises");
+    await mkdir(tmpWorkTree, { recursive: true });
+
     const authorName = (user as any).displayName || user.username;
     const authorEmail = user.email;
     const env = {
       GIT_INDEX_FILE: tmpIndex,
+      GIT_DIR: repoDir,
+      GIT_WORK_TREE: tmpWorkTree,
       GIT_AUTHOR_NAME: authorName,
       GIT_AUTHOR_EMAIL: authorEmail,
       GIT_COMMITTER_NAME: authorName,
@@ -1042,8 +1054,9 @@ apiv2.delete(
 
     const cleanup = async () => {
       try {
-        const { unlink } = await import("fs/promises");
-        await unlink(tmpIndex);
+        const { unlink, rm } = await import("fs/promises");
+        await unlink(tmpIndex).catch(() => {});
+        await rm(tmpWorkTree, { recursive: true, force: true }).catch(() => {});
       } catch {
         /* ignore */
       }

@@ -261,6 +261,95 @@ Slotted into existing tiers above where overlapping, listed here when new.
 
 ---
 
+## 🛰️ Spec Review Addendum — 2026-05-20 (Holden Mercer / agent-build API)
+
+External addendum asked for the API surface an AI build agent needs to:
+read files, write multi-file atomic commits, dispatch background builds.
+12 endpoints across 3 groups. Status:
+
+### Group 1 — File contents
+- [x] `GET    /api/v2/repos/:owner/:repo/contents/:path` (was already built)
+- [x] `PUT    /api/v2/repos/:owner/:repo/contents/:path` (was already built)
+- [ ] `DELETE /api/v2/repos/:owner/:repo/contents/:path` (in flight tonight)
+
+### Group 2 — Git plumbing (atomic multi-file commits)
+- [x] `POST   /api/v2/repos/:owner/:repo/git/refs` (creating branches — already built)
+- [ ] `GET    /api/v2/repos/:owner/:repo/git/refs/heads/:branch` (in flight tonight)
+- [ ] `GET    /api/v2/repos/:owner/:repo/git/commits/:sha` (in flight tonight)
+- [ ] `POST   /api/v2/repos/:owner/:repo/git/blobs` (in flight tonight)
+- [ ] `POST   /api/v2/repos/:owner/:repo/git/trees` (in flight tonight)
+- [ ] `POST   /api/v2/repos/:owner/:repo/git/commits` (in flight tonight)
+- [ ] `PATCH  /api/v2/repos/:owner/:repo/git/refs/heads/:branch` (in flight tonight)
+
+### Group 3 — Actions / workflows
+- [ ] `POST /api/v2/repos/:owner/:repo/actions/workflows/:filename/dispatches` (in flight tonight)
+- [ ] `GET  /api/v2/repos/:owner/:repo/actions/workflows/:filename/runs` (in flight tonight)
+- [ ] `GET  /api/v2/repos/:owner/:repo/actions/runs/:run_id` (in flight tonight)
+- [ ] `GET  /api/v2/repos/:owner/:repo/actions/runs/:run_id/logs` (zip) (in flight tonight)
+- [ ] `POST /api/v2/repos/:owner/:repo/actions/runs/:run_id/cancel` (in flight tonight)
+
+Helpers verified available: `getBlob`, `getTree`, `getCommit`, `resolveRef`,
+`updateRef`, `writeBlob`, `refExists`, `objectExists`, `getBlobShaAtPath`,
+`createOrUpdateFileOnBranch`, `enqueueRun`. Auth uses existing `requireApiAuth` +
+`requireScope("repo")`. No schema changes needed.
+
+---
+
+## 🛸 "2030 KILLER MOVES" — 2026-05-20 (external strategic doc, 30 items)
+
+Triaged for feasibility from current architecture. Tagged: **[NOW]** = can
+build inside the current platform with no new infra; **[NEXT]** = needs
+one major piece of new infra (vector store, edge runtime, enclave); **[FAR]**
+= multi-quarter or requires partner ecosystem.
+
+### Next-gen security & agent scoping
+- [ ] **[NOW]** 1. Token-level identity binding — `agent_session` tokens scoped to a single branch/issue. Builds on existing PAT scopes — add a `target_ref` field to `api_tokens`. **~4-6 hrs**
+- [ ] **[NOW]** 2. Ephemeral branch sandboxes — `refs/scratch/*` exempt from CI, pruned after merge. **~4-6 hrs**
+- [ ] **[NOW]** 3. Nonce-enforced PUT queries — `If-Match: <blob_sha>` semantics. Group 1 PUT/DELETE already needs `sha`; lift to an HTTP header. **~2-3 hrs**
+- [ ] **[NOW]** 4. Byte-range content patching — `PATCH /contents/:path` with RFC-6902 JSON patch or unified-diff body. **~4-6 hrs**
+- [ ] **[NEXT]** 5. Semantic content hashing — AST-aware hash to suppress comment/whitespace CI. Needs per-language parsers. **~10-15 hrs**
+
+### AI-native git data layer
+- [ ] **[NOW]** 6. LLM-native content bundling — `GET /contents/:path?format=llm-xml`. Existing repo-walker + XML wrap. **~3-4 hrs**
+- [ ] **[NEXT]** 7. On-the-fly dependency analysis on commit POST. Needs language-aware parsers. **~8-10 hrs**
+- [ ] **[NOW]** 8. Graph-native history walks — `?depth=10&include_diffs=true` on `/git/commits/:sha`. **~3-4 hrs**
+- [ ] **[NOW]** 9. Auto-clustered staging trees — agents stream blobs, server batches into one commit on `flush`. Sits next to Group 2 tree builder. **~6-8 hrs**
+- [ ] **[NEXT]** 10. Intent metadata + pre-receive intent matcher. Needs semantic-diff infra. **~10-12 hrs**
+
+### Real-time observability & build fabric
+- [ ] **[NOW]** 11. Zero-polling SSE workflow log streams — `/actions/runs/:run_id/stream`. SSE infra already exists. **~3-4 hrs**
+- [ ] **[NEXT]** 12. Programmable inline step interceptors — workflow_dispatch body conditional hooks. **~6-8 hrs**
+- [ ] **[NEXT]** 13. State-saves on failure — snapshot runner FS on crash. Needs container snapshot capability. **~10-15 hrs**
+- [ ] **[NEXT]** 14. Predictive execution caching — keyed by `tree_sha + input_shape`. Cache layer. **~6-8 hrs**
+- [ ] **[NEXT]** 15. Vector-formatted workflow log outlets — embeddings on log lines. Pairs with item #2 of prev list. **~4-6 hrs**
+
+### Enclave runtimes & advanced security
+- [ ] **[FAR]** 16. Post-quantum API auth (ML-DSA / Falcon). **~weeks**
+- [ ] **[NEXT]** 17. Cryptographic reproducibility proofs / signed BOM per run. Builds on SLSA item from prev list. **~6-8 hrs**
+- [ ] **[FAR]** 18. Zero-trust local storage — orchestration-plane-only mode. Massive architectural shift. **~quarters**
+- [ ] **[NOW]** 19. Context-aware 429 — `X-Gluecron-Backoff-Context` header on throttles. **~1-2 hrs**
+- [ ] **[FAR]** 20. Automated fork-enclave execution for unverified agents. Needs biometric integration. **~quarters**
+
+### Architectural superiority
+- [ ] **[FAR]** 21. Edge-native API compilation (Rust/Wasm). Rewrite of the metadata-API surface. **~quarters**
+- [ ] **[NEXT]** 22. Native workspace sync — long-lived file-watcher endpoint. Pairs with realtime collab. **~8-10 hrs**
+- [ ] **[NEXT]** 23. Autonomous cost gating — `budget_limit` on workflow_dispatch. Needs runner-cost telemetry. **~4-6 hrs**
+- [ ] **[NEXT]** 24. AI hallucination sandboxing — npm/PyPI/crates pre-check on commit. **~6-8 hrs**
+- [ ] **[FAR]** 25. P2P code swaps for large assets. Needs IPFS/WebTorrent. **~weeks**
+- [ ] **[NOW]** 26. Immutable audit ledger separate from git graph. `audit_log` already exists; add append-only signature chain. **~3-4 hrs**
+- [ ] **[NOW]** 27. Context-aware auto-pruning — delete merged auto-branches after 24h. Cron-style autopilot task. **~2-3 hrs**
+- [ ] **[NEXT]** 28. Dynamic mid-run resource balancing. Needs runner-pool elasticity. **~8-10 hrs**
+- [ ] **[NEXT]** 29. Multi-model orchestration in workflows — workflow YAML can call into a model router. **~6-8 hrs**
+- [ ] **[NOW]** 30. Self-healing endpoint schemas — accept slight param drift + return `X-Gluecron-Schema-Warning`. **~2-3 hrs**
+
+### Top picks if shipping next
+The **[NOW]** items with best ROI for the agent-build use case:
+- 1 (token-binding) + 3 (nonce/If-Match) + 8 (history depth) + 11 (SSE logs)
+  = an agent's full safety + observability story in ~12-16 hrs of work
+- 6 (LLM-XML bundling) + 9 (auto-clustered tree) = differentiated IDE-agent UX in ~10-12 hrs
+
+---
+
 ## 📊 Latest commits on main (auto-updated, top of `git log`)
 
 Run `git log --oneline -15` to see what's actually shipped. The HEAD SHA the live server is running can be confirmed at `https://gluecron.com/version`.

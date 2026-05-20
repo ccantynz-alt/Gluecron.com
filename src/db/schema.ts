@@ -657,6 +657,39 @@ export const webhooks = pgTable(
   (table) => [index("webhooks_repo").on(table.repositoryId)]
 );
 
+// Reliable webhook delivery (migration 0056). One row per (hook, event)
+// emission. Worker in src/lib/webhook-delivery.ts polls pending rows whose
+// next_attempt_at <= now() and retries with exponential backoff.
+export const webhookDeliveries = pgTable(
+  "webhook_deliveries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    webhookId: uuid("webhook_id")
+      .notNull()
+      .references(() => webhooks.id, { onDelete: "cascade" }),
+    event: text("event").notNull(),
+    payload: text("payload").notNull(),
+    signature: text("signature").notNull(),
+    attemptCount: integer("attempt_count").default(0).notNull(),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
+    status: text("status").default("pending").notNull(), // pending | succeeded | failed | dead
+    lastStatusCode: integer("last_status_code"),
+    lastError: text("last_error"),
+    lastAttemptedAt: timestamp("last_attempted_at", { withTimezone: true }),
+    succeededAt: timestamp("succeeded_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("idx_webhook_deliveries_next_attempt").on(table.nextAttemptAt),
+    index("idx_webhook_deliveries_webhook_id").on(
+      table.webhookId,
+      table.createdAt
+    ),
+  ]
+);
+
 export const apiTokens = pgTable("api_tokens", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: uuid("user_id")

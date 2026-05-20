@@ -6,6 +6,10 @@ import { Hono } from "hono";
 import { eq, and } from "drizzle-orm";
 import { db } from "../db";
 import { webhooks, repositories, users } from "../db/schema";
+import {
+  enqueueWebhookDelivery,
+  drainPendingDeliveries,
+} from "../lib/webhook-delivery";
 import { Layout } from "../views/layout";
 import { RepoHeader } from "../views/components";
 import { softAuth, requireAuth } from "../middleware/auth";
@@ -233,6 +237,13 @@ export default webhookRoutes;
 
 /**
  * Fire webhooks for a repository event.
+ *
+ * Instead of POSTing inline, this enqueues one `webhook_deliveries` row per
+ * matching hook. The background worker in `src/lib/webhook-delivery.ts`
+ * picks them up immediately (and retries with exponential backoff on
+ * failure, eventually transitioning to status='dead' after MAX_ATTEMPTS).
+ *
+ * This is fire-and-forget: enqueue failures are logged but never propagate.
  */
 export async function fireWebhooks(
   repositoryId: string,
@@ -245,62 +256,27 @@ export async function fireWebhooks(
       .from(webhooks)
       .where(eq(webhooks.repositoryId, repositoryId));
 
+    let enqueued = 0;
     for (const hook of hooks) {
       if (!hook.isActive) continue;
       const hookEvents = hook.events.split(",");
       if (!hookEvents.includes(event)) continue;
 
-      try {
-        const headers: Record<string, string> = {
-          "Content-Type": "application/json",
-          "X-Gluecron-Event": event,
-        };
+      const id = await enqueueWebhookDelivery({
+        webhookId: hook.id,
+        secret: hook.secret,
+        event,
+        payload,
+      });
+      if (id) enqueued++;
+    }
 
-        if (hook.secret) {
-          const encoder = new TextEncoder();
-          const key = await crypto.subtle.importKey(
-            "raw",
-            encoder.encode(hook.secret),
-            { name: "HMAC", hash: "SHA-256" },
-            false,
-            ["sign"]
-          );
-          const signature = await crypto.subtle.sign(
-            "HMAC",
-            key,
-            encoder.encode(JSON.stringify(payload))
-          );
-          headers["X-Gluecron-Signature"] =
-            "sha256=" +
-            Array.from(new Uint8Array(signature))
-              .map((b) => b.toString(16).padStart(2, "0"))
-              .join("");
-        }
-
-        const res = await fetch(hook.url, {
-          method: "POST",
-          headers,
-          body: JSON.stringify(payload),
-          signal: AbortSignal.timeout(10000),
-        });
-
-        await db
-          .update(webhooks)
-          .set({
-            lastDeliveredAt: new Date(),
-            lastStatus: res.status,
-          })
-          .where(eq(webhooks.id, hook.id));
-      } catch (err) {
-        console.error(`[webhook] delivery failed for ${hook.url}:`, err);
-        await db
-          .update(webhooks)
-          .set({
-            lastDeliveredAt: new Date(),
-            lastStatus: 0,
-          })
-          .where(eq(webhooks.id, hook.id));
-      }
+    // Kick the worker for fresh enqueues so we don't wait up to the poll
+    // interval. Best-effort and never awaited from the caller's perspective.
+    if (enqueued > 0) {
+      void drainPendingDeliveries().catch((err) => {
+        console.error("[webhook] kick drain failed:", err);
+      });
     }
   } catch (err) {
     console.error("[webhook] failed to query webhooks:", err);

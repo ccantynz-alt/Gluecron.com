@@ -2,6 +2,7 @@ import { mkdir } from "fs/promises";
 import app from "./app";
 import { config } from "./lib/config";
 import { startWorker } from "./lib/workflow-runner";
+import { startWebhookDeliveryWorker } from "./lib/webhook-delivery";
 import { startAutopilot } from "./lib/autopilot";
 import { ensureDemoContent } from "./lib/demo-seed";
 import { ensureDemoActivity } from "./lib/demo-activity-seed";
@@ -42,6 +43,11 @@ void maybeSelfBootstrap().catch((err) => {
 // Start the Actions-equivalent workflow worker (Block C1). Polls
 // workflow_runs for queued rows and executes them sequentially.
 startWorker();
+
+// Reliable webhook delivery worker (migration 0056). Polls
+// webhook_deliveries for pending rows whose next_attempt_at <= now() and
+// retries with exponential backoff before dead-lettering.
+startWebhookDeliveryWorker();
 
 // Autopilot: periodic mirror sync, merge-queue progress, weekly digests,
 // advisory rescans. No-op when AUTOPILOT_DISABLED=1.

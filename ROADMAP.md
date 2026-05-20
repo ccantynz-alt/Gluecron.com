@@ -1,6 +1,6 @@
 # Gluecron Roadmap & Checklist
 
-**Living document. Last updated: 2026-05-17. Edit as items move.**
+**Living document. Last updated: 2026-05-20. Edit as items move.**
 
 This is the single source of truth for what's done, what's in flight, what's
 critical for the next demo, and what's queued for after. If it's not on this
@@ -212,6 +212,52 @@ Ordered by **leverage per hour**. The first 3 are the differentiators that compe
 13. [ ] **Localization** — English-only today.
 14. [ ] **SOC2 compliance path** — for enterprise customers.
 15. [ ] **Mobile PWA done right** — properly architected this time (not the broken one we ripped out).
+
+---
+
+## 📜 Platform Strategy Review — 2026-05-20 (external)
+
+External spec review landed 2026-05-20. Two parts: tonight's fixes and a long-tail "20 killer moves" list. Track here so nothing falls through.
+
+### Part 1 — Spec corrections (tonight)
+
+- [x] **PR list pagination** — added `?limit` (default 30, max 100) + `?offset` to `GET /api/v2/repos/:owner/:repo/pulls` (commit `8c09fb9`)
+- [ ] **Webhook retries + dead-letter** — in flight (agent on worktree). Exponential backoff (30s, 2m, 10m, 1h, 6h), max 6 attempts, status='dead' after that, new `webhook_deliveries` table
+- [x] **OAuth admin scope** — verified `admin` is not in `SUPPORTED_SCOPES` (src/lib/oauth.ts:18-28). Third-party OAuth apps cannot acquire it; admin scope is PAT-only over session cookies
+- [x] **GateTest timing** — verified runs as fire-and-forget post-receive (src/hooks/post-receive.ts:81-90). Never blocks the push, just notifies and updates commit status async
+- [x] **Git credential security** — verified the codebase never exposes URL-embedded tokens to users (`src/lib/import-helper.ts:81-90` scrubs them from error output before display). Public integration spec updated to recommend git credential helper / Basic Auth password flow instead of URL-embed
+
+### Part 2 — "20 killer moves" — graded by feasibility-from-here
+
+Slotted into existing tiers above where overlapping, listed here when new.
+
+**Native AI & agentic autonomy** (most strategic, partially built)
+1. [ ] Deterministic agent runtimes — sandbox+repl in repo. Builds on existing workflow runner. **~12-16 hrs**
+2. [ ] Push-time vector indexing — wire embeddings into `post-receive.ts`. Anthropic embeddings + pgvector. **~6-8 hrs**
+3. [ ] Multi-file AST graph for MCP — extend the 15 MCP tools to expose structural deps. **~8-10 hrs**
+4. [ ] Autonomous PR decoupling — new `ai/*` branch type that autopilot owns end-to-end. Pieces exist. **~6-8 hrs**
+5. [ ] AI-driven taint patcher — extends `ai-review.ts`: when GateTest flags, Claude proposes the patch + opens a PR. **~4-6 hrs**
+
+**High-performance self-hosting & independence**
+6. [ ] Single-binary deploy — Bun's `bun build --compile`. Already feasible. **~2-3 hrs**
+7. [ ] Multi-master replication — schema-level. Hard. **~weeks**
+8. [ ] S3-backed git objects — git LFS-style with object storage. **~10-15 hrs**
+9. [ ] Outbound-only tunnel — Cloudflare Tunnel template. **~2-3 hrs**
+10. [ ] SSO on every tier — OIDC works; SAML + AD missing. **~6-8 hrs**
+
+**Advanced CI/CD & security**
+11. [ ] Local-runnable Actions — `gluecron act run` CLI mirroring runner image. **~6-8 hrs**
+12. [ ] SLSA-style signed artifacts — sigstore + provenance attestation. **~4-6 hrs**
+13. [ ] Sub-ms pre-receive secrets — true pre-receive, regex+entropy only (no taint). **~3-4 hrs**
+14. [ ] Impact-aware CI scaling — runner pool by changeset size. **~6-8 hrs**
+15. [ ] Compliance ledger export — `audit_log` exists. CSV/JSON export endpoint + retention policy. **~3-4 hrs**
+
+**Developer experience & extensibility**
+16. [ ] Realtime collaborative PRs — already Tier 3 #7 above
+17. [ ] NNTP / IMAP / mailing-list bridge — wild but cheap. RFC-3977 NNTP server. **~10-12 hrs**
+18. [ ] Programmable webhook pipelines — runs user JS/Wasm before delivery. Builds on the new retry queue. **~8-10 hrs**
+19. [ ] Feature-flag controller — track flag state on merge. **~6-8 hrs**
+20. [ ] Semantic code search — embeddings powered. Builds on #2 (push-time vector index). **~4-6 hrs**
 
 ---
 

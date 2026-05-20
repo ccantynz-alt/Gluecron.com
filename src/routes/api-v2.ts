@@ -1788,6 +1788,563 @@ apiv2.post("/repos/:owner/:repo/webhooks", requireApiAuth, requireScope("admin")
   return c.json(result[0], 201);
 });
 
+// ─── Actions / Workflows ────────────────────────────────────────────────────
+//
+// GitHub-Actions-compatible REST surface (subset).
+//
+//   POST /repos/:owner/:repo/actions/workflows/:filename/dispatches
+//   GET  /repos/:owner/:repo/actions/workflows/:filename/runs
+//   GET  /repos/:owner/:repo/actions/runs/:run_id
+//   GET  /repos/:owner/:repo/actions/runs/:run_id/logs            (.zip)
+//   POST /repos/:owner/:repo/actions/runs/:run_id/cancel
+//
+// Shapes follow GitHub REST v3 — snake_case fields, HTML URLs back to the
+// gluecron run page, identical status-code semantics (204 for dispatch, 202
+// for cancel, 409 for already-terminal, 422 for bad inputs).
+
+type ParsedOn =
+  | string
+  | string[]
+  | Record<string, unknown>
+  | null
+  | undefined;
+
+type DispatchInputSpec = {
+  type?: string;
+  required?: boolean;
+  default?: unknown;
+  options?: unknown[];
+  description?: string;
+};
+
+/**
+ * Pull the workflow_dispatch slice out of whatever shape `parsed.on` happens
+ * to be. The v1 parser normalises `on` to a `string[]`, but the extended
+ * parser may store an object — and YAML in the wild can be either form. We
+ * accept all three: scalar string, array of event names, mapping keyed by
+ * event name.
+ */
+function extractDispatchSpec(rawOn: ParsedOn): {
+  enabled: boolean;
+  inputs: Record<string, DispatchInputSpec> | null;
+} {
+  if (rawOn == null) return { enabled: false, inputs: null };
+  if (typeof rawOn === "string") {
+    return { enabled: rawOn === "workflow_dispatch", inputs: null };
+  }
+  if (Array.isArray(rawOn)) {
+    return { enabled: rawOn.includes("workflow_dispatch"), inputs: null };
+  }
+  if (typeof rawOn === "object") {
+    const slot = (rawOn as Record<string, unknown>)["workflow_dispatch"];
+    if (slot === undefined) return { enabled: false, inputs: null };
+    // `workflow_dispatch:` with no children is a valid trigger declaration.
+    if (slot == null || typeof slot !== "object") {
+      return { enabled: true, inputs: null };
+    }
+    const inputs = (slot as Record<string, unknown>).inputs;
+    if (!inputs || typeof inputs !== "object" || Array.isArray(inputs)) {
+      return { enabled: true, inputs: null };
+    }
+    return {
+      enabled: true,
+      inputs: inputs as Record<string, DispatchInputSpec>,
+    };
+  }
+  return { enabled: false, inputs: null };
+}
+
+function validateDispatchInputs(
+  schema: Record<string, DispatchInputSpec> | null,
+  provided: Record<string, unknown> | undefined
+): { ok: true } | { ok: false; details: string[] } {
+  if (!schema) return { ok: true };
+  const details: string[] = [];
+  const supplied = provided ?? {};
+  for (const [name, spec] of Object.entries(schema)) {
+    if (!spec || typeof spec !== "object") continue;
+    const present =
+      Object.prototype.hasOwnProperty.call(supplied, name) &&
+      supplied[name] !== undefined &&
+      supplied[name] !== null;
+    if (spec.required && !present) {
+      // No default → required input is missing.
+      if (spec.default === undefined) {
+        details.push(`Missing required input: ${name}`);
+      }
+    }
+  }
+  if (details.length) return { ok: false, details };
+  return { ok: true };
+}
+
+/**
+ * Look up a workflow row by repository + the basename of its `path` column.
+ * Stored path is `.gluecron/workflows/<filename>`; we match the trailing
+ * segment so callers don't need to know our on-disk layout.
+ */
+async function findWorkflowByFilename(
+  repositoryId: string,
+  filename: string
+): Promise<typeof workflows.$inferSelect | null> {
+  const rows = await db
+    .select()
+    .from(workflows)
+    .where(eq(workflows.repositoryId, repositoryId));
+  for (const row of rows) {
+    const idx = row.path.lastIndexOf("/");
+    const base = idx >= 0 ? row.path.slice(idx + 1) : row.path;
+    if (base === filename) return row;
+  }
+  return null;
+}
+
+function runHtmlUrl(owner: string, repo: string, runId: string): string {
+  return `https://gluecron.com/${owner}/${repo}/actions/runs/${runId}`;
+}
+
+function toIso(d: Date | string | null | undefined): string | null {
+  if (!d) return null;
+  return d instanceof Date ? d.toISOString() : new Date(d).toISOString();
+}
+
+function serializeRun(
+  run: typeof workflowRuns.$inferSelect,
+  workflowName: string,
+  owner: string,
+  repo: string
+): Record<string, unknown> {
+  // GitHub returns `head_branch` as the short branch name (no refs/heads/).
+  let head_branch: string | null = null;
+  if (run.ref) {
+    head_branch = run.ref.startsWith("refs/heads/")
+      ? run.ref.slice("refs/heads/".length)
+      : run.ref;
+  }
+  return {
+    id: run.id,
+    name: workflowName,
+    head_branch,
+    head_sha: run.commitSha,
+    status: run.status,
+    conclusion: run.conclusion,
+    event: run.event,
+    created_at: toIso(run.queuedAt),
+    updated_at:
+      toIso(run.finishedAt) ?? toIso(run.startedAt) ?? toIso(run.queuedAt),
+    run_started_at: toIso(run.startedAt),
+    html_url: runHtmlUrl(owner, repo, run.id),
+  };
+}
+
+// ─── 1. POST /actions/workflows/:filename/dispatches ────────────────────────
+
+apiv2.post(
+  "/repos/:owner/:repo/actions/workflows/:filename/dispatches",
+  requireApiAuth,
+  requireScope("repo"),
+  async (c) => {
+    const { owner, repo, filename } = c.req.param();
+    const user = c.get("user")!;
+
+    let body: { ref?: unknown; inputs?: unknown } = {};
+    try {
+      body = await c.req.json();
+    } catch {
+      body = {};
+    }
+
+    const resolved = await resolveRepo(owner, repo);
+    if (!resolved) return c.json({ error: "Not Found" }, 404);
+
+    const repoRow = resolved.repo as any;
+    const workflowRow = await findWorkflowByFilename(repoRow.id, filename);
+    if (!workflowRow) return c.json({ error: "Not Found" }, 404);
+
+    // Parse the stored workflow JSON to look at its triggers + input schema.
+    let parsedObj: Record<string, unknown> = {};
+    try {
+      const v = JSON.parse(workflowRow.parsed);
+      if (v && typeof v === "object" && !Array.isArray(v)) {
+        parsedObj = v as Record<string, unknown>;
+      }
+    } catch {
+      // Treat unparseable parsed-blob as no triggers — falls through to 422.
+    }
+
+    const spec = extractDispatchSpec(parsedObj.on as ParsedOn);
+    if (!spec.enabled) {
+      return c.json(
+        { error: "Workflow does not have a 'workflow_dispatch' trigger." },
+        422
+      );
+    }
+
+    const providedInputs =
+      body.inputs && typeof body.inputs === "object" && !Array.isArray(body.inputs)
+        ? (body.inputs as Record<string, unknown>)
+        : undefined;
+    const inputCheck = validateDispatchInputs(spec.inputs, providedInputs);
+    if (!inputCheck.ok) {
+      return c.json(
+        { error: "Invalid workflow inputs", details: inputCheck.details },
+        422
+      );
+    }
+
+    // Resolve the ref → commit SHA. Default to repo default_branch.
+    const refIn =
+      typeof body.ref === "string" && body.ref.trim().length > 0
+        ? body.ref.trim()
+        : repoRow.defaultBranch || "main";
+    const commitSha = await resolveRef(owner, repo, refIn);
+    if (!commitSha) {
+      return c.json({ error: `Ref not found: ${refIn}` }, 422);
+    }
+
+    const runId = await enqueueRun({
+      workflowId: workflowRow.id,
+      repositoryId: repoRow.id,
+      event: "workflow_dispatch",
+      ref: refIn,
+      commitSha,
+      triggeredBy: user.id,
+    });
+    if (!runId) {
+      return c.json({ error: "Failed to enqueue run" }, 500);
+    }
+
+    // GitHub returns 204 No Content with no body on success.
+    return c.body(null, 204);
+  }
+);
+
+// ─── 2. GET /actions/workflows/:filename/runs ───────────────────────────────
+
+apiv2.get(
+  "/repos/:owner/:repo/actions/workflows/:filename/runs",
+  async (c) => {
+    const { owner, repo, filename } = c.req.param();
+    const resolved = await resolveRepo(owner, repo);
+    if (!resolved) return c.json({ error: "Not Found" }, 404);
+
+    const repoRow = resolved.repo as any;
+    const workflowRow = await findWorkflowByFilename(repoRow.id, filename);
+    if (!workflowRow) return c.json({ error: "Not Found" }, 404);
+
+    const perPage = Math.min(
+      100,
+      Math.max(1, parseInt(c.req.query("per_page") || "30", 10) || 30)
+    );
+    const page = Math.max(1, parseInt(c.req.query("page") || "1", 10) || 1);
+    const offset = (page - 1) * perPage;
+    const branch = c.req.query("branch");
+    const headSha = c.req.query("head_sha");
+
+    const conditions = [eq(workflowRuns.workflowId, workflowRow.id)];
+    if (branch) {
+      // Accept either short branch name or fully-qualified refs/heads/...
+      const refValue = branch.startsWith("refs/")
+        ? branch
+        : `refs/heads/${branch}`;
+      conditions.push(eq(workflowRuns.ref, refValue));
+    }
+    if (headSha) conditions.push(eq(workflowRuns.commitSha, headSha));
+
+    const where = conditions.length === 1 ? conditions[0] : and(...conditions);
+
+    const [{ n }] = await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(workflowRuns)
+      .where(where);
+    const total_count = Number(n) || 0;
+
+    const rows = await db
+      .select()
+      .from(workflowRuns)
+      .where(where)
+      .orderBy(desc(workflowRuns.queuedAt))
+      .limit(perPage)
+      .offset(offset);
+
+    return c.json({
+      total_count,
+      workflow_runs: rows.map((r) =>
+        serializeRun(r, workflowRow.name, owner, repo)
+      ),
+    });
+  }
+);
+
+// ─── 3. GET /actions/runs/:run_id ───────────────────────────────────────────
+
+apiv2.get("/repos/:owner/:repo/actions/runs/:run_id", async (c) => {
+  const { owner, repo, run_id } = c.req.param();
+  const resolved = await resolveRepo(owner, repo);
+  if (!resolved) return c.json({ error: "Not Found" }, 404);
+
+  const repoRow = resolved.repo as any;
+  const [run] = await db
+    .select()
+    .from(workflowRuns)
+    .where(eq(workflowRuns.id, run_id))
+    .limit(1);
+  if (!run) return c.json({ error: "Not Found" }, 404);
+  // Don't leak runs across repos.
+  if (run.repositoryId !== repoRow.id) {
+    return c.json({ error: "Not Found" }, 404);
+  }
+
+  const [wf] = await db
+    .select()
+    .from(workflows)
+    .where(eq(workflows.id, run.workflowId))
+    .limit(1);
+  const workflowName = wf?.name ?? "";
+
+  return c.json(serializeRun(run, workflowName, owner, repo));
+});
+
+// ─── 4. GET /actions/runs/:run_id/logs — ZIP of per-job logs ────────────────
+//
+// Reuses the same in-process zip writer pattern as `connect-claude.tsx` —
+// PKZIP 2.0, no zip64, deflateRawSync with STORED fallback when compression
+// would inflate. The handler is self-contained so the dxt downloader stays
+// the canonical reference.
+
+function crc32(buf: Uint8Array): number {
+  let c = 0xffffffff;
+  for (let i = 0; i < buf.length; i++) {
+    c ^= buf[i]!;
+    for (let k = 0; k < 8; k++) {
+      c = (c >>> 1) ^ (0xedb88320 & -(c & 1));
+    }
+  }
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+type ZipEntry = { name: string; data: Uint8Array };
+
+function buildZip(entries: ZipEntry[]): Uint8Array {
+  const localParts: Uint8Array[] = [];
+  const centralParts: Uint8Array[] = [];
+  let offset = 0;
+
+  for (const entry of entries) {
+    const nameBytes = new TextEncoder().encode(entry.name);
+    const crc = crc32(entry.data);
+    const uncompressedSize = entry.data.length;
+
+    let method = 8;
+    let compressed: Uint8Array;
+    try {
+      const out = deflateRawSync(entry.data);
+      compressed = new Uint8Array(out.buffer, out.byteOffset, out.byteLength);
+      if (compressed.length >= uncompressedSize) {
+        method = 0;
+        compressed = entry.data;
+      }
+    } catch {
+      method = 0;
+      compressed = entry.data;
+    }
+    const compressedSize = compressed.length;
+
+    const local = new Uint8Array(30 + nameBytes.length + compressedSize);
+    const lv = new DataView(local.buffer);
+    lv.setUint32(0, 0x04034b50, true);
+    lv.setUint16(4, 20, true);
+    lv.setUint16(6, 0, true);
+    lv.setUint16(8, method, true);
+    lv.setUint16(10, 0, true);
+    lv.setUint16(12, 0, true);
+    lv.setUint32(14, crc, true);
+    lv.setUint32(18, compressedSize, true);
+    lv.setUint32(22, uncompressedSize, true);
+    lv.setUint16(26, nameBytes.length, true);
+    lv.setUint16(28, 0, true);
+    local.set(nameBytes, 30);
+    local.set(compressed, 30 + nameBytes.length);
+    localParts.push(local);
+
+    const central = new Uint8Array(46 + nameBytes.length);
+    const cv = new DataView(central.buffer);
+    cv.setUint32(0, 0x02014b50, true);
+    cv.setUint16(4, 20, true);
+    cv.setUint16(6, 20, true);
+    cv.setUint16(8, 0, true);
+    cv.setUint16(10, method, true);
+    cv.setUint16(12, 0, true);
+    cv.setUint16(14, 0, true);
+    cv.setUint32(16, crc, true);
+    cv.setUint32(20, compressedSize, true);
+    cv.setUint32(24, uncompressedSize, true);
+    cv.setUint16(28, nameBytes.length, true);
+    cv.setUint16(30, 0, true);
+    cv.setUint16(32, 0, true);
+    cv.setUint16(34, 0, true);
+    cv.setUint16(36, 0, true);
+    cv.setUint32(38, 0, true);
+    cv.setUint32(42, offset, true);
+    central.set(nameBytes, 46);
+    centralParts.push(central);
+
+    offset += local.length;
+  }
+
+  const centralSize = centralParts.reduce((n, p) => n + p.length, 0);
+  const centralOffset = offset;
+
+  const end = new Uint8Array(22);
+  const ev = new DataView(end.buffer);
+  ev.setUint32(0, 0x06054b50, true);
+  ev.setUint16(4, 0, true);
+  ev.setUint16(6, 0, true);
+  ev.setUint16(8, entries.length, true);
+  ev.setUint16(10, entries.length, true);
+  ev.setUint32(12, centralSize, true);
+  ev.setUint32(16, centralOffset, true);
+  ev.setUint16(20, 0, true);
+
+  const total =
+    localParts.reduce((n, p) => n + p.length, 0) + centralSize + end.length;
+  const out = new Uint8Array(total);
+  let pos = 0;
+  for (const p of localParts) {
+    out.set(p, pos);
+    pos += p.length;
+  }
+  for (const p of centralParts) {
+    out.set(p, pos);
+    pos += p.length;
+  }
+  out.set(end, pos);
+  return out;
+}
+
+apiv2.get("/repos/:owner/:repo/actions/runs/:run_id/logs", async (c) => {
+  const { owner, repo, run_id } = c.req.param();
+  const resolved = await resolveRepo(owner, repo);
+  if (!resolved) return c.json({ error: "Not Found" }, 404);
+
+  const repoRow = resolved.repo as any;
+  const [run] = await db
+    .select()
+    .from(workflowRuns)
+    .where(eq(workflowRuns.id, run_id))
+    .limit(1);
+  if (!run || run.repositoryId !== repoRow.id) {
+    return c.json({ error: "Not Found" }, 404);
+  }
+
+  const jobs = await db
+    .select()
+    .from(workflowJobs)
+    .where(eq(workflowJobs.runId, run.id))
+    .orderBy(asc(workflowJobs.jobOrder));
+
+  // 404 when there's truly nothing to package up — matches GitHub's behaviour
+  // for runs that never produced logs.
+  const usable = jobs.filter(
+    (j) => typeof j.logs === "string" && j.logs.length > 0
+  );
+  if (usable.length === 0) {
+    return c.json({ error: "Not Found" }, 404);
+  }
+
+  // Make filenames safe + unique. Collisions get a numeric suffix.
+  const seen = new Set<string>();
+  const entries: ZipEntry[] = [];
+  for (const job of usable) {
+    let base = (job.name || "job").replace(/[^a-zA-Z0-9_.-]+/g, "_");
+    if (!base) base = "job";
+    let filename = `${base}.log`;
+    let n = 1;
+    while (seen.has(filename)) {
+      filename = `${base}-${++n}.log`;
+    }
+    seen.add(filename);
+    entries.push({
+      name: filename,
+      data: new TextEncoder().encode(job.logs),
+    });
+  }
+
+  const zip = buildZip(entries);
+  // Wrap the bytes in a Blob so Response's BodyInit type is happy across
+  // both Bun's `globalThis.Response` and Hono's. Uint8Array works at
+  // runtime but trips strict TS — cast to BlobPart resolves the
+  // ArrayBufferLike/ArrayBuffer mismatch on `.buffer`.
+  return new Response(new Blob([zip as BlobPart], { type: "application/zip" }), {
+    status: 200,
+    headers: {
+      "Content-Disposition": `attachment; filename="run-${run.id}-logs.zip"`,
+      "Content-Length": String(zip.length),
+    },
+  });
+});
+
+// ─── 5. POST /actions/runs/:run_id/cancel ───────────────────────────────────
+
+apiv2.post(
+  "/repos/:owner/:repo/actions/runs/:run_id/cancel",
+  requireApiAuth,
+  requireScope("repo"),
+  async (c) => {
+    const { owner, repo, run_id } = c.req.param();
+    const resolved = await resolveRepo(owner, repo);
+    if (!resolved) return c.json({ error: "Not Found" }, 404);
+
+    const repoRow = resolved.repo as any;
+    const [run] = await db
+      .select()
+      .from(workflowRuns)
+      .where(eq(workflowRuns.id, run_id))
+      .limit(1);
+    if (!run || run.repositoryId !== repoRow.id) {
+      return c.json({ error: "Not Found" }, 404);
+    }
+
+    // Already-terminal states are a 409 Conflict per GitHub semantics. We
+    // only allow queued → cancelled and running → cancelled transitions.
+    if (run.status !== "queued" && run.status !== "running") {
+      return c.json(
+        {
+          error:
+            "Cannot cancel workflow run in its current state",
+          status: run.status,
+        },
+        409
+      );
+    }
+
+    const now = new Date();
+    await db
+      .update(workflowRuns)
+      .set({
+        status: "cancelled",
+        conclusion: "cancelled",
+        finishedAt: now,
+      })
+      .where(
+        and(
+          eq(workflowRuns.id, run.id),
+          eq(workflowRuns.repositoryId, repoRow.id)
+        )
+      );
+    await db
+      .update(workflowJobs)
+      .set({
+        status: "cancelled",
+        conclusion: "cancelled",
+        finishedAt: now,
+      })
+      .where(eq(workflowJobs.runId, run.id));
+
+    return c.json({}, 202);
+  }
+);
+
 // ─── API Info ───────────────────────────────────────────────────────────────
 
 apiv2.get("/", (c) => {
@@ -1874,6 +2431,18 @@ apiv2.get("/", (c) => {
       },
       activity: {
         "GET /api/v2/repos/:owner/:repo/activity": "Get activity feed",
+      },
+      actions: {
+        "POST /api/v2/repos/:owner/:repo/actions/workflows/:filename/dispatches":
+          "Dispatch a workflow run (204 No Content)",
+        "GET /api/v2/repos/:owner/:repo/actions/workflows/:filename/runs":
+          "List runs of a workflow (paginated: per_page, page; filters: branch, head_sha)",
+        "GET /api/v2/repos/:owner/:repo/actions/runs/:run_id":
+          "Get a single workflow run",
+        "GET /api/v2/repos/:owner/:repo/actions/runs/:run_id/logs":
+          "Download per-job logs as a .zip archive",
+        "POST /api/v2/repos/:owner/:repo/actions/runs/:run_id/cancel":
+          "Cancel a queued or running workflow run (202 Accepted)",
       },
     },
     authentication: {

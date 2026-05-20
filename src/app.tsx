@@ -11,6 +11,7 @@ import gitRoutes from "./routes/git";
 import apiRoutes from "./routes/api";
 import apiV2Routes from "./routes/api-v2";
 import apiDocsRoutes from "./routes/api-docs";
+import buildAgentSpecRoutes from "./routes/build-agent-spec";
 import authRoutes from "./routes/auth";
 import passwordResetRoutes from "./routes/password-reset";
 import emailVerificationRoutes from "./routes/email-verification";
@@ -235,6 +236,7 @@ app.route("/api/events", eventsRoutes);
 
 // API documentation
 app.route("/", apiDocsRoutes);
+app.route("/", buildAgentSpecRoutes);
 
 // Auth routes (register, login, logout)
 app.route("/", authRoutes);

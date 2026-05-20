@@ -7,7 +7,9 @@
  */
 
 import { Hono } from "hono";
+import { join } from "path";
 import { eq, and, desc, asc, sql, like, or } from "drizzle-orm";
+import { deflateRawSync } from "node:zlib";
 import { db } from "../db";
 import {
   users,
@@ -22,7 +24,11 @@ import {
   activityFeed,
   webhooks,
   repoTopics,
+  workflows,
+  workflowRuns,
+  workflowJobs,
 } from "../db/schema";
+import { enqueueRun } from "../lib/workflow-runner";
 import {
   listBranches,
   getDefaultBranch,
@@ -41,8 +47,12 @@ import {
   refExists,
   objectExists,
   updateRef,
+  writeBlob,
+  getBlobShaAtPath,
+  getRepoPath,
   createOrUpdateFileOnBranch,
 } from "../git/repository";
+import { config } from "../lib/config";
 import { apiAuth, requireApiAuth, requireScope } from "../middleware/api-auth";
 import type { ApiAuthEnv } from "../middleware/api-auth";
 import { apiRateLimit, searchRateLimit } from "../middleware/rate-limit";
@@ -931,6 +941,598 @@ apiv2.put(
   }
 );
 
+// ─── Helper: shell out to git in a bare repo ─────────────────────────────────
+//
+// Mirrors the pattern in src/git/repository.ts. Kept inline here so the
+// plumbing endpoints below don't have to leak through the helper module.
+
+async function runGit(
+  cmd: string[],
+  opts: { cwd: string; env?: Record<string, string>; stdin?: Uint8Array }
+): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+  const proc = Bun.spawn(cmd, {
+    cwd: opts.cwd,
+    env: { ...process.env, ...opts.env },
+    stdin: opts.stdin ? "pipe" : "ignore",
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  if (opts.stdin && proc.stdin) {
+    proc.stdin.write(opts.stdin);
+    proc.stdin.end();
+  }
+  const [stdout, stderr] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+  ]);
+  const exitCode = await proc.exited;
+  return { stdout, stderr, exitCode };
+}
+
+function htmlUrlForCommit(owner: string, repo: string, sha: string): string {
+  return `${config.appBaseUrl}/${owner}/${repo}/commit/${sha}`;
+}
+
+// ─── Contents DELETE — remove a file via git plumbing ────────────────────────
+//
+// Body: { message, sha, branch? }
+// - `sha` is the current blob sha at `:path`; mismatch → 409 (optimistic
+//   concurrency, matches GitHub's `DELETE /repos/.../contents/...` semantics).
+// - `branch` defaults to the repo's default branch.
+
+apiv2.delete(
+  "/repos/:owner/:repo/contents/:path{.+$}",
+  requireApiAuth,
+  requireScope("repo"),
+  async (c) => {
+    const { owner, repo } = c.req.param();
+    const filePath = c.req.param("path");
+    const user = c.get("user")!;
+
+    let body: { message?: string; sha?: string; branch?: string } = {};
+    try {
+      body = await c.req.json();
+    } catch {
+      body = {};
+    }
+
+    const message = body.message?.trim();
+    const expectSha = body.sha?.trim();
+    if (!message) return c.json({ error: "message is required" }, 400);
+    if (!expectSha || !/^[0-9a-f]{40}$/.test(expectSha)) {
+      return c.json({ error: "sha is required (40-hex)" }, 400);
+    }
+
+    const resolved = await resolveRepo(owner, repo);
+    if (!resolved) return c.json({ error: "Not found" }, 404);
+    if (user.id !== (resolved.owner as any).id) {
+      return c.json({ error: "Forbidden" }, 403);
+    }
+
+    const branch =
+      body.branch?.trim() ||
+      (await getDefaultBranchFresh(owner, repo)) ||
+      "main";
+    const fullRef = `refs/heads/${branch}`;
+    const repoDir = getRepoPath(owner, repo);
+
+    // Resolve current parent + existing blob sha at that path.
+    const parentSha = await resolveRef(owner, repo, fullRef);
+    if (!parentSha) return c.json({ error: "Branch not found" }, 404);
+
+    const existingBlobSha = await getBlobShaAtPath(owner, repo, branch, filePath);
+    if (!existingBlobSha) return c.json({ error: "File not found" }, 404);
+    if (existingBlobSha !== expectSha) {
+      return c.json({ error: "sha does not match current blob at path" }, 409);
+    }
+
+    const tmpIndex = join(
+      repoDir,
+      `index.tmp.${process.pid}.${Date.now()}.${crypto.randomUUID().replace(/-/g, "").slice(0, 8)}`
+    );
+    const authorName = (user as any).displayName || user.username;
+    const authorEmail = user.email;
+    const env = {
+      GIT_INDEX_FILE: tmpIndex,
+      GIT_AUTHOR_NAME: authorName,
+      GIT_AUTHOR_EMAIL: authorEmail,
+      GIT_COMMITTER_NAME: authorName,
+      GIT_COMMITTER_EMAIL: authorEmail,
+    };
+
+    const cleanup = async () => {
+      try {
+        const { unlink } = await import("fs/promises");
+        await unlink(tmpIndex);
+      } catch {
+        /* ignore */
+      }
+    };
+
+    try {
+      const rt = await runGit(["git", "read-tree", parentSha], {
+        cwd: repoDir,
+        env,
+      });
+      if (rt.exitCode !== 0) {
+        await cleanup();
+        return c.json({ error: "Failed to read base tree" }, 500);
+      }
+
+      const ui = await runGit(
+        ["git", "update-index", "--remove", filePath],
+        { cwd: repoDir, env }
+      );
+      if (ui.exitCode !== 0) {
+        await cleanup();
+        return c.json({ error: "Failed to remove path from index" }, 500);
+      }
+
+      const wt = await runGit(["git", "write-tree"], { cwd: repoDir, env });
+      const newTreeSha = wt.stdout.trim();
+      if (wt.exitCode !== 0 || !/^[0-9a-f]{40}$/.test(newTreeSha)) {
+        await cleanup();
+        return c.json({ error: "Failed to write tree" }, 500);
+      }
+
+      const ct = await runGit(
+        ["git", "commit-tree", newTreeSha, "-p", parentSha, "-m", message],
+        { cwd: repoDir, env }
+      );
+      const commitSha = ct.stdout.trim();
+      if (ct.exitCode !== 0 || !/^[0-9a-f]{40}$/.test(commitSha)) {
+        await cleanup();
+        return c.json({ error: "Failed to create commit" }, 500);
+      }
+
+      const ok = await updateRef(owner, repo, fullRef, commitSha, parentSha);
+      if (!ok) {
+        await cleanup();
+        return c.json({ error: "Failed to update ref" }, 500);
+      }
+
+      await cleanup();
+      return c.json({
+        commit: {
+          sha: commitSha,
+          message,
+          html_url: htmlUrlForCommit(owner, repo, commitSha),
+          author: { name: authorName, email: authorEmail },
+        },
+      });
+    } catch {
+      await cleanup();
+      return c.json({ error: "Failed to delete file" }, 500);
+    }
+  }
+);
+
+// ─── Git plumbing: refs / commits / blobs / trees ────────────────────────────
+
+// GET /repos/:owner/:repo/git/refs/heads/:branch
+apiv2.get(
+  "/repos/:owner/:repo/git/refs/heads/:branch{.+$}",
+  async (c) => {
+    const { owner, repo } = c.req.param();
+    const branch = c.req.param("branch");
+    if (!(await repoExists(owner, repo))) {
+      return c.json({ error: "Not found" }, 404);
+    }
+    const fullRef = `refs/heads/${branch}`;
+    const sha = await resolveRef(owner, repo, fullRef);
+    if (!sha) return c.json({ error: "Reference not found" }, 404);
+    return c.json({
+      ref: fullRef,
+      object: { sha, type: "commit" },
+    });
+  }
+);
+
+// GET /repos/:owner/:repo/git/commits/:sha
+apiv2.get("/repos/:owner/:repo/git/commits/:sha", async (c) => {
+  const { owner, repo, sha } = c.req.param();
+  if (!(await repoExists(owner, repo))) {
+    return c.json({ error: "Not found" }, 404);
+  }
+  const commit = await getCommit(owner, repo, sha);
+  if (!commit) return c.json({ error: "Commit not found" }, 404);
+
+  // Resolve tree sha for the commit (cat-file <sha>^{tree}).
+  const repoDir = getRepoPath(owner, repo);
+  const { stdout: treeOut } = await runGit(
+    ["git", "rev-parse", `${commit.sha}^{tree}`],
+    { cwd: repoDir }
+  );
+  const treeSha = treeOut.trim();
+
+  return c.json({
+    sha: commit.sha,
+    tree: { sha: treeSha },
+    parents: commit.parentShas.map((p) => ({ sha: p })),
+    message: commit.message,
+    author: {
+      name: commit.author,
+      email: commit.authorEmail,
+      date: commit.date,
+    },
+  });
+});
+
+// POST /repos/:owner/:repo/git/blobs
+apiv2.post(
+  "/repos/:owner/:repo/git/blobs",
+  requireApiAuth,
+  requireScope("repo"),
+  async (c) => {
+    const { owner, repo } = c.req.param();
+    const user = c.get("user")!;
+
+    let body: { content?: string; encoding?: string } = {};
+    try {
+      body = await c.req.json();
+    } catch {
+      body = {};
+    }
+    const content = body.content;
+    const encoding = (body.encoding || "utf-8").toLowerCase();
+    if (typeof content !== "string") {
+      return c.json({ error: "content is required" }, 400);
+    }
+    if (encoding !== "utf-8" && encoding !== "utf8" && encoding !== "base64") {
+      return c.json({ error: "encoding must be 'utf-8' or 'base64'" }, 400);
+    }
+
+    const resolved = await resolveRepo(owner, repo);
+    if (!resolved) return c.json({ error: "Not found" }, 404);
+    if (user.id !== (resolved.owner as any).id) {
+      return c.json({ error: "Forbidden" }, 403);
+    }
+
+    let bytes: Uint8Array;
+    try {
+      if (encoding === "base64") {
+        bytes = new Uint8Array(Buffer.from(content, "base64"));
+      } else {
+        bytes = new TextEncoder().encode(content);
+      }
+    } catch {
+      return c.json({ error: "Failed to decode content" }, 400);
+    }
+
+    const sha = await writeBlob(owner, repo, bytes);
+    if (!sha) return c.json({ error: "Failed to write blob" }, 500);
+
+    return c.json(
+      {
+        sha,
+        url: `${config.appBaseUrl}/api/v2/repos/${owner}/${repo}/git/blobs/${sha}`,
+        size: bytes.length,
+      },
+      201
+    );
+  }
+);
+
+// POST /repos/:owner/:repo/git/trees
+//
+// Body: { base_tree?: <tree_sha>, tree: [{ path, mode, type: "blob", sha: <blob_sha> | null }] }
+// `sha: null` removes the entry from base_tree.
+apiv2.post(
+  "/repos/:owner/:repo/git/trees",
+  requireApiAuth,
+  requireScope("repo"),
+  async (c) => {
+    const { owner, repo } = c.req.param();
+    const user = c.get("user")!;
+
+    let body: {
+      base_tree?: string;
+      tree?: Array<{
+        path?: string;
+        mode?: string;
+        type?: string;
+        sha?: string | null;
+      }>;
+    } = {};
+    try {
+      body = await c.req.json();
+    } catch {
+      body = {};
+    }
+
+    if (!Array.isArray(body.tree)) {
+      return c.json({ error: "tree array is required" }, 400);
+    }
+    for (const entry of body.tree) {
+      if (!entry.path || typeof entry.path !== "string") {
+        return c.json({ error: "each tree entry needs a path" }, 400);
+      }
+      if (!entry.mode || typeof entry.mode !== "string") {
+        return c.json({ error: "each tree entry needs a mode" }, 400);
+      }
+      if (entry.sha !== null && typeof entry.sha !== "string") {
+        return c.json(
+          { error: "each tree entry needs sha (40-hex) or null to delete" },
+          400
+        );
+      }
+      if (typeof entry.sha === "string" && !/^[0-9a-f]{40}$/.test(entry.sha)) {
+        return c.json({ error: "sha must be 40-hex" }, 400);
+      }
+    }
+    if (body.base_tree && !/^[0-9a-f]{40}$/.test(body.base_tree)) {
+      return c.json({ error: "base_tree must be 40-hex" }, 400);
+    }
+
+    const resolved = await resolveRepo(owner, repo);
+    if (!resolved) return c.json({ error: "Not found" }, 404);
+    if (user.id !== (resolved.owner as any).id) {
+      return c.json({ error: "Forbidden" }, 403);
+    }
+
+    const repoDir = getRepoPath(owner, repo);
+    const tmpIndex = join(
+      repoDir,
+      `index.tmp.${process.pid}.${Date.now()}.${crypto.randomUUID().replace(/-/g, "").slice(0, 8)}`
+    );
+    const env = { GIT_INDEX_FILE: tmpIndex };
+
+    const cleanup = async () => {
+      try {
+        const { unlink } = await import("fs/promises");
+        await unlink(tmpIndex);
+      } catch {
+        /* ignore */
+      }
+    };
+
+    try {
+      if (body.base_tree) {
+        const rt = await runGit(["git", "read-tree", body.base_tree], {
+          cwd: repoDir,
+          env,
+        });
+        if (rt.exitCode !== 0) {
+          await cleanup();
+          return c.json({ error: "base_tree not found" }, 404);
+        }
+      }
+
+      for (const entry of body.tree) {
+        if (entry.sha === null) {
+          const r = await runGit(
+            ["git", "update-index", "--remove", entry.path!],
+            { cwd: repoDir, env }
+          );
+          if (r.exitCode !== 0) {
+            await cleanup();
+            return c.json(
+              { error: `Failed to remove ${entry.path}` },
+              422
+            );
+          }
+        } else {
+          const r = await runGit(
+            [
+              "git",
+              "update-index",
+              "--add",
+              "--cacheinfo",
+              `${entry.mode},${entry.sha},${entry.path}`,
+            ],
+            { cwd: repoDir, env }
+          );
+          if (r.exitCode !== 0) {
+            await cleanup();
+            return c.json(
+              { error: `Failed to add ${entry.path}` },
+              422
+            );
+          }
+        }
+      }
+
+      const wt = await runGit(["git", "write-tree"], { cwd: repoDir, env });
+      const treeSha = wt.stdout.trim();
+      if (wt.exitCode !== 0 || !/^[0-9a-f]{40}$/.test(treeSha)) {
+        await cleanup();
+        return c.json({ error: "Failed to write tree" }, 500);
+      }
+
+      // List entries in the new tree (one level deep, matching GitHub's
+      // POST /git/trees response shape).
+      const ls = await runGit(["git", "ls-tree", treeSha], { cwd: repoDir });
+      const entries: Array<{
+        path: string;
+        mode: string;
+        type: string;
+        sha: string;
+      }> = [];
+      for (const line of ls.stdout.split("\n").filter(Boolean)) {
+        const m = line.match(
+          /^(\d+)\s+(blob|tree|commit)\s+([0-9a-f]+)\t(.+)$/
+        );
+        if (m) {
+          entries.push({
+            mode: m[1],
+            type: m[2],
+            sha: m[3],
+            path: m[4],
+          });
+        }
+      }
+
+      await cleanup();
+      return c.json(
+        {
+          sha: treeSha,
+          url: `${config.appBaseUrl}/api/v2/repos/${owner}/${repo}/git/trees/${treeSha}`,
+          tree: entries,
+        },
+        201
+      );
+    } catch {
+      await cleanup();
+      return c.json({ error: "Failed to write tree" }, 500);
+    }
+  }
+);
+
+// POST /repos/:owner/:repo/git/commits
+//
+// Body: { message, tree, parents: [<sha>] }
+apiv2.post(
+  "/repos/:owner/:repo/git/commits",
+  requireApiAuth,
+  requireScope("repo"),
+  async (c) => {
+    const { owner, repo } = c.req.param();
+    const user = c.get("user")!;
+
+    let body: { message?: string; tree?: string; parents?: string[] } = {};
+    try {
+      body = await c.req.json();
+    } catch {
+      body = {};
+    }
+
+    const message = body.message?.trim();
+    const tree = body.tree?.trim();
+    const parents = Array.isArray(body.parents) ? body.parents : [];
+
+    if (!message) return c.json({ error: "message is required" }, 400);
+    if (!tree || !/^[0-9a-f]{40}$/.test(tree)) {
+      return c.json({ error: "tree must be 40-hex" }, 400);
+    }
+    for (const p of parents) {
+      if (typeof p !== "string" || !/^[0-9a-f]{40}$/.test(p)) {
+        return c.json({ error: "each parent must be 40-hex" }, 400);
+      }
+    }
+
+    const resolved = await resolveRepo(owner, repo);
+    if (!resolved) return c.json({ error: "Not found" }, 404);
+    if (user.id !== (resolved.owner as any).id) {
+      return c.json({ error: "Forbidden" }, 403);
+    }
+
+    // Verify tree object exists.
+    if (!(await objectExists(owner, repo, tree))) {
+      return c.json({ error: "tree not found in repository" }, 422);
+    }
+    for (const p of parents) {
+      if (!(await objectExists(owner, repo, p))) {
+        return c.json({ error: `parent ${p} not found in repository` }, 422);
+      }
+    }
+
+    const repoDir = getRepoPath(owner, repo);
+    const authorName = (user as any).displayName || user.username;
+    const authorEmail = user.email;
+    const env = {
+      GIT_AUTHOR_NAME: authorName,
+      GIT_AUTHOR_EMAIL: authorEmail,
+      GIT_COMMITTER_NAME: authorName,
+      GIT_COMMITTER_EMAIL: authorEmail,
+    };
+
+    const args = ["git", "commit-tree", tree];
+    for (const p of parents) {
+      args.push("-p", p);
+    }
+    args.push("-m", message);
+
+    const ct = await runGit(args, { cwd: repoDir, env });
+    const commitSha = ct.stdout.trim();
+    if (ct.exitCode !== 0 || !/^[0-9a-f]{40}$/.test(commitSha)) {
+      return c.json({ error: "Failed to create commit" }, 500);
+    }
+
+    // Re-read the new commit's recorded date so the response carries the
+    // exact ISO timestamp git wrote into the object.
+    const recorded = await getCommit(owner, repo, commitSha);
+    const date = recorded?.date ?? new Date().toISOString();
+
+    return c.json(
+      {
+        sha: commitSha,
+        tree: { sha: tree },
+        message,
+        parents: parents.map((p) => ({ sha: p })),
+        author: { name: authorName, email: authorEmail, date },
+        html_url: htmlUrlForCommit(owner, repo, commitSha),
+      },
+      201
+    );
+  }
+);
+
+// PATCH /repos/:owner/:repo/git/refs/heads/:branch
+//
+// Body: { sha: <new_commit>, force?: false }
+apiv2.patch(
+  "/repos/:owner/:repo/git/refs/heads/:branch{.+$}",
+  requireApiAuth,
+  requireScope("repo"),
+  async (c) => {
+    const { owner, repo } = c.req.param();
+    const branch = c.req.param("branch");
+    const user = c.get("user")!;
+
+    let body: { sha?: string; force?: boolean } = {};
+    try {
+      body = await c.req.json();
+    } catch {
+      body = {};
+    }
+
+    const newSha = body.sha?.trim();
+    const force = body.force === true;
+    if (!newSha || !/^[0-9a-f]{40}$/.test(newSha)) {
+      return c.json({ error: "sha must be 40-hex" }, 400);
+    }
+
+    const resolved = await resolveRepo(owner, repo);
+    if (!resolved) return c.json({ error: "Not found" }, 404);
+    if (user.id !== (resolved.owner as any).id) {
+      return c.json({ error: "Forbidden" }, 403);
+    }
+
+    const fullRef = `refs/heads/${branch}`;
+    const currentSha = await resolveRef(owner, repo, fullRef);
+    if (!currentSha) return c.json({ error: "Reference not found" }, 404);
+
+    if (!(await objectExists(owner, repo, newSha))) {
+      return c.json({ error: "sha not found in repository" }, 422);
+    }
+
+    if (!force) {
+      // Fast-forward check: currentSha must be an ancestor of newSha.
+      const repoDir = getRepoPath(owner, repo);
+      const ff = await runGit(
+        ["git", "merge-base", "--is-ancestor", currentSha, newSha],
+        { cwd: repoDir }
+      );
+      if (ff.exitCode !== 0) {
+        return c.json(
+          { error: "Update is not a fast-forward" },
+          422
+        );
+      }
+    }
+
+    const ok = force
+      ? await updateRef(owner, repo, fullRef, newSha)
+      : await updateRef(owner, repo, fullRef, newSha, currentSha);
+    if (!ok) return c.json({ error: "Failed to update ref" }, 500);
+
+    return c.json({
+      ref: fullRef,
+      object: { sha: newSha, type: "commit" },
+    });
+  }
+);
+
 // ─── v2 alias for commit-status POST ─────────────────────────────────────────
 // Reuses the handler from src/routes/commit-statuses.ts (v1 mount).
 apiv2.post(
@@ -1223,9 +1825,16 @@ apiv2.get("/", (c) => {
         "GET /api/v2/repos/:owner/:repo/tree/:ref": "Get file tree (supports ?recursive=1)",
         "GET /api/v2/repos/:owner/:repo/contents/:path": "Get file contents (supports ?encoding=base64)",
         "PUT /api/v2/repos/:owner/:repo/contents/:path": "Create or update a file on a branch",
+        "DELETE /api/v2/repos/:owner/:repo/contents/:path": "Delete a file on a branch",
       },
       git: {
         "POST /api/v2/repos/:owner/:repo/git/refs": "Create a branch or tag pointing at a sha",
+        "GET /api/v2/repos/:owner/:repo/git/refs/heads/:branch": "Get a branch ref",
+        "PATCH /api/v2/repos/:owner/:repo/git/refs/heads/:branch": "Move a branch ref (fast-forward by default)",
+        "GET /api/v2/repos/:owner/:repo/git/commits/:sha": "Get a raw git commit object",
+        "POST /api/v2/repos/:owner/:repo/git/commits": "Create a commit from a tree + parents",
+        "POST /api/v2/repos/:owner/:repo/git/blobs": "Write a blob from utf-8 or base64 content",
+        "POST /api/v2/repos/:owner/:repo/git/trees": "Build a tree from entries (optionally based on base_tree)",
       },
       statuses: {
         "POST /api/v2/repos/:owner/:repo/statuses/:sha": "Post commit status (v2 alias)",

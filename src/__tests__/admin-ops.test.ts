@@ -286,7 +286,9 @@ describe("POST /admin/ops/auto-merge/enable", () => {
     expect(loc).toContain("success=");
     expect(loc.toLowerCase()).toContain("enabled");
     expect(captured).not.toBeNull();
-    expect(captured.ownerSlash).toBe("ccantynz/Gluecron.com");
+    // Default OPS_REPO is the GitHub-mirror username (ccantynz-alt) the
+    // operator actually signed up with — env-overridable via SELF_HOST_REPO.
+    expect(captured.ownerSlash).toBe("ccantynz-alt/Gluecron.com");
     expect(captured.pattern).toBe("main");
     expect(captured.off).toBe(false);
     expect(captured.actorUserId).toBe(ADMIN_ID);

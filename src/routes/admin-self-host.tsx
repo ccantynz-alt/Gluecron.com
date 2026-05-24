@@ -93,9 +93,13 @@ export function __setSelfHostDepsForTests(d: Partial<Deps> | null): void {
 // Constants — the repo we self-host.
 // ---------------------------------------------------------------------------
 
-const SELF_HOST_OWNER = "ccantynz";
-const SELF_HOST_NAME = "Gluecron.com";
-const SELF_HOST_FULL = `${SELF_HOST_OWNER}/${SELF_HOST_NAME}`;
+// Env-overridable via SELF_HOST_REPO (format: "owner/name"). Defaults
+// to the canonical mainline (ccantynz-alt/Gluecron.com — the GitHub-
+// mirror-matching username the operator actually signed up with).
+const SELF_HOST_FULL = process.env.SELF_HOST_REPO || "ccantynz-alt/Gluecron.com";
+const [SELF_HOST_OWNER_PARSED, SELF_HOST_NAME_PARSED] = SELF_HOST_FULL.split("/");
+const SELF_HOST_OWNER = SELF_HOST_OWNER_PARSED || "ccantynz-alt";
+const SELF_HOST_NAME = SELF_HOST_NAME_PARSED || "Gluecron.com";
 const SELF_DEPLOY_SOURCE = "self-deploy";
 
 // ---------------------------------------------------------------------------
@@ -382,7 +386,7 @@ selfHost.get("/admin/self-host", async (c) => {
           <p style="font-size:13px;color:var(--text-muted);margin:0 0 10px 0">
             Mirror Gluecron's source from GitHub onto this Gluecron
             instance. Idempotent — safe to re-run. See{" "}
-            <a href="/ccantynz/Gluecron.com/blob/main/docs/SELF_HOST.md">
+            <a href={`/${SELF_HOST_OWNER}/${SELF_HOST_NAME}/blob/main/docs/SELF_HOST.md`}>
               docs/SELF_HOST.md
             </a>{" "}
             for the full runbook.

@@ -99,9 +99,11 @@ export function __setOpsDepsForTests(d: Partial<OpsDeps> | null): void {
 }
 
 // The repo + pattern we operate on. `/admin/ops` is a site-admin tool for
-// the platform's own repo. If the operator needs to flip auto-merge on a
-// different repo they still have the CLI (N1).
-const OPS_REPO = "ccantynz/Gluecron.com";
+// the platform's own repo. Env-overridable (SELF_HOST_REPO) because the
+// canonical name varies per deployment — on the main site it's
+// "ccantynz-alt/Gluecron.com" (the actual user who signed up). The CLI
+// (N1) still works for any other repo.
+const OPS_REPO = process.env.SELF_HOST_REPO || "ccantynz-alt/Gluecron.com";
 const OPS_PATTERN = "main";
 
 // ---------------------------------------------------------------------------

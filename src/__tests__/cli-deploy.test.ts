@@ -537,7 +537,11 @@ describe("/admin/deploys/trigger", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.ok).toBe(true);
-    expect(body.repo).toBe("ccantynz/Gluecron.com");
+    // Default repo is the GitHub-side mirror (`ccantynz-alt`), NOT the
+    // Gluecron-side name (`ccantynz`). GitHub doesn't know `ccantynz`,
+    // so dispatching to that returned 404 in production until we fixed
+    // the default. See src/routes/admin-deploys.tsx for the comment.
+    expect(body.repo).toBe("ccantynz-alt/Gluecron.com");
     expect(body.workflow).toBe("hetzner-deploy.yml");
     expect(body.ref).toBe("main");
     expect(captured).not.toBeNull();

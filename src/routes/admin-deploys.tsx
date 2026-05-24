@@ -88,7 +88,14 @@ admin.post("/admin/deploys/trigger", async (c) => {
   } catch {
     body = {};
   }
-  const repo = String(body.repo || "ccantynz/Gluecron.com");
+  // GitHub repo for the deploy workflow. NOT the same as Gluecron's
+  // canonical name (`ccantynz/Gluecron.com`) — GitHub knows the mirror
+  // as `ccantynz-alt/Gluecron.com`. Default to the GitHub-side path so
+  // the "Deploy" button doesn't 404. Override via the request body if
+  // the mirror ever moves. (Env override available via GITHUB_DEPLOY_REPO.)
+  const repo = String(
+    body.repo || process.env.GITHUB_DEPLOY_REPO || "ccantynz-alt/Gluecron.com"
+  );
   const workflow = String(body.workflow || "hetzner-deploy.yml");
   const ref = String(body.ref || "main");
   const [owner, name] = repo.split("/");

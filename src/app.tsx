@@ -47,6 +47,10 @@ import demoRoutes from "./routes/demo";
 import insightRoutes from "./routes/insights";
 import dashboardRoutes from "./routes/dashboard";
 import legalRoutes from "./routes/legal";
+import legalDmcaRoutes from "./routes/legal/dmca";
+import legalTermsRoutes from "./routes/legal/terms";
+import legalPrivacyRoutes from "./routes/legal/privacy";
+import legalAcceptableUseRoutes from "./routes/legal/acceptable-use";
 import importRoutes from "./routes/import";
 import importBulkRoutes from "./routes/import-bulk";
 import importSecretsRoutes from "./routes/import-secrets";
@@ -381,6 +385,14 @@ app.route("/", dashboardRoutes);
 
 // Legal pages (terms, privacy, AUP)
 app.route("/", legalRoutes);
+// Long-form legal sub-pages — /legal/{terms,privacy,acceptable-use,dmca}.
+// The main `legal.tsx` serves the short canonical paths (/terms, /privacy,
+// /acceptable-use); these are the formal versions that the legal pages
+// internally link to each other.
+app.route("/", legalTermsRoutes);
+app.route("/", legalPrivacyRoutes);
+app.route("/", legalAcceptableUseRoutes);
+app.route("/", legalDmcaRoutes);
 
 // GitHub import / migration
 app.route("/", importRoutes);

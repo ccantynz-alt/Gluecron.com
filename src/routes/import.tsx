@@ -831,14 +831,33 @@ importRoutes.post("/import/github/repo", requireAuth, requireAdmin, async (c) =>
     );
 
     if (!res.ok) {
+      // Try to pull GitHub's actual error message — "Bad credentials",
+      // "Not Found", or rate-limit text is far more useful than a bare code.
+      let detail = "";
+      try {
+        const body = await res.json();
+        detail = body?.message ? ` — ${String(body.message)}` : "";
+      } catch {
+        /* non-JSON body, skip */
+      }
       return c.redirect(
         `/import?error=${encodeURIComponent(
-          `Repository not found on GitHub (${res.status}). Check the URL and that it's public.`
+          `GitHub said ${res.status}${detail}. Check the URL and that the repo is public (or supply a token).`
         )}`
       );
     }
 
-    const ghRepoData: GitHubRepo = await res.json();
+    let ghRepoData: GitHubRepo;
+    try {
+      ghRepoData = (await res.json()) as GitHubRepo;
+    } catch (err) {
+      console.error("[import] non-JSON response from GitHub:", err);
+      return c.redirect(
+        `/import?error=${encodeURIComponent(
+          "GitHub returned a response we couldn't parse. Try again in a moment."
+        )}`
+      );
+    }
 
     await importSingleRepo(user, ghRepoData, optionalToken);
 
@@ -849,34 +868,52 @@ importRoutes.post("/import/github/repo", requireAuth, requireAdmin, async (c) =>
     // checklist. Fire-and-forget semantics: any failure (no token, network
     // error, no secrets, DB blip) collapses to "skip the checklist step"
     // and we redirect straight to the repo home.
-    const targetName = sanitizeRepoName(ghRepoData.name);
+    //
+    // CRITICAL — never reconstruct the redirect path from local strings:
+    // sanitizeRepoName/case/etc could differ from what importSingleRepo
+    // actually wrote. We had a post-import 404 in production because the
+    // shadowed targetName drifted from the DB row. Read the row back.
+    const [storedRepo] = await db
+      .select({ id: repositories.id, name: repositories.name })
+      .from(repositories)
+      .where(
+        and(
+          eq(repositories.ownerId, user.id),
+          eq(repositories.name, sanitizeRepoName(ghRepoData.name))
+        )
+      )
+      .limit(1);
+
+    if (!storedRepo) {
+      // The clone succeeded but the insert apparently didn't — fail loud
+      // instead of redirecting the user into a 404.
+      console.error(
+        "[import] repo missing after import — owner=" + user.username +
+        " ghRepo=" + ghRepoData.full_name
+      );
+      return c.redirect(
+        `/import?error=${encodeURIComponent(
+          "Import partially completed — please refresh and try again."
+        )}`
+      );
+    }
+
+    const targetName = storedRepo.name;
     let secretsRedirect: string | null = null;
     if (optionalToken) {
       try {
-        const [newRepoRow] = await db
-          .select({ id: repositories.id })
-          .from(repositories)
-          .where(
-            and(
-              eq(repositories.ownerId, user.id),
-              eq(repositories.name, targetName)
-            )
-          )
-          .limit(1);
-        if (newRepoRow) {
-          const { importSecretsForRepo } = await import(
-            "../lib/github-secrets-import"
-          );
-          const result = await importSecretsForRepo({
-            githubOwner: ghOwner,
-            githubRepo: ghRepo,
-            githubToken: optionalToken,
-            gluecronRepositoryId: newRepoRow.id,
-            importedByUserId: user.id,
-          });
-          if (result.imported.length > 0) {
-            secretsRedirect = `/${user.username}/${targetName}/import/secrets`;
-          }
+        const { importSecretsForRepo } = await import(
+          "../lib/github-secrets-import"
+        );
+        const result = await importSecretsForRepo({
+          githubOwner: ghOwner,
+          githubRepo: ghRepo,
+          githubToken: optionalToken,
+          gluecronRepositoryId: storedRepo.id,
+          importedByUserId: user.id,
+        });
+        if (result.imported.length > 0) {
+          secretsRedirect = `/${user.username}/${targetName}/import/secrets`;
         }
       } catch (err) {
         console.error("[import] secrets migration skipped:", err);

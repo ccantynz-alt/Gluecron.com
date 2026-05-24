@@ -160,10 +160,35 @@ export interface IntegrationField {
   helper: string;
   helperLink?: { href: string; text: string };
   isSecret: boolean;
-  group: "ai" | "email" | "scm" | "security" | "observability" | "webhook";
+  group:
+    | "platform"
+    | "ai"
+    | "email"
+    | "scm"
+    | "security"
+    | "observability"
+    | "webhook";
 }
 
 export const INTEGRATION_FIELDS: IntegrationField[] = [
+  {
+    key: "APP_BASE_URL",
+    envFallback: "APP_BASE_URL",
+    label: "Public base URL",
+    helper:
+      "The HTTPS URL users hit (e.g. https://gluecron.com). Used to build OAuth redirect URIs — wrong/missing → Google/GitHub sign-in fails with redirect_uri_mismatch.",
+    isSecret: false,
+    group: "platform",
+  },
+  {
+    key: "SELF_HOST_REPO",
+    envFallback: "SELF_HOST_REPO",
+    label: "Self-host repo (owner/name)",
+    helper:
+      "Which repo the /admin/ops + /admin/self-host tools operate on. Defaults to ccantynz-alt/Gluecron.com.",
+    isSecret: false,
+    group: "platform",
+  },
   {
     key: "ANTHROPIC_API_KEY",
     envFallback: "ANTHROPIC_API_KEY",

@@ -397,6 +397,12 @@ interface GroupDef {
 }
 
 const GROUPS: Record<string, GroupDef> = {
+  platform: {
+    id: "platform",
+    title: "Platform",
+    blurb:
+      "Public URL + self-host repo name. APP_BASE_URL must be right or OAuth fails with redirect_uri_mismatch.",
+  },
   ai: {
     id: "ai",
     title: "AI",
@@ -468,6 +474,7 @@ integrations.get("/admin/integrations", async (c) => {
   }
 
   const groupOrder: Array<keyof typeof GROUPS> = [
+    "platform",
     "ai",
     "email",
     "scm",

@@ -283,9 +283,12 @@ describe("system-config — INTEGRATION_FIELDS surface", () => {
 
   it("does NOT expose env-only keys (chicken-and-egg / infra)", () => {
     const keys = INTEGRATION_FIELDS.map((f) => f.key);
+    // DATABASE_URL / BUILD_SHA / PORT / GIT_REPOS_PATH stay env-only —
+    // changing them at runtime would break the running process. APP_BASE_URL
+    // and SELF_HOST_REPO are intentionally surfaced so operators can fix
+    // OAuth redirect_uri_mismatch + the self-host repo lookup without SSH.
     for (const forbidden of [
       "DATABASE_URL",
-      "SELF_HOST_REPO",
       "BUILD_SHA",
       "BUILD_TIME",
       "PORT",
@@ -301,9 +304,15 @@ describe("system-config — INTEGRATION_FIELDS surface", () => {
       expect(f.label.length).toBeGreaterThan(0);
       expect(typeof f.helper).toBe("string");
       expect(f.helper.length).toBeGreaterThan(0);
-      expect(["ai", "email", "scm", "security", "observability", "webhook"]).toContain(
-        f.group
-      );
+      expect([
+        "platform",
+        "ai",
+        "email",
+        "scm",
+        "security",
+        "observability",
+        "webhook",
+      ]).toContain(f.group);
     }
   });
 });

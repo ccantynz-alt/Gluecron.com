@@ -11,6 +11,10 @@
  *
  * Approve/reject live under /deployments/:id/... so they don't collide with
  * the existing `GET /:owner/:repo/deployments/:id` detail page.
+ *
+ * Visual polish (2026): adopts the gradient-hairline + orb pattern from
+ * admin-integrations / error-page. Page-level CSS is scoped under `.envs-*`
+ * so it can't bleed into the layout. RepoHeader + RepoNav are untouched.
  */
 
 import { Hono } from "hono";
@@ -106,6 +110,433 @@ async function idsToUsernames(ids: string[]): Promise<string[]> {
   }
 }
 
+function envProtectionCount(env: Environment): number {
+  let n = 0;
+  if (env.requireApproval) n++;
+  if ((env.waitTimerMinutes ?? 0) > 0) n++;
+  if (allowedBranchesOf(env).length > 0) n++;
+  return n;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * Scoped CSS — every class prefixed `.envs-*` so this surface can't bleed
+ * into other pages. Mirrors the gradient hairline + orb language used by
+ * admin-integrations and error-page.
+ * ───────────────────────────────────────────────────────────────────── */
+const envsStyles = `
+  .envs-wrap { max-width: 1100px; margin: 0 auto; padding: var(--space-5) var(--space-4) var(--space-8); }
+
+  .envs-head {
+    position: relative;
+    margin-bottom: var(--space-5);
+    padding: var(--space-4) var(--space-5);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+  }
+  .envs-head::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent 0%, #8c6dff 30%, #36c5d6 70%, transparent 100%);
+    opacity: 0.7;
+    pointer-events: none;
+  }
+  .envs-head-orb {
+    position: absolute;
+    inset: -30% -10% auto auto;
+    width: 320px; height: 320px;
+    background: radial-gradient(circle, rgba(140,109,255,0.18), rgba(54,197,214,0.08) 45%, transparent 70%);
+    filter: blur(70px);
+    opacity: 0.7;
+    pointer-events: none;
+    z-index: 0;
+  }
+  .envs-head-inner {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: var(--space-4);
+    flex-wrap: wrap;
+  }
+  .envs-head-text { flex: 1; min-width: 240px; max-width: 720px; }
+  .envs-head-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+  .envs-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    font-weight: 600;
+    color: var(--text-muted);
+    margin-bottom: 10px;
+  }
+  .envs-eyebrow-dot {
+    width: 8px; height: 8px;
+    border-radius: 9999px;
+    background: linear-gradient(135deg, #8c6dff, #36c5d6);
+    box-shadow: 0 0 0 3px rgba(140,109,255,0.18);
+  }
+  .envs-title {
+    margin: 0 0 6px;
+    font-family: var(--font-display);
+    font-size: clamp(22px, 2.6vw, 30px);
+    font-weight: 800;
+    letter-spacing: -0.022em;
+    line-height: 1.1;
+    color: var(--text-strong);
+  }
+  .envs-title-grad {
+    background-image: linear-gradient(135deg, #a48bff 0%, #8c6dff 50%, #36c5d6 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+  }
+  .envs-sub {
+    margin: 0;
+    font-size: 13.5px;
+    line-height: 1.5;
+    color: var(--text-muted);
+  }
+
+  .envs-banner {
+    margin-bottom: var(--space-4);
+    padding: 10px 14px;
+    border-radius: 10px;
+    font-size: 13.5px;
+    border: 1px solid var(--border);
+    background: rgba(255,255,255,0.025);
+    color: var(--text);
+  }
+  .envs-banner.is-ok {
+    border-color: rgba(52,211,153,0.40);
+    background: rgba(52,211,153,0.08);
+    color: #bbf7d0;
+  }
+  .envs-banner.is-error {
+    border-color: rgba(248,113,113,0.40);
+    background: rgba(248,113,113,0.08);
+    color: #fecaca;
+  }
+
+  .envs-col-title {
+    margin: 0 0 var(--space-2);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    font-weight: 600;
+    color: var(--text-muted);
+  }
+
+  .envs-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    margin-bottom: var(--space-5);
+  }
+
+  /* ─── environment item card ─── */
+  .envs-card {
+    position: relative;
+    padding: var(--space-4) var(--space-4);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+    transition: transform 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+  }
+  .envs-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 14px; right: 14px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent 0%, rgba(140,109,255,0.45) 30%, rgba(54,197,214,0.45) 70%, transparent 100%);
+    opacity: 0;
+    transition: opacity 160ms ease;
+  }
+  .envs-card:hover {
+    transform: translateY(-1px);
+    border-color: rgba(140,109,255,0.32);
+    box-shadow: 0 8px 22px -10px rgba(0,0,0,0.40);
+  }
+  .envs-card:hover::before { opacity: 1; }
+
+  .envs-card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    margin-bottom: var(--space-3);
+  }
+  .envs-card-titles { flex: 1; min-width: 200px; }
+  .envs-card-title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: 17px;
+    font-weight: 700;
+    letter-spacing: -0.018em;
+    color: var(--text-strong);
+  }
+  .envs-card-url {
+    margin-top: 4px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .envs-card-url a { color: var(--text-muted); text-decoration: none; }
+  .envs-card-url a:hover { color: var(--accent); text-decoration: underline; }
+  .envs-card-meta {
+    margin-top: 8px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    font-size: 11.5px;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ─── pills ─── */
+  .envs-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 9px;
+    border-radius: 9999px;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    font-family: var(--font-mono);
+    background: rgba(255,255,255,0.04);
+    color: var(--text-muted);
+    box-shadow: inset 0 0 0 1px var(--border);
+  }
+  .envs-pill.is-active {
+    background: rgba(52,211,153,0.10);
+    color: #6ee7b7;
+    box-shadow: inset 0 0 0 1px rgba(52,211,153,0.30);
+  }
+  .envs-pill.is-protected {
+    background: rgba(140,109,255,0.12);
+    color: #c4b5fd;
+    box-shadow: inset 0 0 0 1px rgba(140,109,255,0.32);
+  }
+  .envs-pill.is-warn {
+    background: rgba(251,191,36,0.10);
+    color: #fde68a;
+    box-shadow: inset 0 0 0 1px rgba(251,191,36,0.30);
+  }
+  .envs-pill-dot {
+    width: 6px; height: 6px;
+    border-radius: 9999px;
+    background: currentColor;
+  }
+
+  .envs-pillrow {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
+  /* ─── form rows inside an environment card ─── */
+  .envs-fields {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-3);
+  }
+  @media (max-width: 720px) {
+    .envs-fields { grid-template-columns: 1fr; }
+  }
+  .envs-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+  .envs-field.is-wide { grid-column: 1 / -1; }
+  .envs-field label {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    color: var(--text-strong);
+  }
+  .envs-field .hint {
+    font-size: 11px;
+    color: var(--text-muted);
+    line-height: 1.4;
+  }
+  .envs-input, .envs-textarea {
+    width: 100%;
+    padding: 8px 11px;
+    font-size: 13px;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--border-strong, var(--border));
+    border-radius: 8px;
+    outline: none;
+    font-family: var(--font-mono);
+    transition: border-color 120ms ease, box-shadow 120ms ease;
+    box-sizing: border-box;
+  }
+  .envs-input:focus, .envs-textarea:focus {
+    border-color: rgba(140,109,255,0.50);
+    box-shadow: 0 0 0 3px rgba(140,109,255,0.18);
+  }
+  .envs-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--text);
+    cursor: pointer;
+    user-select: none;
+  }
+  .envs-check input { margin: 0; }
+
+  .envs-card-foot {
+    margin-top: var(--space-3);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+  }
+  .envs-card-foot-left {
+    font-size: 11.5px;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ─── ghost buttons (page-local) ─── */
+  .envs-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px 12px;
+    font-size: 12.5px;
+    font-weight: 600;
+    line-height: 1;
+    color: var(--text);
+    background: transparent;
+    border: 1px solid var(--border-strong, var(--border));
+    border-radius: 8px;
+    cursor: pointer;
+    text-decoration: none;
+    transition: background 120ms ease, border-color 120ms ease, color 120ms ease, transform 120ms ease;
+    font-family: inherit;
+  }
+  .envs-btn:hover {
+    background: rgba(140,109,255,0.07);
+    border-color: rgba(140,109,255,0.45);
+    color: var(--text-strong);
+    text-decoration: none;
+  }
+  .envs-btn.is-primary {
+    background: linear-gradient(135deg, #8c6dff 0%, #36c5d6 100%);
+    color: #fff;
+    border-color: transparent;
+    box-shadow: 0 4px 12px -4px rgba(140,109,255,0.45), inset 0 1px 0 rgba(255,255,255,0.14);
+  }
+  .envs-btn.is-primary:hover { transform: translateY(-1px); color: #fff; }
+  .envs-btn.is-danger {
+    color: #fecaca;
+    border-color: rgba(248,113,113,0.35);
+  }
+  .envs-btn.is-danger:hover {
+    background: rgba(248,113,113,0.10);
+    border-color: rgba(248,113,113,0.55);
+    color: #fecaca;
+  }
+
+  /* ─── empty state — dashed card with orb ─── */
+  .envs-empty {
+    position: relative;
+    padding: var(--space-6) var(--space-5);
+    background: var(--bg-elevated);
+    border: 1px dashed var(--border-strong, var(--border));
+    border-radius: 14px;
+    text-align: center;
+    overflow: hidden;
+    margin-bottom: var(--space-5);
+  }
+  .envs-empty-orb {
+    position: absolute;
+    inset: auto auto -40% 50%;
+    transform: translateX(-50%);
+    width: 320px; height: 320px;
+    background: radial-gradient(circle, rgba(140,109,255,0.18), rgba(54,197,214,0.08) 45%, transparent 70%);
+    filter: blur(70px);
+    opacity: 0.7;
+    pointer-events: none;
+  }
+  .envs-empty-inner { position: relative; z-index: 1; max-width: 460px; margin: 0 auto; }
+  .envs-empty-icon {
+    width: 44px; height: 44px;
+    margin: 0 auto var(--space-3);
+    border-radius: 14px;
+    background: linear-gradient(135deg, rgba(140,109,255,0.18), rgba(54,197,214,0.14));
+    box-shadow: inset 0 0 0 1px rgba(140,109,255,0.32);
+    display: flex; align-items: center; justify-content: center;
+    color: #b69dff;
+  }
+  .envs-empty-title {
+    font-family: var(--font-display);
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-strong);
+    margin: 0 0 6px;
+    letter-spacing: -0.01em;
+  }
+  .envs-empty-body {
+    font-size: 13.5px;
+    color: var(--text-muted);
+    line-height: 1.5;
+    margin: 0 0 var(--space-3);
+  }
+
+  /* ─── create form (lives below the list) ─── */
+  .envs-create {
+    position: relative;
+    padding: var(--space-4) var(--space-4);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+  }
+  .envs-create::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 14px; right: 14px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent 0%, rgba(140,109,255,0.40) 30%, rgba(54,197,214,0.40) 70%, transparent 100%);
+    opacity: 0.7;
+  }
+  .envs-create-title {
+    margin: 0 0 4px;
+    font-family: var(--font-display);
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: -0.014em;
+    color: var(--text-strong);
+  }
+  .envs-create-sub {
+    margin: 0 0 var(--space-3);
+    font-size: 12.5px;
+    color: var(--text-muted);
+  }
+`;
+
 // ---------------------------------------------------------------------------
 // GET /:owner/:repo/settings/environments
 // ---------------------------------------------------------------------------
@@ -144,160 +575,286 @@ r.get("/:owner/:repo/settings/environments", requireAuth, async (c) => {
         currentUser={user.username}
       />
       <RepoNav owner={owner} repo={repo} active="code" />
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px">
-        <h3>Environments</h3>
-        <a href={`/${owner}/${repo}/deployments`} class="btn btn-sm">
-          Back to deployments
-        </a>
-      </div>
-      {success && <div class="auth-success">{decodeURIComponent(success)}</div>}
-      {err && <div class="auth-error">{decodeURIComponent(err)}</div>}
 
-      <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px">
-        Require human approval before a deploy to this environment runs.
-        Branch patterns restrict which refs may target the environment.
-      </p>
-
-      <div class="panel" style="margin-bottom: 24px">
-        {envs.length === 0 ? (
-          <div class="panel-empty">No environments yet.</div>
-        ) : (
-          envs.map((env) => {
-            const reviewers = envUsernames[env.id] || [];
-            const branches = allowedBranchesOf(env);
-            return (
-              <form
-                method="post"
-                action={`/${owner}/${repo}/settings/environments/${env.id}`}
-                class="panel-item"
-                style="flex-direction: column; align-items: stretch; gap: 8px"
+      <div class="envs-wrap">
+        <section class="envs-head">
+          <div class="envs-head-orb" aria-hidden="true" />
+          <div class="envs-head-inner">
+            <div class="envs-head-text">
+              <div class="envs-eyebrow">
+                <span class="envs-eyebrow-dot" aria-hidden="true" />
+                Deploy environments · {owner}/{repo}
+              </div>
+              <h2 class="envs-title">
+                <span class="envs-title-grad">Environments.</span>
+              </h2>
+              <p class="envs-sub">
+                Gate every deploy with reviewers, wait timers, and branch
+                allowlists — the same way GitHub Environments protects
+                production rollouts.
+              </p>
+            </div>
+            <div class="envs-head-actions">
+              <a
+                href={`/${owner}/${repo}/deployments`}
+                class="envs-btn"
               >
-                <div
-                  style="display: flex; justify-content: space-between; align-items: center"
-                >
-                  <strong style="font-size: 15px">{env.name}</strong>
-                  <div style="display: flex; gap: 6px">
-                    <button type="submit" class="btn btn-sm btn-primary">
-                      Save
-                    </button>
-                  </div>
-                </div>
-                <div class="form-group" style="margin: 0">
-                  <label style="display: flex; align-items: center; gap: 6px">
-                    <input
-                      type="checkbox"
-                      name="requireApproval"
-                      value="1"
-                      checked={env.requireApproval}
-                    />
-                    Require approval before deploy
-                  </label>
-                </div>
-                <div class="form-group" style="margin: 0">
-                  <label>Reviewers (comma-separated usernames)</label>
-                  <input
-                    type="text"
-                    name="reviewers"
-                    value={reviewers.join(", ")}
-                    placeholder="alice, bob"
-                    aria-label="Reviewers"
-                  />
-                </div>
-                <div class="form-group" style="margin: 0">
-                  <label>Wait timer (minutes)</label>
-                  <input
-                    type="number"
-                    name="waitTimerMinutes"
-                    min="0"
-                    max="1440"
-                    value={String(env.waitTimerMinutes)}
-                    aria-label="Wait timer in minutes"
-                    style="width: 120px"
-                  />
-                </div>
-                <div class="form-group" style="margin: 0">
-                  <label>Allowed branches (comma-separated glob patterns)</label>
-                  <input
-                    type="text"
-                    name="allowedBranches"
-                    value={branches.join(", ")}
-                    placeholder="main, release/*"
-                    aria-label="Allowed branches"
-                  />
-                </div>
-                <div style="display: flex; justify-content: flex-end">
-                  <button
-                    type="submit"
-                    formaction={`/${owner}/${repo}/settings/environments/${env.id}/delete`}
-                    class="btn btn-sm btn-danger"
-                    onclick="return confirm('Delete this environment?')"
-                  >
-                    Delete
-                  </button>
-                </div>
-              </form>
-            );
-          })
+                Back to deployments
+              </a>
+            </div>
+          </div>
+        </section>
+
+        {success && (
+          <div class="envs-banner is-ok">{decodeURIComponent(success)}</div>
         )}
+        {err && (
+          <div class="envs-banner is-error">{decodeURIComponent(err)}</div>
+        )}
+
+        <h4 class="envs-col-title">
+          {envs.length === 0
+            ? "No environments yet"
+            : `${envs.length} environment${envs.length === 1 ? "" : "s"}`}
+        </h4>
+
+        {envs.length === 0 ? (
+          <div class="envs-empty">
+            <div class="envs-empty-orb" aria-hidden="true" />
+            <div class="envs-empty-inner">
+              <div class="envs-empty-icon" aria-hidden="true">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+                  <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
+                  <line x1="12" y1="22.08" x2="12" y2="12" />
+                </svg>
+              </div>
+              <h3 class="envs-empty-title">Add your first environment</h3>
+              <p class="envs-empty-body">
+                Create a named environment like <strong>production</strong> or{" "}
+                <strong>staging</strong>, then require approval, wait timers,
+                or branch allowlists before any deploy may target it.
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div class="envs-list">
+            {envs.map((env) => {
+              const reviewers = envUsernames[env.id] || [];
+              const branches = allowedBranchesOf(env);
+              const protections = envProtectionCount(env);
+              const updatedAt = env.updatedAt
+                ? new Date(env.updatedAt)
+                : null;
+              const updatedLabel = updatedAt
+                ? updatedAt.toLocaleString()
+                : "—";
+              const envUrl = `/${owner}/${repo}/deployments?environment=${encodeURIComponent(env.name)}`;
+              return (
+                <form
+                  method="post"
+                  action={`/${owner}/${repo}/settings/environments/${env.id}`}
+                  class="envs-card"
+                >
+                  <div class="envs-card-head">
+                    <div class="envs-card-titles">
+                      <h3 class="envs-card-title">{env.name}</h3>
+                      <div class="envs-card-url">
+                        <a href={envUrl}>{envUrl}</a>
+                      </div>
+                      <div class="envs-card-meta">
+                        <span title={updatedAt ? updatedAt.toISOString() : ""}>
+                          last deploy target · {updatedLabel}
+                        </span>
+                      </div>
+                    </div>
+                    <div class="envs-pillrow">
+                      <span class="envs-pill is-active">
+                        <span class="envs-pill-dot" aria-hidden="true" />
+                        Active
+                      </span>
+                      <span
+                        class={protections > 0 ? "envs-pill is-protected" : "envs-pill"}
+                        title={`${protections} protection rule${protections === 1 ? "" : "s"}`}
+                      >
+                        <span class="envs-pill-dot" aria-hidden="true" />
+                        {protections} rule{protections === 1 ? "" : "s"}
+                      </span>
+                      {env.requireApproval && (
+                        <span class="envs-pill is-warn">
+                          <span class="envs-pill-dot" aria-hidden="true" />
+                          Approval
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div class="envs-fields">
+                    <div class="envs-field is-wide">
+                      <label class="envs-check">
+                        <input
+                          type="checkbox"
+                          name="requireApproval"
+                          value="1"
+                          checked={env.requireApproval}
+                        />
+                        Require approval before deploy
+                      </label>
+                    </div>
+                    <div class="envs-field is-wide">
+                      <label for={`env-rev-${env.id}`}>Reviewers</label>
+                      <input
+                        id={`env-rev-${env.id}`}
+                        type="text"
+                        name="reviewers"
+                        value={reviewers.join(", ")}
+                        placeholder="alice, bob"
+                        aria-label="Reviewers"
+                        class="envs-input"
+                      />
+                      <span class="hint">Comma-separated usernames.</span>
+                    </div>
+                    <div class="envs-field">
+                      <label for={`env-wait-${env.id}`}>Wait timer (minutes)</label>
+                      <input
+                        id={`env-wait-${env.id}`}
+                        type="number"
+                        name="waitTimerMinutes"
+                        min="0"
+                        max="1440"
+                        value={String(env.waitTimerMinutes)}
+                        aria-label="Wait timer in minutes"
+                        class="envs-input"
+                      />
+                      <span class="hint">0 disables the timer. Max 1440 (24h).</span>
+                    </div>
+                    <div class="envs-field">
+                      <label for={`env-br-${env.id}`}>Allowed branches</label>
+                      <input
+                        id={`env-br-${env.id}`}
+                        type="text"
+                        name="allowedBranches"
+                        value={branches.join(", ")}
+                        placeholder="main, release/*"
+                        aria-label="Allowed branches"
+                        class="envs-input"
+                      />
+                      <span class="hint">Comma-separated glob patterns.</span>
+                    </div>
+                  </div>
+
+                  <div class="envs-card-foot">
+                    <div class="envs-card-foot-left">
+                      {reviewers.length > 0
+                        ? `${reviewers.length} reviewer${reviewers.length === 1 ? "" : "s"}`
+                        : "No reviewers"}
+                      {" · "}
+                      {branches.length > 0
+                        ? `${branches.length} branch pattern${branches.length === 1 ? "" : "s"}`
+                        : "any branch"}
+                    </div>
+                    <div style="display:flex;gap:6px;flex-wrap:wrap">
+                      <a href={envUrl} class="envs-btn">View runs</a>
+                      <button
+                        type="submit"
+                        formaction={`/${owner}/${repo}/settings/environments/${env.id}/delete`}
+                        class="envs-btn is-danger"
+                        onclick="return confirm('Delete this environment?')"
+                      >
+                        Delete
+                      </button>
+                      <button type="submit" class="envs-btn is-primary">
+                        Save
+                      </button>
+                    </div>
+                  </div>
+                </form>
+              );
+            })}
+          </div>
+        )}
+
+        <form
+          method="post"
+          action={`/${owner}/${repo}/settings/environments`}
+          class="envs-create"
+        >
+          <h3 class="envs-create-title">New environment</h3>
+          <p class="envs-create-sub">
+            Pick a short, lowercase name like <strong>production</strong>,{" "}
+            <strong>staging</strong>, or <strong>preview</strong>.
+          </p>
+          <div class="envs-fields">
+            <div class="envs-field is-wide">
+              <label for="envs-new-name">Name</label>
+              <input
+                id="envs-new-name"
+                type="text"
+                name="name"
+                required
+                placeholder="production"
+                aria-label="Environment name"
+                class="envs-input"
+              />
+            </div>
+            <div class="envs-field is-wide">
+              <label class="envs-check">
+                <input
+                  type="checkbox"
+                  name="requireApproval"
+                  value="1"
+                  checked
+                />
+                Require approval
+              </label>
+            </div>
+            <div class="envs-field is-wide">
+              <label for="envs-new-reviewers">Reviewers</label>
+              <input
+                id="envs-new-reviewers"
+                type="text"
+                name="reviewers"
+                placeholder="alice, bob"
+                aria-label="Reviewers"
+                class="envs-input"
+              />
+              <span class="hint">Comma-separated usernames.</span>
+            </div>
+            <div class="envs-field">
+              <label for="envs-new-wait">Wait timer (minutes)</label>
+              <input
+                id="envs-new-wait"
+                type="number"
+                name="waitTimerMinutes"
+                min="0"
+                max="1440"
+                value="0"
+                aria-label="Wait timer in minutes"
+                class="envs-input"
+              />
+            </div>
+            <div class="envs-field">
+              <label for="envs-new-branches">Allowed branches</label>
+              <input
+                id="envs-new-branches"
+                type="text"
+                name="allowedBranches"
+                placeholder="main, release/*"
+                aria-label="Allowed branches"
+                class="envs-input"
+              />
+              <span class="hint">Comma-separated glob patterns.</span>
+            </div>
+          </div>
+          <div style="display:flex;justify-content:flex-end;margin-top:var(--space-3)">
+            <button type="submit" class="envs-btn is-primary">
+              Create environment
+            </button>
+          </div>
+        </form>
       </div>
 
-      <h3 style="margin-top: 24px; margin-bottom: 12px">New environment</h3>
-      <form
-        method="post"
-        action={`/${owner}/${repo}/settings/environments`}
-        class="panel"
-        style="padding: 16px"
-      >
-        <div class="form-group">
-          <label>Name</label>
-          <input
-            type="text"
-            name="name"
-            required
-            placeholder="production"
-            aria-label="Environment name"
-          />
-        </div>
-        <div class="form-group">
-          <label style="display: flex; align-items: center; gap: 6px">
-            <input
-              type="checkbox"
-              name="requireApproval"
-              value="1"
-              checked
-            />
-            Require approval
-          </label>
-        </div>
-        <div class="form-group">
-          <label>Reviewers (comma-separated usernames)</label>
-          <input type="text" name="reviewers" placeholder="alice, bob" aria-label="Reviewers" />
-        </div>
-        <div class="form-group">
-          <label>Wait timer (minutes)</label>
-          <input
-            type="number"
-            name="waitTimerMinutes"
-            min="0"
-            max="1440"
-            value="0"
-            aria-label="Wait timer in minutes"
-            style="width: 120px"
-          />
-        </div>
-        <div class="form-group">
-          <label>Allowed branches (comma-separated glob patterns)</label>
-          <input
-            type="text"
-            name="allowedBranches"
-            placeholder="main, release/*"
-            aria-label="Allowed branches"
-          />
-        </div>
-        <button type="submit" class="btn btn-primary">
-          Create environment
-        </button>
-      </form>
+      <style dangerouslySetInnerHTML={{ __html: envsStyles }} />
     </Layout>
   );
 });

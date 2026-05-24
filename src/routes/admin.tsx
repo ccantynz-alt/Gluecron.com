@@ -885,9 +885,25 @@ admin.get("/admin", async (c) => {
             <span class="admin-action-icon">{Icons.key}</span>
             Integrations
           </a>
-          <a href="/admin/diagnose" class="admin-action is-primary">
+          <a href="/admin/health" class="admin-action is-primary">
             <span class="admin-action-icon">{Icons.pulse}</span>
-            Health / Diagnose
+            Health (traffic lights)
+          </a>
+          <a href="/admin/deploys" class="admin-action is-primary">
+            <span class="admin-action-icon">{Icons.ops}</span>
+            Deploys
+          </a>
+          <a href="/admin/diagnose" class="admin-action">
+            <span class="admin-action-icon">{Icons.pulse}</span>
+            Diagnose
+          </a>
+          <a href="/admin/self-host" class="admin-action">
+            <span class="admin-action-icon">{Icons.ops}</span>
+            Self-host status
+          </a>
+          <a href="/admin/status" class="admin-action">
+            <span class="admin-action-icon">{Icons.pulse}</span>
+            Live activity stream
           </a>
           <a href="/admin/users" class="admin-action">
             <span class="admin-action-icon">{Icons.users}</span>

@@ -7,6 +7,13 @@
  *                                  "link expired" page.
  *   POST /verify-email/resend     requireAuth. Issues a fresh verification
  *                                  token. Rate-limited per user (3/hour).
+ *
+ * 2026 polish: the dead-link page renders inside the shared `.auth-container`
+ * gateway with a display headline, supporting subtitle, an Alert banner that
+ * matches the rest of the auth surface, and an explicit "what to do next"
+ * block — plus a resend form so the user can recover in-place if they're
+ * already signed in (the heavy lifting still happens server-side in the
+ * existing POST handler; the form is just the polished trigger).
  */
 
 import { Hono } from "hono";
@@ -14,6 +21,7 @@ import { eq } from "drizzle-orm";
 import { db } from "../db";
 import { users } from "../db/schema";
 import { Layout } from "../views/layout";
+import { Alert, Text } from "../views/ui";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
 import { config } from "../lib/config";
@@ -47,6 +55,114 @@ export function __resetResendRateLimitForTests(): void {
   _resendLog.clear();
 }
 
+// ---------------------------------------------------------------------------
+// Per-page CSS — `.auth-extra-ev-*` so it can never collide with the
+// locked .auth-container rules in layout.tsx.
+// ---------------------------------------------------------------------------
+function VerifyExtraStyles() {
+  return (
+    <style
+      dangerouslySetInnerHTML={{
+        __html: `
+        .auth-extra-ev-headline {
+          font-family: var(--font-display);
+          font-weight: 700;
+          font-size: clamp(28px, 4.6vw, 40px);
+          line-height: 1.08;
+          letter-spacing: -0.028em;
+          color: var(--text-strong);
+          margin: 0 0 10px;
+        }
+        .auth-extra-ev-sub {
+          color: var(--text-muted);
+          font-size: 14.5px;
+          line-height: 1.55;
+          margin: 0 0 22px;
+        }
+        .auth-extra-ev-next {
+          margin-top: 14px;
+          padding: 12px 14px;
+          background: var(--bg-tertiary, var(--bg-secondary));
+          border: 1px solid var(--border);
+          border-radius: var(--r-sm, 6px);
+          color: var(--text-muted);
+          font-size: 13px;
+          line-height: 1.55;
+        }
+        .auth-extra-ev-next strong { color: var(--text); font-weight: 600; }
+        .auth-extra-ev-meta {
+          color: var(--text-muted);
+          font-size: 13px;
+          line-height: 1.55;
+          margin: 6px 0 0;
+          text-align: center;
+        }
+        .auth-extra-ev-meta code {
+          font-family: var(--font-mono);
+          font-size: 12px;
+          background: var(--bg-tertiary, var(--bg-secondary));
+          padding: 1px 6px;
+          border-radius: 3px;
+        }
+        .auth-extra-ev-resend {
+          margin-top: 16px;
+          display: flex;
+          justify-content: center;
+        }
+        .auth-extra-ev-resend button {
+          width: 100%;
+          padding: 11px 16px;
+          font-size: 14.5px;
+          font-weight: 600;
+        }
+        .auth-extra-ev-resend button[aria-busy="true"] {
+          opacity: 0.78;
+          cursor: progress;
+          pointer-events: none;
+        }
+        .auth-extra-ev-resend button[aria-busy="true"]::after {
+          content: '';
+          display: inline-block;
+          width: 12px;
+          height: 12px;
+          margin-left: 8px;
+          vertical-align: -2px;
+          border: 2px solid currentColor;
+          border-right-color: transparent;
+          border-radius: 50%;
+          animation: auth-extra-ev-spin 0.7s linear infinite;
+        }
+        @keyframes auth-extra-ev-spin {
+          to { transform: rotate(360deg); }
+        }
+        `,
+      }}
+    />
+  );
+}
+
+function VerifySubmitBusyScript() {
+  return (
+    <script
+      dangerouslySetInnerHTML={{
+        __html: /* js */ `
+        (function () {
+          try {
+            var forms = document.querySelectorAll('form[data-auth-extra-ev]');
+            forms.forEach(function (f) {
+              f.addEventListener('submit', function () {
+                var btn = f.querySelector('button[type=submit]');
+                if (btn) btn.setAttribute('aria-busy', 'true');
+              });
+            });
+          } catch (e) { /* no-op */ }
+        })();
+        `,
+      }}
+    />
+  );
+}
+
 verify.get("/verify-email", softAuth, async (c) => {
   const token = c.req.query("token") || "";
   const user = c.get("user") || null;
@@ -57,18 +173,57 @@ verify.get("/verify-email", softAuth, async (c) => {
     return c.redirect("/dashboard?verified=1");
   }
 
+  const csrf = c.get("csrfToken") as string | undefined;
+  const userEmail = (user as any)?.email as string | undefined;
+
   return c.html(
     <Layout title="Verification link expired" user={user}>
       <div class="auth-container">
-        <h2>Link expired</h2>
-        <p style="color:var(--text-muted);font-size:14px;line-height:1.55">
-          That verification link is no longer valid. Links expire after 24
-          hours and can only be used once. Sign in and request a fresh link
-          from your dashboard.
+        <VerifyExtraStyles />
+        <h2 class="auth-extra-ev-headline">Link expired</h2>
+        <p class="auth-extra-ev-sub">
+          That email-verification link is no longer valid. Verification
+          links live for <strong>24 hours</strong> and can only be used once.
         </p>
-        <p class="auth-switch" style="margin-top:24px">
-          <a href="/login">Sign in</a>
+        <Alert variant="error">
+          Reset your verification by requesting a fresh link — the one you
+          clicked is expired, already used, or unknown.
+        </Alert>
+        <div class="auth-extra-ev-next">
+          <strong>What to do next:</strong>{" "}
+          {user
+            ? "tap Resend below and we'll dispatch a brand-new link to your account email — usually arrives in under a minute."
+            : "sign in to your account first, then request a fresh verification link from your dashboard."}
+        </div>
+        {user && userEmail && (
+          <p class="auth-extra-ev-meta">
+            We'll send the new link to <code>{userEmail}</code>.
+          </p>
+        )}
+        {user ? (
+          <form
+            method="post"
+            action="/verify-email/resend"
+            class="auth-extra-ev-resend"
+            data-auth-extra-ev="1"
+          >
+            {csrf && <input type="hidden" name="_csrf" value={csrf} />}
+            <button type="submit" class="btn btn-primary">
+              Resend verification email
+            </button>
+          </form>
+        ) : (
+          <p class="auth-switch" style="margin-top:18px">
+            <a href="/login">Sign in</a>
+          </p>
+        )}
+        <p class="auth-switch">
+          <Text>
+            Didn't expect this email?{" "}
+            <a href="/login">Back to sign in</a>.
+          </Text>
         </p>
+        <VerifySubmitBusyScript />
       </div>
     </Layout>
   );

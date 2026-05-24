@@ -10,6 +10,11 @@
  *     is no second form to fill in. We mint a session cookie and bounce
  *     to /dashboard (existing user) or /onboarding?welcome=1 (auto-created).
  *   - 15-minute TTL is messaged on the success/dead-link pages.
+ *
+ * 2026 polish: display-quality headlines, supporting subtitle, "what
+ * happens next" explainer, and loading-state submit so the surface
+ * matches the polished /login + /register pages. All form actions, POST
+ * handlers, redirects and token semantics are preserved exactly.
  */
 
 import { Hono } from "hono";
@@ -22,7 +27,7 @@ import {
   sessionExpiry,
 } from "../lib/auth";
 import { Layout } from "../views/layout";
-import { Form, FormGroup, Input, Button, Alert, Text } from "../views/ui";
+import { Form, FormGroup, Input, Alert, Text } from "../views/ui";
 import { softAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
 import {
@@ -31,6 +36,105 @@ import {
 } from "../lib/magic-link";
 
 const magicLink = new Hono<AuthEnv>();
+
+// ---------------------------------------------------------------------------
+// Per-page CSS — `.auth-extra-ml-*` so it can never collide with the
+// locked .auth-container rules in layout.tsx or with the sibling
+// password-reset extras.
+// ---------------------------------------------------------------------------
+function MagicExtraStyles() {
+  return (
+    <style
+      dangerouslySetInnerHTML={{
+        __html: `
+        .auth-extra-ml-headline {
+          font-family: var(--font-display);
+          font-weight: 700;
+          font-size: clamp(28px, 4.6vw, 40px);
+          line-height: 1.08;
+          letter-spacing: -0.028em;
+          color: var(--text-strong);
+          margin: 0 0 10px;
+        }
+        .auth-extra-ml-sub {
+          color: var(--text-muted);
+          font-size: 14.5px;
+          line-height: 1.55;
+          margin: 0 0 22px;
+        }
+        .auth-extra-ml-next {
+          margin-top: 14px;
+          padding: 12px 14px;
+          background: var(--bg-tertiary, var(--bg-secondary));
+          border: 1px solid var(--border);
+          border-radius: var(--r-sm, 6px);
+          color: var(--text-muted);
+          font-size: 13px;
+          line-height: 1.55;
+        }
+        .auth-extra-ml-next strong { color: var(--text); font-weight: 600; }
+        .auth-extra-ml-steps {
+          margin: 0;
+          padding: 0 0 0 18px;
+          color: var(--text-muted);
+          font-size: 13px;
+          line-height: 1.65;
+        }
+        .auth-extra-ml-steps li { margin: 2px 0; }
+        .auth-extra-ml-submit {
+          width: 100%;
+          padding: 12px 16px;
+          font-size: 15px;
+          font-weight: 600;
+          margin-top: 4px;
+        }
+        .auth-extra-ml-submit[aria-busy="true"] {
+          opacity: 0.78;
+          cursor: progress;
+          pointer-events: none;
+        }
+        .auth-extra-ml-submit[aria-busy="true"]::after {
+          content: '';
+          display: inline-block;
+          width: 12px;
+          height: 12px;
+          margin-left: 8px;
+          vertical-align: -2px;
+          border: 2px solid currentColor;
+          border-right-color: transparent;
+          border-radius: 50%;
+          animation: auth-extra-ml-spin 0.7s linear infinite;
+        }
+        @keyframes auth-extra-ml-spin {
+          to { transform: rotate(360deg); }
+        }
+        `,
+      }}
+    />
+  );
+}
+
+function MagicSubmitBusyScript() {
+  return (
+    <script
+      dangerouslySetInnerHTML={{
+        __html: /* js */ `
+        (function () {
+          try {
+            var forms = document.querySelectorAll('form[data-auth-extra-ml]');
+            forms.forEach(function (f) {
+              f.addEventListener('submit', function () {
+                var btn = f.querySelector('.auth-extra-ml-submit');
+                if (btn) btn.setAttribute('aria-busy', 'true');
+              });
+            });
+          } catch (e) { /* no-op */ }
+        })();
+        `,
+      }}
+    />
+  );
+}
 
 // ---------------------------------------------------------------------------
 // GET /login/magic — entry form + post-submit success.
@@ -47,11 +151,24 @@ magicLink.get("/login/magic", softAuth, (c) => {
     return c.html(
       <Layout title="Check your inbox" user={null}>
         <div class="auth-container">
-          <h2>Check your inbox</h2>
+          <MagicExtraStyles />
+          <h2 class="auth-extra-ml-headline">Check your inbox</h2>
+          <p class="auth-extra-ml-sub">
+            We just sent a one-time sign-in link to the address you entered.
+            It usually lands within a minute.
+          </p>
           <Alert variant="success">
             If we can sign you in with that email, we've sent a link. It
             expires in 15 minutes.
           </Alert>
+          <div class="auth-extra-ml-next">
+            <strong>What happens next:</strong>
+            <ol class="auth-extra-ml-steps" style="margin-top:6px">
+              <li>Open the email titled "Your Gluecron sign-in link".</li>
+              <li>Click the button — you'll be signed in on this device.</li>
+              <li>The link expires in <strong>15 minutes</strong> and works only once.</li>
+            </ol>
+          </div>
           <p class="auth-switch">
             <Text>
               Didn't get it? Check your spam folder, or{" "}
@@ -69,14 +186,18 @@ magicLink.get("/login/magic", softAuth, (c) => {
   return c.html(
     <Layout title="Sign in with email link" user={null}>
       <div class="auth-container">
-        <h2>Sign in with a magic link</h2>
-        <p class="auth-switch" style="margin-bottom:16px;margin-top:0">
-          <Text>
-            Enter your email and we'll send you a one-time sign-in link. No
-            password needed.
-          </Text>
+        <MagicExtraStyles />
+        <h2 class="auth-extra-ml-headline">Sign in with a magic link</h2>
+        <p class="auth-extra-ml-sub">
+          Drop your email below and we'll send you a one-time sign-in link.
+          No password to remember, no extra step.
         </p>
-        <Form method="post" action="/login/magic" csrfToken={csrf}>
+        <Form
+          method="post"
+          action="/login/magic"
+          csrfToken={csrf}
+          class="auth-extra-ml-form"
+        >
           <FormGroup label="Email" htmlFor="email">
             <Input
               type="email"
@@ -85,18 +206,35 @@ magicLink.get("/login/magic", softAuth, (c) => {
               placeholder="you@example.com"
               autocomplete="email"
               aria-label="Email"
+              autofocus
             />
           </FormGroup>
-          <Button type="submit" variant="primary">
+          <button
+            type="submit"
+            class="btn btn-primary auth-extra-ml-submit"
+            data-loading-label="Sending link…"
+          >
             Send me a sign-in link
-          </Button>
+          </button>
         </Form>
+        <div class="auth-extra-ml-next" style="margin-top:18px">
+          <strong>How it works:</strong> we email a link that signs you in
+          on this device when clicked. Links expire in 15 minutes and can
+          only be used once. New here? An account is created automatically
+          the first time you sign in.
+        </div>
         <p class="auth-switch">
           <Text>
             Prefer a password?{" "}
             <a href="/login">Sign in the usual way</a>.
           </Text>
         </p>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `document.querySelectorAll('form').forEach(function(f){ f.setAttribute('data-auth-extra-ml', '1'); });`,
+          }}
+        />
+        <MagicSubmitBusyScript />
       </div>
     </Layout>
   );
@@ -125,7 +263,12 @@ function InvalidLinkPage(props: { user: any }) {
   return (
     <Layout title="Link no longer valid" user={props.user ?? null}>
       <div class="auth-container">
-        <h2>This link is no longer valid</h2>
+        <MagicExtraStyles />
+        <h2 class="auth-extra-ml-headline">This link is no longer valid</h2>
+        <p class="auth-extra-ml-sub">
+          Magic links are single-use and time-limited. The one you followed
+          is either expired, already redeemed, or unknown to us.
+        </p>
         <Alert variant="error">
           Magic links expire after 15 minutes and can only be used once.
           This link is expired, already used, or unknown.

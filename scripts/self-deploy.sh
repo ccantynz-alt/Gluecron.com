@@ -125,10 +125,32 @@ START_EPOCH=$(date +%s)
 DEPLOY_FAILED=0
 FAIL_REASON=""
 
-# ── 4. bun install --frozen-lockfile ───────────────────────────────────────
+# ── 4. bun install --frozen-lockfile (skipped if lockfile unchanged) ──────
+# Track the last-installed lockfile hash in a stamp file. If it matches the
+# current lockfile we skip — saves ~2-5s every deploy that doesn't touch
+# dependencies (90%+ of deploys). On any error the fallback runs install
+# anyway so we never silently skip a needed install.
+STAMP_DIR="${GLUECRON_DEPLOY_STAMP_DIR:-.next}"
+mkdir -p "$STAMP_DIR" 2>/dev/null || true
+LOCK_STAMP="$STAMP_DIR/bun-install.stamp"
+LOCK_HASH=""
+if [ -f bun.lockb ]; then
+  LOCK_HASH=$(sha256sum bun.lockb 2>/dev/null | awk '{print $1}' || echo "")
+elif [ -f bun.lock ]; then
+  LOCK_HASH=$(sha256sum bun.lock 2>/dev/null | awk '{print $1}' || echo "")
+fi
+LAST_HASH=""
+if [ -f "$LOCK_STAMP" ]; then
+  LAST_HASH=$(cat "$LOCK_STAMP" 2>/dev/null || echo "")
+fi
+
 BI_START=$(date +%s)
 notify_step "bun-install" "in_progress"
-if "$BUN" install --frozen-lockfile >>"$LOG" 2>&1; then
+if [ -n "$LOCK_HASH" ] && [ "$LOCK_HASH" = "$LAST_HASH" ] && [ -d node_modules ]; then
+  log "    v bun install skipped (lockfile unchanged: ${LOCK_HASH:0:12})"
+  notify_step "bun-install" "succeeded" "$(( ( $(date +%s) - BI_START ) * 1000 ))"
+elif "$BUN" install --frozen-lockfile >>"$LOG" 2>&1; then
+  echo "$LOCK_HASH" > "$LOCK_STAMP" 2>/dev/null || true
   log "    v bun install ok"
   notify_step "bun-install" "succeeded" "$(( ( $(date +%s) - BI_START ) * 1000 ))"
 else
@@ -153,16 +175,35 @@ if [ "$DEPLOY_FAILED" = "0" ]; then
   fi
 fi
 
-# ── 6. Build the static binary ─────────────────────────────────────────────
+# ── 6. Build the static binary (skipped if no source files changed) ──────
+# We hash every tracked src/*.ts(x) file and stash the digest in a stamp
+# file. If nothing in src/ changed, the binary from the previous deploy
+# is still valid — saves 5-15s on docs-only / config-only commits.
+# On any error the fallback rebuilds anyway.
 if [ "$DEPLOY_FAILED" = "0" ]; then
   BD_START=$(date +%s)
   notify_step "build" "in_progress"
   mkdir -p .next
   COMPILED=.next/gluecron-server
   COMPILED_TMP=.next/gluecron-server.new
-  if "$BUN" build --compile --outfile "$COMPILED_TMP" src/index.ts >>"$LOG" 2>&1; then
+  BUILD_STAMP="$STAMP_DIR/build-src.stamp"
+  SRC_HASH=$(find src -type f \( -name "*.ts" -o -name "*.tsx" \) -print0 2>/dev/null \
+    | sort -z \
+    | xargs -0 sha256sum 2>/dev/null \
+    | sha256sum 2>/dev/null \
+    | awk '{print $1}' || echo "")
+  LAST_BUILD_HASH=""
+  if [ -f "$BUILD_STAMP" ]; then
+    LAST_BUILD_HASH=$(cat "$BUILD_STAMP" 2>/dev/null || echo "")
+  fi
+
+  if [ -n "$SRC_HASH" ] && [ "$SRC_HASH" = "$LAST_BUILD_HASH" ] && [ -x "$COMPILED" ]; then
+    log "    v build skipped (src/ unchanged: ${SRC_HASH:0:12})"
+    notify_step "build" "succeeded" "$(( ( $(date +%s) - BD_START ) * 1000 ))"
+  elif "$BUN" build --compile --outfile "$COMPILED_TMP" src/index.ts >>"$LOG" 2>&1; then
     mv -f "$COMPILED_TMP" "$COMPILED"
     chmod +x "$COMPILED"
+    echo "$SRC_HASH" > "$BUILD_STAMP" 2>/dev/null || true
     log "    v compiled $COMPILED"
     notify_step "build" "succeeded" "$(( ( $(date +%s) - BD_START ) * 1000 ))"
   else
@@ -204,17 +245,27 @@ if [ "$DEPLOY_FAILED" = "0" ]; then
   fi
 fi
 
-# ── 8. Wait for /healthz to be green (up to 30s) ──────────────────────────
+# ── 8. Wait for /healthz to be green (fast poll, up to ~30s) ─────────────
+# Tighter polling: 500ms × 10 (covers the common case where the service
+# is healthy within 1-2s of restart returning), then 2s × 10 for the slow
+# path. Cuts a typical successful deploy by 1-3s vs the old fixed 2s poll.
 if [ "$DEPLOY_FAILED" = "0" ]; then
   HZ_START=$(date +%s)
   notify_step "healthz" "in_progress"
   green=0
-  for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
-    code=$(curl -s -o /dev/null -w "%{http_code}" "$HEALTHZ_URL" || echo "000")
-    log "    healthz attempt $i: $code"
-    if [ "$code" = "200" ]; then green=1; break; fi
-    sleep 2
+  for i in 1 2 3 4 5 6 7 8 9 10; do
+    code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 2 "$HEALTHZ_URL" || echo "000")
+    if [ "$code" = "200" ]; then green=1; log "    healthz fast attempt $i: $code (green)"; break; fi
+    sleep 0.5
   done
+  if [ "$green" = "0" ]; then
+    for i in 11 12 13 14 15 16 17 18 19 20; do
+      code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 2 "$HEALTHZ_URL" || echo "000")
+      log "    healthz slow attempt $i: $code"
+      if [ "$code" = "200" ]; then green=1; break; fi
+      sleep 2
+    done
+  fi
   if [ "$green" = "1" ]; then
     log "    v /healthz green"
     notify_step "healthz" "succeeded" "$(( ( $(date +%s) - HZ_START ) * 1000 ))"

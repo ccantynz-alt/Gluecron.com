@@ -21,6 +21,7 @@ import {
   parseGithubUrl,
   sanitizeRepoName,
   buildCloneUrl,
+  scrubSecrets,
 } from "../lib/import-helper";
 
 const importRoutes = new Hono<AuthEnv>();
@@ -747,7 +748,15 @@ importRoutes.post("/import/github/user", requireAuth, requireAdmin, async (c) =>
         imported++;
       } catch (err) {
         failed++;
-        console.error(`[import] failed to import ${ghRepo.full_name}:`, err);
+        // Belt + suspenders: even though importSingleRepo already redacts
+        // tokens before throwing, scrub here in case a future code path
+        // bypasses that. Tokens in console.error end up in journald and
+        // any log shipper — a single leak is forever.
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(
+          `[import] failed to import ${ghRepo.full_name}:`,
+          scrubSecrets(msg, githubToken)
+        );
       }
     }
 
@@ -916,15 +925,21 @@ importRoutes.post("/import/github/repo", requireAuth, requireAdmin, async (c) =>
           secretsRedirect = `/${user.username}/${targetName}/import/secrets`;
         }
       } catch (err) {
-        console.error("[import] secrets migration skipped:", err);
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(
+          "[import] secrets migration skipped:",
+          scrubSecrets(msg, optionalToken)
+        );
       }
     }
 
     return c.redirect(secretsRedirect ?? `/${user.username}/${targetName}`);
   } catch (err) {
-    console.error("[import] error:", err);
+    const msg = err instanceof Error ? err.message : String(err);
+    const safe = scrubSecrets(msg, optionalToken);
+    console.error("[import] error:", safe);
     return c.redirect(
-      `/import?error=${encodeURIComponent(`Import failed: ${String(err)}`)}`
+      `/import?error=${encodeURIComponent(`Import failed: ${safe}`)}`
     );
   }
 });

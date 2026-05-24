@@ -109,10 +109,18 @@ importSecretsRoutes.get(
     const pastedCount = rows.length - emptyCount;
 
     // If the repo has zero placeholders at all (e.g. the user came back to
-    // this URL after finishing earlier), short-circuit to the regular
-    // settings page so they're not stuck on a screen showing no rows.
+    // this URL after finishing earlier, or the secrets migration didn't
+    // actually find any rows — empty repo, no token, decrypt failure),
+    // redirect back to /import with a success banner explaining what
+    // happened. Previously this redirected silently to the repo home with
+    // no feedback, so users didn't know whether secrets had migrated or
+    // not.
     if (rows.length === 0) {
-      return c.redirect(`/${ownerName}/${repoName}`);
+      return c.redirect(
+        `/import?success=${encodeURIComponent(
+          `Import of ${ownerName}/${repoName} succeeded. No secrets were migrated — either the GitHub repo has none, the token lacks the 'actions:read' scope, or you already pasted values in a previous session. Open the repo at /${ownerName}/${repoName} to start using it.`
+        )}`
+      );
     }
 
     return c.html(

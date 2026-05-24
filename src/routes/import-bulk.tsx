@@ -494,11 +494,45 @@ async function fetchOrgRepos(
     )}/repos?per_page=${GITHUB_PER_PAGE}&page=${page}&type=all`;
     const res = await fetch(url, { headers });
     if (!res.ok) {
-      // Never echo the token. Include only the status + first slice of body.
-      const errBody = (await res.text()).slice(0, 200);
-      throw new Error(`GitHub API error (${res.status}): ${errBody}`);
+      // Distinguish the three real failure modes the operator can act on
+      // instead of dumping a raw GitHub body that hides the actual cause.
+      let detail = "";
+      try {
+        const body = await res.json();
+        detail = body?.message ? ` — ${String(body.message)}` : "";
+      } catch {
+        /* non-JSON body */
+      }
+      if (res.status === 404) {
+        throw new Error(
+          `Organization "${org}" not found on GitHub (404)${detail}. Check the spelling.`
+        );
+      }
+      if (res.status === 401) {
+        throw new Error(
+          `GitHub rejected the token (401)${detail}. The PAT is invalid or expired — mint a new one at github.com/settings/tokens.`
+        );
+      }
+      if (res.status === 403) {
+        throw new Error(
+          `GitHub forbade the request (403)${detail}. Your token likely lacks the 'read:org' / 'repo' scope, or you've hit the rate limit. Wait an hour or mint a token with the right scopes.`
+        );
+      }
+      throw new Error(`GitHub API error (${res.status})${detail}`);
     }
-    const batch = (await res.json()) as GitHubRepo[];
+    let batch: GitHubRepo[];
+    try {
+      batch = (await res.json()) as GitHubRepo[];
+    } catch (err) {
+      // A malformed batch shouldn't kill the whole bulk import. Log it
+      // (without token leak) and stop pagination — the operator will see
+      // whatever we managed to collect so far.
+      console.error(
+        `[import-bulk] non-JSON response on page ${page} for org ${org}:`,
+        err instanceof Error ? err.message : err
+      );
+      break;
+    }
     if (!Array.isArray(batch) || batch.length === 0) break;
     repos.push(...batch);
     if (batch.length < GITHUB_PER_PAGE) break;

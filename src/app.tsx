@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { logger } from "hono/logger";
 import { cors } from "hono/cors";
 import { compress } from "hono/compress";
+import { etag } from "hono/etag";
 // BLOCK O2 — shared error-page surface (404 / 500 / 403).
 import { NotFoundPage, ServerErrorPage } from "./views/error-page";
 import { reportError } from "./lib/observability";
@@ -141,6 +142,91 @@ const app = new Hono<AuthEnv>();
 app.use("*", requestContext);
 // Middleware — compression first (wraps all responses)
 app.use("*", compress());
+
+// ETag middleware — returns 304 Not Modified on unchanged responses.
+// Saves ~95% bandwidth on repeat visits. Skipped on git protocol +
+// SSE + the API surface where it would interfere with streaming.
+app.use("*", async (c, next) => {
+  const p = c.req.path;
+  if (
+    p.includes(".git/") ||
+    p.startsWith("/live-events") ||
+    p.startsWith("/api/events/deploy") ||
+    p.startsWith("/admin/status")
+  ) {
+    return next();
+  }
+  return etag()(c, next);
+});
+
+// Cache-Control middleware — sets sensible defaults on public, anonymous
+// requests. Crontech (when wired as our edge layer) and downstream
+// browsers will honor these. Auth'd users get private,no-store
+// automatically — we never cache responses tied to a session.
+app.use("*", async (c, next) => {
+  await next();
+  // Don't overwrite explicit headers set by route handlers — BUT the
+  // ETag middleware unconditionally sets "private, no-cache, must-
+  // revalidate" so we have to treat that specific value as "no
+  // policy chosen yet" and apply ours. Any route that explicitly set
+  // a different cache-control wins.
+  const existing = c.res.headers.get("cache-control");
+  const etagDefault =
+    existing === "private, no-cache, must-revalidate" ||
+    existing === "no-cache";
+  if (existing && !etagDefault) return;
+  // Anything past auth: private + no-store (avoid leaking session
+  // content into shared caches). softAuth runs before this on the
+  // request, but the response side is what we're stamping.
+  const hasSession = c.req.header("cookie")?.includes("session=") ?? false;
+  const p = c.req.path;
+  // Always private for known-authed paths regardless of cookie.
+  if (
+    p.startsWith("/admin") ||
+    p.startsWith("/settings") ||
+    p.startsWith("/dashboard") ||
+    p.startsWith("/notifications") ||
+    p.startsWith("/connect/") ||
+    hasSession
+  ) {
+    c.res.headers.set("cache-control", "private, no-store");
+    return;
+  }
+  // Public marketing surfaces — short edge cache, longer browser cache,
+  // stale-while-revalidate so the user never waits on a stale fetch.
+  const isMarketing =
+    p === "/" ||
+    p === "/features" ||
+    p === "/pricing" ||
+    p === "/about" ||
+    p === "/vs-github" ||
+    p === "/explore" ||
+    p === "/help" ||
+    p === "/changelog" ||
+    p.startsWith("/legal/") ||
+    p === "/terms" ||
+    p === "/privacy" ||
+    p === "/acceptable-use" ||
+    p.startsWith("/docs/");
+  if (isMarketing) {
+    c.res.headers.set(
+      "cache-control",
+      "public, max-age=60, s-maxage=300, stale-while-revalidate=86400"
+    );
+    return;
+  }
+  // Public repo browse pages — cache aggressively. Edge invalidates
+  // on push via the post-receive hook (future Crontech surge purge).
+  if (/^\/[^/]+\/[^/]+(\/.*)?$/.test(p) && c.req.method === "GET") {
+    c.res.headers.set(
+      "cache-control",
+      "public, max-age=30, s-maxage=120, stale-while-revalidate=600"
+    );
+    return;
+  }
+  // Default: don't cache anything we haven't explicitly opted in.
+  c.res.headers.set("cache-control", "private, no-store");
+});
 // Logger only on non-git routes to avoid overhead on clone/push
 app.use("*", async (c, next) => {
   if (c.req.path.includes(".git/")) return next();

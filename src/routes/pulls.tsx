@@ -1212,8 +1212,15 @@ pulls.post(
         ],
         { cwd, stdout: "pipe", stderr: "pipe" }
       );
-      diff = await new Response(proc.stdout).text();
-      await proc.exited;
+      // 30s ceiling — without this a pathological diff (huge binary or
+      // a corrupt ref) hangs the request indefinitely.
+      const killer = setTimeout(() => proc.kill(), 30_000);
+      try {
+        diff = await new Response(proc.stdout).text();
+        await proc.exited;
+      } finally {
+        clearTimeout(killer);
+      }
     } catch {
       diff = "";
     }
@@ -1410,19 +1417,33 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
   let diffFiles: GitDiffFile[] = [];
   if (tab === "files") {
     const repoDir = getRepoPath(ownerName, repoName);
+    // Run the two git diffs in parallel — they're independent reads of
+    // the same range. Previously sequential, doubling the wall time on
+    // big PRs (100+ files = 10-30s for no reason).
     const proc = Bun.spawn(
       ["git", "diff", `${pr.baseBranch}...${pr.headBranch}`],
       { cwd: repoDir, stdout: "pipe", stderr: "pipe" }
     );
-    diffRaw = await new Response(proc.stdout).text();
-    await proc.exited;
-
     const statProc = Bun.spawn(
       ["git", "diff", "--numstat", `${pr.baseBranch}...${pr.headBranch}`],
       { cwd: repoDir, stdout: "pipe", stderr: "pipe" }
     );
-    const stat = await new Response(statProc.stdout).text();
-    await statProc.exited;
+    // 30s ceiling per spawn — a corrupt ref / pathological binary diff
+    // would otherwise hang the whole request.
+    const killer = setTimeout(() => {
+      proc.kill();
+      statProc.kill();
+    }, 30_000);
+    let stat = "";
+    try {
+      [diffRaw, stat] = await Promise.all([
+        new Response(proc.stdout).text(),
+        new Response(statProc.stdout).text(),
+      ]);
+      await Promise.all([proc.exited, statProc.exited]);
+    } finally {
+      clearTimeout(killer);
+    }
 
     diffFiles = stat
       .trim()

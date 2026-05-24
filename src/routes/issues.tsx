@@ -608,6 +608,11 @@ issueRoutes.get("/:owner/:repo/issues", softAuth, requireRepoAccess("read"), asy
   const { owner: ownerName, repo: repoName } = c.req.param();
   const user = c.get("user");
   const state = c.req.query("state") || "open";
+  // Bounded pagination — unbounded selects ran a full table scan + O(n)
+  // sort on every page load; with 10k+ issues the request would hang.
+  const perPage = Math.min(100, Math.max(1, Number(c.req.query("per_page")) || 50));
+  const page = Math.max(1, Number(c.req.query("page")) || 1);
+  const offset = (page - 1) * perPage;
 
   const resolved = await resolveRepo(ownerName, repoName);
   if (!resolved) {
@@ -631,7 +636,9 @@ issueRoutes.get("/:owner/:repo/issues", softAuth, requireRepoAccess("read"), asy
     .where(
       and(eq(issues.repositoryId, repo.id), eq(issues.state, state))
     )
-    .orderBy(desc(issues.createdAt));
+    .orderBy(desc(issues.createdAt))
+    .limit(perPage)
+    .offset(offset);
 
   // Count open/closed
   const [counts] = await db

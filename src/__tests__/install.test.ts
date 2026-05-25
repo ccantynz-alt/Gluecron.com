@@ -66,6 +66,29 @@ describe("install — GET /install", () => {
 });
 
 // ---------------------------------------------------------------------------
+// 1b. GET /install/vscode — VS Code extension landing
+// ---------------------------------------------------------------------------
+
+describe("install — GET /install/vscode", () => {
+  it("returns 200 with an HTML install page", async () => {
+    const res = await app.request("/install/vscode");
+    expect(res.status).toBe(200);
+    const ct = res.headers.get("content-type") || "";
+    expect(ct).toContain("text/html");
+    const body = await res.text();
+    expect(body).toContain("Gluecron for VS Code");
+    // Points users at the extension source.
+    expect(body).toContain("editor-extensions/vscode");
+  });
+
+  it("serves a cacheable response", async () => {
+    const res = await app.request("/install/vscode");
+    const cc = res.headers.get("cache-control") || "";
+    expect(cc).toContain("public");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 2. POST /api/v2/auth/install-token — auth contract
 // ---------------------------------------------------------------------------
 

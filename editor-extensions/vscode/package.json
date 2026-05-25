@@ -1,0 +1,166 @@
+{
+  "name": "gluecron-vscode",
+  "displayName": "Gluecron",
+  "description": "AI-native git: chat with this repo, ship PRs, run specs, voice-to-PR",
+  "version": "0.1.0",
+  "publisher": "gluecron",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://gluecron.com/ccantynz/Gluecron.com.git"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "SCM Providers",
+    "AI",
+    "Chat",
+    "Other"
+  ],
+  "keywords": [
+    "git",
+    "gluecron",
+    "ai",
+    "chat",
+    "pull-request",
+    "spec",
+    "voice"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "configuration": {
+      "title": "Gluecron",
+      "properties": {
+        "gluecron.host": {
+          "type": "string",
+          "default": "https://gluecron.com",
+          "description": "Gluecron server URL (override for self-hosted instances)."
+        },
+        "gluecron.defaultBranch": {
+          "type": "string",
+          "default": "main",
+          "description": "Default branch used when constructing blob URLs."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "gluecron.signIn",
+        "title": "Gluecron: Sign In (Personal Access Token)"
+      },
+      {
+        "command": "gluecron.signOut",
+        "title": "Gluecron: Sign Out"
+      },
+      {
+        "command": "gluecron.chatWithRepo",
+        "title": "Gluecron: Chat With This Repo"
+      },
+      {
+        "command": "gluecron.openInGluecron",
+        "title": "Gluecron: Open Current File on Web"
+      },
+      {
+        "command": "gluecron.openPRs",
+        "title": "Gluecron: Open Pull Requests"
+      },
+      {
+        "command": "gluecron.openIssues",
+        "title": "Gluecron: Open Issues"
+      },
+      {
+        "command": "gluecron.openStandups",
+        "title": "Gluecron: Open AI Standups"
+      },
+      {
+        "command": "gluecron.shipSpec",
+        "title": "Gluecron: Ship Current File as Spec"
+      },
+      {
+        "command": "gluecron.voiceToPR",
+        "title": "Gluecron: Voice-to-PR"
+      },
+      {
+        "command": "gluecron.aiCommitMessage",
+        "title": "Generate AI Commit Message",
+        "icon": "$(sparkle)"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "gluecron-sidebar",
+          "title": "Gluecron",
+          "icon": "media/gluecron.svg"
+        }
+      ]
+    },
+    "views": {
+      "gluecron-sidebar": [
+        {
+          "type": "webview",
+          "id": "gluecron.chat",
+          "name": "Chat",
+          "icon": "media/gluecron.svg",
+          "contextualTitle": "Repo Chat"
+        },
+        {
+          "type": "webview",
+          "id": "gluecron.pulls",
+          "name": "Pull Requests"
+        },
+        {
+          "type": "webview",
+          "id": "gluecron.issues",
+          "name": "Issues"
+        },
+        {
+          "type": "webview",
+          "id": "gluecron.standups",
+          "name": "AI Standups"
+        }
+      ]
+    },
+    "menus": {
+      "scm/title": [
+        {
+          "command": "gluecron.aiCommitMessage",
+          "group": "navigation",
+          "when": "scmProvider == git"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "gluecron.openInGluecron",
+          "group": "gluecron@1"
+        },
+        {
+          "command": "gluecron.chatWithRepo",
+          "group": "gluecron@2"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "gluecron.signOut",
+          "when": "gluecron:signedIn"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p .",
+    "watch": "tsc -watch -p .",
+    "package": "vsce package --no-dependencies",
+    "test": "node --test out/__tests__/extension.test.js"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.1.0",
+    "typescript": "^5.3.0"
+  }
+}

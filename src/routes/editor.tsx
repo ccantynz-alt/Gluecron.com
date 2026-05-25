@@ -1,34 +1,26 @@
 /**
  * Web file editor — create and edit files directly in the browser.
+ *
+ * 2026 polish: this surface uses a scoped `.editor-*` class system that
+ * mirrors `admin-integrations.tsx` and `collaborators.tsx` — gradient
+ * hairline, mono breadcrumb pill, commit-message input with focus ring,
+ * primary commit + ghost cancel buttons, and an AI "Suggest" button that
+ * sits inline. The git operations themselves are unchanged.
  */
 
 import { Hono } from "hono";
 import { Layout } from "../views/layout";
-import { RepoHeader, RepoNav, Breadcrumb } from "../views/components";
-import {
-  Container,
-  Flex,
-  Form,
-  FormGroup,
-  Input,
-  TextArea,
-  Button,
-  LinkButton,
-  EmptyState,
-  Text,
-} from "../views/ui";
+import { RepoHeader, RepoNav } from "../views/components";
+import { EmptyState } from "../views/ui";
 import {
   getBlob,
-  getDefaultBranch,
   getRepoPath,
-  repoExists,
 } from "../git/repository";
 import { generateCommitMessage } from "../lib/ai-generators";
 import { isAiAvailable } from "../lib/ai-client";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
 import { requireRepoAccess } from "../middleware/repo-access";
-import { join } from "path";
 
 const editor = new Hono<AuthEnv>();
 
@@ -78,6 +70,269 @@ function AI_COMMIT_MSG_SCRIPT(args: {
   );
 }
 
+// ─── Scoped CSS (.editor-*) ─────────────────────────────────────────────────
+// Every selector is prefixed `.editor-*` so this surface can't bleed into
+// the repo header / nav above. Tokens reused from layout (--bg-elevated,
+// --border, --text-strong, --accent, --space-*, --font-*).
+
+const editorStyles = `
+  .editor-wrap { max-width: 1100px; margin: 0 auto; padding: var(--space-5) var(--space-4) var(--space-8); }
+
+  /* ─── Header strip (sits below RepoHeader + RepoNav) ─── */
+  .editor-head { margin-bottom: var(--space-5); }
+  .editor-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    text-transform: uppercase;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    color: var(--text-muted);
+    font-weight: 600;
+    margin-bottom: 10px;
+  }
+  .editor-eyebrow-dot {
+    width: 8px; height: 8px;
+    border-radius: 9999px;
+    background: linear-gradient(135deg, #8c6dff, #36c5d6);
+    box-shadow: 0 0 0 3px rgba(140,109,255,0.18);
+  }
+  .editor-title {
+    font-family: var(--font-display);
+    font-size: clamp(22px, 3vw, 32px);
+    font-weight: 800;
+    letter-spacing: -0.025em;
+    line-height: 1.15;
+    margin: 0 0 6px;
+    color: var(--text-strong);
+  }
+  .editor-title-grad {
+    background-image: linear-gradient(135deg, #a48bff 0%, #8c6dff 50%, #36c5d6 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+  }
+  .editor-sub {
+    margin: 0;
+    font-size: 14px;
+    color: var(--text-muted);
+    line-height: 1.5;
+    max-width: 700px;
+  }
+
+  /* ─── Toolbar (path breadcrumb + branch pill) ─── */
+  .editor-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    margin-bottom: var(--space-3);
+    padding: 10px 14px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+  }
+  .editor-path {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--text);
+    flex-wrap: wrap;
+    min-width: 0;
+  }
+  .editor-path-sep { color: var(--text-faint); }
+  .editor-path-seg {
+    color: var(--text-muted);
+  }
+  .editor-path-name {
+    color: var(--text-strong);
+    font-weight: 600;
+  }
+  .editor-branch-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: #c4b5fd;
+    background: rgba(140,109,255,0.12);
+    box-shadow: inset 0 0 0 1px rgba(140,109,255,0.30);
+    white-space: nowrap;
+    font-weight: 600;
+  }
+  .editor-branch-pill svg { opacity: 0.9; }
+
+  /* ─── Form card ─── */
+  .editor-card {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+    position: relative;
+  }
+  .editor-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent 0%, #8c6dff 30%, #36c5d6 70%, transparent 100%);
+    opacity: 0.55;
+    pointer-events: none;
+  }
+  .editor-body { padding: var(--space-4) var(--space-5); }
+
+  .editor-field { display: block; margin-bottom: var(--space-4); }
+  .editor-label {
+    display: block;
+    font-size: 11.5px;
+    color: var(--text-muted);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 6px;
+  }
+  .editor-filename-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font-mono);
+  }
+  .editor-filename-dir {
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+  .editor-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 10px 12px;
+    font: inherit;
+    font-size: 14px;
+    color: var(--text);
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border-strong);
+    border-radius: 10px;
+    transition: border-color 120ms ease, background 120ms ease, box-shadow 120ms ease;
+  }
+  .editor-input:focus {
+    outline: none;
+    border-color: rgba(140,109,255,0.55);
+    background: rgba(255,255,255,0.05);
+    box-shadow: 0 0 0 3px rgba(140,109,255,0.18);
+  }
+  .editor-input-mono { font-family: var(--font-mono); }
+
+  .editor-textarea {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 12px 14px;
+    font: inherit;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 1.55;
+    tab-size: 2;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--border-strong);
+    border-radius: 10px;
+    resize: vertical;
+    min-height: 280px;
+    transition: border-color 120ms ease, background 120ms ease, box-shadow 120ms ease;
+  }
+  .editor-textarea:focus {
+    outline: none;
+    border-color: rgba(140,109,255,0.55);
+    box-shadow: 0 0 0 3px rgba(140,109,255,0.18);
+  }
+
+  /* ─── Action row ─── */
+  .editor-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: var(--space-3) var(--space-5);
+    border-top: 1px solid var(--border);
+    background: rgba(255,255,255,0.012);
+  }
+  .editor-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 9px 16px;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 600;
+    text-decoration: none;
+    border: 1px solid transparent;
+    cursor: pointer;
+    font: inherit;
+    transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease, border-color 120ms ease, color 120ms ease;
+    line-height: 1;
+    white-space: nowrap;
+  }
+  .editor-btn-primary {
+    background: linear-gradient(135deg, #8c6dff 0%, #36c5d6 100%);
+    color: #fff;
+    box-shadow: 0 6px 18px -6px rgba(140,109,255,0.5), inset 0 1px 0 rgba(255,255,255,0.16);
+  }
+  .editor-btn-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 10px 24px -8px rgba(140,109,255,0.6), inset 0 1px 0 rgba(255,255,255,0.20);
+    text-decoration: none;
+    color: #fff;
+  }
+  .editor-btn-ghost {
+    background: transparent;
+    color: var(--text);
+    border-color: var(--border-strong);
+  }
+  .editor-btn-ghost:hover {
+    background: rgba(140,109,255,0.06);
+    border-color: rgba(140,109,255,0.45);
+    color: var(--text-strong);
+    text-decoration: none;
+  }
+  .editor-btn-ai {
+    background: transparent;
+    color: #c4b5fd;
+    border-color: rgba(140,109,255,0.35);
+  }
+  .editor-btn-ai:hover {
+    border-color: rgba(140,109,255,0.65);
+    background: rgba(140,109,255,0.08);
+    color: #ddd6fe;
+    text-decoration: none;
+  }
+  .editor-btn-ai:disabled {
+    opacity: 0.55;
+    cursor: progress;
+  }
+  .editor-status {
+    color: var(--text-muted);
+    font-size: 12.5px;
+    margin-left: auto;
+  }
+`;
+
+function IconBranch() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <line x1="6" y1="3" x2="6" y2="15" />
+      <circle cx="18" cy="6" r="3" />
+      <circle cx="6" cy="18" r="3" />
+      <path d="M18 9a9 9 0 0 1-9 9" />
+    </svg>
+  );
+}
+
 // New file form
 editor.get("/:owner/:repo/new/:ref{.+$}", requireAuth, requireRepoAccess("write"), async (c) => {
   const { owner, repo } = c.req.param();
@@ -93,49 +348,98 @@ editor.get("/:owner/:repo/new/:ref{.+$}", requireAuth, requireRepoAccess("write"
     <Layout title={`New file — ${owner}/${repo}`} user={user}>
       <RepoHeader owner={owner} repo={repo} />
       <RepoNav owner={owner} repo={repo} active="code" />
-      <Container maxWidth={900}>
-        <h2 style="margin-bottom: 16px">Create new file</h2>
-        <Form method="post" action={`/${owner}/${repo}/new/${ref}`}>
-          <input type="hidden" name="dir_path" value={dirPath} />
-          <FormGroup label="File path">
-            <Flex align="center" gap={4}>
-              {dirPath && (
-                <Text muted size={14}>
-                  {dirPath}/
-                </Text>
-              )}
-              <Input
-                name="filename"
-                required
-                placeholder="filename.ts"
-                style="flex: 1"
-                autocomplete="off"
-                aria-label="File path"
+      <div class="editor-wrap">
+        <header class="editor-head">
+          <div class="editor-eyebrow">
+            <span class="editor-eyebrow-dot" aria-hidden="true" />
+            Editor · New file
+          </div>
+          <h1 class="editor-title">
+            <span class="editor-title-grad">Create a new file.</span>
+          </h1>
+          <p class="editor-sub">
+            Pick a path, paste your content, and write a short commit
+            message. The commit lands directly on{" "}
+            <code style="font-size:12.5px">{ref}</code>.
+          </p>
+        </header>
+
+        <div class="editor-toolbar">
+          <div class="editor-path" title={dirPath ? `${dirPath}/…` : "Repository root"}>
+            <span class="editor-path-seg">{owner}/{repo}</span>
+            {dirPath && (
+              <>
+                <span class="editor-path-sep">/</span>
+                <span class="editor-path-seg">{dirPath}</span>
+              </>
+            )}
+            <span class="editor-path-sep">/</span>
+            <span class="editor-path-name">new file…</span>
+          </div>
+          <span class="editor-branch-pill" title="Target branch">
+            <IconBranch />
+            {ref}
+          </span>
+        </div>
+
+        <form
+          method="post"
+          action={`/${owner}/${repo}/new/${ref}`}
+          class="editor-card"
+        >
+          <div class="editor-body">
+            <input type="hidden" name="dir_path" value={dirPath} />
+            <div class="editor-field">
+              <label class="editor-label" for="editor-filename">File path</label>
+              <div class="editor-filename-row">
+                {dirPath && (
+                  <span class="editor-filename-dir">{dirPath}/</span>
+                )}
+                <input
+                  class="editor-input editor-input-mono"
+                  id="editor-filename"
+                  name="filename"
+                  required
+                  placeholder="filename.ts"
+                  autocomplete="off"
+                  aria-label="File path"
+                />
+              </div>
+            </div>
+            <div class="editor-field">
+              <label class="editor-label" for="editor-content-new">Content</label>
+              <textarea
+                class="editor-textarea"
+                id="editor-content-new"
+                name="content"
+                rows={20}
+                placeholder="Enter file content…"
+                spellcheck={false}
               />
-            </Flex>
-          </FormGroup>
-          <FormGroup label="Content">
-            <TextArea
-              name="content"
-              rows={20}
-              placeholder="Enter file content..."
-              mono
-              style="line-height: 1.5; tab-size: 2"
-            />
-          </FormGroup>
-          <FormGroup label="Commit message">
-            <Input
-              name="message"
-              placeholder="Create new file"
-              required
-              aria-label="Commit message"
-            />
-          </FormGroup>
-          <Button type="submit" variant="primary">
-            Commit new file
-          </Button>
-        </Form>
-      </Container>
+            </div>
+            <div class="editor-field" style="margin-bottom:0">
+              <label class="editor-label" for="commit-message-input">Commit message</label>
+              <input
+                class="editor-input"
+                id="commit-message-input"
+                name="message"
+                placeholder="Create new file"
+                required
+                aria-label="Commit message"
+              />
+            </div>
+          </div>
+          <div class="editor-actions">
+            <button type="submit" class="editor-btn editor-btn-primary">
+              Commit new file
+            </button>
+            <a href={`/${owner}/${repo}`} class="editor-btn editor-btn-ghost">
+              Cancel
+            </a>
+          </div>
+        </form>
+      </div>
+      <style dangerouslySetInnerHTML={{ __html: editorStyles }} />
     </Layout>
   );
 });
@@ -259,51 +563,111 @@ editor.get("/:owner/:repo/edit/:ref{.+$}", requireAuth, requireRepoAccess("write
     );
   }
 
+  const fileName = filePath.split("/").pop() || filePath;
+  const dirParts = filePath.split("/").slice(0, -1);
+
   return c.html(
     <Layout title={`Editing ${filePath} — ${owner}/${repo}`} user={user}>
       <RepoHeader owner={owner} repo={repo} />
       <RepoNav owner={owner} repo={repo} active="code" />
-      <Breadcrumb owner={owner} repo={repo} ref={ref} path={filePath} />
-      <Container maxWidth={900}>
-        <Form method="post" action={`/${owner}/${repo}/edit/${ref}/${filePath}`}>
-          <FormGroup label="Content">
-            <TextArea
-              name="content"
-              rows={25}
-              value={blob.content}
-              mono
-              style="line-height: 1.5; tab-size: 2; width: 100%"
-            />
-          </FormGroup>
-          <FormGroup label="Commit message">
-            <Input
-              id="commit-message-input"
-              name="message"
-              placeholder={`Update ${filePath.split("/").pop()}`}
-              required
-              aria-label="Commit message"
-            />
-          </FormGroup>
-          <Flex gap={8} align="center">
-            <Button type="submit" variant="primary">
+      <div class="editor-wrap">
+        <header class="editor-head">
+          <div class="editor-eyebrow">
+            <span class="editor-eyebrow-dot" aria-hidden="true" />
+            Editor · Edit file
+          </div>
+          <h1 class="editor-title">
+            <span class="editor-title-grad">Edit{" "}</span>
+            <code style="font-family:var(--font-mono);font-size:0.82em;color:var(--text-strong);font-weight:700">{fileName}</code>
+          </h1>
+          <p class="editor-sub">
+            Save your changes as a commit on{" "}
+            <code style="font-size:12.5px">{ref}</code>. Write a clear
+            one-line message so reviewers can follow the history.
+          </p>
+        </header>
+
+        <div class="editor-toolbar">
+          <div class="editor-path" title={filePath}>
+            <a
+              href={`/${owner}/${repo}`}
+              class="editor-path-seg"
+              style="color:var(--text-muted);text-decoration:none"
+            >
+              {owner}/{repo}
+            </a>
+            {dirParts.map((seg, i) => {
+              const subPath = dirParts.slice(0, i + 1).join("/");
+              return (
+                <>
+                  <span class="editor-path-sep">/</span>
+                  <a
+                    href={`/${owner}/${repo}/tree/${ref}/${subPath}`}
+                    class="editor-path-seg"
+                    style="text-decoration:none"
+                  >
+                    {seg}
+                  </a>
+                </>
+              );
+            })}
+            <span class="editor-path-sep">/</span>
+            <span class="editor-path-name">{fileName}</span>
+          </div>
+          <span class="editor-branch-pill" title="Target branch">
+            <IconBranch />
+            {ref}
+          </span>
+        </div>
+
+        <form
+          method="post"
+          action={`/${owner}/${repo}/edit/${ref}/${filePath}`}
+          class="editor-card"
+        >
+          <div class="editor-body">
+            <div class="editor-field">
+              <label class="editor-label" for="editor-content-edit">Content</label>
+              <textarea
+                class="editor-textarea"
+                id="editor-content-edit"
+                name="content"
+                rows={25}
+                spellcheck={false}
+              >{blob.content}</textarea>
+            </div>
+            <div class="editor-field" style="margin-bottom:0">
+              <label class="editor-label" for="commit-message-input">Commit message</label>
+              <input
+                class="editor-input"
+                id="commit-message-input"
+                name="message"
+                placeholder={`Update ${fileName}`}
+                required
+                aria-label="Commit message"
+              />
+            </div>
+          </div>
+          <div class="editor-actions">
+            <button type="submit" class="editor-btn editor-btn-primary">
               Commit changes
-            </Button>
+            </button>
             <button
               type="button"
               id="ai-commit-msg-btn"
-              class="btn"
+              class="editor-btn editor-btn-ai"
               title="Generate a one-line commit message using Claude based on the diff"
             >
-              Suggest with AI
+              {"✨"} Suggest with AI
             </button>
-            <span
-              id="ai-commit-msg-status"
-              style="color:var(--text-muted);font-size:13px"
-            />
-            <LinkButton href={`/${owner}/${repo}/blob/${ref}/${filePath}`}>
+            <a
+              href={`/${owner}/${repo}/blob/${ref}/${filePath}`}
+              class="editor-btn editor-btn-ghost"
+            >
               Cancel
-            </LinkButton>
-          </Flex>
+            </a>
+            <span id="ai-commit-msg-status" class="editor-status" />
+          </div>
           <script
             dangerouslySetInnerHTML={{
               __html: AI_COMMIT_MSG_SCRIPT({
@@ -313,8 +677,9 @@ editor.get("/:owner/:repo/edit/:ref{.+$}", requireAuth, requireRepoAccess("write
               }),
             }}
           />
-        </Form>
-      </Container>
+        </form>
+      </div>
+      <style dangerouslySetInnerHTML={{ __html: editorStyles }} />
     </Layout>
   );
 });

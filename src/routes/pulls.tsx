@@ -43,6 +43,11 @@ import type { AuthEnv } from "../middleware/auth";
 import { requireRepoAccess } from "../middleware/repo-access";
 import { isAiReviewEnabled, triggerAiReview } from "../lib/ai-review";
 import {
+  TRIO_COMMENT_MARKER,
+  TRIO_SUMMARY_MARKER,
+  type TrioPersona,
+} from "../lib/ai-review-trio";
+import {
   generateTestsForPr,
   AI_TESTS_MARKER,
 } from "../lib/ai-test-generator";
@@ -955,6 +960,192 @@ const PRS_DETAIL_STYLES = `
   @keyframes previewPrPulse {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.4; }
+  }
+
+  /* ─── AI Trio Review — 3-column verdict cards ─── */
+  .trio-wrap {
+    margin-top: 18px;
+    padding: 16px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+  }
+  .trio-header {
+    display: flex; align-items: center; gap: 10px;
+    margin: 0 0 12px;
+    font-size: 13.5px;
+    color: var(--text);
+  }
+  .trio-header strong { color: var(--text-strong); }
+  .trio-header-sub { color: var(--text-muted); font-size: 12.5px; }
+  .trio-header-dot {
+    width: 8px; height: 8px; border-radius: 9999px;
+    background: linear-gradient(135deg, #8c6dff 0%, #36c5d6 100%);
+    box-shadow: 0 0 0 3px rgba(140,109,255,0.18);
+  }
+  .trio-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .trio-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    display: flex; flex-direction: column;
+    transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+  }
+  .trio-card-head {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(255,255,255,0.02);
+    font-size: 13px;
+  }
+  .trio-card-icon {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 22px; height: 22px;
+    border-radius: 9999px;
+    font-size: 12px;
+    background: rgba(255,255,255,0.05);
+  }
+  .trio-card-title {
+    color: var(--text-strong);
+    font-weight: 600;
+    letter-spacing: 0.01em;
+  }
+  .trio-card-verdict {
+    margin-left: auto;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 3px 9px;
+    border-radius: 9999px;
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
+    border: 1px solid var(--border-strong);
+  }
+  .trio-card-body {
+    padding: 12px 14px;
+    font-size: 13px;
+    color: var(--text);
+    flex: 1;
+    min-height: 64px;
+    line-height: 1.55;
+  }
+  .trio-card-body p { margin: 0 0 8px; }
+  .trio-card-body p:last-child { margin-bottom: 0; }
+  .trio-card-body ul { margin: 0; padding-left: 18px; }
+  .trio-card-body code {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    background: var(--bg-tertiary);
+    padding: 1px 6px;
+    border-radius: 5px;
+  }
+  .trio-card-empty {
+    color: var(--text-muted);
+    font-style: italic;
+    font-size: 12.5px;
+  }
+
+  /* Pass state — neutral, no accent. */
+  .trio-card.is-pass .trio-card-verdict {
+    color: var(--green);
+    border-color: rgba(52,211,153,0.35);
+    background: rgba(52,211,153,0.12);
+  }
+
+  /* Per-persona fail accents: security=red, correctness=amber, style=blue. */
+  .trio-card.trio-security.is-fail {
+    border-color: rgba(248,113,113,0.55);
+    box-shadow: 0 0 0 1px rgba(248,113,113,0.18), 0 8px 24px -12px rgba(248,113,113,0.45);
+  }
+  .trio-card.trio-security.is-fail .trio-card-head {
+    background: linear-gradient(90deg, rgba(248,113,113,0.16), rgba(248,113,113,0.04));
+    border-bottom-color: rgba(248,113,113,0.30);
+  }
+  .trio-card.trio-security.is-fail .trio-card-verdict {
+    color: #fecaca;
+    border-color: rgba(248,113,113,0.55);
+    background: rgba(248,113,113,0.20);
+  }
+
+  .trio-card.trio-correctness.is-fail {
+    border-color: rgba(251,191,36,0.55);
+    box-shadow: 0 0 0 1px rgba(251,191,36,0.18), 0 8px 24px -12px rgba(251,191,36,0.45);
+  }
+  .trio-card.trio-correctness.is-fail .trio-card-head {
+    background: linear-gradient(90deg, rgba(251,191,36,0.16), rgba(251,191,36,0.04));
+    border-bottom-color: rgba(251,191,36,0.30);
+  }
+  .trio-card.trio-correctness.is-fail .trio-card-verdict {
+    color: #fde68a;
+    border-color: rgba(251,191,36,0.55);
+    background: rgba(251,191,36,0.20);
+  }
+
+  .trio-card.trio-style.is-fail {
+    border-color: rgba(96,165,250,0.55);
+    box-shadow: 0 0 0 1px rgba(96,165,250,0.18), 0 8px 24px -12px rgba(96,165,250,0.45);
+  }
+  .trio-card.trio-style.is-fail .trio-card-head {
+    background: linear-gradient(90deg, rgba(96,165,250,0.16), rgba(96,165,250,0.04));
+    border-bottom-color: rgba(96,165,250,0.30);
+  }
+  .trio-card.trio-style.is-fail .trio-card-verdict {
+    color: #bfdbfe;
+    border-color: rgba(96,165,250,0.55);
+    background: rgba(96,165,250,0.20);
+  }
+
+  /* Disagreement callout strip — yellow, prominent. */
+  .trio-disagreement-strip {
+    display: flex;
+    gap: 12px;
+    margin-top: 14px;
+    padding: 12px 14px;
+    background: linear-gradient(90deg, rgba(251,191,36,0.14), rgba(251,191,36,0.04));
+    border: 1px solid rgba(251,191,36,0.45);
+    border-radius: 10px;
+    color: var(--text);
+    font-size: 13px;
+  }
+  .trio-disagreement-icon {
+    flex: 0 0 auto;
+    width: 26px; height: 26px;
+    display: inline-flex; align-items: center; justify-content: center;
+    border-radius: 9999px;
+    background: rgba(251,191,36,0.25);
+    color: #fde68a;
+    font-size: 14px;
+  }
+  .trio-disagreement-body strong {
+    display: block;
+    color: #fde68a;
+    margin: 0 0 4px;
+    font-weight: 700;
+  }
+  .trio-disagreement-list {
+    margin: 0;
+    padding-left: 18px;
+    color: var(--text);
+    font-size: 12.5px;
+    line-height: 1.55;
+  }
+  .trio-disagreement-list code {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    background: var(--bg-tertiary);
+    padding: 1px 5px;
+    border-radius: 4px;
+  }
+
+  @media (max-width: 720px) {
+    .trio-grid { grid-template-columns: 1fr; }
+    .trio-wrap { padding: 12px; }
   }
 `;
 

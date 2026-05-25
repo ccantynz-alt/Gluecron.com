@@ -734,6 +734,54 @@ help.get("/help", (c) => {
           </div>
         </section>
 
+        {/* ─── PR sandboxes (migration 0067) ─── */}
+        <section id="pr-sandboxes" class="help-section">
+          <div class="help-section-head">
+            <div class="help-section-eyebrow">Per-PR</div>
+            <h2 class="help-section-title">Runnable PR sandboxes</h2>
+            <p class="help-section-desc">
+              Every PR can spin up a live, executable sandbox at{" "}
+              <code>pr-N-owner-repo.sandbox.gluecron.com</code>.
+              Reviewers click "Try this PR live" and poke the change in
+              a real browser before merging. Auto-destroys after 4h.
+            </p>
+          </div>
+          <div class="help-section-body">
+            <div class="help-item">
+              <strong>Opt-in defaults.</strong> Per-PR sandboxes are
+              triggered manually from the PR detail page; flip{" "}
+              <code>auto_pr_sandbox</code> on in repo settings to make
+              every newly opened PR provision one automatically.
+            </div>
+            <div class="help-item">
+              <strong>Customise via <code>.gluecron/playground.yml</code>.</strong>{" "}
+              Commit this file at the repo root to control what the
+              sandbox runs. If it's missing, Claude drafts one from your
+              repo on first provision.
+              <pre class="help-code">
+{`# .gluecron/playground.yml
+runtime: docker
+image: node:20-alpine
+ports: [3000]
+seed:
+  - "npm install"
+  - "node scripts/seed-demo.js"
+command: "npm start"
+env:
+  NODE_ENV: development`}
+              </pre>
+            </div>
+            <div class="help-item">
+              <strong>API.</strong> Poll{" "}
+              <code>GET /:owner/:repo/pulls/:n/sandbox</code> for the
+              status JSON. <code>POST .../sandbox/provision</code> and{" "}
+              <code>POST .../sandbox/destroy</code> drive the lifecycle.
+              Sandboxes are deterministic by PR number, so the URL is
+              stable across re-provisions.
+            </div>
+          </div>
+        </section>
+
         {/* ─── Migration assistant ─── */}
         <section id="migrations" class="help-section">
           <div class="help-section-head">

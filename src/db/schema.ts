@@ -169,6 +169,10 @@ export const repositories = pgTable(
     autoGenerateTests: boolean("auto_generate_tests")
       .default(false)
       .notNull(),
+    // Migration 0067 — opt-in flag for auto-provisioning a runnable PR
+    // sandbox on every PR open. Default false (off) because each sandbox
+    // burns compute; owners must explicitly enable it via repo-settings.
+    autoPrSandbox: boolean("auto_pr_sandbox").default(false).notNull(),
   },
   (table) => [
     // Partial: uniqueness only in the user namespace (org-owned rows exempt).
@@ -3350,3 +3354,42 @@ export const aiBudgets = pgTable("ai_budgets", {
 
 export type AiBudget = typeof aiBudgets.$inferSelect;
 export type NewAiBudget = typeof aiBudgets.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Migration 0067 — per-PR runnable sandboxes. See src/lib/pr-sandbox.ts.
+//
+// Each open PR can hold at most one sandbox row (UNIQUE on pr_id). The row
+// owns the lifecycle (provisioning → ready / failed / destroyed) plus the
+// resolved playground.yml the sandbox was provisioned from. Re-provisioning
+// the same PR upserts onto the existing row so a force-push always points
+// at the newest head.
+// ---------------------------------------------------------------------------
+export const prSandboxes = pgTable(
+  "pr_sandboxes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    prId: uuid("pr_id")
+      .notNull()
+      .references(() => pullRequests.id, { onDelete: "cascade" }),
+    status: text("status").default("provisioning").notNull(),
+    sandboxUrl: text("sandbox_url").notNull(),
+    containerId: text("container_id"),
+    playgroundYml: text("playground_yml"),
+    provisionedAt: timestamp("provisioned_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    destroyedAt: timestamp("destroyed_at", { withTimezone: true }),
+    errorMessage: text("error_message"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("pr_sandboxes_pr_id").on(table.prId),
+    index("pr_sandboxes_status_expires").on(table.status, table.expiresAt),
+  ]
+);
+
+export type PrSandbox = typeof prSandboxes.$inferSelect;
+export type NewPrSandbox = typeof prSandboxes.$inferInsert;

@@ -36,6 +36,7 @@ import liveEventsRoutes from "./routes/live-events";
 import prLiveRoutes from "./routes/pr-live";
 import compareRoutes from "./routes/compare";
 import pullRoutes from "./routes/pulls";
+import prSandboxRoutes from "./routes/pr-sandbox";
 import editorRoutes from "./routes/editor";
 import forkRoutes from "./routes/fork";
 import webhookRoutes from "./routes/webhooks";
@@ -88,6 +89,7 @@ import adminOpsRoutes from "./routes/admin-ops";
 import adminSelfHostRoutes from "./routes/admin-self-host";
 import adminDiagnoseRoutes from "./routes/admin-diagnose";
 import adminIntegrationsRoutes from "./routes/admin-integrations";
+import adminAdvancementRoutes from "./routes/admin-advancement";
 import advisoriesRoutes from "./routes/advisories";
 import aiChangelogRoutes from "./routes/ai-changelog";
 import aiExplainRoutes from "./routes/ai-explain";
@@ -105,6 +107,7 @@ import depsRoutes from "./routes/deps";
 import discussionsRoutes from "./routes/discussions";
 import environmentsRoutes from "./routes/environments";
 import previewsRoutes from "./routes/previews";
+import docsTrackingRoutes from "./routes/docs-tracking";
 import followsRoutes from "./routes/follows";
 import gatesRoutes from "./routes/gates";
 import gistsRoutes from "./routes/gists";
@@ -446,6 +449,8 @@ app.route("/", issueRoutes);
 
 // Pull requests
 app.route("/", pullRoutes);
+// PR sandboxes — runnable per-PR environments. Migration 0067.
+app.route("/", prSandboxRoutes);
 
 // Fork
 app.route("/", forkRoutes);
@@ -542,6 +547,7 @@ app.route("/", onboardingRoutes);
 // Admin + feature routes
 app.route("/", adminRoutes);
 app.route("/", adminIntegrationsRoutes);
+app.route("/", adminAdvancementRoutes);
 app.route("/", adminDeploysRoutes);
 app.route("/", adminDeploysPageRoutes);
 // Note: adminOpsRoutes is mounted earlier (before insightRoutes) — see comment above.
@@ -562,6 +568,7 @@ app.route("/", depsRoutes);
 app.route("/", discussionsRoutes);
 app.route("/", environmentsRoutes);
 app.route("/", previewsRoutes);
+app.route("/", docsTrackingRoutes);
 app.route("/", followsRoutes);
 app.route("/", gatesRoutes);
 app.route("/", gistsRoutes);

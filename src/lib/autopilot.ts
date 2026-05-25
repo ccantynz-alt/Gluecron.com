@@ -65,6 +65,8 @@ import { runMigrationWatcherTaskOnce } from "./migration-assistant";
 import { sweepStale as sweepStalePrLive } from "./pr-live";
 import { runAutoReleaseNotesTaskOnce } from "./ai-release-notes";
 import { runPrTestGeneratorTaskOnce } from "./autopilot-pr-test-generator";
+import { runAdvancementScan } from "./advancement-scanner";
+import { expireOldSandboxes } from "./pr-sandbox";
 
 export interface AutopilotTaskResult {
   name: string;
@@ -136,6 +138,39 @@ let _lastAutoReleaseNotesAt = 0;
  */
 const PR_TEST_GENERATOR_INTERVAL_MS = 5 * 60 * 1000;
 let _lastPrTestGeneratorAt = 0;
+/**
+ * PR sandbox cleanup cadence (migration 0067). Runs every 30 minutes —
+ * sandboxes default to a 4h TTL so finer-grained cleanup isn't needed,
+ * and skipping most of the 5-min outer ticks keeps the loop cheap.
+ */
+const PR_SANDBOX_CLEANUP_INTERVAL_MS = 30 * 60 * 1000;
+let _lastPrSandboxCleanupAt = 0;
+/**
+ * Advancement scanner cadence. Designed to run weekly on Mondays at
+ * 08:00 UTC. The task itself is the cheap gate (checks both day-of-week
+ * and minimum interval since last run) so we don't bake any cron-style
+ * triggers into the autopilot loop. Each tick (5min) probes the gate;
+ * the gate is satisfied at most once per 6 days, keeping the cadence
+ * effectively weekly even if Monday-08:00 happens to be missed.
+ */
+const ADVANCEMENT_SCAN_MIN_INTERVAL_MS = 6 * 24 * 60 * 60 * 1000;
+let _lastAdvancementScanAt = 0;
+/** Hour of day (UTC) the advancement scan prefers. Configurable via env. */
+function advancementScanHourUtc(): number {
+  const raw = process.env.ADVANCEMENT_SCAN_HOUR_UTC;
+  if (!raw) return 8;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0 || n > 23) return 8;
+  return Math.floor(n);
+}
+/** Day of week (0=Sun..6=Sat, UTC) the advancement scan prefers. */
+function advancementScanDayOfWeek(): number {
+  const raw = process.env.ADVANCEMENT_SCAN_DOW_UTC;
+  if (!raw) return 1; // Monday
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0 || n > 6) return 1;
+  return Math.floor(n);
+}
 
 /**
  * Default task set. Each task is a thin wrapper around an existing locked
@@ -465,6 +500,45 @@ export function defaultTasks(): AutopilotTask[] {
       },
     },
     {
+      // Advancement scanner — weekly Claude-driven scan for "what we
+      // should ship next". Probes:
+      //   1. Newer Claude models vs the one wired in ai-client.ts
+      //   2. Stack dependencies that are at least one major behind
+      //   3. Self-improvement opportunities in the last 7d of telemetry
+      //   4. Trending dev-platform features competitors shipped
+      // Cadence-gated to Mondays 08:00 UTC (configurable via
+      // ADVANCEMENT_SCAN_HOUR_UTC + ADVANCEMENT_SCAN_DOW_UTC) and
+      // throttled to at most one scan per 6 days. Skips entirely when
+      // ANTHROPIC_API_KEY is unset — the offline probes are still
+      // useful but most of the value comes from the Claude calls.
+      // The lib itself enforces per-finding (sha256 of title) dedupe
+      // for 30 days so repeated runs never re-file the same advancement.
+      name: "advancement-scanner",
+      run: async () => {
+        if (!process.env.ANTHROPIC_API_KEY) return;
+        if (process.env.ADVANCEMENT_SCAN_DISABLED === "1") return;
+        const now = new Date();
+        const nowMs = now.getTime();
+        const targetHour = advancementScanHourUtc();
+        const targetDow = advancementScanDayOfWeek();
+        const dueByCadence =
+          nowMs - _lastAdvancementScanAt >= ADVANCEMENT_SCAN_MIN_INTERVAL_MS;
+        const dueByClock =
+          now.getUTCDay() === targetDow &&
+          now.getUTCHours() === targetHour;
+        if (!dueByCadence || !dueByClock) return;
+        _lastAdvancementScanAt = nowMs;
+        try {
+          const summary = await runAdvancementScan();
+          console.log(
+            `[autopilot] advancement-scanner: findings=${summary.findings.length} issues=${summary.openedIssues} prs=${summary.openedPrs} dedup=${summary.skippedDedupe} errors=${summary.errors}`
+          );
+        } catch (err) {
+          console.error("[autopilot] advancement-scanner: threw:", err);
+        }
+      },
+    },
+    {
       // Auto-release-notes — backfills `releases.body` with Claude-generated
       // polished changelogs for any semver-tagged release whose body is
       // empty / too short. Cadence-gated to every 10 minutes; the lib
@@ -487,6 +561,29 @@ export function defaultTasks(): AutopilotTask[] {
           }
         } catch (err) {
           console.error("[autopilot] auto-release-notes: threw:", err);
+        }
+      },
+    },
+    {
+      // PR sandbox cleanup — migration 0067. Tears down every PR sandbox
+      // whose `expires_at` has passed. Cadence-gated to every 30 minutes
+      // so the every-5-min outer loop doesn't pay the cost on most ticks.
+      // The lib itself is a pure SQL UPDATE — safe + cheap to call even
+      // when there's nothing to do.
+      name: "pr-sandbox-cleanup",
+      run: async () => {
+        const now = Date.now();
+        if (now - _lastPrSandboxCleanupAt < PR_SANDBOX_CLEANUP_INTERVAL_MS) {
+          return;
+        }
+        _lastPrSandboxCleanupAt = now;
+        try {
+          const expired = await expireOldSandboxes();
+          if (expired > 0) {
+            console.log(`[autopilot] pr-sandbox-cleanup: expired=${expired}`);
+          }
+        } catch (err) {
+          console.error("[autopilot] pr-sandbox-cleanup: threw:", err);
         }
       },
     },

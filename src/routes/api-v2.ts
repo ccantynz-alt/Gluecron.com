@@ -2700,6 +2700,46 @@ apiv2.post(
   }
 );
 
+// ─── Release notes (AI-generated) ───────────────────────────────────────────
+//
+// POST /api/v2/repos/:owner/:repo/releases/notes
+// Body: { from_tag?: string | null, to_tag: string }
+// Returns: { markdown, sections, headline, summary, prCount, aiUsed }
+//
+// Used by the release-form `Generate notes` button and external
+// automation (e.g. CI scripts that auto-fill release bodies).
+//
+// Auth: read on the repo (lazy — public repos are open, private ones
+// 404 from the resolver above). Generates notes; never persists them
+// (caller decides). The autopilot watcher persists via a separate path.
+
+apiv2.post("/repos/:owner/:repo/releases/notes", async (c) => {
+  const { owner, repo } = c.req.param();
+  const resolved = await resolveRepo(owner, repo);
+  if (!resolved) return c.json({ error: "Not Found" }, 404);
+
+  let body: { from_tag?: unknown; to_tag?: unknown } = {};
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const toTag = typeof body.to_tag === "string" ? body.to_tag.trim() : "";
+  if (!toTag) return c.json({ error: "to_tag is required" }, 400);
+  const fromTag =
+    typeof body.from_tag === "string" && body.from_tag.trim()
+      ? body.from_tag.trim()
+      : null;
+
+  const { generateReleaseNotes } = await import("../lib/ai-release-notes");
+  const result = await generateReleaseNotes({
+    repositoryId: (resolved.repo as any).id,
+    fromTag,
+    toTag,
+  });
+  return c.json(result);
+});
+
 // ─── API Info ───────────────────────────────────────────────────────────────
 
 apiv2.get("/", (c) => {
@@ -2763,6 +2803,10 @@ apiv2.get("/", (c) => {
         "POST /api/v2/repos/:owner/:repo/pulls": "Create pull request",
         "GET /api/v2/repos/:owner/:repo/pulls/:number": "Get PR with comments",
         "POST /api/v2/repos/:owner/:repo/pulls/:number/comments": "Add PR comment",
+      },
+      releases: {
+        "POST /api/v2/repos/:owner/:repo/releases/notes":
+          "Generate AI release notes for from_tag → to_tag (markdown + structured sections)",
       },
       stars: {
         "PUT /api/v2/repos/:owner/:repo/star": "Star repository",

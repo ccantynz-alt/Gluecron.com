@@ -63,6 +63,7 @@ import {
 import { runSpecToPrTaskOnce } from "./autopilot-spec-to-pr";
 import { runMigrationWatcherTaskOnce } from "./migration-assistant";
 import { sweepStale as sweepStalePrLive } from "./pr-live";
+import { runAutoReleaseNotesTaskOnce } from "./ai-release-notes";
 
 export interface AutopilotTaskResult {
   name: string;
@@ -118,6 +119,14 @@ let _lastSpecToPrAt = 0;
  */
 const MIGRATION_WATCHER_INTERVAL_MS = 6 * 60 * 60 * 1000;
 let _lastMigrationWatcherAt = 0;
+/**
+ * Auto-release-notes cadence. Cheap once tags are rare; we still throttle
+ * to every 10 minutes so freshly-pushed tags (whose release row was just
+ * created by `POST /:owner/:repo/releases`) get notes within ~one tick
+ * without us scanning the table every 5 minutes.
+ */
+const AUTO_RELEASE_NOTES_INTERVAL_MS = 10 * 60 * 1000;
+let _lastAutoReleaseNotesAt = 0;
 
 /**
  * Default task set. Each task is a thin wrapper around an existing locked
@@ -416,6 +425,32 @@ export function defaultTasks(): AutopilotTask[] {
           );
         } catch (err) {
           console.error("[autopilot] weekly-standup: threw:", err);
+        }
+      },
+    },
+    {
+      // Auto-release-notes — backfills `releases.body` with Claude-generated
+      // polished changelogs for any semver-tagged release whose body is
+      // empty / too short. Cadence-gated to every 10 minutes; the lib
+      // itself caps the per-tick batch and is no-op when no candidates
+      // exist. Falls back to a deterministic bucketed summary when
+      // ANTHROPIC_API_KEY is unset, so the body still ends up populated.
+      name: "auto-release-notes",
+      run: async () => {
+        const now = Date.now();
+        if (now - _lastAutoReleaseNotesAt < AUTO_RELEASE_NOTES_INTERVAL_MS) {
+          return;
+        }
+        _lastAutoReleaseNotesAt = now;
+        try {
+          const summary = await runAutoReleaseNotesTaskOnce();
+          if (summary.considered > 0 || summary.filled > 0) {
+            console.log(
+              `[autopilot] auto-release-notes: considered=${summary.considered} filled=${summary.filled} skipped=${summary.skipped} errors=${summary.errors}`
+            );
+          }
+        } catch (err) {
+          console.error("[autopilot] auto-release-notes: threw:", err);
         }
       },
     },

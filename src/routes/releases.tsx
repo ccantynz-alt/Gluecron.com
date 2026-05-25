@@ -777,12 +777,27 @@ releasesRoute.get("/:owner/:repo/releases/new", requireAuth, requireRepoAccess("
           </div>
           <div class="rel-field">
             <label class="rel-field-label" for="rel-body">Notes (leave blank for AI-generated)</label>
+            <div style="display:flex; align-items:center; gap:8px; margin-bottom: 6px;">
+              <button
+                type="button"
+                id="rel-gen-notes"
+                class="rel-btn rel-btn-ghost"
+                aria-label="Generate AI release notes from merged PRs"
+              >
+                Generate notes
+              </button>
+              <span
+                id="rel-gen-notes-status"
+                style="font-size:12px; color: var(--text-muted);"
+                aria-live="polite"
+              ></span>
+            </div>
             <textarea
               class="rel-textarea"
               id="rel-body"
               name="body"
               rows={10}
-              placeholder="Markdown supported. Leave blank to have Claude generate a grouped changelog from commits."
+              placeholder="Markdown supported. Click 'Generate notes' to have Claude draft a polished changelog from every merged PR since the previous tag."
             ></textarea>
           </div>
           <div class="rel-checks">
@@ -800,6 +815,56 @@ releasesRoute.get("/:owner/:repo/releases/new", requireAuth, requireRepoAccess("
             Publish release
           </button>
         </form>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function(){
+                var btn = document.getElementById('rel-gen-notes');
+                if (!btn) return;
+                var status = document.getElementById('rel-gen-notes-status');
+                var tagInput = document.getElementById('rel-tag');
+                var prevSel = document.getElementById('rel-prev');
+                var bodyArea = document.getElementById('rel-body');
+                btn.addEventListener('click', async function(){
+                  var toTag = (tagInput && tagInput.value || '').trim();
+                  if (!toTag) {
+                    status.textContent = 'Enter a tag name first.';
+                    return;
+                  }
+                  var fromTag = (prevSel && prevSel.value || '').trim() || null;
+                  btn.disabled = true;
+                  status.textContent = 'Asking Claude…';
+                  try {
+                    var res = await fetch(${JSON.stringify(`/api/v2/repos/${owner}/${repo}/releases/notes`)}, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      credentials: 'same-origin',
+                      body: JSON.stringify({ to_tag: toTag, from_tag: fromTag }),
+                    });
+                    if (!res.ok) {
+                      var err = await res.text();
+                      status.textContent = 'Failed: ' + (err || res.status);
+                      return;
+                    }
+                    var data = await res.json();
+                    if (data && typeof data.markdown === 'string') {
+                      bodyArea.value = data.markdown;
+                      status.textContent = data.aiUsed
+                        ? ('Drafted from ' + (data.prCount || 0) + ' PR(s).')
+                        : ('Deterministic summary (' + (data.prCount || 0) + ' PR(s) — set ANTHROPIC_API_KEY for polished output).');
+                    } else {
+                      status.textContent = 'Empty response.';
+                    }
+                  } catch (e) {
+                    status.textContent = 'Network error.';
+                  } finally {
+                    btn.disabled = false;
+                  }
+                });
+              })();
+            `,
+          }}
+        />
       </div>
       <style dangerouslySetInnerHTML={{ __html: relStyles }} />
     </Layout>

@@ -18,14 +18,19 @@
  * the dynamic-import behaviour are unchanged.
  */
 import { Hono } from "hono";
-import { and, eq } from "drizzle-orm";
+import { and, eq, like } from "drizzle-orm";
 import { db } from "../db";
-import { repositories, users, issues } from "../db/schema";
+import { repositories, users, issues, pullRequests } from "../db/schema";
 import { Layout } from "../views/layout";
 import { RepoHeader } from "../views/components";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
-import { listBranches } from "../git/repository";
+import { listBranches, getBlob, getTreeRecursive } from "../git/repository";
+import {
+  AI_SPEC_PR_MARKER,
+  parseFrontMatter,
+  type SpecStatus,
+} from "../lib/spec-to-pr";
 
 const specs = new Hono<AuthEnv>();
 
@@ -823,6 +828,243 @@ specs.post("/:owner/:repo/spec", softAuth, requireAuth, async (c) => {
   }
 
   return c.redirect(`/${owner}/${repo}/pulls/${result.prNumber}`);
+});
+
+// ─── GET /specs — dashboard listing all specs across the user's repos ──────
+//
+// Walks every repo the signed-in user owns, looks at `.gluecron/specs/*.md`
+// on the default branch, parses the front-matter for `status:` + `title:`,
+// and surfaces a flat list with linked PR (when one exists). Soft-fails on
+// any repo that can't be scanned — the dashboard still renders.
+
+interface SpecRow {
+  ownerName: string;
+  repoName: string;
+  specPath: string;
+  title: string;
+  status: SpecStatus;
+  prNumber: number | null;
+}
+
+async function collectSpecsForOwner(ownerId: string): Promise<SpecRow[]> {
+  let owner: { username: string } | undefined;
+  try {
+    const [row] = await db
+      .select({ username: users.username })
+      .from(users)
+      .where(eq(users.id, ownerId))
+      .limit(1);
+    owner = row;
+  } catch {
+    return [];
+  }
+  if (!owner) return [];
+
+  let repos: Array<{ id: string; name: string; defaultBranch: string }> = [];
+  try {
+    repos = await db
+      .select({
+        id: repositories.id,
+        name: repositories.name,
+        defaultBranch: repositories.defaultBranch,
+      })
+      .from(repositories)
+      .where(
+        and(eq(repositories.ownerId, ownerId), eq(repositories.isArchived, false))
+      )
+      .limit(100);
+  } catch {
+    return [];
+  }
+
+  const out: SpecRow[] = [];
+  for (const repo of repos) {
+    const branch = repo.defaultBranch || "main";
+    let paths: string[] = [];
+    try {
+      const tree = await getTreeRecursive(owner.username, repo.name, branch, 5000);
+      if (!tree) continue;
+      paths = tree.tree
+        .filter(
+          (e) =>
+            e.type === "blob" &&
+            e.path.startsWith(".gluecron/specs/") &&
+            e.path.toLowerCase().endsWith(".md")
+        )
+        .map((e) => e.path);
+    } catch {
+      continue;
+    }
+    for (const p of paths) {
+      let content = "";
+      try {
+        const blob = await getBlob(owner.username, repo.name, branch, p);
+        if (!blob || blob.isBinary) continue;
+        content = blob.content;
+      } catch {
+        continue;
+      }
+      const parsed = parseFrontMatter(content);
+      const title =
+        (parsed.frontMatter.title && parsed.frontMatter.title.trim()) ||
+        (p.split("/").pop() || p).replace(/\.md$/i, "");
+      const statusRaw = (parsed.frontMatter.status || "draft").toLowerCase();
+      const status: SpecStatus =
+        statusRaw === "draft" ||
+        statusRaw === "ready" ||
+        statusRaw === "building" ||
+        statusRaw === "shipped" ||
+        statusRaw === "failed"
+          ? (statusRaw as SpecStatus)
+          : "draft";
+
+      // Best-effort PR lookup: any PR whose body mentions the spec path
+      // and carries the spec marker. Newest first.
+      let prNumber: number | null = null;
+      try {
+        const [pr] = await db
+          .select({ number: pullRequests.number })
+          .from(pullRequests)
+          .where(
+            and(
+              eq(pullRequests.repositoryId, repo.id),
+              like(pullRequests.body, `%${AI_SPEC_PR_MARKER}%`),
+              like(pullRequests.body, `%${p}%`)
+            )
+          )
+          .orderBy(pullRequests.createdAt)
+          .limit(1);
+        if (pr) prNumber = pr.number;
+      } catch {
+        prNumber = null;
+      }
+
+      out.push({
+        ownerName: owner.username,
+        repoName: repo.name,
+        specPath: p,
+        title,
+        status,
+        prNumber,
+      });
+    }
+  }
+  return out;
+}
+
+specs.get("/specs", softAuth, requireAuth, async (c) => {
+  const user = c.get("user")!;
+  const rows = await collectSpecsForOwner(user.id);
+
+  const byStatus = (s: SpecStatus) => rows.filter((r) => r.status === s);
+
+  const statusBadgeColors: Record<SpecStatus, string> = {
+    draft: "rgba(148,163,184,0.16)",
+    ready: "rgba(54,197,214,0.18)",
+    building: "rgba(140,109,255,0.20)",
+    shipped: "rgba(34,197,94,0.18)",
+    failed: "rgba(248,113,113,0.18)",
+  };
+
+  return c.html(
+    <Layout title="Specs — Gluecron" user={user}>
+      <div class="specs-wrap">
+        <header class="specs-head">
+          <div class="specs-eyebrow">
+            <span class="specs-eyebrow-dot" aria-hidden="true" />
+            Account · Specs dashboard
+            <span class="specs-pill-experimental">Experimental</span>
+          </div>
+          <h1 class="specs-title">
+            <span class="specs-title-grad">Your spec library.</span>
+          </h1>
+          <p class="specs-sub">
+            Every <code>.gluecron/specs/*.md</code> file across your
+            repositories. Set a spec's front-matter to{" "}
+            <code>status: ready</code> and the autopilot picks it up within
+            two minutes to open an implementation PR tagged{" "}
+            <code>ai:spec-implementation</code>.
+          </p>
+        </header>
+
+        <section class="specs-section">
+          <header class="specs-section-head">
+            <h2 class="specs-section-title">All specs ({rows.length})</h2>
+            <p class="specs-section-sub">
+              {byStatus("ready").length} ready · {byStatus("building").length}{" "}
+              building · {byStatus("shipped").length} shipped ·{" "}
+              {byStatus("failed").length} failed · {byStatus("draft").length}{" "}
+              draft
+            </p>
+          </header>
+          <div class="specs-section-body">
+            {rows.length === 0 ? (
+              <p class="specs-field-hint" style="font-size:13px;">
+                No specs yet. Create a file like{" "}
+                <code>.gluecron/specs/my-feature.md</code> in any of your
+                repos with front-matter{" "}
+                <code>---\ntitle: Add dark mode\nstatus: ready\n---</code> and
+                it will land here.
+              </p>
+            ) : (
+              <table style="width:100%;border-collapse:collapse;font-size:13px;">
+                <thead>
+                  <tr style="text-align:left;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:0.06em;">
+                    <th style="padding:8px 4px;">Repo</th>
+                    <th style="padding:8px 4px;">Title</th>
+                    <th style="padding:8px 4px;">Status</th>
+                    <th style="padding:8px 4px;">PR</th>
+                    <th style="padding:8px 4px;">Path</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r) => (
+                    <tr style="border-top:1px solid var(--border);">
+                      <td style="padding:10px 4px;">
+                        <a href={`/${r.ownerName}/${r.repoName}`}>
+                          {r.ownerName}/{r.repoName}
+                        </a>
+                      </td>
+                      <td style="padding:10px 4px;color:var(--text-strong);">
+                        {r.title}
+                      </td>
+                      <td style="padding:10px 4px;">
+                        <span
+                          style={`display:inline-block;padding:2px 8px;border-radius:9999px;font-family:var(--font-mono);font-size:11px;background:${statusBadgeColors[r.status]};color:var(--text);`}
+                        >
+                          {r.status}
+                        </span>
+                      </td>
+                      <td style="padding:10px 4px;">
+                        {r.prNumber ? (
+                          <a
+                            href={`/${r.ownerName}/${r.repoName}/pulls/${r.prNumber}`}
+                          >
+                            #{r.prNumber}
+                          </a>
+                        ) : (
+                          <span style="color:var(--text-muted);">—</span>
+                        )}
+                      </td>
+                      <td style="padding:10px 4px;font-family:var(--font-mono);font-size:11.5px;color:var(--text-muted);">
+                        <a
+                          href={`/${r.ownerName}/${r.repoName}/blob/main/${r.specPath}`}
+                        >
+                          {r.specPath}
+                        </a>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </section>
+
+        <style dangerouslySetInnerHTML={{ __html: specsStyles }} />
+      </div>
+    </Layout>
+  );
 });
 
 export default specs;

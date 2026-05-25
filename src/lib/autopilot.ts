@@ -60,6 +60,7 @@ import {
   runDailyStandupTaskOnce,
   runWeeklyStandupTaskOnce,
 } from "./ai-standup";
+import { runSpecToPrTaskOnce } from "./autopilot-spec-to-pr";
 
 export interface AutopilotTaskResult {
   name: string;
@@ -105,6 +106,9 @@ const PR_RISK_RESCORE_LOOKBACK_HOURS = 1;
 /** Proactive monitor cadence — Claude scans platform telemetry hourly. */
 const PROACTIVE_MONITOR_INTERVAL_MS = 60 * 60 * 1000;
 let _lastProactiveMonitorAt = 0;
+/** Spec-to-PR cadence — autopilot scans `.gluecron/specs/*.md` every 2 minutes. */
+const SPEC_TO_PR_INTERVAL_MS = 2 * 60 * 1000;
+let _lastSpecToPrAt = 0;
 
 /**
  * Default task set. Each task is a thin wrapper around an existing locked
@@ -271,9 +275,7 @@ export function defaultTasks(): AutopilotTask[] {
       // AI CI Healer — autonomous CI failure → root-cause → patch PR loop.
       // Polls every tick (5 min) for failed workflow_runs that finished
       // at least HEAL_MIN_AGE_MS ago and haven't been processed yet.
-      // Skips when ANTHROPIC_API_KEY is unset (handled inside the lib);
-      // AUTOPILOT_DISABLED=1 short-circuits the wrapping startAutopilot
-      // call already, but the lib double-checks for direct callers.
+      // Skips when ANTHROPIC_API_KEY is unset.
       name: "ci-healer",
       run: async () => {
         if (!process.env.ANTHROPIC_API_KEY) return;
@@ -284,6 +286,27 @@ export function defaultTasks(): AutopilotTask[] {
           );
         } catch (err) {
           console.error("[autopilot] ci-healer: threw:", err);
+        }
+      },
+    },
+    {
+      // Spec-to-PR autopilot — picks up `.gluecron/specs/*.md` files whose
+      // front-matter status is `ready`, asks Claude to implement the spec,
+      // opens a draft PR tagged `ai:spec-implementation`. Cadence-gated
+      // to every 2 minutes.
+      name: "spec-to-pr",
+      run: async () => {
+        if (!process.env.ANTHROPIC_API_KEY) return;
+        const now = Date.now();
+        if (now - _lastSpecToPrAt < SPEC_TO_PR_INTERVAL_MS) return;
+        _lastSpecToPrAt = now;
+        try {
+          const summary = await runSpecToPrTaskOnce();
+          console.log(
+            `[autopilot] spec-to-pr: considered=${summary.considered} dispatched=${summary.dispatched} skipped=${summary.skipped} failed=${summary.failed}`
+          );
+        } catch (err) {
+          console.error("[autopilot] spec-to-pr: threw:", err);
         }
       },
     },

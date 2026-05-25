@@ -132,6 +132,7 @@ import workflowsRoutes from "./routes/workflows";
 import workflowArtifactsRoutes from "./routes/workflow-artifacts";
 import workflowSecretsRoutes from "./routes/workflow-secrets";
 import sleepModeRoutes from "./routes/sleep-mode";
+import standupRoutes from "./routes/standups";
 import vsGithubRoutes from "./routes/vs-github";
 import playgroundRoutes from "./routes/playground";
 import { authRateLimit, gitRateLimit, searchRateLimit } from "./middleware/rate-limit";
@@ -340,6 +341,8 @@ app.route("/", issuesDashboardRoutes);
 app.route("/", activityRoutes);
 // Unified inbox — mentions + review requests + CI failures + AI events in one timeline
 app.route("/", inboxRoutes);
+// AI standup feed — daily / weekly Claude-generated team brief
+app.route("/", standupRoutes);
 
 // Auth routes (register, login, logout)
 app.route("/", authRoutes);

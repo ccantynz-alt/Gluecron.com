@@ -222,6 +222,9 @@ export const Layout: FC<
                   <a href="/activity" class="nav-link">
                     Activity
                   </a>
+                  <a href="/standups" class="nav-link">
+                    Standups
+                  </a>
                   <a href="/inbox" class="nav-link" style="position:relative">
                     Inbox
                     {notificationCount && notificationCount > 0 ? (

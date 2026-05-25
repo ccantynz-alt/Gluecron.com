@@ -6,6 +6,7 @@ import { Hono } from "hono";
 import { eq } from "drizzle-orm";
 import { db } from "../db";
 import { users, sshKeys } from "../db/schema";
+import { getStandupPrefs, setStandupPrefs } from "../lib/ai-standup";
 import type { AuthEnv } from "../middleware/auth";
 import { requireAuth } from "../middleware/auth";
 import { Layout } from "../views/layout";
@@ -629,9 +630,17 @@ function Banner(props: { kind: "success" | "error"; text: string }) {
 }
 
 // Profile settings
-settings.get("/settings", (c) => {
+settings.get("/settings", async (c) => {
   const user = c.get("user")!;
   const success = c.req.query("success");
+  const standupPrefs = (await getStandupPrefs(user.id)) || {
+    dailyEnabled: false,
+    weeklyEnabled: false,
+    emailEnabled: false,
+    hourUtc: 9,
+    lastDailySentAt: null,
+    lastWeeklySentAt: null,
+  };
   return c.html(
     <Layout title="Settings" user={user}>
       <style dangerouslySetInnerHTML={{ __html: settingsStyles }} />
@@ -879,6 +888,7 @@ settings.get("/settings", (c) => {
           </section>
 
           {/* ─── Mobile push ─── */}
+          {/* (Standups section rendered as its own form below — see /settings/standups) */}
           <section class="settings-section">
             <div class="settings-section-head">
               <div class="settings-section-eyebrow">Mobile</div>
@@ -946,6 +956,95 @@ settings.get("/settings", (c) => {
               </span>
               <button type="submit" class="btn btn-primary">
                 Save preferences
+              </button>
+            </div>
+          </section>
+        </form>
+
+        {/* ─── AI Standups ─── */}
+        <form method="post" action="/settings/standups">
+          <section class="settings-section" id="standups">
+            <div class="settings-section-head">
+              <div class="settings-section-eyebrow">Autonomy</div>
+              <h2 class="settings-section-title">AI standups</h2>
+              <p class="settings-section-desc">
+                A daily Claude-generated brief on what your team shipped,
+                what&rsquo;s in flight, and what&rsquo;s at risk. Lands in
+                your <a href="/inbox">inbox</a> and (optionally) your email.
+                Browse the feed at <a href="/standups">/standups</a>.
+              </p>
+            </div>
+            <div class="settings-section-body">
+              <label class="settings-toggle-row">
+                <input
+                  type="checkbox"
+                  name="standup_daily_enabled"
+                  value="1"
+                  checked={standupPrefs.dailyEnabled}
+                  aria-label="Daily standup at 09:00 UTC"
+                />
+                <span class="settings-toggle-text">
+                  Daily standup at 09:00 UTC
+                  <span class="settings-toggle-text-hint">
+                    One brief per day, based on the last 24 hours of PRs +
+                    issues across repos you own or collaborate on.
+                  </span>
+                </span>
+              </label>
+              <label class="settings-toggle-row">
+                <input
+                  type="checkbox"
+                  name="standup_weekly_enabled"
+                  value="1"
+                  checked={standupPrefs.weeklyEnabled}
+                  aria-label="Weekly standup Monday 09:00 UTC"
+                />
+                <span class="settings-toggle-text">
+                  Weekly standup Monday 09:00 UTC
+                  <span class="settings-toggle-text-hint">
+                    A wider Monday-morning recap covering the last 7 days.
+                  </span>
+                </span>
+              </label>
+              <label class="settings-toggle-row">
+                <input
+                  type="checkbox"
+                  name="standup_email_enabled"
+                  value="1"
+                  checked={standupPrefs.emailEnabled}
+                  aria-label="Also email me the standup"
+                />
+                <span class="settings-toggle-text">
+                  Also email me the standup
+                  <span class="settings-toggle-text-hint">
+                    In-app notification is always sent; this opts you into
+                    a parallel email delivery.
+                  </span>
+                </span>
+              </label>
+              <div class="settings-hour-row">
+                <label for="standup_hour_utc">
+                  Send my standup at (UTC hour, 0&ndash;23):
+                </label>
+                <input
+                  class="settings-hour-input"
+                  type="number"
+                  id="standup_hour_utc"
+                  name="standup_hour_utc"
+                  min={0}
+                  max={23}
+                  step={1}
+                  value={String(standupPrefs.hourUtc)}
+                  aria-label="Standup UTC hour"
+                />
+              </div>
+            </div>
+            <div class="settings-section-foot">
+              <span class="settings-foot-hint">
+                Saved separately from email + sleep-mode preferences.
+              </span>
+              <button type="submit" class="btn btn-primary">
+                Save standup preferences
               </button>
             </div>
           </section>
@@ -1848,6 +1947,28 @@ settings.post("/settings/notifications", async (c) => {
     );
   }
   return c.redirect("/settings?success=Notification+preferences+updated");
+});
+
+// AI Standup preferences. Lives in a separate row in `user_standup_prefs`
+// so we don't have to touch the locked `users` schema.
+settings.post("/settings/standups", async (c) => {
+  const user = c.get("user")!;
+  const body = await c.req.parseBody();
+  const dailyEnabled = String(body.standup_daily_enabled || "") === "1";
+  const weeklyEnabled = String(body.standup_weekly_enabled || "") === "1";
+  const emailEnabled = String(body.standup_email_enabled || "") === "1";
+  const rawHour = String(body.standup_hour_utc ?? "");
+  const hourUtc = Number.parseInt(rawHour, 10);
+  await setStandupPrefs(user.id, {
+    dailyEnabled,
+    weeklyEnabled,
+    emailEnabled,
+    hourUtc: Number.isFinite(hourUtc) ? hourUtc : 9,
+  });
+  return c.redirect(
+    "/settings?success=" + encodeURIComponent("Standup preferences updated") +
+      "#standups"
+  );
 });
 
 // Block M2 — client-side device subscribe/unsubscribe/test helpers. Plain

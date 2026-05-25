@@ -31,6 +31,12 @@ import { ReactionsBar } from "../views/reactions";
 import { summariseReactions } from "../lib/reactions";
 import { loadPrTemplate } from "../lib/templates";
 import { renderMarkdown } from "../lib/markdown";
+import {
+  parseSlashCommand,
+  executeSlashCommand,
+  detectSlashCmdComment,
+  stripSlashCmdMarker,
+} from "../lib/pr-slash-commands";
 import { liveCommentBannerScript } from "../lib/sse-client";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
@@ -839,6 +845,78 @@ const PRS_DETAIL_STYLES = `
     color: #0b1020;
     border-radius: 9999px;
   }
+
+  /* ─── Slash-command pill + composer hint ─── */
+  .slash-hint {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 6px;
+    padding: 3px 9px;
+    font-size: 11.5px;
+    color: var(--text-muted);
+    background: var(--bg-elevated);
+    border: 1px dashed var(--border);
+    border-radius: 9999px;
+    width: fit-content;
+  }
+  .slash-hint code {
+    background: rgba(110, 168, 255, 0.12);
+    color: var(--text-strong);
+    padding: 0 5px;
+    border-radius: 4px;
+    font-size: 11px;
+  }
+  .slash-pill {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    column-gap: 10px;
+    row-gap: 6px;
+    margin: 10px 0;
+    padding: 10px 14px;
+    background: linear-gradient(
+      135deg,
+      rgba(110, 168, 255, 0.08),
+      rgba(163, 113, 247, 0.06)
+    );
+    border: 1px solid rgba(110, 168, 255, 0.32);
+    border-left: 3px solid var(--accent, #6ea8ff);
+    border-radius: var(--radius);
+    font-size: 13px;
+    color: var(--text);
+  }
+  .slash-pill-icon {
+    font-size: 14px;
+    line-height: 1;
+    filter: drop-shadow(0 0 4px rgba(110, 168, 255, 0.45));
+  }
+  .slash-pill-actor { color: var(--text-muted); }
+  .slash-pill-actor strong { color: var(--text-strong); }
+  .slash-pill-cmd {
+    background: rgba(110, 168, 255, 0.16);
+    color: var(--text-strong);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 12.5px;
+  }
+  .slash-pill-time {
+    color: var(--text-muted);
+    font-size: 12px;
+    justify-self: end;
+  }
+  .slash-pill-body {
+    grid-column: 1 / -1;
+    color: var(--text);
+    font-size: 13px;
+    line-height: 1.55;
+  }
+  .slash-pill-body p:first-child { margin-top: 0; }
+  .slash-pill-body p:last-child { margin-bottom: 0; }
+  .slash-pill.slash-cmd-merge { border-left-color: #56d364; }
+  .slash-pill.slash-cmd-rebase { border-left-color: #f0883e; }
+  .slash-pill.slash-cmd-needs-work { border-left-color: #f85149; }
+  .slash-pill.slash-cmd-lgtm { border-left-color: #56d364; }
 `;
 
 /**
@@ -1908,28 +1986,50 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
             />
           )}
 
-          {comments.map(({ comment, author: commentAuthor }) => (
-            <div class={`prs-comment${comment.isAiReview ? " is-ai" : ""}`}>
-              <div class="prs-comment-head">
-                <strong>{commentAuthor.username}</strong>
-                {comment.isAiReview && (
-                  <span class="prs-ai-badge">AI Review</span>
-                )}
-                <span class="prs-comment-time">
-                  commented {formatRelative(comment.createdAt)}
-                </span>
-                {comment.filePath && (
-                  <span class="prs-comment-loc">
-                    {comment.filePath}
-                    {comment.lineNumber ? `:${comment.lineNumber}` : ""}
+          {comments.map(({ comment, author: commentAuthor }) => {
+            const slashCmd = detectSlashCmdComment(comment.body);
+            if (slashCmd) {
+              const visible = stripSlashCmdMarker(comment.body);
+              return (
+                <div class={`slash-pill slash-cmd-${slashCmd}`}>
+                  <span class="slash-pill-icon" aria-hidden="true">{"⚡"}</span>
+                  <span class="slash-pill-actor">
+                    <strong>{commentAuthor.username}</strong>
+                    {" ran "}
+                    <code class="slash-pill-cmd">/{slashCmd}</code>
                   </span>
-                )}
+                  <span class="slash-pill-time">
+                    {formatRelative(comment.createdAt)}
+                  </span>
+                  <div class="slash-pill-body">
+                    <MarkdownContent html={renderMarkdown(visible)} />
+                  </div>
+                </div>
+              );
+            }
+            return (
+              <div class={`prs-comment${comment.isAiReview ? " is-ai" : ""}`}>
+                <div class="prs-comment-head">
+                  <strong>{commentAuthor.username}</strong>
+                  {comment.isAiReview && (
+                    <span class="prs-ai-badge">AI Review</span>
+                  )}
+                  <span class="prs-comment-time">
+                    commented {formatRelative(comment.createdAt)}
+                  </span>
+                  {comment.filePath && (
+                    <span class="prs-comment-loc">
+                      {comment.filePath}
+                      {comment.lineNumber ? `:${comment.lineNumber}` : ""}
+                    </span>
+                  )}
+                </div>
+                <div class="prs-comment-body">
+                  <MarkdownContent html={renderMarkdown(comment.body)} />
+                </div>
               </div>
-              <div class="prs-comment-body">
-                <MarkdownContent html={renderMarkdown(comment.body)} />
-              </div>
-            </div>
-          ))}
+            );
+          })}
 
           {/* Quick link to the Files changed tab when there's a diff to look at. */}
           {pr.state !== "merged" && (
@@ -2084,6 +2184,11 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
                       style="font-family:var(--font-mono);font-size:13px;width:100%"
                     ></textarea>
                   </div>
+                  <span class="slash-hint" title="Type a slash-command as the first line">
+                    Type <code>/</code> for commands —{" "}
+                    <code>/help</code>, <code>/merge</code>, <code>/rebase</code>,{" "}
+                    <code>/explain</code>, <code>/test</code>, <code>/lgtm</code>
+                  </span>
                 </FormGroup>
                 <div class="prs-merge-actions">
                   <Button type="submit" variant="primary">
@@ -2236,6 +2341,38 @@ pulls.post(
         });
       } catch {
         /* SSE is best-effort */
+      }
+    }
+
+    // Slash-command handoff. We always store the original comment above
+    // first so free-form text that happens to start with `/` is preserved
+    // verbatim; only recognised commands trigger a follow-up bot comment.
+    const parsed = parseSlashCommand(commentBody);
+    if (parsed) {
+      try {
+        const result = await executeSlashCommand({
+          command: parsed.command,
+          args: parsed.args,
+          prId: pr.id,
+          userId: user.id,
+          repositoryId: resolved.repo.id,
+        });
+        await db.insert(prComments).values({
+          pullRequestId: pr.id,
+          authorId: user.id,
+          body: result.body,
+        });
+      } catch (err) {
+        // Defence-in-depth — executeSlashCommand promises not to throw,
+        // but if it ever does we want the PR thread to know.
+        await db
+          .insert(prComments)
+          .values({
+            pullRequestId: pr.id,
+            authorId: user.id,
+            body: `<!-- cmd:${parsed.command} -->\n\nSlash-command \`/${parsed.command}\` crashed: ${err instanceof Error ? err.message : String(err)}`,
+          })
+          .catch(() => {});
       }
     }
 

@@ -737,6 +737,12 @@ search.get("/search", async (c) => {
               the global search.
             </span>
             <span class="search-page-empty-tip-row">
+              <strong>Semantic search:</strong> the global tab is keyword-only.
+              For embedding-backed code search, open a repo and click{" "}
+              <em>Semantic search</em> in the AI surfaces row, or hit{" "}
+              <code>/:owner/:repo/semantic-search?q=…</code> directly.
+            </span>
+            <span class="search-page-empty-tip-row">
               Looking for something to browse?{" "}
               <a href="/explore">Head to Explore</a>.
             </span>

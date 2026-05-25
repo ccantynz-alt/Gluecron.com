@@ -391,6 +391,11 @@ dashboard.get("/dashboard", requireAuth, async (c) => {
       {/* ─── L9: AI hours-saved hero widget ─── */}
       <AiHoursSavedWidget week={savingsWeek} lifetime={savingsLifetime} />
 
+      {/* ─── Quick actions — surfaces the 5 most-leverage AI features so
+          they're discoverable from the dashboard without diving into the
+          AI dropdown in the top nav. Scoped CSS under .qa- prefix. ─── */}
+      <QuickActionsPanel firstRepo={repos[0]} username={user.username} />
+
       {/* ─── Stats Bar ─── */}
       <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: var(--space-3); margin-bottom: var(--space-8)">
         <StatBox
@@ -1196,5 +1201,168 @@ const DashboardSkeleton = () => (
     </span>
   </>
 );
+
+// ─── Quick actions — 5-card panel of the most-leverage AI features.
+//     Surfaces the post-K1 AI surfaces (Voice, Standups, Refactors, repo
+//     chat, Pulls dashboard) so signed-in users can discover them without
+//     hunting through the top-nav dropdown. CSS scoped under `.qa-` to
+//     avoid bleed; no shared component touched.
+const QuickActionsPanel = ({
+  firstRepo,
+  username,
+}: {
+  firstRepo: { name: string } | undefined;
+  username: string;
+}) => {
+  const chatHref = firstRepo
+    ? `/${username}/${firstRepo.name}/chat`
+    : "/explore";
+  const chatSub = firstRepo
+    ? `Open ${firstRepo.name} rubber-duck chat`
+    : "Pick a repo, then ask anything";
+  return (
+    <div class="qa-panel" aria-label="Quick AI actions">
+      <style
+        dangerouslySetInnerHTML={{
+          __html: `
+            .qa-panel {
+              position: relative;
+              margin-bottom: var(--space-6);
+              padding: var(--space-4) var(--space-5) var(--space-5);
+              background: var(--bg-elevated);
+              border: 1px solid var(--border);
+              border-radius: 14px;
+              overflow: hidden;
+            }
+            .qa-panel::before {
+              content: '';
+              position: absolute;
+              top: 0; left: 0; right: 0;
+              height: 1px;
+              background: linear-gradient(90deg, transparent 0%, #8c6dff 30%, #36c5d6 70%, transparent 100%);
+              opacity: 0.65;
+              pointer-events: none;
+            }
+            .qa-eyebrow {
+              font-size: 11px;
+              font-weight: 600;
+              letter-spacing: 0.08em;
+              text-transform: uppercase;
+              color: var(--accent);
+              margin-bottom: 4px;
+            }
+            .qa-title {
+              font-family: var(--font-display);
+              font-size: 17px;
+              font-weight: 700;
+              letter-spacing: -0.018em;
+              margin: 0 0 var(--space-3);
+              color: var(--text-strong);
+            }
+            .qa-grid {
+              display: grid;
+              grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+              gap: var(--space-2);
+            }
+            .qa-card {
+              display: flex;
+              flex-direction: column;
+              gap: 4px;
+              padding: var(--space-3) var(--space-3);
+              background: var(--bg);
+              border: 1px solid var(--border);
+              border-radius: 10px;
+              color: var(--text);
+              text-decoration: none;
+              transition: border-color 160ms ease, transform 160ms ease, background 160ms ease;
+              position: relative;
+              overflow: hidden;
+            }
+            .qa-card::before {
+              content: '';
+              position: absolute;
+              top: 0; left: 0; right: 0;
+              height: 1px;
+              background: linear-gradient(90deg, transparent 0%, rgba(140,109,255,0.55) 30%, rgba(54,197,214,0.55) 70%, transparent 100%);
+              opacity: 0;
+              transition: opacity 160ms ease;
+            }
+            .qa-card:hover {
+              border-color: rgba(140,109,255,0.40);
+              text-decoration: none;
+              transform: translateY(-1px);
+              background: linear-gradient(180deg, rgba(140,109,255,0.04), transparent);
+            }
+            .qa-card:hover::before { opacity: 1; }
+            .qa-card-label {
+              font-size: 13.5px;
+              font-weight: 600;
+              color: var(--text-strong);
+              display: flex;
+              align-items: center;
+              gap: 6px;
+            }
+            .qa-card-sub {
+              font-size: 12px;
+              color: var(--text-muted);
+              line-height: 1.4;
+            }
+            .qa-card-icon {
+              display: inline-flex;
+              width: 18px; height: 18px;
+              align-items: center;
+              justify-content: center;
+              border-radius: 5px;
+              background: linear-gradient(135deg, rgba(140,109,255,0.18), rgba(54,197,214,0.14));
+              color: #b69dff;
+              font-size: 11px;
+              font-weight: 700;
+              flex-shrink: 0;
+            }
+          `,
+        }}
+      />
+      <div class="qa-eyebrow">Quick actions</div>
+      <h3 class="qa-title">Ship faster with Claude</h3>
+      <div class="qa-grid">
+        <a href="/voice" class="qa-card">
+          <span class="qa-card-label">
+            <span class="qa-card-icon" aria-hidden="true">{"\u{1F3A4}"}</span>
+            Talk to ship
+          </span>
+          <span class="qa-card-sub">Voice → PR in one take</span>
+        </a>
+        <a href="/standups" class="qa-card">
+          <span class="qa-card-label">
+            <span class="qa-card-icon" aria-hidden="true">{"\u{1F4DD}"}</span>
+            Today's standup
+          </span>
+          <span class="qa-card-sub">Daily AI brief, fresh on demand</span>
+        </a>
+        <a href="/refactors" class="qa-card">
+          <span class="qa-card-label">
+            <span class="qa-card-icon" aria-hidden="true">{"⚡"}</span>
+            Refactor everywhere
+          </span>
+          <span class="qa-card-sub">One brief → PRs across all repos</span>
+        </a>
+        <a href={chatHref} class="qa-card">
+          <span class="qa-card-label">
+            <span class="qa-card-icon" aria-hidden="true">{"\u{1F4AC}"}</span>
+            Chat with a repo
+          </span>
+          <span class="qa-card-sub">{chatSub}</span>
+        </a>
+        <a href="/pulls" class="qa-card">
+          <span class="qa-card-label">
+            <span class="qa-card-icon" aria-hidden="true">{"\u{1F500}"}</span>
+            Watch the PR queue
+          </span>
+          <span class="qa-card-sub">Global pulls across your repos</span>
+        </a>
+      </div>
+    </div>
+  );
+};
 
 export default dashboard;

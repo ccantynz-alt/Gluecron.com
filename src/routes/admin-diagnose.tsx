@@ -1246,6 +1246,45 @@ diagnose.get("/admin/diagnose", async (c) => {
         </div>
 
         <div class="health-test">
+          <h3>AI background tasks</h3>
+          <p>
+            These tasks run continuously inside the autopilot tick — no
+            external scheduler. Each one fires on every signal it cares
+            about (CI failure / gate finding / monitor heartbeat) and
+            degrades gracefully when <code>ANTHROPIC_API_KEY</code> is
+            unset.
+          </p>
+          <ul style="margin: 8px 0 0; padding-left: 20px; line-height: 1.7; font-size: 13.5px;">
+            <li>
+              <strong>AI CI healer</strong> — on every failed workflow
+              run, Claude reads the failure log + recent diff and proposes
+              targeted file edits. Source: <code>src/lib/ai-ci-healer.ts</code>.
+            </li>
+            <li>
+              <strong>AI patch generator</strong> — when GateTest or
+              advisory scan reports a finding, this generates a concrete
+              diff PR proposing the fix. Source: <code>src/lib/ai-patch-generator.ts</code>.
+            </li>
+            <li>
+              <strong>AI proactive monitor</strong> — sweeps every repo
+              looking for stale TODOs, suspicious patterns, and stuck PRs;
+              files issues automatically. Findings surface in{" "}
+              <a href="/settings/audit">/settings/audit</a>. Source:{" "}
+              <code>src/lib/ai-proactive-monitor.ts</code>.
+            </li>
+            <li>
+              <strong>AI build tasks</strong> — picks up issues labelled
+              <code>ai:build</code> and ships a PR for them. Source:{" "}
+              <code>src/lib/ai-build-tasks.ts</code>.
+            </li>
+          </ul>
+          <p style="margin-top: 12px;">
+            See <a href="/admin/autopilot">/admin/autopilot</a> for the
+            per-task tick log and force-run controls.
+          </p>
+        </div>
+
+        <div class="health-test">
           <h3>Test email delivery</h3>
           <p>
             Fires a one-line test email to <strong>{user.email}</strong> using

@@ -2683,9 +2683,13 @@ admin.get("/admin", async (c) => {
             <span class="admin-action-icon">{Icons.sso}</span>
             Enterprise SSO
           </a>
-          <a href="/admin/autopilot" class="admin-action">
+          <a href="/admin/autopilot" class="admin-action" title="CI healer, patch generator, proactive monitor, AI build tasks">
             <span class="admin-action-icon">{Icons.bot}</span>
             Autopilot
+          </a>
+          <a href="/admin/diagnose" class="admin-action" title="Live status of the AI CI healer, patch generator, and proactive monitor">
+            <span class="admin-action-icon">{Icons.bot}</span>
+            AI background tasks
           </a>
           <a href="/connect/claude" class="admin-action is-primary">
             <span class="admin-action-icon">{Icons.bot}</span>

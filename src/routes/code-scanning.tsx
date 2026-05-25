@@ -415,6 +415,13 @@ codeScanning.get("/:owner/:repo/security", async (c) => {
               dependency audits, and security gates. {latestByName.size}{" "}
               scanner{latestByName.size === 1 ? "" : "s"} watching this repo.
             </p>
+            <p class="sec-sub" style="margin-top: 8px; font-size: 13px;">
+              <strong>AI patch generator:</strong> when any scanner flags a
+              finding, the autopilot's patch generator can propose a fix
+              PR automatically. See its live status on{" "}
+              <a href="/admin/diagnose">/admin/diagnose</a> (site admins
+              only) or watch for PRs authored by <code>gluecron[bot]</code>.
+            </p>
           </div>
         </section>
 

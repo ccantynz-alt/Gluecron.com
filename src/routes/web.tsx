@@ -2891,6 +2891,98 @@ web.get("/:owner/:repo", async (c) => {
         </div>
       )}
       <RepoNav owner={owner} repo={repo} active="code" />
+      {/* ─── Per-repo AI surfaces — RepoNav is locked, so the discovery
+          row sits just below the nav as a slim CTA strip. Scoped under
+          `.repo-ai-cta-` so the styles can't bleed onto other pages. ─── */}
+      <style
+        dangerouslySetInnerHTML={{
+          __html: `
+            .repo-ai-cta-row {
+              display: flex;
+              flex-wrap: wrap;
+              gap: 8px;
+              margin: 12px 0 18px;
+              padding: 10px 14px;
+              background: linear-gradient(135deg, rgba(140,109,255,0.06), rgba(54,197,214,0.04));
+              border: 1px solid var(--border);
+              border-radius: 10px;
+              position: relative;
+              overflow: hidden;
+            }
+            .repo-ai-cta-row::before {
+              content: '';
+              position: absolute;
+              top: 0; left: 0; right: 0;
+              height: 1px;
+              background: linear-gradient(90deg, transparent 0%, rgba(140,109,255,0.45) 30%, rgba(54,197,214,0.45) 70%, transparent 100%);
+              opacity: 0.7;
+              pointer-events: none;
+            }
+            .repo-ai-cta-label {
+              font-size: 11px;
+              font-weight: 600;
+              letter-spacing: 0.06em;
+              text-transform: uppercase;
+              color: var(--accent);
+              align-self: center;
+              padding-right: 8px;
+              border-right: 1px solid var(--border);
+              margin-right: 4px;
+            }
+            .repo-ai-cta {
+              display: inline-flex;
+              align-items: center;
+              gap: 6px;
+              padding: 5px 10px;
+              font-size: 12.5px;
+              font-weight: 500;
+              color: var(--text);
+              background: var(--bg);
+              border: 1px solid var(--border);
+              border-radius: 7px;
+              text-decoration: none;
+              transition: border-color 140ms ease, background 140ms ease, color 140ms ease;
+            }
+            .repo-ai-cta:hover {
+              border-color: rgba(140,109,255,0.45);
+              color: var(--text-strong);
+              background: rgba(140,109,255,0.06);
+              text-decoration: none;
+            }
+            .repo-ai-cta-icon {
+              opacity: 0.75;
+              font-size: 12px;
+            }
+            @media (max-width: 640px) {
+              .repo-ai-cta-row { flex-direction: column; align-items: stretch; }
+              .repo-ai-cta-label { border-right: 0; border-bottom: 1px solid var(--border); padding-bottom: 6px; margin-right: 0; }
+            }
+          `,
+        }}
+      />
+      <nav class="repo-ai-cta-row" aria-label="AI surfaces for this repository">
+        <span class="repo-ai-cta-label">AI surfaces</span>
+        <a class="repo-ai-cta" href={`/${owner}/${repo}/chat`} title="Rubber-duck chat grounded in this repo">
+          <span class="repo-ai-cta-icon" aria-hidden="true">{"\u{1F4AC}"}</span>
+          Chat
+        </a>
+        <a class="repo-ai-cta" href={`/${owner}/${repo}/previews`} title="Ephemeral preview URLs per branch">
+          <span class="repo-ai-cta-icon" aria-hidden="true">{"\u{1F30D}"}</span>
+          Previews
+        </a>
+        <a class="repo-ai-cta" href={`/${owner}/${repo}/migrations/propose`} title="AI proposes the Drizzle migration for a schema change">
+          <span class="repo-ai-cta-icon" aria-hidden="true">{"⛁"}</span>
+          Migrations
+        </a>
+        <a class="repo-ai-cta" href={`/${owner}/${repo}/semantic-search`} title="Embedding-backed code search">
+          <span class="repo-ai-cta-icon" aria-hidden="true">{"✨"}</span>
+          Semantic search
+        </a>
+        <a class="repo-ai-cta" href={`/${owner}/${repo}/releases/new`} title="Draft release notes with AI">
+          <span class="repo-ai-cta-icon" aria-hidden="true">{"\u{1F3F7}"}</span>
+          AI release notes
+        </a>
+      </nav>
       <div class="repo-home-grid">
         <div class="repo-home-main">
           <BranchSwitcher

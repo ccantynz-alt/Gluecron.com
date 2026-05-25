@@ -222,28 +222,6 @@ export const Layout: FC<
                   <a href="/activity" class="nav-link">
                     Activity
                   </a>
-                  <a href="/standups" class="nav-link">
-                    Standups
-                  </a>
-                  <a href="/voice" class="nav-link" style="display:inline-flex;align-items:center;gap:5px">
-                    <svg
-                      width="13"
-                      height="13"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2.2"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      aria-hidden="true"
-                    >
-                      <rect x="9" y="2" width="6" height="13" rx="3" />
-                      <path d="M19 11v1a7 7 0 0 1-14 0v-1" />
-                      <line x1="12" y1="19" x2="12" y2="23" />
-                      <line x1="8" y1="23" x2="16" y2="23" />
-                    </svg>
-                    Voice
-                  </a>
                   <a href="/inbox" class="nav-link" style="position:relative">
                     Inbox
                     {notificationCount && notificationCount > 0 ? (
@@ -255,11 +233,60 @@ export const Layout: FC<
                       </span>
                     ) : null}
                   </a>
+                  {/* AI dropdown — consolidates Standups, Voice, Refactors,
+                      Specs, Ask AI to keep the top-level nav lean. Hover-open
+                      with click+keyboard fallback via navAiDropdownScript. */}
+                  <div class="nav-ai-dropdown" data-nav-ai>
+                    <button
+                      type="button"
+                      class="nav-link nav-ai-trigger"
+                      aria-haspopup="true"
+                      aria-expanded="false"
+                      data-nav-ai-trigger
+                    >
+                      <span style="display:inline-flex;align-items:center;gap:5px">
+                        <svg
+                          width="13"
+                          height="13"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2.2"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          aria-hidden="true"
+                        >
+                          <path d="M12 2l2.39 5.95L20 9l-4.5 3.9L17 19l-5-3.2L7 19l1.5-6.1L4 9l5.61-1.05L12 2z" />
+                        </svg>
+                        AI
+                        <span aria-hidden="true" style="font-size:9px;opacity:0.7">▾</span>
+                      </span>
+                    </button>
+                    <div class="nav-ai-menu" role="menu" data-nav-ai-menu>
+                      <a href="/standups" role="menuitem" class="nav-ai-item">
+                        <span class="nav-ai-item-label">Standups</span>
+                        <span class="nav-ai-item-sub">Daily AI brief</span>
+                      </a>
+                      <a href="/voice" role="menuitem" class="nav-ai-item">
+                        <span class="nav-ai-item-label">Voice</span>
+                        <span class="nav-ai-item-sub">Talk to ship a PR</span>
+                      </a>
+                      <a href="/refactors" role="menuitem" class="nav-ai-item">
+                        <span class="nav-ai-item-label">Refactors</span>
+                        <span class="nav-ai-item-sub">Multi-repo agent</span>
+                      </a>
+                      <a href="/specs" role="menuitem" class="nav-ai-item">
+                        <span class="nav-ai-item-label">Specs</span>
+                        <span class="nav-ai-item-sub">Spec-to-PR loop</span>
+                      </a>
+                      <a href="/ask" role="menuitem" class="nav-ai-item">
+                        <span class="nav-ai-item-label">Ask AI</span>
+                        <span class="nav-ai-item-sub">Cross-repo chat</span>
+                      </a>
+                    </div>
+                  </div>
                   <a href="/import" class="nav-link">
                     Import
-                  </a>
-                  <a href="/refactors" class="nav-link">
-                    Refactors
                   </a>
                   <a href="/new" class="btn btn-sm btn-primary">
                     + New
@@ -399,6 +426,7 @@ export const Layout: FC<
         <script dangerouslySetInnerHTML={{ __html: pwaKillSwitchScript }} />
         <script dangerouslySetInnerHTML={{ __html: toastScript }} />
         <script dangerouslySetInnerHTML={{ __html: navScript }} />
+        <script dangerouslySetInnerHTML={{ __html: navAiDropdownScript }} />
       </body>
     </html>
   );
@@ -871,6 +899,35 @@ const navScript = `
         else if (e.key === 'a') { e.preventDefault(); window.location.href = '/ask'; }
         chord = null;
       }
+    });
+  })();
+`;
+
+// AI dropdown — keyboard- and click-accessible menu in the top nav.
+// CSS handles the hover-open behaviour for pointer users; this script
+// adds click-to-toggle for touch, Escape-to-close, and outside-click-
+// to-close. Lives in its own IIFE so it never interferes with navScript.
+const navAiDropdownScript = `
+  (function(){
+    var open = false;
+    var root = document.querySelector('[data-nav-ai]');
+    if (!root) return;
+    var trigger = root.querySelector('[data-nav-ai-trigger]');
+    var menu = root.querySelector('[data-nav-ai-menu]');
+    if (!trigger || !menu) return;
+    function setOpen(next){
+      open = !!next;
+      root.classList.toggle('is-open', open);
+      trigger.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+    trigger.addEventListener('click', function(e){ e.preventDefault(); setOpen(!open); });
+    document.addEventListener('click', function(e){
+      if (!open) return;
+      if (root.contains(e.target)) return;
+      setOpen(false);
+    });
+    document.addEventListener('keydown', function(e){
+      if (open && e.key === 'Escape') { e.preventDefault(); setOpen(false); trigger.focus(); }
     });
   })();
 `;
@@ -1448,6 +1505,71 @@ const css = `
     50%      { opacity: 0.45; transform: scale(0.8); }
   }
   .deploy-pill-empty .deploy-pill-dot { background: #9ca3af; }
+
+  /* ── AI dropdown (nav consolidation) ── */
+  .nav-ai-dropdown {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+  }
+  .nav-ai-trigger {
+    background: transparent;
+    border: 0;
+    font: inherit;
+    cursor: pointer;
+    color: var(--text-muted);
+    font-size: var(--t-sm);
+    font-weight: 500;
+    padding: 7px 11px;
+    border-radius: var(--r-sm);
+    line-height: 1.2;
+  }
+  .nav-ai-trigger:hover {
+    color: var(--text-strong);
+    background: var(--bg-hover);
+  }
+  .nav-ai-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    min-width: 220px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-strong);
+    border-radius: 10px;
+    box-shadow: 0 12px 32px rgba(0,0,0,0.40), 0 0 0 1px rgba(140,109,255,0.10);
+    padding: 6px;
+    display: none;
+    z-index: var(--z-overlay, 100);
+  }
+  .nav-ai-dropdown:hover .nav-ai-menu,
+  .nav-ai-dropdown.is-open .nav-ai-menu,
+  .nav-ai-dropdown:focus-within .nav-ai-menu {
+    display: block;
+  }
+  .nav-ai-item {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    color: var(--text);
+    text-decoration: none;
+    transition: background var(--t-fast) var(--ease);
+  }
+  .nav-ai-item:hover {
+    background: var(--bg-hover);
+    text-decoration: none;
+    color: var(--text-strong);
+  }
+  .nav-ai-item-label {
+    font-size: var(--t-sm);
+    font-weight: 600;
+    color: var(--text-strong);
+  }
+  .nav-ai-item-sub {
+    font-size: 11.5px;
+    color: var(--text-muted);
+  }
 
   .nav-link {
     position: relative;

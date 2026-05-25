@@ -284,8 +284,18 @@ help.get("/help", (c) => {
             <a href="#tokens">Personal access tokens</a>
             <a href="#gates">Gates & AI review</a>
             <a href="#ai-native">AI-native flow</a>
+            <a href="#ai-surfaces">New AI surfaces</a>
+            <a href="#repo-chat">Chat with a repo</a>
+            <a href="#previews">Branch previews</a>
+            <a href="#migrations">Migration assistant</a>
+            <a href="#slash-commands">PR slash commands</a>
+            <a href="#release-notes">AI release notes</a>
+            <a href="#ai-commits">AI commit messages</a>
+            <a href="#agents">Agent multiplayer</a>
+            <a href="#semantic">Semantic search API</a>
             <a href="#shortcuts">Keyboard shortcuts</a>
             <a href="#api">API</a>
+            <a href="#build-agents">Build-agent integration</a>
           </div>
         </nav>
 
@@ -546,6 +556,282 @@ help.get("/help", (c) => {
           </div>
         </section>
 
+        {/* ─── New AI surfaces (global) ─── */}
+        <section id="ai-surfaces" class="help-section">
+          <div class="help-section-head">
+            <div class="help-section-eyebrow">Discover</div>
+            <h2 class="help-section-title">New AI surfaces</h2>
+            <p class="help-section-desc">
+              Seven cross-repo dashboards that ship with Gluecron — find
+              them under the <strong>AI</strong> dropdown in the top nav,
+              plus the always-on <em>Pulls</em>, <em>Issues</em>,{" "}
+              <em>Activity</em>, and <em>Inbox</em> tabs.
+            </p>
+          </div>
+          <div class="help-section-body">
+            <div class="help-item">
+              <strong><a href="/pulls">/pulls</a> — global pull-request
+              dashboard.</strong> Every open PR across every repo you own
+              or follow, grouped by review state. Filter by author, label,
+              or repo. Replaces tab-flicking between repos when you just
+              want to know "what needs me right now."
+            </div>
+            <div class="help-item">
+              <strong><a href="/issues">/issues</a> — global issue
+              dashboard.</strong> Same shape as <code>/pulls</code> for
+              issues. Combine the <code>ai:build</code> filter with{" "}
+              <em>assigned to me</em> to scan everything Claude is queued
+              to build for you.
+            </div>
+            <div class="help-item">
+              <strong><a href="/inbox">/inbox</a> — unified inbox.</strong>{" "}
+              Mentions, review requests, CI failures, and AI-generated
+              actions in one stream. Filters at the top:{" "}
+              <code>filter=mentions</code>, <code>filter=review</code>,{" "}
+              <code>filter=ci</code>, <code>filter=ai</code>. The badge
+              count next to <em>Inbox</em> in the nav is unread items.
+            </div>
+            <div class="help-item">
+              <strong><a href="/activity">/activity</a> — your
+              timeline.</strong> A chronological feed of every push,
+              merge, comment, and AI action across your repos. Useful for
+              writing your own weekly recap and for spotting when an
+              autopilot task fired without you noticing.
+            </div>
+            <div class="help-item">
+              <strong><a href="/standups">/standups</a> — daily AI
+              brief.</strong> Claude writes a short standup at your
+              configured time (defaults to 09:00 UTC) summarising
+              yesterday's pushes, today's open PRs, and anything blocking.
+              Toggle the cadence in <a href="/settings">Settings →
+              Standups</a>. Hit <em>Refresh</em> on the page to regenerate
+              for the current window.
+            </div>
+            <div class="help-item">
+              <strong><a href="/voice">/voice</a> — voice-to-PR.</strong>{" "}
+              Hit record, speak a feature spec, stop — Claude transcribes,
+              picks the target repo, drafts the diff, and opens a draft
+              PR. The whole loop fits in a single browser tab; no native
+              app, no Whisper setup. Uses the browser's MediaRecorder API
+              under the hood — Chrome, Safari 17+, Firefox.
+            </div>
+            <div class="help-item">
+              <strong><a href="/refactors">/refactors</a> — multi-repo
+              refactor agent.</strong> Paste a brief like "rename the{" "}
+              <code>cents</code> field to <code>amountMinor</code> across
+              every API repo." Claude walks each repo, generates a patch,
+              and opens a draft PR per repo. Tracking dashboard shows
+              per-repo status (drafted / pushed / merged / failed).
+            </div>
+            <div class="help-item">
+              <strong><a href="/specs">/specs</a> — spec-to-PR loop.</strong>
+              Every <code>.gluecron/specs/*.md</code> file across your
+              repos shows up here. Add a spec, push it, then either run
+              the spec-to-PR generator from the page or label the file
+              and let autopilot do it overnight.
+            </div>
+          </div>
+        </section>
+
+        {/* ─── Chat with a repo ─── */}
+        <section id="repo-chat" class="help-section">
+          <div class="help-section-head">
+            <div class="help-section-eyebrow">Per-repo</div>
+            <h2 class="help-section-title">Chat with a repo</h2>
+            <p class="help-section-desc">
+              Rubber-duck a question against any single repo. Powered by
+              the semantic code index — Claude pulls the relevant files
+              on every turn so answers stay grounded in your actual code.
+            </p>
+          </div>
+          <div class="help-section-body">
+            <div class="help-item">
+              Visit <code>/:owner/:repo/chat</code> on any repo you can
+              read (the dashboard <em>Quick actions</em> panel has a
+              one-click link). Ask "where does auth happen?", "what does
+              this Drizzle migration do?", "draft a test for {`<file>`}".
+              The chat scrolls forever and the context is freshly retrieved
+              on every message — so file moves and recent pushes are
+              immediately visible to Claude.
+            </div>
+            <div class="help-item">
+              <strong>Foundation: semantic search.</strong>{" "}
+              <code>/:owner/:repo/semantic-search?q=…</code> is the
+              underlying retrieval. Chunks are embedded with{" "}
+              <code>voyage-code-3</code> when <code>VOYAGE_API_KEY</code>{" "}
+              is set; otherwise a lexical fallback (still useful — same
+              chunking and ranking, just no embeddings).
+            </div>
+          </div>
+        </section>
+
+        {/* ─── Branch previews ─── */}
+        <section id="previews" class="help-section">
+          <div class="help-section-head">
+            <div class="help-section-eyebrow">Per-repo</div>
+            <h2 class="help-section-title">Branch previews</h2>
+            <p class="help-section-desc">
+              Every non-default branch with a Dockerfile or a{" "}
+              <code>.gluecron/preview.yml</code> gets an ephemeral preview
+              URL. Spin up, share, tear down — automatically on push.
+            </p>
+          </div>
+          <div class="help-section-body">
+            <div class="help-item">
+              Open <code>/:owner/:repo/previews</code> to see the list of
+              live previews for the repo. Each row shows the branch, the
+              last commit, the preview URL, and the most recent build log.
+              Previews self-destruct when the branch is deleted or merged.
+            </div>
+            <div class="help-item">
+              <strong>Linked from PRs.</strong> Whenever a PR is opened
+              against the default branch, the PR header surfaces the
+              preview URL so reviewers click straight through to a running
+              instance instead of pulling locally.
+            </div>
+          </div>
+        </section>
+
+        {/* ─── Migration assistant ─── */}
+        <section id="migrations" class="help-section">
+          <div class="help-section-head">
+            <div class="help-section-eyebrow">Per-repo</div>
+            <h2 class="help-section-title">Migration assistant</h2>
+            <p class="help-section-desc">
+              When you touch a Drizzle schema, Claude proposes the
+              corresponding migration SQL and a one-line rollback plan.
+              No more "did I forget the migration?" PRs.
+            </p>
+          </div>
+          <div class="help-section-body">
+            <div class="help-item">
+              Visit <code>/:owner/:repo/migrations/propose</code> and
+              point the assistant at a recent schema change. It returns
+              the SQL diff, an up/down script, and a checklist of edge
+              cases (NULL→NOT NULL, type widening, default backfill). Save
+              the suggestion straight into <code>drizzle/NNNN_*.sql</code>{" "}
+              when you're happy with it.
+            </div>
+            <div class="help-item">
+              <strong>Discoverability.</strong> Surfaced from{" "}
+              <code>Settings → Integrations</code> on the repo, and
+              auto-pinged when a push modifies <code>src/db/schema.ts</code>{" "}
+              without a sibling migration file.
+            </div>
+          </div>
+        </section>
+
+        {/* ─── PR slash commands ─── */}
+        <section id="slash-commands" class="help-section">
+          <div class="help-section-head">
+            <div class="help-section-eyebrow">PR power</div>
+            <h2 class="help-section-title">PR slash commands</h2>
+            <p class="help-section-desc">
+              Type <code>/</code> at the start of a PR comment to invoke
+              Claude inline. The composer hint shows the list as you type.
+            </p>
+          </div>
+          <div class="help-section-body">
+            <div class="help-item">
+              <strong>Available commands.</strong>
+              <pre class="help-code">
+{`/review              Re-run the AI reviewer on the latest diff
+/summarise           Drop a fresh PR summary into the description
+/test-plan           Generate a test plan from the diff
+/explain-this        Plain-English summary of one file or hunk
+/risk                Score the diff for breaking-change risk
+/migrate             Propose a Drizzle migration for schema changes
+/release-notes       Draft release notes covering this PR only
+/help                List every command`}
+              </pre>
+            </div>
+            <div class="help-item">
+              Commands are deterministic when <code>ANTHROPIC_API_KEY</code>{" "}
+              is missing (fallbacks summarise file lists; no model output).
+              They also work from the CLI: <code>gluecron pr cmd /review</code>.
+            </div>
+          </div>
+        </section>
+
+        {/* ─── AI release notes ─── */}
+        <section id="release-notes" class="help-section">
+          <div class="help-section-head">
+            <div class="help-section-eyebrow">Releases</div>
+            <h2 class="help-section-title">AI release notes</h2>
+            <p class="help-section-desc">
+              The release form has a <em>Generate notes</em> button that
+              drafts a polished changelog from every PR merged since the
+              previous tag.
+            </p>
+          </div>
+          <div class="help-section-body">
+            <div class="help-item">
+              From <code>/:owner/:repo/releases/new</code>, type a new tag
+              name and click <em>Generate notes</em>. Claude calls{" "}
+              <code>POST /api/v2/repos/:owner/:repo/releases/notes</code>{" "}
+              with the from/to tags and returns markdown grouped by{" "}
+              <em>Features</em>, <em>Fixes</em>, <em>Internal</em>. Edit
+              before publishing or accept as-is.
+            </div>
+          </div>
+        </section>
+
+        {/* ─── Agent multiplayer ─── */}
+        <section id="agents" class="help-section">
+          <div class="help-section-head">
+            <div class="help-section-eyebrow">Multi-agent</div>
+            <h2 class="help-section-title">Agent multiplayer</h2>
+            <p class="help-section-desc">
+              Mint scoped tokens for AI agents, give each its own branch
+              namespace + daily budget, and let them coordinate through
+              the lease API so two Claudes never touch the same file.
+            </p>
+          </div>
+          <div class="help-section-body">
+            <div class="help-item">
+              <strong>Manage agents</strong> at{" "}
+              <a href="/settings/agents">/settings/agents</a>. Each agent
+              gets a name, a branch namespace
+              (<code>refs/heads/&lt;namespace&gt;*</code>), and a daily
+              spend cap. Tokens are shown once on creation — copy them
+              immediately. The same page lists the most recent leases
+              (work-in-progress markers) per agent.
+            </div>
+            <div class="help-item">
+              <strong>Lease API.</strong>{" "}
+              <code>POST /api/v2/agents/leases</code> acquires a lease on
+              an issue, PR, or file path. Agents see currently-held
+              leases via <code>GET /api/v2/agents/leases</code> and back
+              off when a conflict is hit. Full protocol is in{" "}
+              <code>docs/multiplayer.md</code> on the gluecron source repo.
+            </div>
+          </div>
+        </section>
+
+        {/* ─── Semantic search API ─── */}
+        <section id="semantic" class="help-section">
+          <div class="help-section-head">
+            <div class="help-section-eyebrow">API</div>
+            <h2 class="help-section-title">Semantic search API</h2>
+            <p class="help-section-desc">
+              The same index that powers <em>Chat with a repo</em> is
+              available as a JSON endpoint.
+            </p>
+          </div>
+          <div class="help-section-body">
+            <div class="help-item">
+              <pre class="help-code">
+{`curl -H "Authorization: Bearer glc_…" \\
+  "https://<your-host>/api/v2/repos/<owner>/<repo>/semantic-search?q=password+hashing&limit=10"`}
+              </pre>
+              Returns a JSON array of <code>{`{ path, startLine, endLine, snippet, score }`}</code>{" "}
+              objects sorted by relevance. When <code>VOYAGE_API_KEY</code>{" "}
+              is unset on the server the endpoint falls back to lexical
+              ranking — useful for offline / air-gapped installs.
+            </div>
+          </div>
+        </section>
+
         {/* ─── Setup AI commits ─── */}
         <section id="ai-commits" class="help-section">
           <div class="help-section-head">
@@ -637,6 +923,27 @@ gluecron hook uninstall commit-msg`}
               Full REST + GraphQL reference lives at{" "}
               <a href="/api/docs">/api/docs</a>. The GraphQL explorer is at{" "}
               <a href="/api/graphql">/api/graphql</a>.
+            </div>
+          </div>
+        </section>
+
+        {/* ─── Build-agent integration spec ─── */}
+        <section id="build-agents" class="help-section">
+          <div class="help-section-head">
+            <div class="help-section-eyebrow">For AI vendors</div>
+            <h2 class="help-section-title">Build-agent integration</h2>
+            <p class="help-section-desc">
+              Public spec for AI build-agent vendors (Holden Mercer,
+              Cursor, Claude Code, etc.) who want to read issues, open
+              PRs, and post review comments via the Gluecron API.
+            </p>
+          </div>
+          <div class="help-section-body">
+            <div class="help-item">
+              The full integration contract lives at{" "}
+              <a href="/docs/build-agent-integration">/docs/build-agent-integration</a>{" "}
+              — endpoint list, auth scopes, webhook payloads, and the
+              <code>ai:build</code> label convention.
             </div>
           </div>
         </section>

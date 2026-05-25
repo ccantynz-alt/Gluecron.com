@@ -789,6 +789,12 @@ function AuditPage({
               <span class="audit-title-grad">Trail.</span>
             </h1>
             <p class="audit-sub">{subtitle}</p>
+            <p class="audit-sub" style="margin-top: 8px; font-size: 13px;">
+              <strong>Also surfaces:</strong> findings from the AI proactive
+              monitor (<code>action=ai.monitor.*</code>) — stale TODOs, stuck
+              PRs, suspicious patterns it filed automatically. Filter by
+              actor <code>system</code> to see only the monitor's events.
+            </p>
           </div>
         </section>
 

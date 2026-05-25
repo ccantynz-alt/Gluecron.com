@@ -42,6 +42,46 @@ interface Category {
 
 const CATEGORIES: Category[] = [
   {
+    title: "Closed-loop AI (no GitHub equivalent)",
+    rows: [
+      {
+        feature: "Spec-to-PR (spec file → draft PR)",
+        gh: { verdict: "no", note: "Not available" },
+        gc: { verdict: "yes", note: ".gluecron/specs → /specs" },
+      },
+      {
+        feature: "Voice-to-PR (talk → diff)",
+        gh: { verdict: "no", note: "Not available" },
+        gc: { verdict: "yes", note: "/voice — MediaRecorder + Claude" },
+      },
+      {
+        feature: "Multi-repo refactor agent",
+        gh: { verdict: "no", note: "Not available" },
+        gc: { verdict: "yes", note: "/refactors — one brief, N PRs" },
+      },
+      {
+        feature: "Auto-healing CI",
+        gh: { verdict: "no", note: "Not available" },
+        gc: { verdict: "yes", note: "AI CI healer on every failed run" },
+      },
+      {
+        feature: "Per-PR live co-editing",
+        gh: { verdict: "no", note: "Not available" },
+        gc: { verdict: "yes", note: "Presence pill + cursor ribbons" },
+      },
+      {
+        feature: "Agent multiplayer (scoped tokens + leases)",
+        gh: { verdict: "no", note: "Not available" },
+        gc: { verdict: "yes", note: "/settings/agents + lease API" },
+      },
+      {
+        feature: "AI commit messages",
+        gh: { verdict: "partial", note: "Copilot CLI (separate product)" },
+        gc: { verdict: "yes", note: "Native — gluecron commit / git hook" },
+      },
+    ],
+  },
+  {
     title: "AI-native workflow",
     rows: [
       {

@@ -276,6 +276,43 @@ settingsAgents.get("/settings/agents", async (c) => {
 
   const body = `
     <style>${styles}</style>
+    <style>
+      .sa-subnav {
+        display: flex;
+        gap: 6px;
+        max-width: 920px;
+        margin: 0 auto;
+        padding: var(--space-4) var(--space-4) 0;
+      }
+      .sa-subnav a {
+        display: inline-flex;
+        align-items: center;
+        padding: 6px 12px;
+        font-size: 13px;
+        color: var(--text-muted);
+        background: var(--bg-elevated);
+        border: 1px solid var(--border);
+        border-radius: 7px;
+        text-decoration: none;
+        transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+      }
+      .sa-subnav a:hover {
+        color: var(--text-strong);
+        border-color: rgba(140,109,255,0.45);
+        text-decoration: none;
+      }
+      .sa-subnav a.is-active {
+        background: linear-gradient(135deg, rgba(140,109,255,0.14), rgba(54,197,214,0.10));
+        color: var(--text-strong);
+        border-color: rgba(140,109,255,0.45);
+        font-weight: 600;
+      }
+    </style>
+    <nav class="sa-subnav" aria-label="Settings sections">
+      <a href="/settings">Profile</a>
+      <a href="/settings/keys">SSH keys</a>
+      <a href="/settings/agents" class="is-active" aria-current="page">Agents</a>
+    </nav>
     <div class="sa-wrap">
       <div class="sa-hero">
         <h1>Agent sessions</h1>

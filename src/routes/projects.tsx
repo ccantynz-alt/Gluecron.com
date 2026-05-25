@@ -6,6 +6,10 @@
  * one column at a time. Simple v1: positions are recomputed via "max+1".
  *
  * Never throws — all DB paths wrapped in try/catch.
+ *
+ * 2026 polish: scoped `.proj-*` class system mirrors `collaborators.tsx` —
+ * eyebrow + display headline, polished project cards with tabular-nums for
+ * counts, state pills, and a kanban board with hairline-gradient columns.
  */
 
 import { Hono } from "hono";
@@ -26,6 +30,457 @@ import type { AuthEnv } from "../middleware/auth";
 const DEFAULT_COLUMNS = ["To Do", "In Progress", "Done"] as const;
 
 const projectRoutes = new Hono<AuthEnv>();
+
+// ─── Scoped CSS (.proj-*) ───────────────────────────────────────────────────
+const projStyles = `
+  .proj-wrap { max-width: 1100px; margin: 0 auto; padding: var(--space-5) var(--space-4) var(--space-8); }
+
+  .proj-head {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: var(--space-4);
+    flex-wrap: wrap;
+    margin-bottom: var(--space-5);
+  }
+  .proj-head-text { flex: 1; min-width: 280px; }
+  .proj-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    text-transform: uppercase;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    color: var(--text-muted);
+    font-weight: 600;
+    margin-bottom: 10px;
+  }
+  .proj-eyebrow-dot {
+    width: 8px; height: 8px;
+    border-radius: 9999px;
+    background: linear-gradient(135deg, #8c6dff, #36c5d6);
+    box-shadow: 0 0 0 3px rgba(140,109,255,0.18);
+  }
+  .proj-title {
+    font-family: var(--font-display);
+    font-size: clamp(24px, 3.4vw, 36px);
+    font-weight: 800;
+    letter-spacing: -0.028em;
+    line-height: 1.1;
+    margin: 0 0 6px;
+    color: var(--text-strong);
+  }
+  .proj-title-grad {
+    background-image: linear-gradient(135deg, #a48bff 0%, #8c6dff 50%, #36c5d6 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+  }
+  .proj-sub {
+    margin: 0;
+    font-size: 14px;
+    color: var(--text-muted);
+    line-height: 1.5;
+    max-width: 640px;
+  }
+
+  /* Buttons */
+  .proj-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 9px 16px;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 600;
+    text-decoration: none;
+    border: 1px solid transparent;
+    cursor: pointer;
+    font: inherit;
+    line-height: 1;
+    white-space: nowrap;
+    transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease, border-color 120ms ease, color 120ms ease;
+  }
+  .proj-btn-primary {
+    background: linear-gradient(135deg, #8c6dff 0%, #36c5d6 100%);
+    color: #ffffff;
+    box-shadow: 0 6px 18px -6px rgba(140,109,255,0.50), inset 0 1px 0 rgba(255,255,255,0.16);
+  }
+  .proj-btn-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 10px 24px -8px rgba(140,109,255,0.60), inset 0 1px 0 rgba(255,255,255,0.20);
+    text-decoration: none;
+    color: #ffffff;
+  }
+  .proj-btn-ghost {
+    background: transparent;
+    color: var(--text);
+    border-color: var(--border-strong);
+  }
+  .proj-btn-ghost:hover {
+    background: rgba(140,109,255,0.06);
+    border-color: rgba(140,109,255,0.45);
+    color: var(--text-strong);
+    text-decoration: none;
+  }
+  .proj-btn-mini {
+    padding: 4px 10px;
+    font-size: 11.5px;
+    border-radius: 8px;
+  }
+
+  /* Crumbs */
+  .proj-crumbs {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: var(--space-4);
+    font-size: 12.5px;
+  }
+  .proj-crumbs a {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 6px 11px;
+    background: rgba(255,255,255,0.025);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-muted);
+    text-decoration: none;
+    font-weight: 500;
+    transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+  }
+  .proj-crumbs a:hover {
+    border-color: var(--border-strong);
+    color: var(--text-strong);
+    background: rgba(255,255,255,0.04);
+    text-decoration: none;
+  }
+
+  /* Project list cards */
+  .proj-list { display: flex; flex-direction: column; gap: 10px; }
+  .proj-card {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 14px 18px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    transition: border-color 120ms ease, background 120ms ease;
+  }
+  .proj-card:hover {
+    border-color: var(--border-strong);
+    background: rgba(255,255,255,0.03);
+  }
+  .proj-num {
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
+  }
+  .proj-card-body { flex: 1; min-width: 0; }
+  .proj-card-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .proj-card-title a {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 15.5px;
+    color: var(--text-strong);
+    text-decoration: none;
+    letter-spacing: -0.005em;
+  }
+  .proj-card-title a:hover { text-decoration: underline; }
+  .proj-card-desc {
+    margin-top: 3px;
+    font-size: 13px;
+    color: var(--text-muted);
+    line-height: 1.45;
+  }
+  .proj-card-meta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    font-size: 12px;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .proj-card-meta .sep { opacity: 0.4; }
+
+  /* Pills */
+  .proj-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 9px;
+    border-radius: 9999px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: capitalize;
+  }
+  .proj-pill .dot { width: 6px; height: 6px; border-radius: 9999px; background: currentColor; }
+  .proj-pill.is-open {
+    background: rgba(52,211,153,0.14);
+    color: #6ee7b7;
+    box-shadow: inset 0 0 0 1px rgba(52,211,153,0.32);
+  }
+  .proj-pill.is-closed {
+    background: rgba(148,163,184,0.16);
+    color: #cbd5e1;
+    box-shadow: inset 0 0 0 1px rgba(148,163,184,0.30);
+  }
+  .proj-pill.is-count {
+    background: rgba(140,109,255,0.12);
+    color: #c4b5fd;
+    box-shadow: inset 0 0 0 1px rgba(140,109,255,0.30);
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Form card */
+  .proj-form-card {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: var(--space-5);
+    max-width: 640px;
+    position: relative;
+    overflow: hidden;
+  }
+  .proj-form-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent 0%, #8c6dff 30%, #36c5d6 70%, transparent 100%);
+    opacity: 0.55;
+  }
+  .proj-field { margin-bottom: 14px; }
+  .proj-field-label {
+    display: block;
+    font-size: 11.5px;
+    color: var(--text-muted);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 6px;
+  }
+  .proj-input, .proj-textarea {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 9px 12px;
+    font: inherit;
+    font-size: 13.5px;
+    color: var(--text);
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border-strong);
+    border-radius: 10px;
+    transition: border-color 120ms ease, background 120ms ease, box-shadow 120ms ease;
+  }
+  .proj-textarea { font-family: inherit; resize: vertical; line-height: 1.5; }
+  .proj-input:focus, .proj-textarea:focus {
+    outline: none;
+    border-color: rgba(140,109,255,0.55);
+    background: rgba(255,255,255,0.05);
+    box-shadow: 0 0 0 3px rgba(140,109,255,0.18);
+  }
+
+  /* Board view */
+  .proj-board-head {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: var(--space-4);
+    flex-wrap: wrap;
+    margin-bottom: var(--space-4);
+  }
+  .proj-board-desc {
+    margin: 6px 0 0;
+    color: var(--text-muted);
+    font-size: 13.5px;
+    line-height: 1.5;
+  }
+
+  .proj-kanban {
+    display: flex;
+    gap: 14px;
+    overflow-x: auto;
+    padding-bottom: 12px;
+    scrollbar-width: thin;
+  }
+  .proj-kcol {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    min-width: 280px;
+    max-width: 280px;
+    flex-shrink: 0;
+    padding: 12px;
+    position: relative;
+    overflow: hidden;
+  }
+  .proj-kcol::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent 0%, #8c6dff 30%, #36c5d6 70%, transparent 100%);
+    opacity: 0.5;
+    pointer-events: none;
+  }
+  .proj-kcol-new {
+    background: transparent;
+    border-style: dashed;
+  }
+  .proj-kcol-new::before { display: none; }
+  .proj-kcol-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin: 2px 4px 12px;
+  }
+  .proj-kcol-name {
+    font-family: var(--font-display);
+    font-size: 13.5px;
+    font-weight: 700;
+    color: var(--text-strong);
+    letter-spacing: -0.005em;
+  }
+  .proj-kcard {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    font-size: 13px;
+    transition: border-color 120ms ease, background 120ms ease;
+  }
+  .proj-kcard:hover {
+    border-color: var(--border-strong);
+    background: rgba(255,255,255,0.05);
+  }
+  .proj-kcard-title {
+    font-weight: 600;
+    color: var(--text-strong);
+    line-height: 1.35;
+  }
+  .proj-kcard-note {
+    margin-top: 4px;
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 1.45;
+  }
+  .proj-kcard-actions {
+    margin-top: 8px;
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+  }
+  .proj-kcard-actions form { margin: 0; display: inline; }
+
+  .proj-kadd { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+  .proj-kadd input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 7px 10px;
+    font: inherit;
+    font-size: 12.5px;
+    color: var(--text);
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  .proj-kadd input:focus {
+    outline: none;
+    border-color: rgba(140,109,255,0.55);
+    box-shadow: 0 0 0 3px rgba(140,109,255,0.18);
+  }
+
+  /* Empty */
+  .proj-empty {
+    position: relative;
+    overflow: hidden;
+    padding: clamp(32px, 6vw, 56px) clamp(20px, 4vw, 36px);
+    text-align: center;
+    background: var(--bg-elevated);
+    border: 1px dashed var(--border-strong);
+    border-radius: 16px;
+  }
+  .proj-empty-orb {
+    position: absolute;
+    inset: -40% 30% auto 30%;
+    height: 280px;
+    background: radial-gradient(circle, rgba(140,109,255,0.18), rgba(54,197,214,0.10) 45%, transparent 70%);
+    filter: blur(70px);
+    opacity: 0.7;
+    pointer-events: none;
+    z-index: 0;
+  }
+  .proj-empty-inner { position: relative; z-index: 1; }
+  .proj-empty-icon {
+    width: 56px; height: 56px;
+    border-radius: 9999px;
+    background: linear-gradient(135deg, rgba(140,109,255,0.25), rgba(54,197,214,0.20));
+    box-shadow: inset 0 0 0 1px rgba(140,109,255,0.40);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #c4b5fd;
+    margin-bottom: 14px;
+  }
+  .proj-empty-title {
+    font-family: var(--font-display);
+    font-size: 18px;
+    font-weight: 700;
+    margin: 0 0 6px;
+    color: var(--text-strong);
+  }
+  .proj-empty-sub {
+    margin: 0 auto 16px;
+    font-size: 13.5px;
+    color: var(--text-muted);
+    max-width: 420px;
+    line-height: 1.5;
+  }
+`;
+
+function IconBoard() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <rect x="3" y="3" width="7" height="18" rx="1" />
+      <rect x="14" y="3" width="7" height="11" rx="1" />
+    </svg>
+  );
+}
+function IconPlus() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <line x1="12" y1="5" x2="12" y2="19" />
+      <line x1="5" y1="12" x2="19" y2="12" />
+    </svg>
+  );
+}
+function IconArrowLeft() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <line x1="19" y1="12" x2="5" y2="12" />
+      <polyline points="12 19 5 12 12 5" />
+    </svg>
+  );
+}
 
 async function resolveRepo(ownerName: string, repoName: string) {
   try {
@@ -55,9 +510,15 @@ async function resolveRepo(ownerName: string, repoName: string) {
 function notFound(user: any, label = "Not found") {
   return (
     <Layout title={label} user={user}>
-      <div class="empty-state">
-        <h2>{label}</h2>
+      <div class="proj-wrap">
+        <div class="proj-empty">
+          <div class="proj-empty-orb" aria-hidden="true" />
+          <div class="proj-empty-inner">
+            <h2 class="proj-empty-title">{label}</h2>
+          </div>
+        </div>
       </div>
+      <style dangerouslySetInnerHTML={{ __html: projStyles }} />
     </Layout>
   );
 }
@@ -88,50 +549,93 @@ projectRoutes.get("/:owner/:repo/projects", softAuth, async (c) => {
   return c.html(
     <Layout title={`Projects — ${ownerName}/${repoName}`} user={user}>
       <RepoHeader owner={ownerName} repo={repoName} />
-      <div style="display: flex; justify-content: space-between; align-items: center; margin: 16px 0;">
-        <h2 style="margin: 0;">Projects</h2>
-        {user && (
-          <a
-            href={`/${ownerName}/${repoName}/projects/new`}
-            class="btn btn-primary"
-          >
-            New project
-          </a>
+      <div class="proj-wrap">
+        <header class="proj-head">
+          <div class="proj-head-text">
+            <div class="proj-eyebrow">
+              <span class="proj-eyebrow-dot" aria-hidden="true" />
+              Repository · Projects
+            </div>
+            <h1 class="proj-title">
+              <span class="proj-title-grad">Plan the work.</span>
+            </h1>
+            <p class="proj-sub">
+              Lightweight kanban boards scoped to {ownerName}/{repoName}. Each
+              board owns its own columns and cards.
+            </p>
+          </div>
+          {user && (
+            <a
+              href={`/${ownerName}/${repoName}/projects/new`}
+              class="proj-btn proj-btn-primary"
+            >
+              <IconPlus />
+              New project
+            </a>
+          )}
+        </header>
+
+        {rows.length === 0 ? (
+          <div class="proj-empty">
+            <div class="proj-empty-orb" aria-hidden="true" />
+            <div class="proj-empty-inner">
+              <div class="proj-empty-icon" aria-hidden="true">
+                <IconBoard />
+              </div>
+              <h3 class="proj-empty-title">Start your first project</h3>
+              <p class="proj-empty-sub">
+                Boards are perfect for grouping work — sprints, OKRs, release
+                trains. We seed the default <code>To Do</code> /{" "}
+                <code>In Progress</code> / <code>Done</code> columns for you.
+              </p>
+              {user && (
+                <a
+                  href={`/${ownerName}/${repoName}/projects/new`}
+                  class="proj-btn proj-btn-primary"
+                >
+                  <IconPlus />
+                  New project
+                </a>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div class="proj-list">
+            {rows.map((r) => (
+              <div class="proj-card">
+                <div class="proj-num">#{r.p.number}</div>
+                <div class="proj-card-body">
+                  <div class="proj-card-title">
+                    <a href={`/${ownerName}/${repoName}/projects/${r.p.number}`}>
+                      {r.p.title}
+                    </a>
+                    {r.p.state === "closed" ? (
+                      <span class="proj-pill is-closed">
+                        <span class="dot" aria-hidden="true" />
+                        Closed
+                      </span>
+                    ) : (
+                      <span class="proj-pill is-open">
+                        <span class="dot" aria-hidden="true" />
+                        Open
+                      </span>
+                    )}
+                  </div>
+                  {r.p.description && (
+                    <div class="proj-card-desc">{r.p.description}</div>
+                  )}
+                </div>
+                <div class="proj-card-meta">
+                  <span class="proj-pill is-count">{r.columnCount} cols</span>
+                  <span class="sep">·</span>
+                  <span class="proj-pill is-count">{r.itemCount} items</span>
+                </div>
+              </div>
+            ))}
+          </div>
         )}
       </div>
-      {rows.length === 0 ? (
-        <div class="empty-state">
-          <p>No projects yet.</p>
-        </div>
-      ) : (
-        <table class="file-table">
-          <tbody>
-            {rows.map((r) => (
-              <tr>
-                <td style="width: 40px; color: var(--text-muted);">
-                  #{r.p.number}
-                </td>
-                <td>
-                  <a
-                    href={`/${ownerName}/${repoName}/projects/${r.p.number}`}
-                  >
-                    <strong>{r.p.title}</strong>
-                  </a>
-                  {r.p.state === "closed" && <span class="badge">closed</span>}
-                  {r.p.description && (
-                    <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">
-                      {r.p.description}
-                    </div>
-                  )}
-                </td>
-                <td style="text-align: right; color: var(--text-muted); font-size: 13px;">
-                  {r.columnCount} cols · {r.itemCount} items
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+      <style dangerouslySetInnerHTML={{ __html: projStyles }} />
     </Layout>
   );
 });
@@ -148,30 +652,62 @@ projectRoutes.get(
     return c.html(
       <Layout title="New project" user={user}>
         <RepoHeader owner={ownerName} repo={repoName} />
-        <h2 style="margin-top: 20px;">Create a project</h2>
-        <form
-          method="post"
-          action={`/${ownerName}/${repoName}/projects`}
-          style="display: flex; flex-direction: column; gap: 12px; margin-top: 16px;"
-        >
-          <input
-            type="text"
-            name="title"
-            placeholder="Title"
-            required
-            aria-label="Project title"
-            style="padding: 8px;"
-          />
-          <textarea
-            name="description"
-            rows={4}
-            placeholder="Description (optional)"
-            style="padding: 8px; font-family: inherit;"
-          ></textarea>
-          <button type="submit" class="btn btn-primary">
-            Create
-          </button>
-        </form>
+        <div class="proj-wrap">
+          <div class="proj-crumbs">
+            <a href={`/${ownerName}/${repoName}/projects`}>
+              <IconArrowLeft />
+              All projects
+            </a>
+          </div>
+          <header class="proj-head">
+            <div class="proj-head-text">
+              <div class="proj-eyebrow">
+                <span class="proj-eyebrow-dot" aria-hidden="true" />
+                Projects · New
+              </div>
+              <h1 class="proj-title">
+                <span class="proj-title-grad">Create a board.</span>
+              </h1>
+              <p class="proj-sub">
+                Name your project — we seed default kanban columns you can
+                rename later.
+              </p>
+            </div>
+          </header>
+          <form
+            method="post"
+            action={`/${ownerName}/${repoName}/projects`}
+            class="proj-form-card"
+          >
+            <div class="proj-field">
+              <label class="proj-field-label" for="proj-title">Title</label>
+              <input
+                class="proj-input"
+                type="text"
+                id="proj-title"
+                name="title"
+                placeholder="Sprint 24 — Q3 release"
+                required
+                aria-label="Project title"
+              />
+            </div>
+            <div class="proj-field">
+              <label class="proj-field-label" for="proj-desc">Description</label>
+              <textarea
+                class="proj-textarea"
+                id="proj-desc"
+                name="description"
+                rows={4}
+                placeholder="What is this board for? (optional)"
+              ></textarea>
+            </div>
+            <button type="submit" class="proj-btn proj-btn-primary">
+              <IconPlus />
+              Create project
+            </button>
+          </form>
+        </div>
+        <style dangerouslySetInnerHTML={{ __html: projStyles }} />
       </Layout>
     );
   }
@@ -264,7 +800,6 @@ projectRoutes.get(
 
     if (!project) return c.html(notFound(user, "Project not found"), 404);
 
-    const isOwner = user && user.id === resolved.repo.ownerId;
     const itemsByCol: Record<string, any[]> = {};
     for (const col of columns) itemsByCol[col.id] = [];
     for (const it of items) {
@@ -277,143 +812,145 @@ projectRoutes.get(
         user={user}
       >
         <RepoHeader owner={ownerName} repo={repoName} />
-        <style>{`
-          .kanban { display: flex; gap: 16px; overflow-x: auto; padding: 16px 0; }
-          .kcol { background: var(--bg-soft); border: 1px solid var(--border); border-radius: 6px; min-width: 260px; flex-shrink: 0; padding: 12px; }
-          .kcol h4 { margin: 0 0 12px; display: flex; justify-content: space-between; }
-          .kcard { background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 8px; margin-bottom: 8px; font-size: 13px; }
-          .kcard form { display: inline; }
-        `}</style>
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 16px;">
-          <h1 style="margin: 0;">
-            {project.title}{" "}
-            <span style="color: var(--text-muted);">#{project.number}</span>
-            {project.state === "closed" && <span class="badge">closed</span>}
-          </h1>
-          {user && (
-            <form
-              method="post"
-              action={`/${ownerName}/${repoName}/projects/${project.number}/close`}
-              style="display: inline;"
-            >
-              <button type="submit" class="btn">
-                {project.state === "open" ? "Close" : "Reopen"}
-              </button>
-            </form>
-          )}
-        </div>
-        {project.description && (
-          <div style="color: var(--text-muted); margin-top: 4px;">
-            {project.description}
+        <div class="proj-wrap">
+          <div class="proj-crumbs">
+            <a href={`/${ownerName}/${repoName}/projects`}>
+              <IconArrowLeft />
+              All projects
+            </a>
           </div>
-        )}
-        <div class="kanban">
-          {columns.map((col) => (
-            <div class="kcol">
-              <h2>
-                <span>{col.name}</span>
-                <span style="color: var(--text-muted); font-size: 13px;">
-                  {(itemsByCol[col.id] || []).length}
-                </span>
-              </h2>
-              {(itemsByCol[col.id] || []).map((it) => (
-                <div class="kcard">
-                  <div>
-                    <strong>{it.title || "(untitled)"}</strong>
-                  </div>
-                  {it.note && (
-                    <div style="color: var(--text-muted); margin-top: 4px;">
-                      {it.note}
-                    </div>
-                  )}
-                  {user && (
-                    <div style="margin-top: 8px; display: flex; gap: 4px; flex-wrap: wrap;">
-                      {columns
-                        .filter((oc) => oc.id !== col.id)
-                        .map((oc) => (
-                          <form
-                            method="post"
-                            action={`/${ownerName}/${repoName}/projects/${project.number}/items/${it.id}/move`}
-                          >
-                            <input
-                              type="hidden"
-                              name="column_id"
-                              value={oc.id}
-                            />
-                            <button
-                              type="submit"
-                              class="btn"
-                              style="font-size: 11px; padding: 2px 6px;"
-                            >
-                              → {oc.name}
-                            </button>
-                          </form>
-                        ))}
-                      <form
-                        method="post"
-                        action={`/${ownerName}/${repoName}/projects/${project.number}/items/${it.id}/delete`}
-                      >
-                        <button
-                          type="submit"
-                          class="btn"
-                          aria-label="Delete item"
-                          style="font-size: 11px; padding: 2px 6px;"
-                        >
-                          ×
-                        </button>
-                      </form>
-                    </div>
-                  )}
-                </div>
-              ))}
-              {user && (
-                <form
-                  method="post"
-                  action={`/${ownerName}/${repoName}/projects/${project.number}/items`}
-                  style="margin-top: 8px; display: flex; flex-direction: column; gap: 4px;"
-                >
-                  <input type="hidden" name="column_id" value={col.id} />
-                  <input
-                    type="text"
-                    name="title"
-                    placeholder="New card title"
-                    required
-                    aria-label="New card title"
-                    style="padding: 4px; font-size: 12px;"
-                  />
-                  <button
-                    type="submit"
-                    class="btn"
-                    style="font-size: 12px; padding: 4px;"
-                  >
-                    + Add card
-                  </button>
-                </form>
+          <div class="proj-board-head">
+            <div>
+              <div class="proj-eyebrow">
+                <span class="proj-eyebrow-dot" aria-hidden="true" />
+                Project · #{project.number}
+              </div>
+              <h1 class="proj-title">
+                <span class="proj-title-grad">{project.title}</span>
+                {project.state === "closed" && (
+                  <span class="proj-pill is-closed" style="margin-left:12px;vertical-align:middle">
+                    <span class="dot" aria-hidden="true" />
+                    Closed
+                  </span>
+                )}
+              </h1>
+              {project.description && (
+                <p class="proj-board-desc">{project.description}</p>
               )}
             </div>
-          ))}
-          {user && (
-            <div class="kcol" style="background: transparent; border-style: dashed;">
+            {user && (
               <form
                 method="post"
-                action={`/${ownerName}/${repoName}/projects/${project.number}/columns`}
-                style="display: flex; flex-direction: column; gap: 8px;"
+                action={`/${ownerName}/${repoName}/projects/${project.number}/close`}
               >
-                <input
-                  type="text"
-                  name="name"
-                  placeholder="New column"
-                  required
-                  aria-label="New column name"
-                  style="padding: 6px;"
-                />
-                <button type="submit" class="btn">
-                  + Add column
+                <button type="submit" class="proj-btn proj-btn-ghost">
+                  {project.state === "open" ? "Close" : "Reopen"}
                 </button>
               </form>
-            </div>
-          )}
+            )}
+          </div>
+          <div class="proj-kanban">
+            {columns.map((col) => (
+              <div class="proj-kcol">
+                <div class="proj-kcol-head">
+                  <span class="proj-kcol-name">{col.name}</span>
+                  <span class="proj-pill is-count">
+                    {(itemsByCol[col.id] || []).length}
+                  </span>
+                </div>
+                {(itemsByCol[col.id] || []).map((it) => (
+                  <div class="proj-kcard">
+                    <div class="proj-kcard-title">{it.title || "(untitled)"}</div>
+                    {it.note && (
+                      <div class="proj-kcard-note">{it.note}</div>
+                    )}
+                    {user && (
+                      <div class="proj-kcard-actions">
+                        {columns
+                          .filter((oc) => oc.id !== col.id)
+                          .map((oc) => (
+                            <form
+                              method="post"
+                              action={`/${ownerName}/${repoName}/projects/${project.number}/items/${it.id}/move`}
+                            >
+                              <input
+                                type="hidden"
+                                name="column_id"
+                                value={oc.id}
+                              />
+                              <button
+                                type="submit"
+                                class="proj-btn proj-btn-ghost proj-btn-mini"
+                              >
+                                → {oc.name}
+                              </button>
+                            </form>
+                          ))}
+                        <form
+                          method="post"
+                          action={`/${ownerName}/${repoName}/projects/${project.number}/items/${it.id}/delete`}
+                        >
+                          <button
+                            type="submit"
+                            class="proj-btn proj-btn-ghost proj-btn-mini"
+                            aria-label="Delete item"
+                          >
+                            ×
+                          </button>
+                        </form>
+                      </div>
+                    )}
+                  </div>
+                ))}
+                {user && (
+                  <form
+                    method="post"
+                    action={`/${ownerName}/${repoName}/projects/${project.number}/items`}
+                    class="proj-kadd"
+                  >
+                    <input type="hidden" name="column_id" value={col.id} />
+                    <input
+                      type="text"
+                      name="title"
+                      placeholder="New card title"
+                      required
+                      aria-label="New card title"
+                    />
+                    <button
+                      type="submit"
+                      class="proj-btn proj-btn-ghost proj-btn-mini"
+                    >
+                      <IconPlus />
+                      Add card
+                    </button>
+                  </form>
+                )}
+              </div>
+            ))}
+            {user && (
+              <div class="proj-kcol proj-kcol-new">
+                <form
+                  method="post"
+                  action={`/${ownerName}/${repoName}/projects/${project.number}/columns`}
+                  class="proj-kadd"
+                >
+                  <input
+                    type="text"
+                    name="name"
+                    placeholder="New column"
+                    required
+                    aria-label="New column name"
+                  />
+                  <button type="submit" class="proj-btn proj-btn-ghost proj-btn-mini">
+                    <IconPlus />
+                    Add column
+                  </button>
+                </form>
+              </div>
+            )}
+          </div>
         </div>
+        <style dangerouslySetInnerHTML={{ __html: projStyles }} />
       </Layout>
     );
   }

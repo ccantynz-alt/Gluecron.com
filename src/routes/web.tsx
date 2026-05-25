@@ -1515,6 +1515,57 @@ web.get("/:owner/:repo", async (c) => {
   const { owner, repo } = c.req.param();
   const user = c.get("user");
 
+  // ── Loading skeleton (flag-gated) ──
+  // Renders an SSR'd shell with file-tree + README placeholders when
+  // `?skeleton=1` is set. Lets the user see the page structure before
+  // git ops finish. Behind a flag for now so we never flash before the
+  // real content lands.
+  if (c.req.query("skeleton") === "1") {
+    return c.html(
+      <Layout title={`${owner}/${repo}`} user={user}>
+        <style
+          dangerouslySetInnerHTML={{
+            __html: `
+              .repo-skel { background: linear-gradient(90deg, var(--bg-secondary) 0%, var(--bg-elevated) 50%, var(--bg-secondary) 100%); background-size: 200% 100%; animation: repoSkelShimmer 1.4s infinite; border-radius: 6px; display: block; }
+              @keyframes repoSkelShimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+              @media (prefers-reduced-motion: reduce) { .repo-skel { animation: none; } }
+              .repo-skel-hero { height: 132px; border-radius: 16px; margin-bottom: var(--space-4); }
+              .repo-skel-nav { height: 36px; border-radius: 8px; margin-bottom: var(--space-4); }
+              .repo-skel-grid { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: var(--space-5); align-items: start; }
+              @media (max-width: 960px) { .repo-skel-grid { grid-template-columns: minmax(0, 1fr); } }
+              .repo-skel-branch { height: 32px; width: 200px; border-radius: 8px; margin-bottom: 12px; }
+              .repo-skel-tree { display: flex; flex-direction: column; gap: 6px; margin-bottom: var(--space-5); }
+              .repo-skel-tree-row { height: 36px; border-radius: 8px; }
+              .repo-skel-readme { height: 320px; border-radius: 12px; }
+              .repo-skel-side { display: flex; flex-direction: column; gap: var(--space-4); }
+              .repo-skel-side-card { height: 180px; border-radius: 12px; }
+            `,
+          }}
+        />
+        <div class="repo-skel repo-skel-hero" aria-hidden="true" />
+        <div class="repo-skel repo-skel-nav" aria-hidden="true" />
+        <div class="repo-skel-grid" aria-hidden="true">
+          <div>
+            <div class="repo-skel repo-skel-branch" />
+            <div class="repo-skel-tree">
+              {Array.from({ length: 8 }).map(() => (
+                <div class="repo-skel repo-skel-tree-row" />
+              ))}
+            </div>
+            <div class="repo-skel repo-skel-readme" />
+          </div>
+          <aside class="repo-skel-side">
+            <div class="repo-skel repo-skel-side-card" />
+            <div class="repo-skel repo-skel-side-card" />
+          </aside>
+        </div>
+        <span style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0" role="status" aria-live="polite">
+          Loading {owner}/{repo}…
+        </span>
+      </Layout>
+    );
+  }
+
   // F1 — fire-and-forget traffic tracking. Never awaits; never throws.
   trackByName(owner, repo, "view", {
     userId: user?.id || null,
@@ -1961,6 +2012,11 @@ web.get("/:owner/:repo", async (c) => {
       .repo-home-hero { padding: var(--space-4) var(--space-4); }
       .repo-home-clone-body { flex-direction: column; align-items: stretch; }
       .repo-home-clone-copy { width: 100%; }
+      .repo-home-stat-row { gap: var(--space-2) var(--space-3); font-size: 12.5px; }
+      .repo-home-side-val { max-width: 55%; }
+      .repo-home-clone-tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+      .repo-home-clone-tab { min-height: 44px; padding: 11px 14px; }
+      .repo-home-side-card { padding: var(--space-3); }
     }
   `;
   const cloneHttpsUrl = `${config.appBaseUrl}/${owner}/${repo}.git`;

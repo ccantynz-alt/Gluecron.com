@@ -589,6 +589,23 @@ const ExploreStyle = () => (
     gap: 8px;
     flex-wrap: wrap;
   }
+
+  /* ─── Mobile (≤720px) ─── */
+  @media (max-width: 720px) {
+    .explore-wrap { padding: 0 2px; }
+    .explore-hero-search-field { min-width: 0; width: 100%; }
+    .explore-hero-search input[type="search"] { padding: 14px 14px 14px 38px; min-height: 44px; }
+    .explore-toolbar { flex-direction: column; align-items: stretch; }
+    .explore-filters { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .explore-filter { min-height: 40px; padding: 10px 14px; }
+    .explore-grid { grid-template-columns: 1fr; }
+    .explore-skel-grid { grid-template-columns: 1fr; }
+    .explore-card { padding: 14px 16px; }
+    .explore-empty { padding: 40px 20px; }
+    .explore-foot { flex-direction: column; align-items: stretch; padding: 16px 18px; }
+    .explore-foot-actions { width: 100%; }
+    .explore-foot-actions .btn { flex: 1; min-width: 0; }
+  }
       `,
     }}
   />
@@ -623,6 +640,55 @@ explore.get("/explore", async (c) => {
   const q = c.req.query("q") || "";
   const sort = c.req.query("sort") || "recent";
   const topic = c.req.query("topic") || "";
+
+  // ── Loading skeleton (flag-gated) ──
+  // Renders the explore shell + card-grid skeleton when `?skeleton=1`
+  // is set. Re-uses the existing `.explore-skel-*` styles from
+  // ExploreStyle. Behind a flag so we don't flash empty placeholders
+  // before the real list lands.
+  if (c.req.query("skeleton") === "1") {
+    return c.html(
+      <Layout title="Explore" user={user}>
+        <ExploreStyle />
+        <div class="explore-wrap">
+          <section class="explore-hero" aria-hidden="true">
+            <div class="explore-hero-bg">
+              <div class="explore-hero-orb" />
+            </div>
+            <div class="explore-hero-orb-2" />
+            <div class="explore-hero-inner">
+              <div class="explore-hero-text">
+                <div class="explore-hero-eyebrow">
+                  <span class="explore-hero-eyebrow-dot" />
+                  Discover
+                </div>
+                <h1 class="explore-hero-title">
+                  What&rsquo;s{" "}
+                  <span class="explore-hero-title-grad">shipping</span>.
+                </h1>
+                <p class="explore-hero-sub">
+                  Loading public repositories…
+                </p>
+              </div>
+            </div>
+          </section>
+          <div class="explore-skel-grid" aria-hidden="true">
+            {Array.from({ length: 9 }).map(() => (
+              <div class="explore-skel">
+                <div class="explore-skel-row is-title" />
+                <div class="explore-skel-row is-line" />
+                <div class="explore-skel-row is-line" />
+                <div class="explore-skel-row is-short" />
+              </div>
+            ))}
+          </div>
+          <span style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0" role="status" aria-live="polite">
+            Loading public repositories…
+          </span>
+        </div>
+      </Layout>
+    );
+  }
 
   let repoList: Array<{
     repo: typeof repositories.$inferSelect;

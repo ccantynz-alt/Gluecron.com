@@ -236,6 +236,15 @@ const adminStyles = `
   }
   @media (max-width: 720px) {
     .admin-stat-grid { grid-template-columns: 1fr; }
+    .admin-hero { padding: var(--space-4); }
+    .admin-actions { grid-template-columns: 1fr; }
+    .admin-action { min-height: 44px; padding: 14px; }
+    .admin-list-row { flex-direction: column; align-items: stretch; padding: 14px; }
+    .admin-search { flex-direction: column; align-items: stretch; }
+    .admin-search .admin-input { width: 100%; }
+    .admin-card-body { padding: var(--space-4); }
+    .admin-card-foot { padding: var(--space-3) var(--space-4); justify-content: flex-start; }
+    .admin-ap-table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
   }
   .admin-stat {
     position: relative;
@@ -1062,6 +1071,12 @@ const admUsersStyles = `
     border-radius: 4px;
     color: var(--text);
   }
+
+  @media (max-width: 720px) {
+    .adm-users-wrap { padding: var(--space-4) var(--space-3); }
+    .adm-users-hero { padding: var(--space-4); }
+    .adm-users-grid { grid-template-columns: 1fr; }
+  }
 `;
 
 const admReposStyles = `
@@ -1360,6 +1375,12 @@ const admReposStyles = `
     font-size: 13.5px;
     line-height: 1.5;
   }
+
+  @media (max-width: 720px) {
+    .adm-repos-wrap { padding: var(--space-4) var(--space-3); }
+    .adm-repos-hero { padding: var(--space-4); }
+    .adm-repos-grid { grid-template-columns: 1fr; }
+  }
 `;
 
 const admFlagsStyles = `
@@ -1589,6 +1610,11 @@ const admFlagsStyles = `
     box-shadow: 0 6px 18px -6px rgba(140,109,255,0.45), inset 0 1px 0 rgba(255,255,255,0.16);
   }
   .adm-flags-btn-primary:hover { transform: translateY(-1px); box-shadow: 0 10px 24px -8px rgba(140,109,255,0.55); }
+
+  @media (max-width: 720px) {
+    .adm-flags-wrap { padding: var(--space-4) var(--space-3); }
+    .adm-flags-hero { padding: var(--space-4); }
+  }
 `;
 
 const admDigestsStyles = `
@@ -1952,6 +1978,12 @@ const admDigestsStyles = `
     color: var(--text-muted);
     font-size: 13.5px;
     line-height: 1.5;
+  }
+
+  @media (max-width: 720px) {
+    .adm-digests-wrap { padding: var(--space-4) var(--space-3); }
+    .adm-digests-hero { padding: var(--space-4); }
+    .adm-digests-grid { grid-template-columns: 1fr; }
   }
 `;
 
@@ -2378,6 +2410,13 @@ const admAutopilotStyles = `
     padding: 1px 5px;
     border-radius: 4px;
     color: var(--text);
+  }
+
+  @media (max-width: 720px) {
+    .adm-autopilot-wrap { padding: var(--space-4) var(--space-3); }
+    .adm-autopilot-hero { padding: var(--space-4); }
+    .adm-autopilot-statgrid { grid-template-columns: 1fr 1fr; }
+    .adm-autopilot-tasks { grid-template-columns: 1fr; }
   }
 `;
 

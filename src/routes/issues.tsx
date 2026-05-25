@@ -147,6 +147,20 @@ const issuesStyles = `
     .issues-hero-actions .btn { flex: 1; min-width: 0; }
   }
 
+  /* Mobile rules — added in the 720px sweep. Kept additive only. */
+  @media (max-width: 720px) {
+    .issues-toolbar { flex-direction: column; align-items: stretch; }
+    .issues-filters { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .issues-filter { min-height: 40px; padding: 10px 14px; }
+    .issues-row { padding: 12px 14px; gap: 10px; }
+    .issues-row-side { flex-wrap: wrap; gap: 8px; }
+    .issues-detail-hero { padding: 18px; }
+    .issues-detail-attr { font-size: 13px; }
+    .issues-composer-actions { gap: 8px; }
+    .issues-composer-actions .btn { flex: 1; min-width: 0; min-height: 44px; }
+    .issues-empty { padding: 40px 20px; }
+  }
+
   /* Count chip + filter pills */
   .issues-toolbar {
     display: flex;
@@ -613,6 +627,43 @@ issueRoutes.get("/:owner/:repo/issues", softAuth, requireRepoAccess("read"), asy
   const perPage = Math.min(100, Math.max(1, Number(c.req.query("per_page")) || 50));
   const page = Math.max(1, Number(c.req.query("page")) || 1);
   const offset = (page - 1) * perPage;
+
+  // ── Loading skeleton (flag-gated) ──
+  // Renders an SSR'd row skeleton when `?skeleton=1` is set. Lets the
+  // user see the shape of the issue list before the DB count + select
+  // resolve. Behind a flag — we don't ship flashes.
+  if (c.req.query("skeleton") === "1") {
+    return c.html(
+      <Layout title={`Issues — ${ownerName}/${repoName}`} user={user}>
+        <IssuesStyle />
+        <RepoHeader owner={ownerName} repo={repoName} />
+        <IssueNav owner={ownerName} repo={repoName} active="issues" />
+        <style
+          dangerouslySetInnerHTML={{
+            __html: `
+              .issues-skel { background: linear-gradient(90deg, var(--bg-secondary) 0%, var(--bg-elevated) 50%, var(--bg-secondary) 100%); background-size: 200% 100%; animation: issuesSkelShimmer 1.4s infinite; border-radius: 6px; display: block; }
+              @keyframes issuesSkelShimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+              @media (prefers-reduced-motion: reduce) { .issues-skel { animation: none; } }
+              .issues-skel-hero { height: 168px; border-radius: 16px; margin: 4px 0 24px; }
+              .issues-skel-toolbar { height: 44px; width: 240px; border-radius: 9999px; margin-bottom: 16px; }
+              .issues-skel-list { display: flex; flex-direction: column; gap: 8px; }
+              .issues-skel-row { height: 62px; border-radius: 10px; }
+            `,
+          }}
+        />
+        <div class="issues-skel issues-skel-hero" aria-hidden="true" />
+        <div class="issues-skel issues-skel-toolbar" aria-hidden="true" />
+        <div class="issues-skel-list" aria-hidden="true">
+          {Array.from({ length: 8 }).map(() => (
+            <div class="issues-skel issues-skel-row" />
+          ))}
+        </div>
+        <span style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0" role="status" aria-live="polite">
+          Loading issues for {ownerName}/{repoName}…
+        </span>
+      </Layout>
+    );
+  }
 
   const resolved = await resolveRepo(ownerName, repoName);
   if (!resolved) {

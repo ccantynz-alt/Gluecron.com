@@ -66,6 +66,19 @@ dashboard.get("/dashboard", requireAuth, async (c) => {
     return c.redirect("/dashboard");
   }
 
+  // ── Loading skeleton (flag-gated) ──
+  // Render an SSR'd structural preview when `?skeleton=1` is present.
+  // Keeps the user oriented on first paint while DB warms up. Behind a
+  // flag until we wire it to streamed/replaced content — we don't ship
+  // a flash before the real markup lands.
+  if (c.req.query("skeleton") === "1") {
+    return c.html(
+      <Layout title="Command Center" user={user}>
+        <DashboardSkeleton />
+      </Layout>
+    );
+  }
+
   // Get all user's repos
   const repos = await db
     .select()
@@ -365,7 +378,11 @@ dashboard.get("/dashboard", requireAuth, async (c) => {
             @media (max-width: 720px) {
               .dash-hero-inner { flex-direction: column; align-items: flex-start; }
               .dash-hero-actions { width: 100%; }
-              .dash-hero-actions .btn { flex: 1; min-width: 0; }
+              .dash-hero-actions .btn { flex: 1; min-width: 0; min-height: 44px; }
+              .dash-hero { padding: var(--space-4); }
+              .dash-hero-text { min-width: 0; }
+              .dash-hero-bg { width: 220px; height: 220px; inset: -10% -20% auto auto; }
+              .ai-hours-saved-tabs { flex-wrap: wrap; }
             }
           `,
         }}
@@ -1131,5 +1148,53 @@ function formatRelative(date: Date | string): string {
     day: "numeric",
   });
 }
+
+// ─── Loading skeleton (flag-gated; renders when ?skeleton=1) ──────────
+const DashboardSkeleton = () => (
+  <>
+    <style
+      dangerouslySetInnerHTML={{
+        __html: `
+          .dash-skel { background: linear-gradient(90deg, var(--bg-secondary) 0%, var(--bg-elevated) 50%, var(--bg-secondary) 100%); background-size: 200% 100%; animation: dashSkelShimmer 1.4s infinite; border-radius: 6px; display: block; }
+          @keyframes dashSkelShimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+          @media (prefers-reduced-motion: reduce) { .dash-skel { animation: none; } }
+          .dash-skel-hero { height: 168px; border-radius: 16px; margin-bottom: var(--space-6); }
+          .dash-skel-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: var(--space-3); margin-bottom: var(--space-8); }
+          .dash-skel-stat { height: 86px; border-radius: var(--radius); }
+          .dash-skel-h { height: 18px; width: 180px; margin: 0 0 16px; border-radius: 5px; }
+          .dash-skel-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: var(--space-4); margin-bottom: var(--space-8); }
+          .dash-skel-card { height: 168px; border-radius: var(--radius); }
+          .dash-skel-feed { display: flex; flex-direction: column; gap: 8px; }
+          .dash-skel-feed-row { height: 52px; border-radius: var(--radius); }
+        `,
+      }}
+    />
+    <div class="dash-skel dash-skel-hero" aria-hidden="true" />
+    <div class="dash-skel-stats" aria-hidden="true">
+      <div class="dash-skel dash-skel-stat" />
+      <div class="dash-skel dash-skel-stat" />
+      <div class="dash-skel dash-skel-stat" />
+      <div class="dash-skel dash-skel-stat" />
+    </div>
+    <div class="dash-skel dash-skel-h" aria-hidden="true" />
+    <div class="dash-skel-grid" aria-hidden="true">
+      <div class="dash-skel dash-skel-card" />
+      <div class="dash-skel dash-skel-card" />
+      <div class="dash-skel dash-skel-card" />
+      <div class="dash-skel dash-skel-card" />
+    </div>
+    <div class="dash-skel dash-skel-h" aria-hidden="true" />
+    <div class="dash-skel-feed" aria-hidden="true">
+      <div class="dash-skel dash-skel-feed-row" />
+      <div class="dash-skel dash-skel-feed-row" />
+      <div class="dash-skel dash-skel-feed-row" />
+      <div class="dash-skel dash-skel-feed-row" />
+      <div class="dash-skel dash-skel-feed-row" />
+    </div>
+    <span style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0" role="status" aria-live="polite">
+      Loading your command center…
+    </span>
+  </>
+);
 
 export default dashboard;

@@ -988,6 +988,31 @@ connectClaude.get("/connect/claude", async (c) => {
           </div>
         </section>
 
+        {/* ─── Hosted Claude loops CTA ─── */}
+        <section class="connect-claude-section">
+          <div class="connect-claude-section-head">
+            <div class="connect-claude-step-row">
+              <span class="connect-claude-step-num">⚡</span>
+              <h2 class="connect-claude-section-title">
+                Host a Claude tool-use loop
+              </h2>
+            </div>
+            <p class="connect-claude-section-desc">
+              Paste a Claude loop, get a hosted endpoint with a built-in budget
+              meter. Your code runs in a 30s sandboxed Bun subprocess —
+              no infra to wire up.
+            </p>
+          </div>
+          <div class="connect-claude-section-body">
+            <a
+              href="/connect/claude/deploy"
+              class="connect-claude-btn connect-claude-btn-primary"
+            >
+              Open Claude loops deploy wizard →
+            </a>
+          </div>
+        </section>
+
         {/* ─── Step 4: Status ─── */}
         <section class="connect-claude-section">
           <div class="connect-claude-section-head">

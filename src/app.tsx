@@ -127,6 +127,7 @@ import pwaRoutes from "./routes/pwa";
 import installRoutes from "./routes/install";
 import dxtRoutes from "./routes/dxt";
 import connectClaudeRoutes from "./routes/connect-claude";
+import claudeDeployRoutes from "./routes/claude-deploy";
 import releasesRoutes from "./routes/releases";
 import requiredChecksRoutes from "./routes/required-checks";
 import rulesetsRoutes from "./routes/rulesets";
@@ -597,6 +598,9 @@ app.route("/", dxtRoutes);
 // Connect Claude — user-facing one-click MCP setup (/connect/claude). Mounted
 // next to the other one-click flows (install.sh + .dxt) for surface symmetry.
 app.route("/", connectClaudeRoutes);
+// Hosted Claude tool-use loops — paste loop, get endpoint, billing meter.
+// See src/routes/claude-deploy.tsx + src/lib/hosted-claude-loop.ts.
+app.route("/", claudeDeployRoutes);
 app.route("/", releasesRoutes);
 app.route("/", requiredChecksRoutes);
 app.route("/", rulesetsRoutes);

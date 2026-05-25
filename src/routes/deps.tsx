@@ -584,7 +584,7 @@ deps.get("/:owner/:repo/dependencies", async (c) => {
                     // Vulnerability + license fields are not persisted yet —
                     // surface neutral placeholders so the visual treatment
                     // is consistent when those columns land later.
-                    const vulnCount = 0;
+                    const vulnCount: number = 0;
                     const license: string | null = null;
                     return (
                       <div class="deps-card">

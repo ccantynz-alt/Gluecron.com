@@ -61,6 +61,7 @@ import {
   runWeeklyStandupTaskOnce,
 } from "./ai-standup";
 import { runSpecToPrTaskOnce } from "./autopilot-spec-to-pr";
+import { runMigrationWatcherTaskOnce } from "./migration-assistant";
 
 export interface AutopilotTaskResult {
   name: string;
@@ -109,6 +110,13 @@ let _lastProactiveMonitorAt = 0;
 /** Spec-to-PR cadence — autopilot scans `.gluecron/specs/*.md` every 2 minutes. */
 const SPEC_TO_PR_INTERVAL_MS = 2 * 60 * 1000;
 let _lastSpecToPrAt = 0;
+/**
+ * Migration watcher cadence. The lookup is cheap (registry calls per
+ * declared dep) but we still throttle to every 6 hours so we don't hammer
+ * npm and don't propose more than ~one PR per repo per day.
+ */
+const MIGRATION_WATCHER_INTERVAL_MS = 6 * 60 * 60 * 1000;
+let _lastMigrationWatcherAt = 0;
 
 /**
  * Default task set. Each task is a thin wrapper around an existing locked
@@ -328,6 +336,32 @@ export function defaultTasks(): AutopilotTask[] {
           );
         } catch (err) {
           console.error("[autopilot] synthetic-monitor: threw:", err);
+        }
+      },
+    },
+    {
+      // Migration watcher — scans each repo's package.json for deps that
+      // are at least one major version behind and asks Claude to draft an
+      // upgrade PR. Cadence-gated to every 6 hours; the lib itself
+      // enforces a per-repo + per-{dep,version} 7-day dedupe so we never
+      // re-propose the same migration twice in a single window. Skips
+      // entirely when ANTHROPIC_API_KEY is unset OR the
+      // MIGRATION_WATCHER_ENABLED env flag is off.
+      name: "migration-watcher",
+      run: async () => {
+        if (!process.env.ANTHROPIC_API_KEY) return;
+        const now = Date.now();
+        if (now - _lastMigrationWatcherAt < MIGRATION_WATCHER_INTERVAL_MS) {
+          return;
+        }
+        _lastMigrationWatcherAt = now;
+        try {
+          const summary = await runMigrationWatcherTaskOnce();
+          console.log(
+            `[autopilot] migration-watcher: considered=${summary.considered} proposed=${summary.proposed} throttled=${summary.skippedThrottle} disabled=${summary.skippedNotEnabled} errors=${summary.errors}`
+          );
+        } catch (err) {
+          console.error("[autopilot] migration-watcher: threw:", err);
         }
       },
     },

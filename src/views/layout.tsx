@@ -225,6 +225,25 @@ export const Layout: FC<
                   <a href="/standups" class="nav-link">
                     Standups
                   </a>
+                  <a href="/voice" class="nav-link" style="display:inline-flex;align-items:center;gap:5px">
+                    <svg
+                      width="13"
+                      height="13"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2.2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      <rect x="9" y="2" width="6" height="13" rx="3" />
+                      <path d="M19 11v1a7 7 0 0 1-14 0v-1" />
+                      <line x1="12" y1="19" x2="12" y2="23" />
+                      <line x1="8" y1="23" x2="16" y2="23" />
+                    </svg>
+                    Voice
+                  </a>
                   <a href="/inbox" class="nav-link" style="position:relative">
                     Inbox
                     {notificationCount && notificationCount > 0 ? (

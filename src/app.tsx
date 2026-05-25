@@ -136,6 +136,7 @@ import workflowSecretsRoutes from "./routes/workflow-secrets";
 import sleepModeRoutes from "./routes/sleep-mode";
 import standupRoutes from "./routes/standups";
 import vsGithubRoutes from "./routes/vs-github";
+import voiceRoutes from "./routes/voice-to-pr";
 import playgroundRoutes from "./routes/playground";
 import { authRateLimit, gitRateLimit, searchRateLimit } from "./middleware/rate-limit";
 import { csrfToken, csrfProtect } from "./middleware/csrf";
@@ -580,6 +581,9 @@ app.route("/", workflowArtifactsRoutes);
 app.route("/", workflowSecretsRoutes);
 app.route("/", sleepModeRoutes);
 app.route("/", vsGithubRoutes);
+
+// Voice-to-PR — phone-first dictation → spec or issue
+app.route("/", voiceRoutes);
 
 // Block Q3 — Anonymous playground (`/play`, `/play/claim`). Mounted
 // before the web catch-all so the bare `/play` literal wins over the

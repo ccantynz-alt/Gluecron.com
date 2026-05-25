@@ -47,6 +47,31 @@ const auth = new Hono<AuthEnv>();
 // between requests.
 let _autoVerifyWarned = false;
 
+// ───────────────────────────────────────────────────────────────────────
+// Scoped mobile polish — tightens the existing `.auth-container` shell
+// from layout.tsx for ≤720px viewports. Only adds rules; does not
+// redefine the desktop styling. Kept inline so this file remains the
+// single source of truth for the auth surface.
+// ───────────────────────────────────────────────────────────────────────
+const authMobileCss = `
+  @media (max-width: 720px) {
+    .auth-container {
+      margin: 24px 12px;
+      padding: 24px 20px 22px;
+      max-width: 100%;
+    }
+    .auth-container .btn-primary { min-height: 44px; }
+    .auth-container .oauth-btn { min-height: 44px; }
+    .auth-container input[type="text"],
+    .auth-container input[type="email"],
+    .auth-container input[type="password"] { min-height: 44px; }
+    .auth-forgot { text-align: left !important; }
+  }
+`;
+const AuthMobileStyle = () => (
+  <style dangerouslySetInnerHTML={{ __html: authMobileCss }} />
+);
+
 // --- Web UI ---
 
 auth.get("/register", softAuth, (c) => {
@@ -58,6 +83,7 @@ auth.get("/register", softAuth, (c) => {
   const csrf = c.get("csrfToken") as string | undefined;
   return c.html(
     <Layout title="Register" user={null}>
+      <AuthMobileStyle />
       <div class="auth-container">
         <h2>Create your account</h2>
         <p class="auth-subtitle">
@@ -314,6 +340,7 @@ auth.get("/login", softAuth, async (c) => {
   const csrf = c.get("csrfToken") as string | undefined;
   return c.html(
     <Layout title="Sign in" user={null}>
+      <AuthMobileStyle />
       <div class="auth-container">
         <h2>Welcome back</h2>
         <p class="auth-subtitle">
@@ -596,6 +623,7 @@ auth.get("/login/2fa", async (c) => {
   const redirect = c.req.query("redirect") || "/";
   return c.html(
     <Layout title="Two-factor authentication" user={null}>
+      <AuthMobileStyle />
       <div class="auth-container">
         <h2>Enter your code</h2>
         <p

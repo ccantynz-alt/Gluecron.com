@@ -3500,3 +3500,83 @@ export const docTracking = pgTable(
 
 export type DocTracking = typeof docTracking.$inferSelect;
 export type NewDocTracking = typeof docTracking.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// 0069 — Hosted Claude tool-use loops. See src/lib/hosted-claude-loop.ts and
+// src/routes/claude-deploy.tsx.
+//
+// Users paste a Claude tool-use loop, get a hosted endpoint + budget meter.
+// Each loop is paired to an agent_sessions row so it inherits multiplayer
+// namespacing and the daily budget mutex.
+// ---------------------------------------------------------------------------
+export const hostedClaudeLoops = pgTable(
+  "hosted_claude_loops",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ownerUserId: uuid("owner_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    sourceCode: text("source_code").notNull(),
+    endpointPath: text("endpoint_path").notNull().unique(),
+    agentSessionId: uuid("agent_session_id").references(
+      () => agentSessions.id,
+      { onDelete: "set null" }
+    ),
+    status: text("status").default("paused").notNull(),
+    isPublic: boolean("is_public").default(false).notNull(),
+    monthlyBudgetCents: integer("monthly_budget_cents").default(500).notNull(),
+    lastRunAt: timestamp("last_run_at", { withTimezone: true }),
+    totalInvocations: integer("total_invocations").default(0).notNull(),
+    totalCentsSpent: integer("total_cents_spent").default(0).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("hosted_claude_loops_owner").on(table.ownerUserId, table.updatedAt),
+    index("hosted_claude_loops_status").on(table.status),
+  ]
+);
+
+export const hostedClaudeLoopRuns = pgTable(
+  "hosted_claude_loop_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    loopId: uuid("loop_id")
+      .notNull()
+      .references(() => hostedClaudeLoops.id, { onDelete: "cascade" }),
+    inputPayload: jsonb("input_payload").default({}).notNull(),
+    outputPayload: jsonb("output_payload"),
+    stdout: text("stdout"),
+    stderr: text("stderr"),
+    startedAt: timestamp("started_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    status: text("status").default("running").notNull(),
+    centsEstimate: integer("cents_estimate").default(0).notNull(),
+    claudeInputTokens: integer("claude_input_tokens").default(0).notNull(),
+    claudeOutputTokens: integer("claude_output_tokens").default(0).notNull(),
+    exitCode: integer("exit_code"),
+    errorMessage: text("error_message"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("hosted_claude_loop_runs_loop_time").on(
+      table.loopId,
+      table.startedAt
+    ),
+    index("hosted_claude_loop_runs_status").on(table.status, table.startedAt),
+  ]
+);
+
+export type HostedClaudeLoop = typeof hostedClaudeLoops.$inferSelect;
+export type NewHostedClaudeLoop = typeof hostedClaudeLoops.$inferInsert;
+export type HostedClaudeLoopRun = typeof hostedClaudeLoopRuns.$inferSelect;
+export type NewHostedClaudeLoopRun = typeof hostedClaudeLoopRuns.$inferInsert;

@@ -55,6 +55,7 @@ import {
   type SyntheticCheckResult,
 } from "./synthetic-monitor";
 import { aiProactiveMonitorTick } from "./ai-proactive-monitor";
+import { runCiHealerTick } from "./ai-ci-healer";
 
 export interface AutopilotTaskResult {
   name: string;
@@ -259,6 +260,26 @@ export function defaultTasks(): AutopilotTask[] {
           );
         } catch (err) {
           console.error("[autopilot] ai-proactive-monitor: threw:", err);
+        }
+      },
+    },
+    {
+      // AI CI Healer — autonomous CI failure → root-cause → patch PR loop.
+      // Polls every tick (5 min) for failed workflow_runs that finished
+      // at least HEAL_MIN_AGE_MS ago and haven't been processed yet.
+      // Skips when ANTHROPIC_API_KEY is unset (handled inside the lib);
+      // AUTOPILOT_DISABLED=1 short-circuits the wrapping startAutopilot
+      // call already, but the lib double-checks for direct callers.
+      name: "ci-healer",
+      run: async () => {
+        if (!process.env.ANTHROPIC_API_KEY) return;
+        try {
+          const summary = await runCiHealerTick();
+          console.log(
+            `[autopilot] ci-healer: considered=${summary.considered} healed=${summary.healed} gaveUp=${summary.gaveUp} skipped=${summary.skipped}`
+          );
+        } catch (err) {
+          console.error("[autopilot] ci-healer: threw:", err);
         }
       },
     },

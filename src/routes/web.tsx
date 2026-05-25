@@ -20,7 +20,6 @@ import {
   RepoNav,
   Breadcrumb,
   FileTable,
-  CommitList,
   RepoCard,
   BranchSwitcher,
   HighlightedCode,
@@ -37,11 +36,13 @@ import {
   getReadme,
   getDefaultBranch,
   listBranches,
+  listTags,
   repoExists,
   initBareRepo,
   getBlame,
   getRawBlob,
   searchCode,
+  getRepoPath,
 } from "../git/repository";
 import { renderMarkdown, markdownCss } from "../lib/markdown";
 import { highlightCode } from "../lib/highlight";
@@ -284,12 +285,71 @@ const codeBrowseCss = `
     border-radius: 4px;
     padding: 1px 5px;
   }
+  .new-repo-templates {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 4px;
+  }
+  .new-repo-template-chip {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-size: 13px;
+    color: var(--text);
+    cursor: pointer;
+    transition: border-color 140ms ease, background 140ms ease, color 140ms ease;
+  }
+  .new-repo-template-chip input { position: absolute; opacity: 0; pointer-events: none; }
+  .new-repo-template-chip:hover {
+    border-color: var(--border-strong, var(--border));
+    color: var(--text-strong);
+  }
+  .new-repo-template-chip:has(input:checked) {
+    border-color: rgba(140,109,255,0.55);
+    background: rgba(140,109,255,0.10);
+    color: var(--text-strong);
+    box-shadow: 0 0 0 1px rgba(140,109,255,0.25);
+  }
+  .new-repo-template-chip-dot {
+    width: 8px; height: 8px;
+    border-radius: 999px;
+    background: var(--text-faint, var(--text-muted));
+    transition: background 140ms ease, box-shadow 140ms ease;
+  }
+  .new-repo-template-chip:has(input:checked) .new-repo-template-chip-dot {
+    background: linear-gradient(135deg, #8c6dff, #36c5d6);
+    box-shadow: 0 0 8px rgba(140,109,255,0.6);
+  }
   .new-repo-actions {
     display: flex;
     gap: var(--space-2);
     margin-top: var(--space-2);
+    align-items: center;
   }
-  .new-repo-submit { min-width: 180px; }
+  .new-repo-submit {
+    min-width: 180px;
+    border: 1px solid rgba(140,109,255,0.45);
+    background: linear-gradient(135deg, #8c6dff 0%, #36c5d6 100%);
+    color: #fff;
+    font-weight: 700;
+    box-shadow: 0 8px 20px -8px rgba(140,109,255,0.55);
+    transition: transform 140ms ease, box-shadow 140ms ease, filter 140ms ease;
+  }
+  .new-repo-submit:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 12px 24px -8px rgba(140,109,255,0.7);
+    filter: brightness(1.06);
+  }
+  .new-repo-submit:focus-visible {
+    outline: 3px solid rgba(140,109,255,0.45);
+    outline-offset: 2px;
+  }
 
   /* ───────── profile ───────── */
   .profile-hero {
@@ -642,20 +702,472 @@ const codeBrowseCss = `
     line-height: 1.55;
     max-width: 640px;
   }
-  .commits-toolbar { margin-bottom: var(--space-3); }
+  .commits-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin-bottom: var(--space-3);
+  }
+  .commits-toolbar-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .commits-toolbar-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--text-muted);
+    background: rgba(255,255,255,0.025);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    text-decoration: none;
+    transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+  }
+  .commits-toolbar-link:hover {
+    border-color: var(--border-strong);
+    color: var(--text-strong);
+    background: rgba(255,255,255,0.04);
+    text-decoration: none;
+  }
   .commits-list-wrap {
     background: var(--bg-elevated);
     border: 1px solid var(--border);
-    border-radius: 12px;
+    border-radius: 14px;
     overflow: hidden;
+    position: relative;
   }
-  .commits-empty {
-    padding: var(--space-6);
-    text-align: center;
+  .commits-list-wrap::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent 0%, #8c6dff 30%, #36c5d6 70%, transparent 100%);
+    opacity: 0.55;
+    pointer-events: none;
+  }
+  .commits-day-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 18px;
+    font-size: 11.5px;
+    font-family: var(--font-mono);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
     color: var(--text-muted);
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border);
+  }
+  .commits-day-head:not(:first-child) { border-top: 1px solid var(--border); }
+  .commits-day-head-dot {
+    width: 6px; height: 6px;
+    border-radius: 9999px;
+    background: linear-gradient(135deg, #8c6dff, #36c5d6);
+  }
+  .commits-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border-subtle);
+    transition: background 120ms ease;
+  }
+  .commits-row:last-child { border-bottom: none; }
+  .commits-row:hover { background: rgba(255,255,255,0.022); }
+  .commits-avatar {
+    width: 34px; height: 34px;
+    border-radius: 9999px;
+    background: linear-gradient(135deg, rgba(140,109,255,0.30), rgba(54,197,214,0.25));
+    color: #fff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 13.5px;
+    flex-shrink: 0;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.10);
+  }
+  .commits-row-body { flex: 1; min-width: 0; }
+  .commits-row-msg {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .commits-row-msg a {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--text-strong);
+    text-decoration: none;
+    letter-spacing: -0.005em;
+  }
+  .commits-row-msg a:hover { color: var(--accent); text-decoration: none; }
+  .commits-row-verified {
+    font-size: 9.5px;
+    padding: 1px 7px;
+    border-radius: 9999px;
+    background: rgba(52,211,153,0.16);
+    color: #6ee7b7;
+    box-shadow: inset 0 0 0 1px rgba(52,211,153,0.30);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 700;
+  }
+  .commits-row-meta {
+    margin-top: 4px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    font-size: 12.5px;
+    color: var(--text-muted);
+  }
+  .commits-row-meta strong { color: var(--text); font-weight: 600; }
+  .commits-row-meta .sep { opacity: 0.4; }
+  .commits-row-time {
+    font-variant-numeric: tabular-nums;
+  }
+  .commits-row-side {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .commits-row-sha {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 10px;
+    border-radius: 9999px;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--text-strong);
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border);
+    text-decoration: none;
+    letter-spacing: 0.04em;
+    transition: border-color 120ms ease, background 120ms ease, color 120ms ease;
+  }
+  .commits-row-sha:hover {
+    border-color: rgba(140,109,255,0.55);
+    color: var(--accent);
+    background: rgba(140,109,255,0.08);
+    text-decoration: none;
+  }
+  .commits-row-copy {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px; height: 28px;
+    padding: 0;
+    border-radius: 8px;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+  }
+  .commits-row-copy:hover {
+    border-color: var(--border-strong);
+    color: var(--text);
+    background: rgba(255,255,255,0.04);
+  }
+  .commits-row-copy.is-copied { color: #6ee7b7; border-color: rgba(52,211,153,0.35); }
+  .commits-empty {
+    position: relative;
+    overflow: hidden;
+    padding: clamp(28px, 5vw, 48px) clamp(20px, 4vw, 36px);
+    text-align: center;
     background: var(--bg-elevated);
-    border: 1px dashed var(--border);
-    border-radius: 12px;
+    border: 1px dashed var(--border-strong);
+    border-radius: 16px;
+  }
+  .commits-empty-orb {
+    position: absolute;
+    inset: -40% 30% auto 30%;
+    height: 280px;
+    background: radial-gradient(circle, rgba(140,109,255,0.18), rgba(54,197,214,0.10) 45%, transparent 70%);
+    filter: blur(70px);
+    opacity: 0.7;
+    pointer-events: none;
+    z-index: 0;
+  }
+  .commits-empty-inner { position: relative; z-index: 1; }
+  .commits-empty-icon {
+    width: 56px; height: 56px;
+    border-radius: 9999px;
+    background: linear-gradient(135deg, rgba(140,109,255,0.25), rgba(54,197,214,0.20));
+    box-shadow: inset 0 0 0 1px rgba(140,109,255,0.40);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #c4b5fd;
+    margin: 0 auto 14px;
+  }
+  .commits-empty-title {
+    font-family: var(--font-display);
+    font-size: 18px;
+    font-weight: 700;
+    margin: 0 0 6px;
+    color: var(--text-strong);
+  }
+  .commits-empty-sub {
+    margin: 0 auto 0;
+    font-size: 13.5px;
+    color: var(--text-muted);
+    max-width: 420px;
+    line-height: 1.5;
+  }
+
+  /* ───────── branches list ───────── */
+  .branches-list {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+    position: relative;
+  }
+  .branches-list::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent 0%, #8c6dff 30%, #36c5d6 70%, transparent 100%);
+    opacity: 0.55;
+    pointer-events: none;
+  }
+  .branches-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border-subtle);
+    transition: background 120ms ease;
+    flex-wrap: wrap;
+  }
+  .branches-row:last-child { border-bottom: none; }
+  .branches-row:hover { background: rgba(255,255,255,0.022); }
+  .branches-row-icon {
+    width: 32px; height: 32px;
+    border-radius: 8px;
+    background: rgba(140,109,255,0.10);
+    color: #c4b5fd;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    box-shadow: inset 0 0 0 1px rgba(140,109,255,0.22);
+  }
+  .branches-row-main { flex: 1; min-width: 240px; display: flex; flex-direction: column; gap: 4px; }
+  .branches-row-name {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .branches-row-name a {
+    font-family: var(--font-mono);
+    font-size: 13.5px;
+    color: var(--text-strong);
+    font-weight: 600;
+    text-decoration: none;
+  }
+  .branches-row-name a:hover { color: var(--accent); text-decoration: none; }
+  .branches-row-default {
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 9999px;
+    background: rgba(140,109,255,0.14);
+    color: #c4b5fd;
+    box-shadow: inset 0 0 0 1px rgba(140,109,255,0.30);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 700;
+    font-family: var(--font-mono);
+  }
+  .branches-row-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    font-size: 12.5px;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .branches-row-meta .sep { opacity: 0.4; }
+  .branches-row-meta strong { color: var(--text); font-weight: 600; }
+  .branches-row-side {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+  }
+  .branches-row-divergence {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--text-muted);
+    padding: 4px 10px;
+    border-radius: 9999px;
+    background: rgba(255,255,255,0.035);
+    border: 1px solid var(--border);
+    font-variant-numeric: tabular-nums;
+  }
+  .branches-row-divergence .ahead { color: #6ee7b7; }
+  .branches-row-divergence .behind { color: #fca5a5; }
+  .branches-row-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .branches-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 6px 12px;
+    border-radius: 9999px;
+    font-size: 12px;
+    font-weight: 600;
+    text-decoration: none;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    font: inherit;
+    transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+  }
+  .branches-btn:hover {
+    border-color: var(--border-strong);
+    color: var(--text);
+    background: rgba(255,255,255,0.04);
+    text-decoration: none;
+  }
+  .branches-btn-danger {
+    color: #fca5a5;
+    border-color: rgba(248,113,113,0.30);
+  }
+  .branches-btn-danger:hover {
+    border-style: dashed;
+    border-color: rgba(248,113,113,0.65);
+    background: rgba(248,113,113,0.06);
+    color: #fecaca;
+  }
+
+  /* ───────── tags list ───────── */
+  .tags-list {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+    position: relative;
+  }
+  .tags-list::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent 0%, #8c6dff 30%, #36c5d6 70%, transparent 100%);
+    opacity: 0.55;
+    pointer-events: none;
+  }
+  .tags-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border-subtle);
+    transition: background 120ms ease;
+    flex-wrap: wrap;
+  }
+  .tags-row:last-child { border-bottom: none; }
+  .tags-row:hover { background: rgba(255,255,255,0.022); }
+  .tags-row-icon {
+    width: 32px; height: 32px;
+    border-radius: 8px;
+    background: rgba(54,197,214,0.10);
+    color: #67e8f9;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    box-shadow: inset 0 0 0 1px rgba(54,197,214,0.22);
+  }
+  .tags-row-main { flex: 1; min-width: 240px; }
+  .tags-row-name {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .tags-row-version {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 11px;
+    border-radius: 9999px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 700;
+    color: #67e8f9;
+    background: rgba(54,197,214,0.12);
+    box-shadow: inset 0 0 0 1px rgba(54,197,214,0.30);
+    letter-spacing: 0.01em;
+  }
+  .tags-row-meta {
+    margin-top: 4px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    font-size: 12.5px;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .tags-row-meta .sep { opacity: 0.4; }
+  .tags-row-sha {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--text-strong);
+    padding: 2px 8px;
+    border-radius: 6px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border);
+    text-decoration: none;
+    letter-spacing: 0.04em;
+  }
+  .tags-row-sha:hover { border-color: var(--border-strong); color: var(--accent); text-decoration: none; }
+  .tags-row-side {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+  }
+  .tags-row-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 6px 12px;
+    border-radius: 9999px;
+    font-size: 12px;
+    font-weight: 600;
+    text-decoration: none;
+    color: var(--text-muted);
+    background: rgba(255,255,255,0.025);
+    border: 1px solid var(--border);
+    transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+  }
+  .tags-row-link:hover {
+    border-color: rgba(140,109,255,0.45);
+    color: var(--text-strong);
+    background: rgba(140,109,255,0.06);
+    text-decoration: none;
   }
 
   /* ───────── commit detail ───────── */
@@ -816,11 +1328,73 @@ const codeBrowseCss = `
   .commit-detail-check-failure { background: #da3633; }
 
   /* ───────── blame ───────── */
+  .blame-head { margin-bottom: var(--space-5); }
+  .blame-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    text-transform: uppercase;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    color: var(--text-muted);
+    font-weight: 600;
+    margin-bottom: 10px;
+  }
+  .blame-eyebrow-dot {
+    width: 8px; height: 8px;
+    border-radius: 9999px;
+    background: linear-gradient(135deg, #8c6dff, #36c5d6);
+    box-shadow: 0 0 0 3px rgba(140,109,255,0.18);
+  }
+  .blame-title {
+    font-family: var(--font-display);
+    font-size: clamp(22px, 3vw, 30px);
+    font-weight: 800;
+    letter-spacing: -0.025em;
+    line-height: 1.15;
+    margin: 0 0 6px;
+    color: var(--text-strong);
+  }
+  .blame-title code {
+    font-family: var(--font-mono);
+    font-size: 0.78em;
+    color: var(--text-strong);
+    font-weight: 700;
+  }
+  .blame-sub {
+    margin: 0;
+    font-size: 14px;
+    color: var(--text-muted);
+    line-height: 1.5;
+    max-width: 700px;
+  }
   .blame-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--space-3);
     margin-bottom: var(--space-3);
+    flex-wrap: wrap;
     font-size: 13px;
   }
-  .blame-card { background: var(--bg-elevated); }
+  .blame-toolbar-actions { display: flex; gap: 6px; }
+  .blame-card {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+    position: relative;
+  }
+  .blame-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent 0%, #8c6dff 30%, #36c5d6 70%, transparent 100%);
+    opacity: 0.55;
+    pointer-events: none;
+  }
   .blame-header {
     display: flex;
     align-items: center;
@@ -864,6 +1438,84 @@ const codeBrowseCss = `
     padding-left: var(--space-2);
   }
   .blame-header-actions { display: flex; gap: 6px; flex-shrink: 0; }
+  .blame-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    line-height: 1.6;
+  }
+  .blame-table tr { border-bottom: 1px solid transparent; }
+  .blame-table tr.blame-row-first { border-top: 1px solid var(--border); }
+  .blame-table tr:first-child.blame-row-first { border-top: 0; }
+  .blame-table tr:hover .blame-line-content { background: rgba(255,255,255,0.025); }
+  .blame-gutter {
+    width: 220px;
+    min-width: 220px;
+    padding: 0 12px;
+    vertical-align: top;
+    background: rgba(255,255,255,0.012);
+    border-right: 1px solid var(--border-subtle);
+    font-variant-numeric: tabular-nums;
+    color: var(--text-muted);
+    font-size: 11px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding-top: 2px;
+    padding-bottom: 2px;
+  }
+  .blame-gutter-inner {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    max-width: 100%;
+    overflow: hidden;
+  }
+  .blame-gutter-sha {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    font-weight: 600;
+    color: #c4b5fd;
+    background: rgba(140,109,255,0.10);
+    padding: 1px 7px;
+    border-radius: 9999px;
+    box-shadow: inset 0 0 0 1px rgba(140,109,255,0.22);
+    text-decoration: none;
+    letter-spacing: 0.04em;
+    flex-shrink: 0;
+    transition: background 120ms ease, box-shadow 120ms ease, color 120ms ease;
+  }
+  .blame-gutter-sha:hover {
+    background: rgba(140,109,255,0.22);
+    color: #ddd6fe;
+    box-shadow: inset 0 0 0 1px rgba(140,109,255,0.50);
+    text-decoration: none;
+  }
+  .blame-gutter-author {
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 11px;
+    font-family: var(--font-sans, inherit);
+  }
+  .blame-line-num {
+    width: 1%;
+    min-width: 50px;
+    padding: 0 12px;
+    text-align: right;
+    color: var(--text-faint);
+    user-select: none;
+    border-right: 1px solid var(--border-subtle);
+    font-variant-numeric: tabular-nums;
+  }
+  .blame-line-content {
+    padding: 0 14px;
+    white-space: pre;
+    color: var(--text);
+    transition: background 120ms ease;
+  }
 
   /* ───────── search ───────── */
   .search-hero {
@@ -1188,6 +1840,37 @@ web.get("/new", requireAuth, (c) => {
               </label>
             </div>
           </div>
+          <div class="new-repo-row">
+            <span class="new-repo-label">
+              Starter content{" "}
+              <span class="new-repo-label-optional">(cosmetic — your first push wins)</span>
+            </span>
+            <div class="new-repo-templates" role="radiogroup" aria-label="Starter content">
+              <label class="new-repo-template-chip">
+                <input type="radio" name="starter" value="empty" checked />
+                <span class="new-repo-template-chip-dot" aria-hidden="true" />
+                Empty
+              </label>
+              <label class="new-repo-template-chip">
+                <input type="radio" name="starter" value="readme" />
+                <span class="new-repo-template-chip-dot" aria-hidden="true" />
+                README
+              </label>
+              <label class="new-repo-template-chip">
+                <input type="radio" name="starter" value="readme-mit" />
+                <span class="new-repo-template-chip-dot" aria-hidden="true" />
+                README + MIT
+              </label>
+              <label class="new-repo-template-chip">
+                <input type="radio" name="starter" value="node" />
+                <span class="new-repo-template-chip-dot" aria-hidden="true" />
+                Node + .gitignore
+              </label>
+            </div>
+            <p class="new-repo-hint">
+              Just a UI hint — push your own commits to fill the repo.
+            </p>
+          </div>
           <div class="new-repo-callout">
             <div class="new-repo-callout-eyebrow">AI-native by default</div>
             <p class="new-repo-callout-body">
@@ -1197,7 +1880,7 @@ web.get("/new", requireAuth, (c) => {
             </p>
           </div>
           <div class="new-repo-actions">
-            <button type="submit" class="btn btn-primary new-repo-submit">
+            <button type="submit" class="btn new-repo-submit">
               Create repository
             </button>
             <a href="/dashboard" class="btn new-repo-cancel">
@@ -2663,6 +3346,559 @@ web.get("/:owner/:repo/blob/:ref{.+$}", async (c) => {
   );
 });
 
+// ─── Branches list ────────────────────────────────────────────────────────
+// Lightweight `git for-each-ref` enrichment so each row shows last-commit
+// author + relative time + ahead/behind vs the default branch. No DB. All
+// data comes from git plumbing; failures degrade gracefully (counts omitted).
+web.get("/:owner/:repo/branches", async (c) => {
+  const { owner, repo } = c.req.param();
+  const user = c.get("user");
+
+  if (!(await repoExists(owner, repo))) return c.notFound();
+
+  const defaultBranch = (await getDefaultBranch(owner, repo)) || "main";
+  const branches = await listBranches(owner, repo);
+  const repoDir = getRepoPath(owner, repo);
+
+  type BranchRow = {
+    name: string;
+    isDefault: boolean;
+    sha: string;
+    subject: string;
+    author: string;
+    date: string;
+    ahead: number;
+    behind: number;
+  };
+
+  const runGit = async (args: string[]): Promise<string> => {
+    try {
+      const proc = Bun.spawn(["git", ...args], {
+        cwd: repoDir,
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const out = await new Response(proc.stdout).text();
+      await proc.exited;
+      return out;
+    } catch {
+      return "";
+    }
+  };
+
+  const meta = await runGit([
+    "for-each-ref",
+    "--sort=-committerdate",
+    "--format=%(refname:short)%00%(objectname)%00%(subject)%00%(authorname)%00%(committerdate:iso-strict)",
+    "refs/heads/",
+  ]);
+  const metaByName: Record<
+    string,
+    { sha: string; subject: string; author: string; date: string }
+  > = {};
+  for (const line of meta.split("\n").filter(Boolean)) {
+    const [name, sha, subject, author, date] = line.split("\0");
+    metaByName[name] = { sha, subject, author, date };
+  }
+
+  const branchOrder = [...branches].sort((a, b) => {
+    if (a === defaultBranch) return -1;
+    if (b === defaultBranch) return 1;
+    const aDate = metaByName[a]?.date || "";
+    const bDate = metaByName[b]?.date || "";
+    return bDate.localeCompare(aDate);
+  });
+
+  const rows: BranchRow[] = [];
+  for (const name of branchOrder) {
+    const m = metaByName[name] || { sha: "", subject: "", author: "", date: "" };
+    let ahead = 0;
+    let behind = 0;
+    if (name !== defaultBranch && metaByName[defaultBranch]) {
+      const out = await runGit([
+        "rev-list",
+        "--left-right",
+        "--count",
+        `${defaultBranch}...${name}`,
+      ]);
+      const parts = out.trim().split(/\s+/);
+      if (parts.length === 2) {
+        behind = parseInt(parts[0], 10) || 0;
+        ahead = parseInt(parts[1], 10) || 0;
+      }
+    }
+    rows.push({
+      name,
+      isDefault: name === defaultBranch,
+      sha: m.sha,
+      subject: m.subject,
+      author: m.author,
+      date: m.date,
+      ahead,
+      behind,
+    });
+  }
+
+  const relative = (iso: string): string => {
+    if (!iso) return "—";
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "—";
+    const diff = Date.now() - d.getTime();
+    const m = Math.floor(diff / 60000);
+    if (m < 1) return "just now";
+    if (m < 60) return `${m} min ago`;
+    const h = Math.floor(m / 60);
+    if (h < 24) return `${h} hr${h === 1 ? "" : "s"} ago`;
+    const dd = Math.floor(h / 24);
+    if (dd < 30) return `${dd} day${dd === 1 ? "" : "s"} ago`;
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  };
+
+  const success = c.req.query("success");
+  const error = c.req.query("error");
+
+  return c.html(
+    <Layout title={`Branches — ${owner}/${repo}`} user={user}>
+      <style dangerouslySetInnerHTML={{ __html: codeBrowseCss }} />
+      <RepoHeader owner={owner} repo={repo} />
+      <RepoNav owner={owner} repo={repo} active="code" />
+      <div
+        class="branches-wrap"
+        style="max-width:1100px;margin:0 auto;padding:var(--space-5) var(--space-4) var(--space-8)"
+      >
+        <header class="branches-head" style="margin-bottom:var(--space-5)">
+          <div
+            class="branches-eyebrow"
+            style="display:inline-flex;align-items:center;gap:8px;text-transform:uppercase;font-family:var(--font-mono);font-size:11px;letter-spacing:0.16em;color:var(--text-muted);font-weight:600;margin-bottom:10px"
+          >
+            <span
+              class="branches-eyebrow-dot"
+              aria-hidden="true"
+              style="width:8px;height:8px;border-radius:9999px;background:linear-gradient(135deg,#8c6dff,#36c5d6);box-shadow:0 0 0 3px rgba(140,109,255,0.18)"
+            />
+            Repository · Branches
+          </div>
+          <h1
+            class="branches-title"
+            style="font-family:var(--font-display);font-size:clamp(24px,3.4vw,36px);font-weight:800;letter-spacing:-0.028em;line-height:1.1;margin:0 0 6px;color:var(--text-strong)"
+          >
+            <span class="gradient-text">{rows.length}</span>{" "}
+            branch{rows.length === 1 ? "" : "es"}
+          </h1>
+          <p
+            class="branches-sub"
+            style="margin:0;font-size:14px;color:var(--text-muted);line-height:1.5;max-width:700px"
+          >
+            All work-in-progress lines for{" "}
+            <code style="font-size:12.5px">{owner}/{repo}</code>. Ahead/behind
+            counts are relative to{" "}
+            <code style="font-size:12.5px">{defaultBranch}</code>.
+          </p>
+        </header>
+
+        {success && (
+          <div style="margin-bottom:var(--space-4);padding:10px 14px;border-radius:10px;font-size:13.5px;border:1px solid rgba(52,211,153,0.40);background:rgba(52,211,153,0.08);color:#bbf7d0">
+            {decodeURIComponent(success)}
+          </div>
+        )}
+        {error && (
+          <div style="margin-bottom:var(--space-4);padding:10px 14px;border-radius:10px;font-size:13.5px;border:1px solid rgba(248,113,113,0.40);background:rgba(248,113,113,0.08);color:#fecaca">
+            {decodeURIComponent(error)}
+          </div>
+        )}
+
+        {rows.length === 0 ? (
+          <div class="commits-empty">
+            <div class="commits-empty-orb" aria-hidden="true" />
+            <div class="commits-empty-inner">
+              <div class="commits-empty-icon" aria-hidden="true">
+                <svg
+                  width="22"
+                  height="22"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <line x1="6" y1="3" x2="6" y2="15" />
+                  <circle cx="18" cy="6" r="3" />
+                  <circle cx="6" cy="18" r="3" />
+                  <path d="M18 9a9 9 0 0 1-9 9" />
+                </svg>
+              </div>
+              <h3 class="commits-empty-title">No branches yet</h3>
+              <p class="commits-empty-sub">
+                Push your first commit to create the default branch.
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div class="branches-list">
+            {rows.map((r) => (
+              <div class="branches-row">
+                <div class="branches-row-icon" aria-hidden="true">
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <line x1="6" y1="3" x2="6" y2="15" />
+                    <circle cx="18" cy="6" r="3" />
+                    <circle cx="6" cy="18" r="3" />
+                    <path d="M18 9a9 9 0 0 1-9 9" />
+                  </svg>
+                </div>
+                <div class="branches-row-main">
+                  <div class="branches-row-name">
+                    <a href={`/${owner}/${repo}/tree/${r.name}`}>{r.name}</a>
+                    {r.isDefault && (
+                      <span
+                        class="branches-row-default"
+                        title="Default branch"
+                      >
+                        Default
+                      </span>
+                    )}
+                  </div>
+                  <div class="branches-row-meta">
+                    {r.subject ? (
+                      <>
+                        <strong>{r.author || "—"}</strong>
+                        <span class="sep">·</span>
+                        <span
+                          title={r.date ? new Date(r.date).toISOString() : ""}
+                        >
+                          updated {relative(r.date)}
+                        </span>
+                        {r.sha && (
+                          <>
+                            <span class="sep">·</span>
+                            <a
+                              href={`/${owner}/${repo}/commit/${r.sha}`}
+                              style="font-family:var(--font-mono);font-size:11.5px;color:var(--text-muted);text-decoration:none"
+                            >
+                              {r.sha.slice(0, 7)}
+                            </a>
+                          </>
+                        )}
+                      </>
+                    ) : (
+                      <span>No commit metadata</span>
+                    )}
+                  </div>
+                </div>
+                <div class="branches-row-side">
+                  {!r.isDefault && (r.ahead > 0 || r.behind > 0) && (
+                    <span
+                      class="branches-row-divergence"
+                      title={`${r.ahead} ahead, ${r.behind} behind ${defaultBranch}`}
+                    >
+                      <span class="ahead">{r.ahead} ahead</span>
+                      <span style="opacity:0.4">|</span>
+                      <span class="behind">{r.behind} behind</span>
+                    </span>
+                  )}
+                  <div class="branches-row-actions">
+                    <a
+                      href={`/${owner}/${repo}/commits/${r.name}`}
+                      class="branches-btn"
+                      title="View commits on this branch"
+                    >
+                      Commits
+                    </a>
+                    {!r.isDefault &&
+                      user &&
+                      user.username === owner && (
+                        <form
+                          method="post"
+                          action={`/${owner}/${repo}/branches/${encodeURIComponent(r.name)}/delete`}
+                          style="margin:0"
+                          onsubmit={`return confirm('Delete branch \\'${r.name}\\'? This cannot be undone.')`}
+                        >
+                          <button
+                            type="submit"
+                            class="branches-btn branches-btn-danger"
+                          >
+                            Delete
+                          </button>
+                        </form>
+                      )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </Layout>
+  );
+});
+
+// Delete a branch (owner only). Uses `git branch -D` so we can drop refs
+// that are not merged into the default branch — matches the explicit
+// confirmation on the row's delete button.
+web.post("/:owner/:repo/branches/:name/delete", requireAuth, async (c) => {
+  const { owner, repo } = c.req.param();
+  const branchName = decodeURIComponent(c.req.param("name"));
+  const user = c.get("user")!;
+
+  // Owner-only check (mirrors collaborators.tsx pattern).
+  const [ownerRow] = await db
+    .select()
+    .from(users)
+    .where(eq(users.username, owner))
+    .limit(1);
+  if (!ownerRow || ownerRow.id !== user.id) {
+    return c.redirect(
+      `/${owner}/${repo}/branches?error=Only+the+owner+can+delete+branches`
+    );
+  }
+
+  const defaultBranch = (await getDefaultBranch(owner, repo)) || "main";
+  if (branchName === defaultBranch) {
+    return c.redirect(
+      `/${owner}/${repo}/branches?error=Cannot+delete+the+default+branch`
+    );
+  }
+
+  const branches = await listBranches(owner, repo);
+  if (!branches.includes(branchName)) {
+    return c.redirect(
+      `/${owner}/${repo}/branches?error=Branch+not+found`
+    );
+  }
+
+  try {
+    const repoDir = getRepoPath(owner, repo);
+    const proc = Bun.spawn(["git", "branch", "-D", branchName], {
+      cwd: repoDir,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    await proc.exited;
+    if (proc.exitCode !== 0) {
+      return c.redirect(
+        `/${owner}/${repo}/branches?error=Delete+failed`
+      );
+    }
+  } catch {
+    return c.redirect(`/${owner}/${repo}/branches?error=Delete+failed`);
+  }
+
+  return c.redirect(`/${owner}/${repo}/branches?success=Branch+deleted`);
+});
+
+// ─── Tags list ────────────────────────────────────────────────────────────
+// Pulls from `listTags` (sorted newest first). For each tag we look up an
+// associated release row so the "View release" CTA can deep-link directly
+// without making the user hunt for it.
+web.get("/:owner/:repo/tags", async (c) => {
+  const { owner, repo } = c.req.param();
+  const user = c.get("user");
+
+  if (!(await repoExists(owner, repo))) return c.notFound();
+
+  const tags = await listTags(owner, repo);
+
+  // Map tags -> releases. Best-effort; releases table may not exist in
+  // every test setup, so any error falls through with an empty set.
+  const tagsWithReleases = new Set<string>();
+  try {
+    const [ownerRow] = await db
+      .select()
+      .from(users)
+      .where(eq(users.username, owner))
+      .limit(1);
+    if (ownerRow) {
+      const [repoRow] = await db
+        .select()
+        .from(repositories)
+        .where(
+          and(
+            eq(repositories.ownerId, ownerRow.id),
+            eq(repositories.name, repo)
+          )
+        )
+        .limit(1);
+      if (repoRow) {
+        // Raw SQL so we don't need to import the releases schema here.
+        const result = await db.execute(
+          sql`SELECT tag FROM releases WHERE repository_id = ${repoRow.id}`
+        );
+        const rows: any[] = (result as any).rows || (result as any) || [];
+        for (const row of rows) {
+          const tag = row?.tag;
+          if (typeof tag === "string") tagsWithReleases.add(tag);
+        }
+      }
+    }
+  } catch {
+    // No releases table or DB error — leave set empty.
+  }
+
+  const relative = (iso: string): string => {
+    if (!iso) return "—";
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "—";
+    const diff = Date.now() - d.getTime();
+    const m = Math.floor(diff / 60000);
+    if (m < 1) return "just now";
+    if (m < 60) return `${m} min ago`;
+    const h = Math.floor(m / 60);
+    if (h < 24) return `${h} hr${h === 1 ? "" : "s"} ago`;
+    const dd = Math.floor(h / 24);
+    if (dd < 30) return `${dd} day${dd === 1 ? "" : "s"} ago`;
+    return d.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  };
+
+  return c.html(
+    <Layout title={`Tags — ${owner}/${repo}`} user={user}>
+      <style dangerouslySetInnerHTML={{ __html: codeBrowseCss }} />
+      <RepoHeader owner={owner} repo={repo} />
+      <RepoNav owner={owner} repo={repo} active="code" />
+      <div
+        class="tags-wrap"
+        style="max-width:1100px;margin:0 auto;padding:var(--space-5) var(--space-4) var(--space-8)"
+      >
+        <header class="tags-head" style="margin-bottom:var(--space-5)">
+          <div
+            class="tags-eyebrow"
+            style="display:inline-flex;align-items:center;gap:8px;text-transform:uppercase;font-family:var(--font-mono);font-size:11px;letter-spacing:0.16em;color:var(--text-muted);font-weight:600;margin-bottom:10px"
+          >
+            <span
+              class="tags-eyebrow-dot"
+              aria-hidden="true"
+              style="width:8px;height:8px;border-radius:9999px;background:linear-gradient(135deg,#8c6dff,#36c5d6);box-shadow:0 0 0 3px rgba(140,109,255,0.18)"
+            />
+            Repository · Tags
+          </div>
+          <h1
+            class="tags-title"
+            style="font-family:var(--font-display);font-size:clamp(24px,3.4vw,36px);font-weight:800;letter-spacing:-0.028em;line-height:1.1;margin:0 0 6px;color:var(--text-strong)"
+          >
+            <span class="gradient-text">{tags.length}</span>{" "}
+            tag{tags.length === 1 ? "" : "s"}
+          </h1>
+          <p
+            class="tags-sub"
+            style="margin:0;font-size:14px;color:var(--text-muted);line-height:1.5;max-width:700px"
+          >
+            Named points in the history — typically releases, milestones,
+            or shipped versions. Click a tag to browse the tree at that
+            revision.
+          </p>
+        </header>
+
+        {tags.length === 0 ? (
+          <div class="commits-empty">
+            <div class="commits-empty-orb" aria-hidden="true" />
+            <div class="commits-empty-inner">
+              <div class="commits-empty-icon" aria-hidden="true">
+                <svg
+                  width="22"
+                  height="22"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
+                  <line x1="7" y1="7" x2="7.01" y2="7" />
+                </svg>
+              </div>
+              <h3 class="commits-empty-title">No tags yet</h3>
+              <p class="commits-empty-sub">
+                Tag a commit to mark a release or milestone. From the CLI:{" "}
+                <code>git tag v0.1.0 &amp;&amp; git push --tags</code>.
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div class="tags-list">
+            {tags.map((t) => {
+              const hasRelease = tagsWithReleases.has(t.name);
+              return (
+                <div class="tags-row">
+                  <div class="tags-row-icon" aria-hidden="true">
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
+                      <line x1="7" y1="7" x2="7.01" y2="7" />
+                    </svg>
+                  </div>
+                  <div class="tags-row-main">
+                    <div class="tags-row-name">
+                      <a
+                        href={`/${owner}/${repo}/tree/${t.name}`}
+                        style="text-decoration:none"
+                      >
+                        <span class="tags-row-version">{t.name}</span>
+                      </a>
+                    </div>
+                    <div class="tags-row-meta">
+                      <span
+                        title={t.date ? new Date(t.date).toISOString() : ""}
+                      >
+                        Tagged {relative(t.date)}
+                      </span>
+                      <span class="sep">·</span>
+                      <a
+                        href={`/${owner}/${repo}/commit/${t.sha}`}
+                        class="tags-row-sha"
+                        title={t.sha}
+                      >
+                        {t.sha.slice(0, 7)}
+                      </a>
+                    </div>
+                  </div>
+                  <div class="tags-row-side">
+                    <a
+                      href={`/${owner}/${repo}/tree/${t.name}`}
+                      class="tags-row-link"
+                    >
+                      Browse files
+                    </a>
+                    {hasRelease && (
+                      <a
+                        href={`/${owner}/${repo}/releases/tag/${t.name}`}
+                        class="tags-row-link"
+                        style="color:#67e8f9;border-color:rgba(54,197,214,0.35);background:rgba(54,197,214,0.06)"
+                      >
+                        View release
+                      </a>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </Layout>
+  );
+});
+
 // Commit log
 web.get("/:owner/:repo/commits/:ref?", async (c) => {
   const { owner, repo } = c.req.param();
@@ -2749,21 +3985,177 @@ web.get("/:owner/:repo/commits/:ref?", async (c) => {
           branches={branches}
           pathType="commits"
         />
+        <div class="commits-toolbar-actions">
+          <a href={`/${owner}/${repo}/branches`} class="commits-toolbar-link">
+            {"⊢"} Branches
+          </a>
+          <a href={`/${owner}/${repo}/tags`} class="commits-toolbar-link">
+            {"#"} Tags
+          </a>
+        </div>
       </div>
       {commits.length === 0 ? (
         <div class="commits-empty">
-          <p>No commits yet on this branch.</p>
+          <div class="commits-empty-orb" aria-hidden="true" />
+          <div class="commits-empty-inner">
+            <div class="commits-empty-icon" aria-hidden="true">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="4" />
+                <line x1="1.05" y1="12" x2="7" y2="12" />
+                <line x1="17.01" y1="12" x2="22.96" y2="12" />
+              </svg>
+            </div>
+            <h3 class="commits-empty-title">No commits yet</h3>
+            <p class="commits-empty-sub">
+              This branch is empty. Push your first commit, or use the
+              web editor to create a file.
+            </p>
+          </div>
         </div>
       ) : (
         <div class="commits-list-wrap">
-          <CommitList
-            commits={commits}
-            owner={owner}
-            repo={repo}
-            verifications={verifications}
-          />
+          {(() => {
+            // Group commits by day for the section headers.
+            const dayLabel = (iso: string): string => {
+              const d = new Date(iso);
+              if (Number.isNaN(d.getTime())) return "Unknown";
+              const today = new Date();
+              const yesterday = new Date(today);
+              yesterday.setDate(today.getDate() - 1);
+              const sameDay = (a: Date, b: Date) =>
+                a.getFullYear() === b.getFullYear() &&
+                a.getMonth() === b.getMonth() &&
+                a.getDate() === b.getDate();
+              if (sameDay(d, today)) return "Today";
+              if (sameDay(d, yesterday)) return "Yesterday";
+              return d.toLocaleDateString("en-US", {
+                month: "long",
+                day: "numeric",
+                year: today.getFullYear() === d.getFullYear() ? undefined : "numeric",
+              });
+            };
+            const relative = (iso: string): string => {
+              const d = new Date(iso);
+              if (Number.isNaN(d.getTime())) return "";
+              const diff = Date.now() - d.getTime();
+              const m = Math.floor(diff / 60000);
+              if (m < 1) return "just now";
+              if (m < 60) return `${m} min ago`;
+              const h = Math.floor(m / 60);
+              if (h < 24) return `${h} hr${h === 1 ? "" : "s"} ago`;
+              const dd = Math.floor(h / 24);
+              if (dd < 30) return `${dd} day${dd === 1 ? "" : "s"} ago`;
+              return d.toLocaleDateString("en-US", {
+                month: "short",
+                day: "numeric",
+              });
+            };
+            const initial = (name: string): string =>
+              (name || "?").trim().charAt(0).toUpperCase() || "?";
+            // Build groups preserving order.
+            const groups: Array<{ label: string; items: typeof commits }> = [];
+            let lastLabel = "";
+            for (const cm of commits) {
+              const label = dayLabel(cm.date);
+              if (label !== lastLabel) {
+                groups.push({ label, items: [] });
+                lastLabel = label;
+              }
+              groups[groups.length - 1].items.push(cm);
+            }
+            return groups.map((g) => (
+              <>
+                <div class="commits-day-head">
+                  <span class="commits-day-head-dot" aria-hidden="true" />
+                  Commits on {g.label}
+                </div>
+                {g.items.map((cm) => {
+                  const v = verifications[cm.sha];
+                  return (
+                    <div class="commits-row">
+                      <div class="commits-avatar" aria-hidden="true">
+                        {initial(cm.author)}
+                      </div>
+                      <div class="commits-row-body">
+                        <div class="commits-row-msg">
+                          <a href={`/${owner}/${repo}/commit/${cm.sha}`}>
+                            {cm.message}
+                          </a>
+                          {v?.verified && (
+                            <span
+                              class="commits-row-verified"
+                              title="Signed with a registered key"
+                            >
+                              Verified
+                            </span>
+                          )}
+                        </div>
+                        <div class="commits-row-meta">
+                          <strong>{cm.author}</strong>
+                          <span class="sep">·</span>
+                          <span
+                            class="commits-row-time"
+                            title={new Date(cm.date).toISOString()}
+                          >
+                            committed {relative(cm.date)}
+                          </span>
+                          {cm.parentShas.length > 1 && (
+                            <>
+                              <span class="sep">·</span>
+                              <span>merge of {cm.parentShas.length} parents</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                      <div class="commits-row-side">
+                        <a
+                          href={`/${owner}/${repo}/commit/${cm.sha}`}
+                          class="commits-row-sha"
+                          title={cm.sha}
+                        >
+                          {cm.sha.slice(0, 7)}
+                        </a>
+                        <button
+                          type="button"
+                          class="commits-row-copy"
+                          data-copy-sha={cm.sha}
+                          title="Copy full SHA"
+                          aria-label={`Copy SHA ${cm.sha}`}
+                        >
+                          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                            <path fill="currentColor" d="M4 1.5h6A1.5 1.5 0 0 1 11.5 3v1h-1V3a.5.5 0 0 0-.5-.5H4a.5.5 0 0 0-.5.5v8a.5.5 0 0 0 .5.5h1v1H4A1.5 1.5 0 0 1 2.5 11V3A1.5 1.5 0 0 1 4 1.5Z" />
+                            <path fill="currentColor" d="M6 5.5h6A1.5 1.5 0 0 1 13.5 7v6A1.5 1.5 0 0 1 12 14.5H6A1.5 1.5 0 0 1 4.5 13V7A1.5 1.5 0 0 1 6 5.5Zm0 1A.5.5 0 0 0 5.5 7v6a.5.5 0 0 0 .5.5h6a.5.5 0 0 0 .5-.5V7a.5.5 0 0 0-.5-.5H6Z" />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </>
+            ));
+          })()}
         </div>
       )}
+      <script
+        dangerouslySetInnerHTML={{
+          __html: `
+            (function(){
+              document.addEventListener('click', function(e){
+                var t = e.target; if (!t) return;
+                var btn = t.closest && t.closest('[data-copy-sha]');
+                if (!btn) return;
+                e.preventDefault();
+                var sha = btn.getAttribute('data-copy-sha') || '';
+                if (!navigator.clipboard) return;
+                navigator.clipboard.writeText(sha).then(function(){
+                  btn.classList.add('is-copied');
+                  setTimeout(function(){ btn.classList.remove('is-copied'); }, 1200);
+                }).catch(function(){});
+              });
+            })();
+          `,
+        }}
+      />
     </Layout>
   );
 });
@@ -3084,11 +4476,25 @@ web.get("/:owner/:repo/blame/:ref{.+$}", async (c) => {
       <style dangerouslySetInnerHTML={{ __html: codeBrowseCss }} />
       <RepoHeader owner={owner} repo={repo} />
       <RepoNav owner={owner} repo={repo} active="code" />
+      <header class="blame-head">
+        <div class="blame-eyebrow">
+          <span class="blame-eyebrow-dot" aria-hidden="true" />
+          Blame · Line-by-line history
+        </div>
+        <h1 class="blame-title">
+          <code>{fileName}</code>
+        </h1>
+        <p class="blame-sub">
+          Each line is annotated with the commit that last touched it.
+          Click any SHA to jump to that commit and see the surrounding
+          change.
+        </p>
+      </header>
       <div class="blame-toolbar">
         <Breadcrumb owner={owner} repo={repo} ref={ref} path={filePath} />
       </div>
-      <div class="blob-view blame-card">
-        <div class="blob-header blame-header">
+      <div class="blame-card">
+        <div class="blame-header">
           <div class="blame-header-meta">
             <span class="blame-header-icon" aria-hidden="true">{"⎙"}</span>
             <span class="blame-header-name">{fileName}</span>
@@ -3114,31 +4520,32 @@ web.get("/:owner/:repo/blame/:ref{.+$}", async (c) => {
             </a>
           </div>
         </div>
-        <div class="blob-code" style="overflow-x: auto">
-          <table style="width: 100%; border-collapse: collapse; font-size: 13px; font-family: var(--font-mono)">
+        <div style="overflow-x:auto">
+          <table class="blame-table">
             <tbody>
               {blameLines.map((line, i) => {
                 const showInfo =
                   i === 0 || blameLines[i - 1].sha !== line.sha;
                 return (
-                  <tr style="border-bottom: 1px solid var(--border)">
-                    <td
-                      style={`width: 200px; padding: 0 8px; font-size: 11px; color: var(--text-muted); white-space: nowrap; vertical-align: top; ${showInfo ? "border-top: 1px solid var(--border)" : ""}`}
-                    >
+                  <tr class={showInfo ? "blame-row-first" : ""}>
+                    <td class="blame-gutter">
                       {showInfo && (
-                        <>
+                        <span class="blame-gutter-inner">
                           <a
                             href={`/${owner}/${repo}/commit/${line.sha}`}
-                            style="color: var(--text-link); font-family: var(--font-mono)"
+                            class="blame-gutter-sha"
+                            title={`Commit ${line.sha}`}
                           >
                             {line.sha.slice(0, 7)}
-                          </a>{" "}
-                          <span>{line.author}</span>
-                        </>
+                          </a>
+                          <span class="blame-gutter-author" title={line.author}>
+                            {line.author}
+                          </span>
+                        </span>
                       )}
                     </td>
-                    <td class="line-num">{line.lineNum}</td>
-                    <td class="line-content">{line.content}</td>
+                    <td class="blame-line-num">{line.lineNum}</td>
+                    <td class="blame-line-content">{line.content}</td>
                   </tr>
                 );
               })}

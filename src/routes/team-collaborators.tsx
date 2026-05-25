@@ -10,6 +10,10 @@
  *
  *   GET  /:owner/:repo/settings/collaborators/teams  — form + list
  *   POST /:owner/:repo/settings/collaborators/teams/add — bulk insert
+ *
+ * 2026 polish: gradient-hairline hero + orb, scoped `.tc-*` classes,
+ * polished form card with focus rings + gradient submit, polished
+ * collaborator list cards, orbital empty state.
  */
 
 import { Hono } from "hono";
@@ -29,19 +33,397 @@ import { RepoHeader } from "../views/components";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
 import {
-  Container,
-  Form,
-  FormGroup,
-  Input,
-  Select,
-  Button,
-  Alert,
   EmptyState,
 } from "../views/ui";
 
 const teamCollaboratorRoutes = new Hono<AuthEnv>();
 
 teamCollaboratorRoutes.use("*", softAuth);
+
+// ─── Scoped CSS — all classes prefixed `.tc-*` ─────────────────────────────
+const tcStyles = `
+  .tc-wrap { max-width: 880px; margin: 0 auto; padding: var(--space-5, 24px) var(--space-4, 24px); }
+
+  /* ─── Back link ─── */
+  .tc-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--text-muted);
+    text-decoration: none;
+    margin-bottom: var(--space-3);
+    transition: color 140ms ease;
+  }
+  .tc-back:hover { color: var(--text-strong); }
+
+  /* ─── Hero ─── */
+  .tc-hero {
+    position: relative;
+    margin-bottom: var(--space-5);
+    padding: clamp(24px, 3.5vw, 36px) clamp(20px, 3vw, 32px);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+  .tc-hero::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent 0%, #8c6dff 30%, #36c5d6 70%, transparent 100%);
+    opacity: 0.75;
+    pointer-events: none;
+  }
+  .tc-hero-orb {
+    position: absolute;
+    inset: -25% -10% auto auto;
+    width: 360px; height: 360px;
+    background: radial-gradient(circle, rgba(140,109,255,0.18), rgba(54,197,214,0.09) 45%, transparent 70%);
+    filter: blur(80px);
+    opacity: 0.7;
+    pointer-events: none;
+    animation: tcHeroOrb 14s ease-in-out infinite;
+    z-index: 0;
+  }
+  @keyframes tcHeroOrb {
+    0%, 100% { transform: scale(1) translate(0, 0); opacity: 0.55; }
+    50%      { transform: scale(1.08) translate(-10px, 8px); opacity: 0.8; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .tc-hero-orb { animation: none; }
+  }
+  .tc-hero-inner { position: relative; z-index: 1; max-width: 640px; }
+  .tc-eyebrow {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    font-weight: 600;
+    margin-bottom: 10px;
+  }
+  .tc-eyebrow strong { color: var(--accent); font-weight: 700; }
+  .tc-title {
+    font-family: var(--font-display);
+    font-size: clamp(26px, 3.6vw, 36px);
+    font-weight: 800;
+    letter-spacing: -0.026em;
+    line-height: 1.08;
+    margin: 0 0 var(--space-2);
+    color: var(--text-strong);
+  }
+  .tc-title-grad {
+    background-image: linear-gradient(135deg, #a48bff 0%, #8c6dff 50%, #36c5d6 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+  }
+  .tc-sub {
+    font-size: 14.5px;
+    color: var(--text-muted);
+    line-height: 1.55;
+    margin: 0;
+    max-width: 560px;
+  }
+
+  /* ─── Banners ─── */
+  .tc-banner {
+    position: relative;
+    padding: 12px 16px 12px 40px;
+    margin-bottom: var(--space-4);
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: var(--bg-elevated);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  .tc-banner::before {
+    content: '';
+    position: absolute;
+    left: 14px; top: 16px;
+    width: 12px; height: 12px;
+    border-radius: 50%;
+  }
+  .tc-banner-success {
+    border-color: rgba(63, 185, 80, 0.32);
+    background: linear-gradient(180deg, rgba(63,185,80,0.06) 0%, var(--bg-elevated) 100%);
+  }
+  .tc-banner-success::before {
+    background: radial-gradient(circle, #3fb950 30%, transparent 70%);
+    box-shadow: 0 0 10px rgba(63,185,80,0.5);
+  }
+  .tc-banner-error {
+    border-color: rgba(248, 81, 73, 0.32);
+    background: linear-gradient(180deg, rgba(248,81,73,0.06) 0%, var(--bg-elevated) 100%);
+  }
+  .tc-banner-error::before {
+    background: radial-gradient(circle, #f85149 30%, transparent 70%);
+    box-shadow: 0 0 10px rgba(248,81,73,0.5);
+  }
+
+  /* ─── Form card ─── */
+  .tc-card {
+    position: relative;
+    margin-bottom: var(--space-5);
+    padding: clamp(20px, 3vw, 28px);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+  }
+  .tc-card-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 6px;
+  }
+  .tc-card-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, rgba(140,109,255,0.20), rgba(54,197,214,0.14));
+    color: #c5b3ff;
+    border: 1px solid rgba(140,109,255,0.40);
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 12.5px;
+  }
+  .tc-card-title {
+    font-family: var(--font-display);
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: -0.012em;
+    color: var(--text-strong);
+    margin: 0;
+  }
+  .tc-card-sub {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin: 0 0 var(--space-3);
+    line-height: 1.5;
+  }
+  .tc-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: var(--space-3); }
+  .tc-field-label {
+    font-size: 13px;
+    color: var(--text-strong);
+    font-weight: 600;
+  }
+  .tc-field-input,
+  .tc-field-select {
+    appearance: none;
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text-strong);
+    border-radius: 10px;
+    padding: 10px 12px;
+    font-size: 14px;
+    font-family: inherit;
+    transition: border-color 140ms ease, box-shadow 140ms ease;
+  }
+  .tc-field-select {
+    background-image: linear-gradient(45deg, transparent 50%, var(--text-muted) 50%),
+                      linear-gradient(135deg, var(--text-muted) 50%, transparent 50%);
+    background-position: calc(100% - 18px) 50%, calc(100% - 13px) 50%;
+    background-size: 5px 5px, 5px 5px;
+    background-repeat: no-repeat;
+    padding-right: 32px;
+  }
+  .tc-field-input:focus,
+  .tc-field-select:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(140,109,255,0.18);
+  }
+  .tc-submit {
+    appearance: none;
+    border: 1px solid rgba(140,109,255,0.45);
+    background: linear-gradient(135deg, #8c6dff 0%, #36c5d6 100%);
+    color: #fff;
+    padding: 11px 22px;
+    border-radius: 10px;
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 14px;
+    cursor: pointer;
+    box-shadow: 0 8px 20px -8px rgba(140,109,255,0.55);
+    transition: transform 140ms ease, box-shadow 140ms ease, filter 140ms ease;
+  }
+  .tc-submit:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 12px 24px -8px rgba(140,109,255,0.7);
+    filter: brightness(1.06);
+  }
+  .tc-submit:focus-visible {
+    outline: 3px solid rgba(140,109,255,0.45);
+    outline-offset: 2px;
+  }
+
+  /* ─── Empty card (no orgs) ─── */
+  .tc-empty-orgs {
+    position: relative;
+    padding: var(--space-4);
+    border: 1px dashed var(--border);
+    border-radius: 12px;
+    background: var(--bg-secondary);
+    text-align: center;
+    font-size: 13.5px;
+    color: var(--text-muted);
+    line-height: 1.55;
+  }
+  .tc-empty-orgs a { color: var(--accent); text-decoration: none; }
+  .tc-empty-orgs a:hover { text-decoration: underline; }
+
+  /* ─── Collaborator list ─── */
+  .tc-list-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin: var(--space-5) 0 var(--space-3);
+  }
+  .tc-list-title {
+    font-family: var(--font-display);
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: -0.014em;
+    color: var(--text-strong);
+    margin: 0;
+  }
+  .tc-list-count {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+  .tc-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .tc-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    transition: border-color 140ms ease, transform 140ms ease;
+  }
+  .tc-row:hover {
+    border-color: rgba(140,109,255,0.35);
+    transform: translateY(-1px);
+  }
+  .tc-avatar {
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    object-fit: cover;
+    background: var(--bg-secondary);
+    flex-shrink: 0;
+  }
+  .tc-avatar-fallback {
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #8c6dff 0%, #36c5d6 100%);
+    color: #fff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 13px;
+    flex-shrink: 0;
+  }
+  .tc-row-body { flex: 1; min-width: 0; }
+  .tc-row-name {
+    font-size: 14px;
+    color: var(--text-strong);
+    font-weight: 600;
+    text-decoration: none;
+  }
+  .tc-row-name:hover { color: var(--accent); }
+  .tc-row-meta {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 2px;
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .tc-row-role {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: rgba(140,109,255,0.10);
+    border: 1px solid rgba(140,109,255,0.30);
+    color: #c5b3ff;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .tc-row-pill-ok {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: rgba(63,185,80,0.10);
+    border: 1px solid rgba(63,185,80,0.35);
+    color: #4ec55d;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .tc-row-pill-warn {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: rgba(251,191,36,0.10);
+    border: 1px solid rgba(251,191,36,0.35);
+    color: #fbbf24;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  /* ─── Empty state for no collaborators ─── */
+  .tc-empty {
+    position: relative;
+    padding: 36px 24px;
+    text-align: center;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+  }
+  .tc-empty-orb {
+    position: absolute;
+    inset: -50% 25% auto 25%;
+    width: 50%; height: 200px;
+    background: radial-gradient(circle, rgba(140,109,255,0.16), transparent 65%);
+    filter: blur(50px);
+    opacity: 0.7;
+    pointer-events: none;
+    z-index: 0;
+  }
+  .tc-empty-inner { position: relative; z-index: 1; }
+  .tc-empty-title {
+    font-family: var(--font-display);
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: -0.012em;
+    color: var(--text-strong);
+    margin: 0 0 6px;
+  }
+  .tc-empty-desc {
+    font-size: 13.5px;
+    color: var(--text-muted);
+    line-height: 1.55;
+    margin: 0;
+  }
+`;
 
 /**
  * Resolve (owner user, repo) from URL params and enforce owner-only access.
@@ -129,101 +511,163 @@ teamCollaboratorRoutes.get(
         user={user}
       >
         <RepoHeader owner={ownerName} repo={repoName} />
-        <Container maxWidth={700}>
-          <h2 style="margin-bottom: 16px">Invite a team</h2>
-          <p style="font-size:14px;color:var(--text-muted);margin-bottom:16px">
-            <a href={`/${ownerName}/${repoName}/settings/collaborators`}>
-              ← Back to collaborators
-            </a>
-          </p>
-          {success && (
-            <Alert variant="success">{decodeURIComponent(success)}</Alert>
-          )}
-          {error && <Alert variant="error">{decodeURIComponent(error)}</Alert>}
-
-          <div
-            style="margin-bottom: 24px; padding: 20px; border: 1px solid var(--border); border-radius: var(--radius)"
+        <style dangerouslySetInnerHTML={{ __html: tcStyles }} />
+        <div class="tc-wrap">
+          <a
+            href={`/${ownerName}/${repoName}/settings/collaborators`}
+            class="tc-back"
           >
-            <h3 style="margin-bottom: 12px">Invite every member of a team</h3>
-            {userOrgs.length === 0 ? (
-              <p style="font-size:14px;color:var(--text-muted)">
-                You don't belong to any organizations yet.
+            &larr; Back to collaborators
+          </a>
+
+          {/* ─── Hero ─── */}
+          <div class="tc-hero">
+            <div class="tc-hero-orb" aria-hidden="true" />
+            <div class="tc-hero-inner">
+              <div class="tc-eyebrow">
+                <strong>Teams</strong> · bulk invite
+              </div>
+              <h1 class="tc-title">
+                Invite a whole{" "}
+                <span class="tc-title-grad">team</span> at once.
+              </h1>
+              <p class="tc-sub">
+                Pick an org and a team, choose a role, and every member of
+                that team is added to{" "}
+                <strong>{ownerName}/{repoName}</strong> in one shot. No
+                individual invite emails to chase.
               </p>
+            </div>
+          </div>
+
+          {success && (
+            <div class="tc-banner tc-banner-success" role="status">
+              {decodeURIComponent(success)}
+            </div>
+          )}
+          {error && (
+            <div class="tc-banner tc-banner-error" role="alert">
+              {decodeURIComponent(error)}
+            </div>
+          )}
+
+          {/* ─── Form card ─── */}
+          <div class="tc-card">
+            <div class="tc-card-head">
+              <span class="tc-card-badge" aria-hidden="true">1</span>
+              <h2 class="tc-card-title">Invite every member of a team</h2>
+            </div>
+            <p class="tc-card-sub">
+              Each member is added with the role you pick. Existing
+              collaborators are updated; the repo owner is always skipped.
+            </p>
+            {userOrgs.length === 0 ? (
+              <div class="tc-empty-orgs">
+                You don't belong to any organizations yet.{" "}
+                <a href="/orgs/new">Create one</a> to start inviting teams.
+              </div>
             ) : (
-              <Form
+              <form
                 method="post"
                 action={`/${ownerName}/${repoName}/settings/collaborators/teams/add`}
               >
-                <FormGroup label="Organization" htmlFor="orgSlug">
-                  <Select name="orgSlug" id="orgSlug">
+                <div class="tc-field">
+                  <label class="tc-field-label" for="orgSlug">Organization</label>
+                  <select
+                    name="orgSlug"
+                    id="orgSlug"
+                    class="tc-field-select"
+                  >
                     {userOrgs.map((o) => (
                       <option value={o.slug}>
                         {o.name} ({o.slug})
                       </option>
                     ))}
-                  </Select>
-                </FormGroup>
-                <FormGroup label="Team slug" htmlFor="teamSlug">
-                  <Input
+                  </select>
+                </div>
+                <div class="tc-field">
+                  <label class="tc-field-label" for="teamSlug">Team slug</label>
+                  <input
                     name="teamSlug"
                     id="teamSlug"
                     placeholder="engineering"
                     required
+                    class="tc-field-input"
                   />
-                </FormGroup>
-                <FormGroup label="Role" htmlFor="role">
-                  <Select name="role" id="role" value="read">
+                </div>
+                <div class="tc-field">
+                  <label class="tc-field-label" for="role">Role</label>
+                  <select
+                    name="role"
+                    id="role"
+                    class="tc-field-select"
+                  >
                     <option value="read">Read — clone + pull</option>
                     <option value="write">Write — push + merge</option>
                     <option value="admin">Admin — full control</option>
-                  </Select>
-                </FormGroup>
-                <Button type="submit" variant="primary">
+                  </select>
+                </div>
+                <button type="submit" class="tc-submit">
                   Invite team
-                </Button>
-              </Form>
+                </button>
+              </form>
             )}
           </div>
 
-          <h3 style="margin-bottom: 12px">
-            Current collaborators ({rows.length})
-          </h3>
+          {/* ─── Current collaborators ─── */}
+          <div class="tc-list-head">
+            <h2 class="tc-list-title">Current collaborators</h2>
+            <span class="tc-list-count">{rows.length} total</span>
+          </div>
           {rows.length === 0 ? (
-            <EmptyState title="No collaborators yet">
-              <p>Invite a team above to add multiple people at once.</p>
-            </EmptyState>
+            <div class="tc-empty">
+              <div class="tc-empty-orb" aria-hidden="true" />
+              <div class="tc-empty-inner">
+                <h3 class="tc-empty-title">No collaborators yet</h3>
+                <p class="tc-empty-desc">
+                  Invite a team above to add multiple people at once,
+                  or invite a single user from the collaborators page.
+                </p>
+              </div>
+            </div>
           ) : (
-            <div>
+            <div class="tc-list">
               {rows.map((row) => (
-                <div class="ssh-key-item">
-                  <div>
-                    <strong>
-                      {row.avatarUrl && (
-                        <img
-                          src={row.avatarUrl}
-                          alt=""
-                          width={20}
-                          height={20}
-                          style="width:20px;height:20px;border-radius:50%;vertical-align:middle;margin-right:6px"
-                        />
-                      )}
-                      <a href={`/${row.username}`}>{row.username}</a>
-                    </strong>
-                    <div class="ssh-key-meta">
-                      Role: <strong>{row.role}</strong> | Invited:{" "}
-                      {new Date(row.invitedAt).toLocaleDateString()} |{" "}
+                <div class="tc-row">
+                  {row.avatarUrl ? (
+                    <img
+                      class="tc-avatar"
+                      src={row.avatarUrl}
+                      alt=""
+                      width={32}
+                      height={32}
+                    />
+                  ) : (
+                    <span class="tc-avatar-fallback" aria-hidden="true">
+                      {row.username.charAt(0).toUpperCase()}
+                    </span>
+                  )}
+                  <div class="tc-row-body">
+                    <a href={`/${row.username}`} class="tc-row-name">
+                      {row.username}
+                    </a>
+                    <div class="tc-row-meta">
+                      <span class="tc-row-role">{row.role}</span>
                       {row.acceptedAt ? (
-                        <span style="color: var(--green)">Accepted</span>
+                        <span class="tc-row-pill-ok">Accepted</span>
                       ) : (
-                        <span style="color: var(--yellow)">Pending</span>
+                        <span class="tc-row-pill-warn">Pending</span>
                       )}
+                      <span>
+                        Invited {new Date(row.invitedAt).toLocaleDateString()}
+                      </span>
                     </div>
                   </div>
                 </div>
               ))}
             </div>
           )}
-        </Container>
+        </div>
       </Layout>
     );
   }

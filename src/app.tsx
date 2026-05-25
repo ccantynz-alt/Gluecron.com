@@ -28,6 +28,7 @@ import settingsIntegrationsRoutes from "./routes/settings-integrations";
 import integrationsChatRoutes from "./routes/integrations-chat";
 import agentsRoutes from "./routes/agents";
 import issueRoutes from "./routes/issues";
+import commentModerationRoutes from "./routes/comment-moderation";
 import repoSettings from "./routes/repo-settings";
 import collaboratorRoutes from "./routes/collaborators";
 import teamCollaboratorRoutes from "./routes/team-collaborators";
@@ -446,6 +447,12 @@ app.route("/", compareRoutes);
 
 // Issue tracker
 app.route("/", issueRoutes);
+
+// Comment moderation queue — owner-only `/:owner/:repo/comments/pending`
+// + per-row approve/reject/spam actions. Mounted before `pullRoutes` so
+// the `/:owner/:repo/comments/*` paths resolve before the broader PR
+// patterns kick in.
+app.route("/", commentModerationRoutes);
 
 // Pull requests
 app.route("/", pullRoutes);

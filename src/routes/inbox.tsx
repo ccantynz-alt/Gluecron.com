@@ -553,7 +553,12 @@ async function loadMentions(
       })
       .from(prComments)
       .innerJoin(pullRequests, eq(pullRequests.id, prComments.pullRequestId))
-      .where(sql`${prComments.body} ILIKE ${needle}`)
+      .where(
+        and(
+          sql`${prComments.body} ILIKE ${needle}`,
+          eq(prComments.moderationStatus, "approved")
+        )
+      )
       .orderBy(desc(prComments.createdAt))
       .limit(50);
     const repoIds = Array.from(new Set(prRows.map((r) => r.repoId)));
@@ -588,7 +593,12 @@ async function loadMentions(
       })
       .from(issueComments)
       .innerJoin(issues, eq(issues.id, issueComments.issueId))
-      .where(sql`${issueComments.body} ILIKE ${needle}`)
+      .where(
+        and(
+          sql`${issueComments.body} ILIKE ${needle}`,
+          eq(issueComments.moderationStatus, "approved")
+        )
+      )
       .orderBy(desc(issueComments.createdAt))
       .limit(50);
     const repoIds = Array.from(new Set(issueRows.map((r) => r.repoId)));

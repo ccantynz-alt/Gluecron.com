@@ -26,6 +26,7 @@ import {
 } from "../db/schema";
 import { Layout } from "../views/layout";
 import { RepoHeader } from "../views/components";
+import { PendingCommentsBanner } from "../views/pending-comments-banner";
 import { DiffView } from "../views/diff-view";
 import { ReactionsBar } from "../views/reactions";
 import { summariseReactions } from "../lib/reactions";
@@ -41,6 +42,11 @@ import { liveCommentBannerScript } from "../lib/sse-client";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
 import { requireRepoAccess } from "../middleware/repo-access";
+import {
+  decideInitialStatus,
+  notifyOwnerOfPendingComment,
+  countPendingForRepo,
+} from "../lib/comment-moderation";
 import { isAiReviewEnabled, triggerAiReview } from "../lib/ai-review";
 import {
   TRIO_COMMENT_MARKER,
@@ -1727,11 +1733,20 @@ pulls.get("/:owner/:repo/pulls", softAuth, requireRepoAccess("read"), async (c) 
     { label: "Draft", count: draftCount, key: "draft", href: `/${ownerName}/${repoName}/pulls?state=draft` },
   ];
   const isAllState = state === "all";
+  const viewerIsOwnerOnPrList = !!(user && user.id === resolved.owner.id);
+  const prListPendingCount = viewerIsOwnerOnPrList
+    ? await countPendingForRepo(resolved.repo.id)
+    : 0;
 
   return c.html(
     <Layout title={`Pull Requests — ${ownerName}/${repoName}`} user={user}>
       <RepoHeader owner={ownerName} repo={repoName} />
       <PrNav owner={ownerName} repo={repoName} active="pulls" />
+      <PendingCommentsBanner
+        owner={ownerName}
+        repo={repoName}
+        count={prListPendingCount}
+      />
       <style dangerouslySetInnerHTML={{ __html: PRS_LIST_STYLES }} />
 
       <div class="prs-hero">
@@ -2163,15 +2178,35 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
     .where(eq(users.id, pr.authorId))
     .limit(1);
 
-  const comments = await db
+  const allCommentsRaw = await db
     .select({
       comment: prComments,
-      author: { username: users.username },
+      author: { id: users.id, username: users.username },
     })
     .from(prComments)
     .innerJoin(users, eq(prComments.authorId, users.id))
     .where(eq(prComments.pullRequestId, pr.id))
     .orderBy(asc(prComments.createdAt));
+
+  // Filter pending/rejected/spam for non-owner, non-author viewers.
+  // Owner always sees everything; comment author sees their own pending
+  // with an "Awaiting approval" badge in the render below.
+  const viewerIsRepoOwner = !!(user && user.id === resolved.owner.id);
+  const comments = allCommentsRaw.filter(({ comment, author: cAuthor }) => {
+    if (viewerIsRepoOwner) return true;
+    if (comment.moderationStatus === "approved") return true;
+    if (
+      user &&
+      cAuthor.id === user.id &&
+      comment.moderationStatus === "pending"
+    ) {
+      return true;
+    }
+    return false;
+  });
+  const prPendingCount = viewerIsRepoOwner
+    ? await countPendingForRepo(resolved.repo.id)
+    : 0;
 
   // Reactions for the PR body + each comment, in parallel.
   const [prReactions, ...prCommentReactions] = await Promise.all([
@@ -2325,6 +2360,11 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
     >
       <RepoHeader owner={ownerName} repo={repoName} />
       <PrNav owner={ownerName} repo={repoName} active="pulls" />
+      <PendingCommentsBanner
+        owner={ownerName}
+        repo={repoName}
+        count={prPendingCount}
+      />
       <style dangerouslySetInnerHTML={{ __html: PRS_DETAIL_STYLES }} />
       <div
         id="live-comment-banner"
@@ -2478,12 +2518,23 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
                 </div>
               );
             }
+            const isPending = comment.moderationStatus === "pending";
             return (
-              <div class={`prs-comment${comment.isAiReview ? " is-ai" : ""}`}>
+              <div
+                class={`prs-comment${comment.isAiReview ? " is-ai" : ""}${isPending ? " modq-comment-pending" : ""}`}
+              >
                 <div class="prs-comment-head">
                   <strong>{commentAuthor.username}</strong>
                   {comment.isAiReview && (
                     <span class="prs-ai-badge">AI Review</span>
+                  )}
+                  {isPending && (
+                    <span
+                      class="modq-pending-badge"
+                      title="This comment is awaiting the repository owner's approval — only you and the owner can see it."
+                    >
+                      Awaiting approval
+                    </span>
                   )}
                   <span class="prs-comment-time">
                     commented {formatRelative(comment.createdAt)}
@@ -2766,12 +2817,18 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
   );
 });
 
-// Add comment to PR
+// Add comment to PR.
+//
+// Permission model mirrors `issues.tsx`: any logged-in user with read
+// access can submit; `decideInitialStatus` routes non-collaborators
+// through the moderation queue. Slash commands only fire when the
+// comment is auto-approved — we don't want a banned/pending comment to
+// silently trigger AI work on the PR.
 pulls.post(
   "/:owner/:repo/pulls/:number/comment",
   softAuth,
   requireAuth,
-  requireRepoAccess("write"),
+  requireRepoAccess("read"),
   async (c) => {
     const { owner: ownerName, repo: repoName } = c.req.param();
     const prNum = parseInt(c.req.param("number"), 10);
@@ -2799,17 +2856,25 @@ pulls.post(
 
     if (!pr) return c.redirect(`/${ownerName}/${repoName}/pulls`);
 
+    const decision = await decideInitialStatus({
+      commenterUserId: user.id,
+      repositoryId: resolved.repo.id,
+      kind: "pr",
+      threadId: pr.id,
+    });
+
     const [inserted] = await db
       .insert(prComments)
       .values({
         pullRequestId: pr.id,
         authorId: user.id,
         body: commentBody,
+        moderationStatus: decision.status,
       })
       .returning();
 
-    // Live update: nudge any browser tabs subscribed to this PR.
-    if (inserted) {
+    // Live update: only when the comment is actually visible.
+    if (inserted && decision.status === "approved") {
       try {
         const { publish } = await import("../lib/sse");
         publish(`repo:${resolved.repo.id}:pr:${prNum}`, {
@@ -2826,9 +2891,30 @@ pulls.post(
       }
     }
 
+    if (decision.status === "pending") {
+      void notifyOwnerOfPendingComment({
+        repositoryId: resolved.repo.id,
+        commenterUsername: user.username,
+        kind: "pr",
+        threadNumber: prNum,
+        ownerUsername: ownerName,
+        repoName,
+      });
+      return c.redirect(
+        `/${ownerName}/${repoName}/pulls/${prNum}?info=${encodeURIComponent("Comment awaiting author approval")}`
+      );
+    }
+    if (decision.status === "rejected") {
+      // Silent ban path — same UX as 'pending' so we don't leak the gate.
+      return c.redirect(
+        `/${ownerName}/${repoName}/pulls/${prNum}?info=${encodeURIComponent("Comment awaiting author approval")}`
+      );
+    }
+
     // Slash-command handoff. We always store the original comment above
     // first so free-form text that happens to start with `/` is preserved
     // verbatim; only recognised commands trigger a follow-up bot comment.
+    // (Only reachable when decision.status === 'approved'.)
     const parsed = parseSlashCommand(commentBody);
     if (parsed) {
       try {

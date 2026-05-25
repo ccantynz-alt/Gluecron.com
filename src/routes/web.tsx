@@ -15,6 +15,7 @@ import {
   commitVerifications,
 } from "../db/schema";
 import { Layout } from "../views/layout";
+import { PendingCommentsBanner as RepoHomePendingBanner } from "../views/pending-comments-banner";
 import {
   RepoHeader,
   RepoNav,
@@ -2302,6 +2303,8 @@ web.get("/:owner/:repo", async (c) => {
             description: null as string | null,
             pushedAt: null as Date | null,
             createdAt: null as Date | null,
+            repoId: null as string | null,
+            repoOwnerId: null as string | null,
           };
         const [repoRow] = await db
           .select()
@@ -2323,6 +2326,8 @@ web.get("/:owner/:repo", async (c) => {
             description: null as string | null,
             pushedAt: null as Date | null,
             createdAt: null as Date | null,
+            repoId: null as string | null,
+            repoOwnerId: null as string | null,
           };
         let starred = false;
         if (user) {
@@ -2347,6 +2352,8 @@ web.get("/:owner/:repo", async (c) => {
           description: repoRow.description as string | null,
           pushedAt: (repoRow.pushedAt as Date | null) ?? null,
           createdAt: (repoRow.createdAt as Date | null) ?? null,
+          repoId: repoRow.id as string,
+          repoOwnerId: repoRow.ownerId as string,
         };
       } catch {
         return {
@@ -2358,6 +2365,8 @@ web.get("/:owner/:repo", async (c) => {
           description: null as string | null,
           pushedAt: null as Date | null,
           createdAt: null as Date | null,
+          repoId: null as string | null,
+          repoOwnerId: null as string | null,
         };
       }
     })(),
@@ -2371,7 +2380,23 @@ web.get("/:owner/:repo", async (c) => {
     description,
     pushedAt,
     createdAt,
+    repoId,
+    repoOwnerId,
   } = starInfo;
+
+  // Pending-comments banner data (lazy + best-effort). Only the repo
+  // owner sees the banner, so non-owner views skip the DB hit entirely.
+  let repoHomePendingCount = 0;
+  if (user && repoOwnerId && user.id === repoOwnerId && repoId) {
+    try {
+      const { countPendingForRepo } = await import(
+        "../lib/comment-moderation"
+      );
+      repoHomePendingCount = await countPendingForRepo(repoId);
+    } catch {
+      /* swallow */
+    }
+  }
 
   // Repo-home polish — shared style block (Block 2.A — parallel session 2.A).
   // Scoped via .repo-home-* class prefix to prevent bleed into other surfaces.
@@ -2891,6 +2916,11 @@ web.get("/:owner/:repo", async (c) => {
         </div>
       )}
       <RepoNav owner={owner} repo={repo} active="code" />
+      <RepoHomePendingBanner
+        owner={owner}
+        repo={repo}
+        count={repoHomePendingCount}
+      />
       {/* ─── Per-repo AI surfaces — RepoNav is locked, so the discovery
           row sits just below the nav as a slim CTA strip. Scoped under
           `.repo-ai-cta-` so the styles can't bleed onto other pages. ─── */}

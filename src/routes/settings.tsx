@@ -1778,6 +1778,22 @@ settings.get("/settings/notifications", async (c) => {
                   </span>
                 </span>
               </label>
+              <label class="notifset-rule">
+                <input
+                  type="checkbox"
+                  name="notify_email_on_pending_comment"
+                  value="1"
+                  checked={user.notifyEmailOnPendingComment}
+                  aria-label="Someone leaves a comment on a public repo you own and it needs your approval"
+                />
+                <span class="notifset-rule-text">
+                  Pending comment requests on my repos
+                  <span class="notifset-rule-hint">
+                    A non-collaborator left a comment on a public repo you
+                    own. Comments stay hidden until you review them.
+                  </span>
+                </span>
+              </label>
             </div>
           </section>
 
@@ -1924,6 +1940,8 @@ settings.post("/settings/notifications", async (c) => {
         String(body.notify_email_on_gate_fail || "") === "1",
       notifyEmailDigestWeekly:
         String(body.notify_email_digest_weekly || "") === "1",
+      notifyEmailOnPendingComment:
+        String(body.notify_email_on_pending_comment || "") === "1",
       sleepModeEnabled: String(body.sleep_mode_enabled || "") === "1",
       sleepModeDigestHourUtc: hour,
       // Block M2 — per-event push preferences.

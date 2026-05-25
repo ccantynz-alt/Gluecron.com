@@ -991,6 +991,9 @@ apiv2.get("/repos/:owner/:repo/issues/:number", async (c) => {
 
   if (!issue) return c.json({ error: "Issue not found" }, 404);
 
+  // Only return approved comments through the public API surface —
+  // pending/rejected/spam should never leak via JSON. Moderation
+  // queue lives at the HTML `/comments/pending` page (owner only).
   const comments = await db
     .select({
       comment: issueComments,
@@ -998,7 +1001,12 @@ apiv2.get("/repos/:owner/:repo/issues/:number", async (c) => {
     })
     .from(issueComments)
     .innerJoin(users, eq(issueComments.authorId, users.id))
-    .where(eq(issueComments.issueId, issue.id))
+    .where(
+      and(
+        eq(issueComments.issueId, issue.id),
+        eq(issueComments.moderationStatus, "approved")
+      )
+    )
     .orderBy(asc(issueComments.createdAt));
 
   return c.json({
@@ -1143,6 +1151,7 @@ apiv2.get("/repos/:owner/:repo/pulls/:number", async (c) => {
 
   if (!pr) return c.json({ error: "PR not found" }, 404);
 
+  // Only return approved comments through the public API surface.
   const comments = await db
     .select({
       comment: prComments,
@@ -1150,7 +1159,12 @@ apiv2.get("/repos/:owner/:repo/pulls/:number", async (c) => {
     })
     .from(prComments)
     .innerJoin(users, eq(prComments.authorId, users.id))
-    .where(eq(prComments.pullRequestId, pr.id))
+    .where(
+      and(
+        eq(prComments.pullRequestId, pr.id),
+        eq(prComments.moderationStatus, "approved")
+      )
+    )
     .orderBy(asc(prComments.createdAt));
 
   return c.json({

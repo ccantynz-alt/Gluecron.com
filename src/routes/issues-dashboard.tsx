@@ -459,10 +459,17 @@ async function enrichIssue(issueId: string): Promise<{
   }
 
   try {
+    // Only approved comments count toward the public-facing dashboard
+    // tally — see drizzle/0066 and src/lib/comment-moderation.ts.
     const countRows = await db
       .select({ c: sql<number>`count(*)::int` })
       .from(issueComments)
-      .where(eq(issueComments.issueId, issueId));
+      .where(
+        and(
+          eq(issueComments.issueId, issueId),
+          eq(issueComments.moderationStatus, "approved")
+        )
+      );
     commentCount = Number(countRows[0]?.c ?? 0);
   } catch {
     /* skip */

@@ -67,6 +67,14 @@ export const users = pgTable("users", {
   notifyEmailOnGateFail: boolean("notify_email_on_gate_fail").default(true).notNull(),
   // Block I7 — weekly digest opt-in.
   notifyEmailDigestWeekly: boolean("notify_email_digest_weekly").default(false).notNull(),
+  // Drizzle/0066 — Pending comment moderation requests. Defaults ON so
+  // a new repo owner is alerted as soon as the first comment lands in
+  // the queue. The in-app notification is always written regardless;
+  // this controls fan-out (currently the audit/notification surface,
+  // future email).
+  notifyEmailOnPendingComment: boolean("notify_email_on_pending_comment")
+    .default(true)
+    .notNull(),
   lastDigestSentAt: timestamp("last_digest_sent_at"),
   // Block L1 — Sleep Mode. When enabled, the autopilot sleep-mode-digest
   // task delivers a daily "what Claude shipped overnight" report at the
@@ -576,6 +584,15 @@ export const issueComments = pgTable(
       .notNull()
       .references(() => users.id),
     body: text("body").notNull(),
+    // Comment moderation (drizzle/0066). 'approved' | 'pending' | 'rejected'
+    // | 'spam'. Default 'approved' keeps every legacy + collaborator path
+    // unchanged; the gate in `lib/comment-moderation.ts` only routes new
+    // non-collaborator comments into 'pending'.
+    moderationStatus: text("moderation_status").notNull().default("approved"),
+    moderatedAt: timestamp("moderated_at", { withTimezone: true }),
+    moderatedByUserId: uuid("moderated_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
@@ -659,10 +676,55 @@ export const prComments = pgTable(
     isAiReview: boolean("is_ai_review").default(false).notNull(),
     filePath: text("file_path"),
     lineNumber: integer("line_number"),
+    // Comment moderation (drizzle/0066). See `issueComments.moderationStatus`.
+    moderationStatus: text("moderation_status").notNull().default("approved"),
+    moderatedAt: timestamp("moderated_at", { withTimezone: true }),
+    moderatedByUserId: uuid("moderated_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
   (table) => [index("pr_comments_pr").on(table.pullRequestId)]
+);
+
+/**
+ * Comment moderation (drizzle/0066) — per-repo allow/deny list for
+ * commenters. A 'trusted' row makes `shouldRequireApproval` short-circuit
+ * to false; a 'banned' row makes it short-circuit to "auto-reject without
+ * notifying the owner" so a single spam decision sticks.
+ *
+ * Indexed by (repository_id, commenter_user_id) for the per-comment gate
+ * lookup and by (repository_id, status) for the owner's trust-list page.
+ */
+export const repoCommenterTrust = pgTable(
+  "repo_commenter_trust",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    commenterUserId: uuid("commenter_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    status: text("status").notNull(), // 'trusted' | 'banned'
+    grantedByUserId: uuid("granted_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    grantedAt: timestamp("granted_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("repo_commenter_trust_unique").on(
+      table.repositoryId,
+      table.commenterUserId
+    ),
+    index("repo_commenter_trust_repo_status").on(
+      table.repositoryId,
+      table.status
+    ),
+  ]
 );
 
 export const activityFeed = pgTable(
@@ -818,6 +880,8 @@ export type IssueComment = typeof issueComments.$inferSelect;
 export type Label = typeof labels.$inferSelect;
 export type PullRequest = typeof pullRequests.$inferSelect;
 export type PrComment = typeof prComments.$inferSelect;
+export type RepoCommenterTrust = typeof repoCommenterTrust.$inferSelect;
+export type NewRepoCommenterTrust = typeof repoCommenterTrust.$inferInsert;
 export type ActivityEntry = typeof activityFeed.$inferSelect;
 export type Webhook = typeof webhooks.$inferSelect;
 export type ApiToken = typeof apiTokens.$inferSelect;

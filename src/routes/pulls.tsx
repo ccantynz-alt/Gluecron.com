@@ -68,6 +68,10 @@ import {
 import type { GitDiffFile } from "../git/repository";
 import { html } from "hono/html";
 import {
+  getPreviewForBranch,
+  previewStatusLabel,
+} from "../lib/branch-previews";
+import {
   Flex,
   Container,
   Badge,
@@ -917,6 +921,37 @@ const PRS_DETAIL_STYLES = `
   .slash-pill.slash-cmd-rebase { border-left-color: #f0883e; }
   .slash-pill.slash-cmd-needs-work { border-left-color: #f85149; }
   .slash-pill.slash-cmd-lgtm { border-left-color: #56d364; }
+
+  /* ─── Branch-preview pill (migration 0062). Scoped .preview-*. */
+  .preview-prpill {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 3px 10px;
+    border-radius: 9999px;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    font-weight: 600;
+    background: rgba(255,255,255,0.04);
+    color: var(--text-muted);
+    text-decoration: none;
+    border: 1px solid var(--border);
+  }
+  .preview-prpill:hover { color: var(--text-strong); border-color: rgba(140,109,255,0.45); }
+  .preview-prpill .preview-prpill-dot {
+    width: 7px; height: 7px;
+    border-radius: 9999px;
+    background: currentColor;
+  }
+  .preview-prpill.is-building { color: #fde68a; border-color: rgba(251,191,36,0.30); }
+  .preview-prpill.is-building .preview-prpill-dot {
+    animation: previewPrPulse 1.4s ease-in-out infinite;
+  }
+  .preview-prpill.is-ready    { color: #6ee7b7; border-color: rgba(52,211,153,0.30); }
+  .preview-prpill.is-failed   { color: #fecaca; border-color: rgba(248,113,113,0.35); }
+  .preview-prpill.is-expired  { color: #cbd5e1; border-color: rgba(148,163,184,0.30); }
+  @keyframes previewPrPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
 `;
 
 /**
@@ -1794,6 +1829,14 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
     }
   }
 
+  // Migration 0062 — per-branch preview URL. The head branch always
+  // has a preview row (unless it's the default branch, which never
+  // happens for an open PR) once it has been pushed at least once.
+  const preview = await getPreviewForBranch(
+    (resolved.repo as { id: string }).id,
+    pr.headBranch
+  );
+
   // Get diff for "Files changed" tab
   let diffRaw = "";
   let diffFiles: GitDiffFile[] = [];
@@ -1932,6 +1975,23 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
             </span>
             <span id="live-avatars" class="live-avatars" aria-hidden="true"></span>
           </span>
+          {preview && (
+            <a
+              class={`preview-prpill is-${preview.status}`}
+              href={
+                preview.status === "ready"
+                  ? preview.previewUrl
+                  : `/${ownerName}/${repoName}/previews`
+              }
+              target={preview.status === "ready" ? "_blank" : undefined}
+              rel={preview.status === "ready" ? "noopener noreferrer" : undefined}
+              title={`Preview · ${previewStatusLabel(preview.status)}`}
+            >
+              <span class="preview-prpill-dot" aria-hidden="true"></span>
+              <span>Preview: </span>
+              <span>{previewStatusLabel(preview.status)}</span>
+            </a>
+          )}
           {canManage && pr.state === "open" && pr.isDraft && (
             <form
               method="post"

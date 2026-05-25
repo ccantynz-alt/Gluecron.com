@@ -30,6 +30,10 @@ import {
 } from "../db/schema";
 import { enqueueRun } from "../lib/workflow-runner";
 import {
+  enqueuePreviewBuild,
+  listPreviewsForRepo,
+} from "../lib/branch-previews";
+import {
   listBranches,
   getDefaultBranch,
   getDefaultBranchFresh,
@@ -1101,6 +1105,89 @@ apiv2.get("/repos/:owner/:repo/pulls/:number", async (c) => {
     comments: comments.map(({ comment, author }) => ({ ...comment, author })),
   });
 });
+
+// ─── Branch previews (migration 0062) ──────────────────────────────────────
+//
+// GET    /api/v2/repos/:owner/:repo/previews
+//   → list every active preview row, newest first.
+//
+// POST   /api/v2/repos/:owner/:repo/previews/:branch/refresh
+//   → force a fresh build for the given branch. The branch must already
+//     exist and not be the default. The current HEAD of the branch is
+//     used as the commit_sha.
+
+apiv2.get("/repos/:owner/:repo/previews", async (c) => {
+  const { owner, repo } = c.req.param();
+  const resolved = await resolveRepo(owner, repo);
+  if (!resolved) return c.json({ error: "Not found" }, 404);
+  const rows = await listPreviewsForRepo((resolved.repo as { id: string }).id);
+  return c.json({
+    previews: rows.map((p) => ({
+      id: p.id,
+      branchName: p.branchName,
+      commitSha: p.commitSha,
+      previewUrl: p.previewUrl,
+      status: p.status,
+      buildStartedAt: p.buildStartedAt,
+      buildCompletedAt: p.buildCompletedAt,
+      expiresAt: p.expiresAt,
+      errorMessage: p.errorMessage,
+    })),
+  });
+});
+
+apiv2.post(
+  "/repos/:owner/:repo/previews/:branch/refresh",
+  requireApiAuth,
+  requireScope("repo"),
+  async (c) => {
+    const { owner, repo } = c.req.param();
+    const branch = c.req.param("branch");
+    if (!branch) return c.json({ error: "branch is required" }, 400);
+
+    const resolved = await resolveRepo(owner, repo);
+    if (!resolved) return c.json({ error: "Not found" }, 404);
+
+    // Refuse to "preview" the default branch — by design previews exist
+    // only for non-default branches.
+    if ((resolved.repo as { defaultBranch: string }).defaultBranch === branch) {
+      return c.json(
+        {
+          error: "Default branch has no preview — previews are for non-default branches",
+        },
+        400
+      );
+    }
+
+    // Resolve the branch to its current SHA so the new row points at HEAD.
+    let sha: string | null = null;
+    try {
+      sha = await resolveRef(owner, repo, branch);
+    } catch {
+      sha = null;
+    }
+    if (!sha) return c.json({ error: "Branch not found" }, 404);
+
+    const row = await enqueuePreviewBuild({
+      repositoryId: (resolved.repo as { id: string }).id,
+      ownerName: owner,
+      repoName: repo,
+      branchName: branch,
+      commitSha: sha,
+    });
+    if (!row) {
+      return c.json({ error: "Could not enqueue preview build" }, 503);
+    }
+    return c.json({
+      id: row.id,
+      branchName: row.branchName,
+      commitSha: row.commitSha,
+      previewUrl: row.previewUrl,
+      status: row.status,
+      expiresAt: row.expiresAt,
+    }, 202);
+  }
+);
 
 // ─── PR Comments (GateTest integration) ────────────────────────────────────
 

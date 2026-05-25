@@ -25,6 +25,7 @@ import {
   getRepoPath,
 } from "../git/repository";
 import { indexChangedFiles } from "../lib/semantic-index";
+import { enqueuePreviewBuild } from "../lib/branch-previews";
 
 interface PushRef {
   oldSha: string;
@@ -105,6 +106,15 @@ export async function onPostReceive(
       console.warn("[semantic-index] dispatch error:", err)
     );
   }
+
+  // 4c. Per-branch preview URLs (migration 0062). Every push to a
+  //     non-default branch enqueues a preview-build row. Gated on
+  //     repositories.preview_builds_enabled (default on) so owners can
+  //     opt out per-repo via repo-settings. Fire-and-forget; failures
+  //     never break the push path.
+  void firePreviewBuilds(owner, repo, refs).catch((err) =>
+    console.warn("[branch-previews] dispatch error:", err)
+  );
 
   // 5. Crontech deploy (BLK-016) — only fires for the configured Crontech repo
   //    (CRONTECH_REPO, default `ccantynz-alt/crontech`) on a push to its
@@ -494,6 +504,66 @@ async function listChangedPaths(
   }
 }
 
+/**
+ * Migration 0062 — fan out push refs to enqueuePreviewBuild for every
+ * non-default branch on a `preview_builds_enabled` repo.
+ *
+ * Resolves the repo row once, fetches the default branch + opt-out flag,
+ * then upserts one preview row per pushed ref that isn't the default.
+ * Branch deletions (oldSha all-zero or newSha all-zero with oldSha set)
+ * are skipped — they shouldn't create preview rows. Never throws.
+ */
+async function firePreviewBuilds(
+  owner: string,
+  repo: string,
+  refs: PushRef[]
+): Promise<void> {
+  // Filter to live branch pushes only.
+  const branchRefs = refs.filter(
+    (r) =>
+      r.refName.startsWith("refs/heads/") && !r.newSha.startsWith("0000")
+  );
+  if (branchRefs.length === 0) return;
+
+  let repoRow: { id: string; previewBuildsEnabled: boolean; defaultBranch: string } | null = null;
+  try {
+    const [row] = await db
+      .select({
+        id: repositories.id,
+        previewBuildsEnabled: repositories.previewBuildsEnabled,
+        defaultBranch: repositories.defaultBranch,
+      })
+      .from(repositories)
+      .innerJoin(users, eq(repositories.ownerId, users.id))
+      .where(and(eq(users.username, owner), eq(repositories.name, repo)))
+      .limit(1);
+    repoRow = row || null;
+  } catch {
+    return;
+  }
+  if (!repoRow) return;
+  if (!repoRow.previewBuildsEnabled) return;
+
+  for (const ref of branchRefs) {
+    const branchName = ref.refName.replace("refs/heads/", "");
+    if (branchName === repoRow.defaultBranch) continue;
+    try {
+      await enqueuePreviewBuild({
+        repositoryId: repoRow.id,
+        ownerName: owner,
+        repoName: repo,
+        branchName,
+        commitSha: ref.newSha,
+      });
+    } catch (err) {
+      console.warn(
+        `[branch-previews] enqueue failed for ${owner}/${repo}@${branchName}:`,
+        err instanceof Error ? err.message : err
+      );
+    }
+  }
+}
+
 /** Test-only access to internal helpers. */
 export const __test = {
   triggerCrontechDeploy,
@@ -502,4 +572,5 @@ export const __test = {
   RETRY_DELAYS_MS,
   listChangedPaths,
   fireSemanticIndex,
+  firePreviewBuilds,
 };

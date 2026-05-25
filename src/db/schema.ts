@@ -157,6 +157,12 @@ export const repositories = pgTable(
     autoCloseStaleIssues: boolean("auto_close_stale_issues")
       .default(true)
       .notNull(),
+    // Migration 0062 — opt-out flag for per-branch preview URLs. Default on;
+    // owners can disable via repo-settings. When false, post-receive skips
+    // the enqueuePreviewBuild call entirely.
+    previewBuildsEnabled: boolean("preview_builds_enabled")
+      .default(true)
+      .notNull(),
   },
   (table) => [
     // Partial: uniqueness only in the user namespace (org-owned rows exempt).
@@ -3151,4 +3157,46 @@ export const prLiveSessions = pgTable(
 
 export type PrLiveSession = typeof prLiveSessions.$inferSelect;
 export type NewPrLiveSession = typeof prLiveSessions.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Migration 0062 — per-branch preview URLs.
+// ---------------------------------------------------------------------------
+// One row per (repo, branch) pair. A push to a non-default branch
+// upserts the row, replacing commit_sha + resetting status to 'building'.
+// `preview_url` is computed at enqueue time so the row can be rendered
+// immediately even while the build is still running.
+
+export const branchPreviews = pgTable(
+  "branch_previews",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    branchName: text("branch_name").notNull(),
+    commitSha: text("commit_sha").notNull(),
+    previewUrl: text("preview_url").notNull(),
+    // 'building' | 'ready' | 'failed' | 'expired'
+    status: text("status").default("building").notNull(),
+    buildStartedAt: timestamp("build_started_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    buildCompletedAt: timestamp("build_completed_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    errorMessage: text("error_message"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("branch_previews_repo_branch").on(
+      table.repositoryId,
+      table.branchName
+    ),
+    index("branch_previews_repo_status").on(table.repositoryId, table.status),
+  ]
+);
+
+export type BranchPreview = typeof branchPreviews.$inferSelect;
+export type NewBranchPreview = typeof branchPreviews.$inferInsert;
 

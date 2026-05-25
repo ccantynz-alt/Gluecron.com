@@ -12,6 +12,11 @@ import { pullRequests, prComments } from "../db/schema";
 import { getRepoPath } from "../git/repository";
 import { config } from "./config";
 import { recordAiCost, extractUsage } from "./ai-cost-tracker";
+import {
+  isTrioReviewEnabled,
+  alreadyTrioReviewed,
+  runTrioReview,
+} from "./ai-review-trio";
 
 interface ReviewComment {
   filePath: string;
@@ -200,6 +205,31 @@ async function diffBetweenBranches(
 }
 
 /**
+ * Resolve a branch name to its current commit SHA via `git rev-parse`.
+ * Returns "" on any error — callers should treat that as "unknown" and
+ * carry on; this is only used for audit metadata.
+ */
+async function resolveHeadSha(
+  ownerName: string,
+  repoName: string,
+  branch: string
+): Promise<string> {
+  try {
+    const cwd = getRepoPath(ownerName, repoName);
+    const proc = Bun.spawn(["git", "rev-parse", branch], {
+      cwd,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const text = await new Response(proc.stdout).text();
+    await proc.exited;
+    return text.trim();
+  } catch {
+    return "";
+  }
+}
+
+/**
  * Has this PR already been reviewed by the AI? Detected by an existing
  * PR comment carrying our summary marker. Cheap LIKE query — if it
  * fails (DB hiccup) we fall back to "not yet" and re-review, which is
@@ -254,10 +284,21 @@ export async function triggerAiReview(
 ): Promise<void> {
   try {
     if (!isAiReviewEnabled()) return;
-    if (!options.force && (await alreadyReviewed(prId))) return;
+    const useTrio = isTrioReviewEnabled();
+    if (
+      !options.force &&
+      (useTrio
+        ? await alreadyTrioReviewed(prId)
+        : await alreadyReviewed(prId))
+    )
+      return;
 
     const [pr] = await db
-      .select({ id: pullRequests.id, authorId: pullRequests.authorId })
+      .select({
+        id: pullRequests.id,
+        authorId: pullRequests.authorId,
+        repositoryId: pullRequests.repositoryId,
+      })
       .from(pullRequests)
       .where(eq(pullRequests.id, prId))
       .limit(1);
@@ -272,6 +313,25 @@ export async function triggerAiReview(
     if (!diffText.trim()) return;
     if (diffText.length > DIFF_BYTE_CAP) {
       diffText = diffText.slice(0, DIFF_BYTE_CAP);
+    }
+
+    // Trio path — replaces the single-Claude review when enabled. The
+    // trio helper owns its own persistence + audit; we bail after it.
+    if (useTrio) {
+      try {
+        const headSha = await resolveHeadSha(ownerName, repoName, headBranch);
+        await runTrioReview({
+          pullRequestId: prId,
+          headSha,
+          diff: diffText,
+          repositoryId: pr.repositoryId,
+        });
+      } catch (err) {
+        if (process.env.DEBUG_AI_REVIEW === "1") {
+          console.error("[ai-review] trio crashed:", err);
+        }
+      }
+      return;
     }
 
     let result: ReviewResult;

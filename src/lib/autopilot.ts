@@ -54,6 +54,7 @@ import {
   latestStatusByCheck,
   type SyntheticCheckResult,
 } from "./synthetic-monitor";
+import { aiProactiveMonitorTick } from "./ai-proactive-monitor";
 
 export interface AutopilotTaskResult {
   name: string;
@@ -96,6 +97,9 @@ const AUTO_MERGE_COMMENT_MARKER = "<!-- gluecron:auto-merge:v1 -->";
 const PR_RISK_RESCORE_MAX_PER_TICK = 20;
 /** M3 — recency window for the pr-risk-rescore sweep. */
 const PR_RISK_RESCORE_LOOKBACK_HOURS = 1;
+/** Proactive monitor cadence — Claude scans platform telemetry hourly. */
+const PROACTIVE_MONITOR_INTERVAL_MS = 60 * 60 * 1000;
+let _lastProactiveMonitorAt = 0;
 
 /**
  * Default task set. Each task is a thin wrapper around an existing locked
@@ -230,6 +234,31 @@ export function defaultTasks(): AutopilotTask[] {
           );
         } catch (err) {
           console.error("[autopilot] playground-purge: threw:", err);
+        }
+      },
+    },
+    {
+      // Proactive AI monitor — hourly. Claude reads 24h of audit_log +
+      // platformDeploys + workflowRuns and opens issues on anomalies
+      // (degraded deploy times, recurring failures, suspicious audit
+      // patterns). Skips when ANTHROPIC_API_KEY is unset (the lib
+      // itself short-circuits, but the cadence gate avoids redundant
+      // work on every 5-min tick too).
+      name: "ai-proactive-monitor",
+      run: async () => {
+        if (!process.env.ANTHROPIC_API_KEY) return;
+        const now = Date.now();
+        if (now - _lastProactiveMonitorAt < PROACTIVE_MONITOR_INTERVAL_MS) {
+          return;
+        }
+        _lastProactiveMonitorAt = now;
+        try {
+          const summary = await aiProactiveMonitorTick();
+          console.log(
+            `[autopilot] ai-proactive-monitor: opened=${summary.opened} considered=${summary.considered} dedup=${summary.skippedDedupe}`
+          );
+        } catch (err) {
+          console.error("[autopilot] ai-proactive-monitor: threw:", err);
         }
       },
     },

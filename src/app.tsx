@@ -14,6 +14,9 @@ import apiV2Routes from "./routes/api-v2";
 import apiDocsRoutes from "./routes/api-docs";
 import buildAgentSpecRoutes from "./routes/build-agent-spec";
 import pullsDashboardRoutes from "./routes/pulls-dashboard";
+import issuesDashboardRoutes from "./routes/issues-dashboard";
+import inboxRoutes from "./routes/inbox";
+import activityRoutes from "./routes/activity";
 import authRoutes from "./routes/auth";
 import passwordResetRoutes from "./routes/password-reset";
 import emailVerificationRoutes from "./routes/email-verification";
@@ -330,6 +333,13 @@ app.route("/", apiDocsRoutes);
 app.route("/", buildAgentSpecRoutes);
 // PR command center — global PR dashboard with AI/GateTest/auto-merge signal
 app.route("/", pullsDashboardRoutes);
+// Issue command center — global issue dashboard with AI-triage + autopilot signal
+app.route("/", issuesDashboardRoutes);
+// Personal activity timeline — every event across the user's repos, with
+// AI-driven events surfaced separately (the Gluecron differentiator).
+app.route("/", activityRoutes);
+// Unified inbox — mentions + review requests + CI failures + AI events in one timeline
+app.route("/", inboxRoutes);
 
 // Auth routes (register, login, logout)
 app.route("/", authRoutes);

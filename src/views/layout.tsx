@@ -216,6 +216,23 @@ export const Layout: FC<
                   <a href="/pulls" class="nav-link">
                     Pulls
                   </a>
+                  <a href="/issues" class="nav-link">
+                    Issues
+                  </a>
+                  <a href="/activity" class="nav-link">
+                    Activity
+                  </a>
+                  <a href="/inbox" class="nav-link" style="position:relative">
+                    Inbox
+                    {notificationCount && notificationCount > 0 ? (
+                      <span
+                        aria-label={`${notificationCount} unread`}
+                        style="display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 5px;margin-left:6px;font-size:10.5px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1;color:#fff;background:linear-gradient(135deg,#8c6dff 0%,#36c5d6 100%);border-radius:9999px;box-shadow:0 0 8px rgba(140,109,255,0.45)"
+                      >
+                        {notificationCount > 99 ? "99+" : notificationCount}
+                      </span>
+                    ) : null}
+                  </a>
                   <a href="/import" class="nav-link">
                     Import
                   </a>

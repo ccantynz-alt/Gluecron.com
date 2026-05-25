@@ -1165,6 +1165,645 @@ settings.get("/settings/digest/preview", async (c) => {
   );
 });
 
+// ─── /settings/notifications — dedicated notifications sub-page ───────────
+// 2026 polish: scoped `.notifset-*` styles, channel toggles as polished
+// toggle pills, per-event rules grouped by channel. The underlying POST
+// handler is unchanged; this GET just gives the surface its own page so
+// it can be linked to directly from /notifications and the main /settings
+// page.
+const notifsetStyles = `
+  .notifset-wrap { max-width: 920px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
+
+  .notifset-hero {
+    position: relative;
+    margin-bottom: var(--space-5);
+    padding: var(--space-5) var(--space-6);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+  .notifset-hero::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent 0%, #8c6dff 30%, #36c5d6 70%, transparent 100%);
+    opacity: 0.7;
+    pointer-events: none;
+  }
+  .notifset-hero-orb {
+    position: absolute;
+    inset: -20% -10% auto auto;
+    width: 380px; height: 380px;
+    background: radial-gradient(circle, rgba(140,109,255,0.20), rgba(54,197,214,0.10) 45%, transparent 70%);
+    filter: blur(80px);
+    opacity: 0.7;
+    pointer-events: none;
+    z-index: 0;
+  }
+  .notifset-hero-inner { position: relative; z-index: 1; max-width: 720px; }
+  .notifset-eyebrow {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: var(--space-2);
+    letter-spacing: 0.02em;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    text-transform: uppercase;
+    font-family: var(--font-mono);
+    font-weight: 600;
+  }
+  .notifset-eyebrow-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px; height: 18px;
+    border-radius: 6px;
+    background: rgba(140,109,255,0.14);
+    color: #b69dff;
+    box-shadow: inset 0 0 0 1px rgba(140,109,255,0.35);
+  }
+  .notifset-crumb { color: var(--text-muted); text-decoration: none; }
+  .notifset-crumb:hover { color: var(--text); }
+  .notifset-title {
+    font-size: clamp(28px, 4vw, 40px);
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: -0.028em;
+    line-height: 1.05;
+    margin: 0 0 var(--space-2);
+    color: var(--text-strong);
+  }
+  .notifset-title-grad {
+    background-image: linear-gradient(135deg, #a48bff 0%, #8c6dff 50%, #36c5d6 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+  }
+  .notifset-sub {
+    font-size: 15px;
+    color: var(--text-muted);
+    margin: 0;
+    line-height: 1.55;
+    max-width: 620px;
+  }
+
+  .notifset-banner {
+    margin-bottom: var(--space-4);
+    padding: 10px 14px;
+    border-radius: 10px;
+    font-size: 13.5px;
+    border: 1px solid rgba(52,211,153,0.40);
+    background: rgba(52,211,153,0.08);
+    color: #bbf7d0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .notifset-banner-dot {
+    width: 8px; height: 8px;
+    border-radius: 9999px;
+    background: currentColor;
+  }
+
+  /* ─── Channel pills ─── */
+  .notifset-channels {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: var(--space-3);
+    margin-bottom: var(--space-5);
+  }
+  .notifset-channel {
+    padding: 16px 18px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .notifset-channel.is-active {
+    border-color: rgba(140,109,255,0.32);
+    background: linear-gradient(135deg, rgba(140,109,255,0.08) 0%, rgba(15,17,26,0) 60%), var(--bg-elevated);
+  }
+  .notifset-channel-icon {
+    flex-shrink: 0;
+    width: 36px; height: 36px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, rgba(140,109,255,0.22), rgba(54,197,214,0.16));
+    box-shadow: inset 0 0 0 1px rgba(140,109,255,0.32);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #c4b5fd;
+  }
+  .notifset-channel-text { flex: 1; min-width: 0; }
+  .notifset-channel-name {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: 14.5px;
+    font-weight: 700;
+    letter-spacing: -0.012em;
+    color: var(--text-strong);
+  }
+  .notifset-channel-meta {
+    margin: 2px 0 0;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+  .notifset-channel-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 9px;
+    border-radius: 9999px;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+  }
+  .notifset-channel-pill.is-on {
+    background: rgba(52,211,153,0.14);
+    color: #6ee7b7;
+    border-color: rgba(52,211,153,0.32);
+  }
+  .notifset-channel-pill .dot { width: 5px; height: 5px; border-radius: 9999px; background: currentColor; }
+
+  /* ─── Section card ─── */
+  .notifset-section {
+    margin-bottom: var(--space-5);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+  }
+  .notifset-section-head {
+    padding: var(--space-4) var(--space-5);
+    border-bottom: 1px solid var(--border);
+  }
+  .notifset-section-title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: 17px;
+    font-weight: 700;
+    letter-spacing: -0.018em;
+    color: var(--text-strong);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .notifset-section-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px; height: 26px;
+    border-radius: 8px;
+    background: rgba(140,109,255,0.12);
+    color: #b69dff;
+    box-shadow: inset 0 0 0 1px rgba(140,109,255,0.28);
+    flex-shrink: 0;
+  }
+  .notifset-section-sub {
+    margin: 6px 0 0 36px;
+    font-size: 12.5px;
+    color: var(--text-muted);
+    line-height: 1.5;
+  }
+  .notifset-section-body { padding: var(--space-4) var(--space-5); }
+  .notifset-section-foot {
+    padding: var(--space-3) var(--space-5);
+    border-top: 1px solid var(--border);
+    background: rgba(255,255,255,0.012);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+  }
+  .notifset-foot-hint { font-size: 12px; color: var(--text-muted); }
+
+  /* ─── Rule rows ─── */
+  .notifset-rule {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px 14px;
+    background: var(--bg);
+    border: 1px solid var(--border-strong);
+    border-radius: 10px;
+    margin-bottom: 8px;
+    transition: border-color 120ms ease, background 120ms ease;
+  }
+  .notifset-rule:last-child { margin-bottom: 0; }
+  .notifset-rule:hover { border-color: rgba(140,109,255,0.32); background: rgba(140,109,255,0.04); }
+  .notifset-rule input[type="checkbox"] {
+    margin-top: 2px;
+    flex-shrink: 0;
+    accent-color: #8c6dff;
+    width: 16px;
+    height: 16px;
+  }
+  .notifset-rule-text { flex: 1; min-width: 0; font-size: 13.5px; color: var(--text); line-height: 1.45; }
+  .notifset-rule-text code {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border);
+    padding: 1px 6px;
+    border-radius: 4px;
+    color: var(--text);
+  }
+  .notifset-rule-hint {
+    display: block;
+    margin-top: 3px;
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 400;
+  }
+  .notifset-hour {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 12px 14px;
+    background: var(--bg);
+    border: 1px solid var(--border-strong);
+    border-radius: 10px;
+    margin-top: 12px;
+  }
+  .notifset-hour label { font-size: 13px; color: var(--text-muted); }
+  .notifset-hour input[type="number"] {
+    width: 72px;
+    padding: 7px 10px;
+    font-size: 13.5px;
+    color: var(--text);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    outline: none;
+    font-family: var(--font-mono);
+    transition: border-color 120ms ease, box-shadow 120ms ease;
+  }
+  .notifset-hour input[type="number"]:focus {
+    border-color: var(--border-focus, rgba(140,109,255,0.55));
+    box-shadow: 0 0 0 3px rgba(140,109,255,0.18);
+  }
+  .notifset-hour a { color: var(--text-link, var(--accent)); font-size: 12.5px; text-decoration: none; }
+  .notifset-hour a:hover { text-decoration: underline; }
+
+  /* ─── Submit button ─── */
+  .notifset-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 10px 18px;
+    border-radius: 10px;
+    font-size: 13.5px;
+    font-weight: 600;
+    text-decoration: none;
+    border: 1px solid transparent;
+    cursor: pointer;
+    font-family: inherit;
+    line-height: 1;
+    background: linear-gradient(135deg, #8c6dff 0%, #36c5d6 100%);
+    color: #fff;
+    box-shadow: 0 6px 18px -4px rgba(140,109,255,0.45), inset 0 1px 0 rgba(255,255,255,0.16);
+    transition: transform 120ms ease, box-shadow 120ms ease;
+  }
+  .notifset-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 10px 24px -6px rgba(140,109,255,0.55), inset 0 1px 0 rgba(255,255,255,0.20);
+  }
+`;
+
+const NotifsetBellIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+    <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+  </svg>
+);
+const NotifsetMailIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+    <polyline points="22,6 12,13 2,6" />
+  </svg>
+);
+const NotifsetPushIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z" />
+    <polyline points="9 14 12 17 22 7" />
+  </svg>
+);
+const NotifsetInappIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <circle cx="12" cy="12" r="10" />
+    <path d="M12 8v4l3 3" />
+  </svg>
+);
+
+settings.get("/settings/notifications", async (c) => {
+  const user = c.get("user")!;
+  const success = c.req.query("success");
+
+  // Count how many event toggles are enabled per channel (just for the pill).
+  const emailOnCount =
+    (user.notifyEmailOnMention ? 1 : 0) +
+    (user.notifyEmailOnAssign ? 1 : 0) +
+    (user.notifyEmailOnGateFail ? 1 : 0) +
+    (user.notifyEmailDigestWeekly ? 1 : 0);
+  const pushOnCount =
+    (user.notifyPushOnMention ? 1 : 0) +
+    (user.notifyPushOnAssign ? 1 : 0) +
+    (user.notifyPushOnReviewRequest ? 1 : 0) +
+    (user.notifyPushOnDeployFailed ? 1 : 0);
+
+  return c.html(
+    <Layout title="Notification preferences" user={user}>
+      <div class="notifset-wrap">
+        <section class="notifset-hero">
+          <div class="notifset-hero-orb" aria-hidden="true" />
+          <div class="notifset-hero-inner">
+            <div class="notifset-eyebrow">
+              <span class="notifset-eyebrow-pill" aria-hidden="true">
+                <NotifsetBellIcon />
+              </span>
+              <a href="/settings" class="notifset-crumb">Settings</a>
+              <span>/</span>
+              <span>Notifications</span>
+            </div>
+            <h2 class="notifset-title">
+              <span class="notifset-title-grad">Notifications.</span>
+            </h2>
+            <p class="notifset-sub">
+              Pick which events reach you and on which channels. In-app
+              notifications always land in your <a href="/notifications" style="color:var(--accent)">inbox</a>;
+              email and push are opt-in per event.
+            </p>
+          </div>
+        </section>
+
+        {success && (
+          <div class="notifset-banner" role="status">
+            <span class="notifset-banner-dot" aria-hidden="true" />
+            {decodeURIComponent(success)}
+          </div>
+        )}
+
+        {/* ─── Channel pills ─── */}
+        <div class="notifset-channels">
+          <div class="notifset-channel is-active">
+            <div class="notifset-channel-icon" aria-hidden="true">
+              <NotifsetInappIcon />
+            </div>
+            <div class="notifset-channel-text">
+              <h3 class="notifset-channel-name">In-app</h3>
+              <p class="notifset-channel-meta">
+                <a href="/notifications" style="color:var(--text-muted)">Always on · bell icon</a>
+              </p>
+            </div>
+            <span class="notifset-channel-pill is-on">
+              <span class="dot" aria-hidden="true" />on
+            </span>
+          </div>
+          <div class={"notifset-channel" + (emailOnCount > 0 ? " is-active" : "")}>
+            <div class="notifset-channel-icon" aria-hidden="true">
+              <NotifsetMailIcon />
+            </div>
+            <div class="notifset-channel-text">
+              <h3 class="notifset-channel-name">Email</h3>
+              <p class="notifset-channel-meta">{emailOnCount} of 4 events enabled</p>
+            </div>
+            <span class={"notifset-channel-pill " + (emailOnCount > 0 ? "is-on" : "")}>
+              <span class="dot" aria-hidden="true" />
+              {emailOnCount > 0 ? "on" : "off"}
+            </span>
+          </div>
+          <div class={"notifset-channel" + (pushOnCount > 0 ? " is-active" : "")}>
+            <div class="notifset-channel-icon" aria-hidden="true">
+              <NotifsetPushIcon />
+            </div>
+            <div class="notifset-channel-text">
+              <h3 class="notifset-channel-name">Web push</h3>
+              <p class="notifset-channel-meta">{pushOnCount} of 4 events enabled</p>
+            </div>
+            <span class={"notifset-channel-pill " + (pushOnCount > 0 ? "is-on" : "")}>
+              <span class="dot" aria-hidden="true" />
+              {pushOnCount > 0 ? "on" : "off"}
+            </span>
+          </div>
+        </div>
+
+        {/* ─── Event rules form ─── */}
+        <form method="post" action="/settings/notifications">
+          <section class="notifset-section">
+            <header class="notifset-section-head">
+              <h3 class="notifset-section-title">
+                <span class="notifset-section-icon" aria-hidden="true">
+                  <NotifsetMailIcon />
+                </span>
+                Email rules
+              </h3>
+              <p class="notifset-section-sub">
+                Pick which events email you. In-app notifications continue
+                regardless of what you toggle here.
+              </p>
+            </header>
+            <div class="notifset-section-body">
+              <label class="notifset-rule">
+                <input
+                  type="checkbox"
+                  name="notify_email_on_mention"
+                  value="1"
+                  checked={user.notifyEmailOnMention}
+                  aria-label="Someone @mentions me or requests a review"
+                />
+                <span class="notifset-rule-text">
+                  Someone <code>@mentions</code> me or requests a review
+                  <span class="notifset-rule-hint">
+                    Direct pings on issues, PRs, and code comments.
+                  </span>
+                </span>
+              </label>
+              <label class="notifset-rule">
+                <input
+                  type="checkbox"
+                  name="notify_email_on_assign"
+                  value="1"
+                  checked={user.notifyEmailOnAssign}
+                  aria-label="I am assigned to an issue or PR"
+                />
+                <span class="notifset-rule-text">
+                  I am assigned to an issue or PR
+                  <span class="notifset-rule-hint">
+                    Email when someone hands you something to work on.
+                  </span>
+                </span>
+              </label>
+              <label class="notifset-rule">
+                <input
+                  type="checkbox"
+                  name="notify_email_on_gate_fail"
+                  value="1"
+                  checked={user.notifyEmailOnGateFail}
+                  aria-label="A gate fails on one of my repositories"
+                />
+                <span class="notifset-rule-text">
+                  A gate fails on one of my repositories
+                  <span class="notifset-rule-hint">
+                    Security, test, or build gate alerts on your repos.
+                  </span>
+                </span>
+              </label>
+              <label class="notifset-rule">
+                <input
+                  type="checkbox"
+                  name="notify_email_digest_weekly"
+                  value="1"
+                  checked={user.notifyEmailDigestWeekly}
+                  aria-label="Weekly digest email"
+                />
+                <span class="notifset-rule-text">
+                  Weekly digest &mdash; <a href="/settings/digest/preview" style="color:var(--accent)">preview</a>
+                  <span class="notifset-rule-hint">
+                    A Monday summary of what shipped last week.
+                  </span>
+                </span>
+              </label>
+            </div>
+          </section>
+
+          <section class="notifset-section">
+            <header class="notifset-section-head">
+              <h3 class="notifset-section-title">
+                <span class="notifset-section-icon" aria-hidden="true">
+                  <NotifsetPushIcon />
+                </span>
+                Web push rules
+              </h3>
+              <p class="notifset-section-sub">
+                Install Gluecron as a PWA, then subscribe a device from{" "}
+                <a href="/settings" style="color:var(--accent)">main settings</a>. These
+                toggles control which event kinds trigger a push notification.
+              </p>
+            </header>
+            <div class="notifset-section-body">
+              <label class="notifset-rule">
+                <input
+                  type="checkbox"
+                  name="notify_push_on_mention"
+                  value="1"
+                  checked={user.notifyPushOnMention}
+                  aria-label="Someone @mentions me"
+                />
+                <span class="notifset-rule-text">
+                  Someone <code>@mentions</code> me
+                </span>
+              </label>
+              <label class="notifset-rule">
+                <input
+                  type="checkbox"
+                  name="notify_push_on_assign"
+                  value="1"
+                  checked={user.notifyPushOnAssign}
+                  aria-label="I am assigned to an issue or PR"
+                />
+                <span class="notifset-rule-text">I am assigned to an issue or PR</span>
+              </label>
+              <label class="notifset-rule">
+                <input
+                  type="checkbox"
+                  name="notify_push_on_review_request"
+                  value="1"
+                  checked={user.notifyPushOnReviewRequest}
+                  aria-label="Someone requests a review from me"
+                />
+                <span class="notifset-rule-text">Someone requests a review from me</span>
+              </label>
+              <label class="notifset-rule">
+                <input
+                  type="checkbox"
+                  name="notify_push_on_deploy_failed"
+                  value="1"
+                  checked={user.notifyPushOnDeployFailed}
+                  aria-label="A deploy fails"
+                />
+                <span class="notifset-rule-text">
+                  A deploy fails on one of my repositories
+                </span>
+              </label>
+            </div>
+          </section>
+
+          <section class="notifset-section">
+            <header class="notifset-section-head">
+              <h3 class="notifset-section-title">
+                <span class="notifset-section-icon" aria-hidden="true">
+                  <NotifsetInappIcon />
+                </span>
+                Sleep Mode
+              </h3>
+              <p class="notifset-section-sub">
+                Toggle Sleep Mode and pick when your morning digest lands.
+                <a href="/sleep-mode" style="color:var(--accent);margin-left:4px">Learn more</a>.
+              </p>
+            </header>
+            <div class="notifset-section-body">
+              <label class="notifset-rule">
+                <input
+                  type="checkbox"
+                  name="sleep_mode_enabled"
+                  value="1"
+                  checked={user.sleepModeEnabled}
+                  aria-label="Enable Sleep Mode"
+                />
+                <span class="notifset-rule-text">
+                  Enable Sleep Mode (daily &ldquo;overnight&rdquo; digest)
+                  <span class="notifset-rule-hint">
+                    Claude operates autonomously between digests and reports
+                    back on the schedule you pick.
+                  </span>
+                </span>
+              </label>
+              <div class="notifset-hour">
+                <label for="sleep_mode_digest_hour_utc">
+                  Morning digest hour (UTC 0–23):
+                </label>
+                <input
+                  type="number"
+                  id="sleep_mode_digest_hour_utc"
+                  name="sleep_mode_digest_hour_utc"
+                  min={0}
+                  max={23}
+                  step={1}
+                  value={String(user.sleepModeDigestHourUtc)}
+                  aria-label="Sleep Mode digest UTC hour"
+                />
+                <a href="/settings/sleep-mode/preview">Preview digest now</a>
+              </div>
+            </div>
+            <div class="notifset-section-foot">
+              <span class="notifset-foot-hint">
+                Saved across email, push, and Sleep Mode.
+              </span>
+              <button type="submit" class="notifset-btn">
+                Save preferences
+              </button>
+            </div>
+          </section>
+        </form>
+      </div>
+      <style dangerouslySetInnerHTML={{ __html: notifsetStyles }} />
+    </Layout>
+  );
+});
+
 settings.post("/settings/notifications", async (c) => {
   const user = c.get("user")!;
   const body = await c.req.parseBody();
@@ -1197,6 +1836,17 @@ settings.post("/settings/notifications", async (c) => {
       updatedAt: new Date(),
     })
     .where(eq(users.id, user.id));
+  // Redirect back to the dedicated notifications page when the user posted
+  // from there (referrer-based heuristic, harmless if it falls through), so
+  // the success banner lands on the page they were editing. The main
+  // /settings page keeps its long-standing redirect for other forms.
+  const referrer = c.req.header("referer") || "";
+  if (referrer.includes("/settings/notifications")) {
+    return c.redirect(
+      "/settings/notifications?success=" +
+        encodeURIComponent("Notification preferences updated")
+    );
+  }
   return c.redirect("/settings?success=Notification+preferences+updated");
 });
 

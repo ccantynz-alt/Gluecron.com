@@ -1,9 +1,14 @@
 /**
  * Organization and team routes — create orgs, manage members, teams, permissions.
+ *
+ * 2026 polish: `/orgs` list + `/orgs/:org` detail wrapped in scoped `.orgs-*`
+ * classes (gradient hairline hero, avatar + member-count cards, empty state
+ * with orb). Other admin/team subroutes keep their existing UI shells. Every
+ * POST handler, validation rule, and ownership check is preserved verbatim.
  */
 
 import { Hono } from "hono";
-import { eq, and, desc, asc, sql } from "drizzle-orm";
+import { eq, and, asc, sql } from "drizzle-orm";
 import { db } from "../db";
 import { organizations, orgMembers, teams, teamMembers, teamRepos } from "../db/schema-extensions";
 import { users, repositories } from "../db/schema";
@@ -13,70 +18,618 @@ import type { AuthEnv } from "../middleware/auth";
 import { loadOrgForUser, listOrgMembers, orgRoleAtLeast } from "../lib/orgs";
 import {
   Container,
-  PageHeader,
-  Form,
-  FormGroup,
-  Input,
-  TextArea,
-  Select,
-  Button,
-  LinkButton,
-  Alert,
   EmptyState,
-  Flex,
   Grid,
   Text,
   Badge,
   Section,
-  Avatar,
   List,
   ListItem,
 } from "../views/ui";
 
 const orgRoutes = new Hono<AuthEnv>();
 
+// ─── Scoped CSS (.orgs-*) ───────────────────────────────────────────────────
+// Every selector prefixed `.orgs-*` so the surface can't bleed into the
+// repo header / nav / page chrome. Mirrors the gradient-hairline hero +
+// card patterns from settings-2fa.tsx + admin-integrations.tsx.
+const orgsStyles = `
+  .orgs-wrap { max-width: 1000px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
+
+  .orgs-hero {
+    position: relative;
+    margin-bottom: var(--space-5);
+    padding: var(--space-5) var(--space-6);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+  .orgs-hero::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent 0%, #8c6dff 30%, #36c5d6 70%, transparent 100%);
+    opacity: 0.7;
+    pointer-events: none;
+  }
+  .orgs-hero-orb {
+    position: absolute;
+    inset: -20% -10% auto auto;
+    width: 380px; height: 380px;
+    background: radial-gradient(circle, rgba(140,109,255,0.20), rgba(54,197,214,0.10) 45%, transparent 70%);
+    filter: blur(80px);
+    opacity: 0.7;
+    pointer-events: none;
+    z-index: 0;
+  }
+  .orgs-hero-inner {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: var(--space-4);
+    flex-wrap: wrap;
+  }
+  .orgs-hero-text { flex: 1; min-width: 280px; max-width: 660px; }
+  .orgs-eyebrow {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: var(--space-2);
+    letter-spacing: 0.02em;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    text-transform: uppercase;
+    font-family: var(--font-mono);
+    font-weight: 600;
+  }
+  .orgs-eyebrow-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px; height: 18px;
+    border-radius: 6px;
+    background: rgba(140,109,255,0.14);
+    color: #b69dff;
+    box-shadow: inset 0 0 0 1px rgba(140,109,255,0.35);
+  }
+  .orgs-crumb { color: var(--text-muted); text-decoration: none; }
+  .orgs-crumb:hover { color: var(--text); }
+  .orgs-title {
+    font-size: clamp(28px, 4vw, 40px);
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: -0.028em;
+    line-height: 1.05;
+    margin: 0 0 var(--space-2);
+    color: var(--text-strong);
+  }
+  .orgs-title-grad {
+    background-image: linear-gradient(135deg, #a48bff 0%, #8c6dff 50%, #36c5d6 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+  }
+  .orgs-sub {
+    font-size: 15px;
+    color: var(--text-muted);
+    margin: 0;
+    line-height: 1.55;
+    max-width: 620px;
+  }
+
+  /* ─── Buttons ─── */
+  .orgs-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 10px 18px;
+    border-radius: 10px;
+    font-size: 13.5px;
+    font-weight: 600;
+    text-decoration: none;
+    border: 1px solid transparent;
+    cursor: pointer;
+    font-family: inherit;
+    line-height: 1;
+    transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease, border-color 120ms ease, color 120ms ease;
+  }
+  .orgs-btn-primary {
+    background: linear-gradient(135deg, #8c6dff 0%, #36c5d6 100%);
+    color: #fff;
+    box-shadow: 0 6px 18px -4px rgba(140,109,255,0.45), inset 0 1px 0 rgba(255,255,255,0.16);
+  }
+  .orgs-btn-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 10px 24px -6px rgba(140,109,255,0.55), inset 0 1px 0 rgba(255,255,255,0.20);
+    color: #fff;
+    text-decoration: none;
+  }
+  .orgs-btn-ghost {
+    background: rgba(255,255,255,0.025);
+    color: var(--text);
+    border-color: var(--border-strong);
+  }
+  .orgs-btn-ghost:hover {
+    background: rgba(140,109,255,0.06);
+    border-color: rgba(140,109,255,0.45);
+    color: var(--text-strong);
+    text-decoration: none;
+  }
+
+  /* ─── Org grid ─── */
+  .orgs-grid {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: var(--space-3);
+  }
+  .orgs-card {
+    display: flex;
+    gap: var(--space-3);
+    padding: var(--space-4);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    text-decoration: none;
+    color: inherit;
+    transition: transform 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+  }
+  .orgs-card:hover {
+    border-color: rgba(140,109,255,0.32);
+    box-shadow: 0 8px 24px -10px rgba(0,0,0,0.32);
+    transform: translateY(-1px);
+    color: inherit;
+    text-decoration: none;
+  }
+  .orgs-avatar {
+    flex-shrink: 0;
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    background: linear-gradient(135deg, rgba(140,109,255,0.22), rgba(54,197,214,0.16));
+    box-shadow: inset 0 0 0 1px rgba(140,109,255,0.32);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-display);
+    font-size: 20px;
+    font-weight: 800;
+    color: #e9d5ff;
+    text-transform: uppercase;
+  }
+  .orgs-card-body { flex: 1; min-width: 0; }
+  .orgs-card-name {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: -0.012em;
+    color: var(--text-strong);
+  }
+  .orgs-card-handle {
+    margin: 2px 0 0;
+    font-size: 12.5px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+  }
+  .orgs-card-meta {
+    margin-top: 10px;
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .orgs-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 9px;
+    border-radius: 9999px;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    background: rgba(140,109,255,0.14);
+    color: #c4b5fd;
+    box-shadow: inset 0 0 0 1px rgba(140,109,255,0.32);
+  }
+  .orgs-pill.is-role { background: rgba(54,197,214,0.14); color: #67e8f9; box-shadow: inset 0 0 0 1px rgba(54,197,214,0.32); }
+  .orgs-pill .dot { width: 5px; height: 5px; border-radius: 9999px; background: currentColor; }
+  .orgs-stat {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11.5px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+  }
+
+  /* ─── Detail hero ─── */
+  .orgs-detail {
+    position: relative;
+    margin-bottom: var(--space-5);
+    padding: var(--space-5) var(--space-6);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+  .orgs-detail::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent 0%, #8c6dff 30%, #36c5d6 70%, transparent 100%);
+    opacity: 0.7;
+    pointer-events: none;
+  }
+  .orgs-detail-orb {
+    position: absolute;
+    inset: -20% -10% auto auto;
+    width: 380px; height: 380px;
+    background: radial-gradient(circle, rgba(140,109,255,0.20), rgba(54,197,214,0.10) 45%, transparent 70%);
+    filter: blur(80px);
+    opacity: 0.7;
+    pointer-events: none;
+    z-index: 0;
+  }
+  .orgs-detail-inner {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    gap: var(--space-4);
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .orgs-avatar-lg {
+    flex-shrink: 0;
+    width: 86px;
+    height: 86px;
+    border-radius: 18px;
+    background: linear-gradient(135deg, rgba(140,109,255,0.22), rgba(54,197,214,0.16));
+    box-shadow: inset 0 0 0 1px rgba(140,109,255,0.32);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-display);
+    font-size: 36px;
+    font-weight: 800;
+    color: #e9d5ff;
+    text-transform: uppercase;
+  }
+  .orgs-detail-text { flex: 1; min-width: 220px; }
+  .orgs-detail-name {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: clamp(22px, 3vw, 30px);
+    font-weight: 800;
+    letter-spacing: -0.022em;
+    color: var(--text-strong);
+  }
+  .orgs-detail-handle {
+    margin: 4px 0 0;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+  .orgs-detail-desc {
+    margin: 12px 0 0;
+    font-size: 14px;
+    color: var(--text-muted);
+    line-height: 1.55;
+    max-width: 620px;
+  }
+  .orgs-detail-meta {
+    margin-top: 12px;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .orgs-detail-actions { display: flex; gap: 8px; flex-wrap: wrap; align-self: center; }
+
+  /* ─── Section card ─── */
+  .orgs-section {
+    margin-bottom: var(--space-5);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+  }
+  .orgs-section-head {
+    padding: var(--space-4) var(--space-5);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+  }
+  .orgs-section-title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: -0.012em;
+    color: var(--text-strong);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .orgs-section-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px; height: 26px;
+    border-radius: 8px;
+    background: rgba(140,109,255,0.12);
+    color: #b69dff;
+    box-shadow: inset 0 0 0 1px rgba(140,109,255,0.28);
+    flex-shrink: 0;
+  }
+  .orgs-section-body { padding: var(--space-4) var(--space-5); }
+
+  .orgs-row-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+  .orgs-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    background: var(--bg);
+    border: 1px solid var(--border-strong);
+    border-radius: 10px;
+  }
+  .orgs-row-avatar {
+    flex-shrink: 0;
+    width: 30px; height: 30px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, rgba(140,109,255,0.22), rgba(54,197,214,0.16));
+    box-shadow: inset 0 0 0 1px rgba(140,109,255,0.32);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-display);
+    font-size: 13px;
+    font-weight: 800;
+    color: #e9d5ff;
+    text-transform: uppercase;
+  }
+  .orgs-row-name {
+    flex: 1;
+    min-width: 0;
+    font-size: 13.5px;
+    color: var(--text);
+    text-decoration: none;
+  }
+  .orgs-row-name:hover { color: var(--accent); }
+  .orgs-row-meta { color: var(--text-muted); font-size: 12px; }
+
+  /* ─── Empty state ─── */
+  .orgs-empty {
+    position: relative;
+    padding: 56px 32px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    text-align: center;
+    overflow: hidden;
+  }
+  .orgs-empty::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent 0%, #8c6dff 30%, #36c5d6 70%, transparent 100%);
+    opacity: 0.55;
+    pointer-events: none;
+  }
+  .orgs-empty-orb {
+    width: 96px; height: 96px;
+    margin: 0 auto 18px;
+    border-radius: 9999px;
+    background:
+      radial-gradient(circle at 35% 35%, rgba(140,109,255,0.55), rgba(54,197,214,0.25) 55%, transparent 75%);
+    box-shadow:
+      0 0 32px rgba(140,109,255,0.35),
+      inset 0 0 0 1px rgba(140,109,255,0.35);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+  }
+  .orgs-empty-title {
+    font-family: var(--font-display);
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.018em;
+    color: var(--text-strong);
+    margin: 0 0 8px;
+  }
+  .orgs-empty-sub {
+    font-size: 14.5px;
+    color: var(--text-muted);
+    line-height: 1.55;
+    margin: 0 auto 18px;
+    max-width: 460px;
+  }
+
+  .orgs-grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 300px;
+    gap: var(--space-4);
+  }
+  @media (max-width: 800px) {
+    .orgs-grid-2 { grid-template-columns: 1fr; }
+  }
+`;
+
+const OrgsIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M3 21h18" />
+    <path d="M5 21V7l8-4v18" />
+    <path d="M19 21V11l-6-4" />
+    <line x1="9" y1="9" x2="9" y2="9.01" />
+    <line x1="9" y1="12" x2="9" y2="12.01" />
+    <line x1="9" y1="15" x2="9" y2="15.01" />
+    <line x1="9" y1="18" x2="9" y2="18.01" />
+  </svg>
+);
+const OrgsTeamIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+    <circle cx="9" cy="7" r="4" />
+    <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+    <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+  </svg>
+);
+const OrgsEmptyIcon = () => (
+  <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M3 21h18" />
+    <path d="M5 21V7l8-4v18" />
+    <path d="M19 21V11l-6-4" />
+  </svg>
+);
+
 // ─── Organization List (index) ──────────────────────────────────────────────
 // GET /orgs — auth-required directory of the viewer's organizations.
 orgRoutes.get("/orgs", softAuth, requireAuth, async (c) => {
   const user = c.get("user")!;
-  let rows: any[] = [];
+  type OrgRow = {
+    org: typeof organizations.$inferSelect;
+    role: string;
+    memberCount: number;
+    repoCount: number;
+  };
+  let rows: OrgRow[] = [];
   try {
-    rows = await db
+    const base = await db
       .select({ org: organizations, role: orgMembers.role })
       .from(orgMembers)
       .innerJoin(organizations, eq(orgMembers.orgId, organizations.id))
       .where(eq(orgMembers.userId, user.id))
       .orderBy(asc(organizations.name));
+    rows = await Promise.all(
+      base.map(async (r) => {
+        let memberCount = 0;
+        let repoCount = 0;
+        try {
+          const [m] = await db
+            .select({ count: sql<number>`count(*)` })
+            .from(orgMembers)
+            .where(eq(orgMembers.orgId, r.org.id));
+          memberCount = Number(m?.count ?? 0);
+        } catch { /* ignore */ }
+        try {
+          // Org-owned repos are scoped by username convention (organizations.name).
+          // The repositories table keys ownership via users.id, so we look up the
+          // synthetic owner-user row whose username matches the org name.
+          const [u] = await db
+            .select({ id: users.id })
+            .from(users)
+            .where(eq(users.username, r.org.name))
+            .limit(1);
+          if (u) {
+            const [rc] = await db
+              .select({ count: sql<number>`count(*)` })
+              .from(repositories)
+              .where(eq(repositories.ownerId, u.id));
+            repoCount = Number(rc?.count ?? 0);
+          }
+        } catch { /* ignore */ }
+        return { org: r.org, role: r.role, memberCount, repoCount };
+      })
+    );
   } catch {
     rows = [];
   }
+
   return c.html(
     <Layout title="Your organizations" user={user}>
-      <Container>
-        <PageHeader
-          title="Your organizations"
-          actions={<LinkButton href="/orgs/new" variant="primary">New organization</LinkButton>}
-        />
-        {rows.length === 0 ? (
-          <EmptyState title="No organizations yet">
-            <Text muted>Create one to share repositories with teammates.</Text>
-            <div style="margin-top:12px">
-              <LinkButton href="/orgs/new" variant="primary">New organization</LinkButton>
+      <div class="orgs-wrap">
+        <section class="orgs-hero">
+          <div class="orgs-hero-orb" aria-hidden="true" />
+          <div class="orgs-hero-inner">
+            <div class="orgs-hero-text">
+              <div class="orgs-eyebrow">
+                <span class="orgs-eyebrow-pill" aria-hidden="true">
+                  <OrgsIcon />
+                </span>
+                <span>Organizations</span>
+                <span>·</span>
+                <span>@{user.username}</span>
+              </div>
+              <h2 class="orgs-title">
+                <span class="orgs-title-grad">Your organizations.</span>
+              </h2>
+              <p class="orgs-sub">
+                Multi-user namespaces for sharing repos and managing teams.
+                Create one to invite teammates with role-based access.
+              </p>
             </div>
-          </EmptyState>
+            <a href="/orgs/new" class="orgs-btn orgs-btn-primary">
+              + New organization
+            </a>
+          </div>
+        </section>
+
+        {rows.length === 0 ? (
+          <div class="orgs-empty">
+            <div class="orgs-empty-orb" aria-hidden="true">
+              <OrgsEmptyIcon />
+            </div>
+            <h2 class="orgs-empty-title">No organizations yet</h2>
+            <p class="orgs-empty-sub">
+              Organizations let you collaborate with teammates under a shared
+              namespace, with role-based access and team-scoped repos.
+            </p>
+            <a href="/orgs/new" class="orgs-btn orgs-btn-primary">
+              Create your first organization
+            </a>
+          </div>
         ) : (
-          <List>
-            {rows.map((r) => (
-              <ListItem>
-                <a href={`/orgs/${r.org.slug}`} style="color:var(--text)">
-                  <strong>{r.org.name}</strong>
-                </a>
-                <Text muted> — {r.role}</Text>
-              </ListItem>
-            ))}
-          </List>
+          <ul class="orgs-grid">
+            {rows.map((r) => {
+              const displayName =
+                (r.org as any).displayName || (r.org as any).name || "?";
+              const slug = (r.org as any).slug || (r.org as any).name || "";
+              const initial = (displayName.charAt(0) || "?").toUpperCase();
+              return (
+                <li>
+                  <a href={`/orgs/${slug}`} class="orgs-card">
+                    <div class="orgs-avatar" aria-hidden="true">{initial}</div>
+                    <div class="orgs-card-body">
+                      <h3 class="orgs-card-name">{displayName}</h3>
+                      <p class="orgs-card-handle">@{slug}</p>
+                      <div class="orgs-card-meta">
+                        <span class="orgs-pill is-role">
+                          <span class="dot" aria-hidden="true" />
+                          {r.role}
+                        </span>
+                        <span class="orgs-stat">
+                          {r.memberCount} {r.memberCount === 1 ? "member" : "members"}
+                        </span>
+                        <span class="orgs-stat">·</span>
+                        <span class="orgs-stat">
+                          {r.repoCount} {r.repoCount === 1 ? "repo" : "repos"}
+                        </span>
+                      </div>
+                    </div>
+                  </a>
+                </li>
+              );
+            })}
+          </ul>
         )}
-      </Container>
+      </div>
+      <style dangerouslySetInnerHTML={{ __html: orgsStyles }} />
     </Layout>
   );
 });
@@ -249,84 +802,168 @@ orgRoutes.get("/orgs/:org", softAuth, requireAuth, async (c) => {
   const isMember = user && members.some((m: any) => m.member.userId === user.id);
   const isOwner = user && members.some((m: any) => m.member.userId === user.id && m.member.role === "owner");
 
-  return c.html(
-    <Layout title={org.displayName || org.name} user={user}>
-      <Container maxWidth={900}>
-        <Flex gap={24} style="margin-bottom:32px">
-          <Avatar name={org.displayName || org.name} size={80} />
-          <div>
-            <h2>{org.displayName || org.name}</h2>
-            <Text size={14} muted>@{org.name}</Text>
-            {org.description && <p style="margin-top:8px"><Text size={14} muted>{org.description}</Text></p>}
-            {org.website && (
-              <a href={org.website} style="font-size:13px" target="_blank" rel="noopener noreferrer">
-                {org.website}
-              </a>
-            )}
-          </div>
-          {isOwner && (
-            <div style="margin-left:auto">
-              <LinkButton href={`/orgs/${org.name}/settings`} size="sm">Settings</LinkButton>
-            </div>
-          )}
-        </Flex>
-
-        <Grid cols="1fr 300px" gap={32}>
-          <div>
-            <Section title="Teams">
-              {teamList.length === 0 ? (
-                <EmptyState>
-                  <p>No teams yet.</p>
-                  {isOwner && <LinkButton href={`/orgs/${org.name}/teams/new`} variant="primary" size="sm">Create a team</LinkButton>}
-                </EmptyState>
-              ) : (
-                <List>
-                  {teamList.map((team: any) => (
-                    <ListItem>
-                      <div>
-                        <div style="font-weight:500;font-size:15px">
-                          <a href={`/orgs/${org.name}/teams/${team.name}`} style="color:var(--text)">{team.name}</a>
-                        </div>
-                        {team.description && <Text size={13} muted>{team.description}</Text>}
-                      </div>
-                      <Badge>{team.permission}</Badge>
-                    </ListItem>
-                  ))}
-                </List>
-              )}
-              {isOwner && teamList.length > 0 && (
-                <div style="margin-top:12px">
-                  <LinkButton href={`/orgs/${org.name}/teams/new`} variant="primary" size="sm">Create team</LinkButton>
+  const initial = ((org.displayName || org.name || "?").charAt(0) || "?").toUpperCase();
+  return (
+    c.html(
+      <Layout title={org.displayName || org.name} user={user}>
+        <div class="orgs-wrap">
+          <section class="orgs-detail">
+            <div class="orgs-detail-orb" aria-hidden="true" />
+            <div class="orgs-detail-inner">
+              <div class="orgs-avatar-lg" aria-hidden="true">{initial}</div>
+              <div class="orgs-detail-text">
+                <h2 class="orgs-detail-name">{org.displayName || org.name}</h2>
+                <p class="orgs-detail-handle">@{org.name}</p>
+                {org.description && <p class="orgs-detail-desc">{org.description}</p>}
+                <div class="orgs-detail-meta">
+                  <span class="orgs-pill">
+                    <span class="dot" aria-hidden="true" />
+                    {members.length} {members.length === 1 ? "member" : "members"}
+                  </span>
+                  <span class="orgs-pill is-role">
+                    <span class="dot" aria-hidden="true" />
+                    {teamList.length} {teamList.length === 1 ? "team" : "teams"}
+                  </span>
+                  {org.website && (
+                    <a
+                      href={org.website}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style="font-size:12.5px;color:var(--text-muted);text-decoration:none"
+                    >
+                      {org.website}
+                    </a>
+                  )}
                 </div>
-              )}
-            </Section>
-          </div>
-
-          <div>
-            <Section title={`Members (${members.length})`}>
-              <List>
-                {members.map((m: any) => (
-                  <ListItem>
-                    <Flex align="center" gap={8} style="width:100%">
-                      <Avatar name={m.user.displayName || m.user.username} size={32} />
-                      <div style="flex:1">
-                        <a href={`/${m.user.username}`} style="font-size:14px;font-weight:500">{m.user.username}</a>
-                      </div>
-                      <Badge style="font-size:11px">{m.member.role}</Badge>
-                    </Flex>
-                  </ListItem>
-                ))}
-              </List>
+              </div>
               {isOwner && (
-                <div style="margin-top:12px">
-                  <LinkButton href={`/orgs/${org.name}/members/invite`} size="sm">Invite member</LinkButton>
+                <div class="orgs-detail-actions">
+                  <a
+                    href={`/orgs/${org.name}/members/invite`}
+                    class="orgs-btn orgs-btn-ghost"
+                  >
+                    Invite member
+                  </a>
+                  <a
+                    href={`/orgs/${org.name}/settings`}
+                    class="orgs-btn orgs-btn-primary"
+                  >
+                    Settings
+                  </a>
                 </div>
               )}
-            </Section>
+            </div>
+          </section>
+
+          <div class="orgs-grid-2">
+            <section class="orgs-section">
+              <header class="orgs-section-head">
+                <h3 class="orgs-section-title">
+                  <span class="orgs-section-icon" aria-hidden="true">
+                    <OrgsTeamIcon />
+                  </span>
+                  Teams ({teamList.length})
+                </h3>
+                {isOwner && teamList.length > 0 && (
+                  <a
+                    href={`/orgs/${org.name}/teams/new`}
+                    class="orgs-btn orgs-btn-ghost"
+                    style="padding:6px 12px;font-size:12.5px"
+                  >
+                    + New team
+                  </a>
+                )}
+              </header>
+              <div class="orgs-section-body">
+                {teamList.length === 0 ? (
+                  <div style="text-align:center;padding:24px 12px;color:var(--text-muted);font-size:13.5px;line-height:1.55">
+                    No teams yet.
+                    {isOwner && (
+                      <div style="margin-top:12px">
+                        <a
+                          href={`/orgs/${org.name}/teams/new`}
+                          class="orgs-btn orgs-btn-primary"
+                        >
+                          Create your first team
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <ul class="orgs-row-list">
+                    {teamList.map((team: any) => (
+                      <li class="orgs-row">
+                        <div class="orgs-row-avatar" aria-hidden="true">
+                          {(team.name.charAt(0) || "?").toUpperCase()}
+                        </div>
+                        <a
+                          href={`/orgs/${org.name}/teams/${team.name}`}
+                          class="orgs-row-name"
+                          style="font-weight:600"
+                        >
+                          {team.name}
+                          {team.description && (
+                            <span class="orgs-row-meta" style="margin-left:8px">
+                              — {team.description}
+                            </span>
+                          )}
+                        </a>
+                        <span class="orgs-pill is-role">
+                          <span class="dot" aria-hidden="true" />
+                          {team.permission}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </section>
+
+            <section class="orgs-section">
+              <header class="orgs-section-head">
+                <h3 class="orgs-section-title">
+                  <span class="orgs-section-icon" aria-hidden="true">
+                    <OrgsTeamIcon />
+                  </span>
+                  Members ({members.length})
+                </h3>
+              </header>
+              <div class="orgs-section-body">
+                {members.length === 0 ? (
+                  <div style="text-align:center;padding:18px 12px;color:var(--text-muted);font-size:13.5px">
+                    No members.
+                  </div>
+                ) : (
+                  <ul class="orgs-row-list">
+                    {members.map((m: any) => {
+                      const init = (
+                        (m.user.displayName || m.user.username || "?").charAt(0) || "?"
+                      ).toUpperCase();
+                      return (
+                        <li class="orgs-row">
+                          <div class="orgs-row-avatar" aria-hidden="true">{init}</div>
+                          <a href={`/${m.user.username}`} class="orgs-row-name">
+                            {m.user.displayName || m.user.username}
+                            <span class="orgs-row-meta" style="margin-left:6px">
+                              @{m.user.username}
+                            </span>
+                          </a>
+                          <span class="orgs-pill is-role">
+                            <span class="dot" aria-hidden="true" />
+                            {m.member.role}
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            </section>
           </div>
-        </Grid>
-      </Container>
-    </Layout>
+        </div>
+        <style dangerouslySetInnerHTML={{ __html: orgsStyles }} />
+      </Layout>
+    )
   );
 });
 

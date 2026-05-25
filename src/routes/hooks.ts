@@ -38,8 +38,36 @@ import {
   users,
 } from "../db/schema";
 import { notify, audit } from "../lib/notify";
+import {
+  generatePatchForGateTestFinding,
+  severityAtOrAboveMedium,
+  type GateTestFinding,
+} from "../lib/ai-patch-generator";
+import { config } from "../lib/config";
 
 const hooks = new Hono();
+
+/**
+ * Best-effort extraction of an array of GateTest findings from a
+ * webhook payload's `details` blob. GateTest's schema isn't pinned in
+ * code yet, so we accept a handful of common shapes:
+ *   - `details.findings: [...]`
+ *   - `details.issues:   [...]`
+ *   - `details.results:  [...]`
+ *   - `details:          [...]` (raw array)
+ */
+function extractFindings(details: unknown): GateTestFinding[] {
+  if (!details) return [];
+  if (Array.isArray(details)) return details as GateTestFinding[];
+  if (typeof details === "object") {
+    const d = details as Record<string, unknown>;
+    for (const key of ["findings", "issues", "results", "violations"]) {
+      const v = d[key];
+      if (Array.isArray(v)) return v as GateTestFinding[];
+    }
+  }
+  return [];
+}
 
 interface GateTestPayload {
   repository?: string;
@@ -247,6 +275,36 @@ hooks.post("/api/hooks/gatetest", async (c) => {
     });
   } catch {
     /* swallow */
+  }
+
+  // AI patch generator — if the gate failed AND the env flag is on AND
+  // an Anthropic key is configured, fire-and-forget a patch PR for the
+  // first actionable medium+ severity finding. Never blocks the
+  // webhook response.
+  if (
+    normalisedStatus === "failed" &&
+    process.env.AI_PATCH_GENERATOR_ENABLED === "1" &&
+    config.anthropicApiKey
+  ) {
+    const findings = extractFindings(payload.details).filter((f) =>
+      severityAtOrAboveMedium(f.severity)
+    );
+    if (findings.length > 0) {
+      generatePatchForGateTestFinding({
+        repositoryId: repo.id,
+        baseSha: payload.sha,
+        findings,
+        reportUrl:
+          typeof (payload.details as Record<string, unknown> | null)?.reportUrl === "string"
+            ? ((payload.details as Record<string, string>).reportUrl)
+            : null,
+      }).catch((err) =>
+        console.error(
+          "[hooks/gatetest] AI patch generator crashed:",
+          err instanceof Error ? err.message : err
+        )
+      );
+    }
   }
 
   return c.json({ ok: true, gateRunId });
@@ -468,6 +526,33 @@ hooks.post("/api/v1/gate-runs", async (c) => {
     });
   } catch {
     /* swallow */
+  }
+
+  // Same fire-and-forget AI patch hook as the primary callback path.
+  if (
+    normalisedStatus === "failed" &&
+    process.env.AI_PATCH_GENERATOR_ENABLED === "1" &&
+    config.anthropicApiKey
+  ) {
+    const findings = extractFindings(payload.details).filter((f) =>
+      severityAtOrAboveMedium(f.severity)
+    );
+    if (findings.length > 0) {
+      generatePatchForGateTestFinding({
+        repositoryId: repo.id,
+        baseSha: payload.sha,
+        findings,
+        reportUrl:
+          typeof (payload.details as Record<string, unknown> | null)?.reportUrl === "string"
+            ? ((payload.details as Record<string, string>).reportUrl)
+            : null,
+      }).catch((err) =>
+        console.error(
+          "[hooks/backup] AI patch generator crashed:",
+          err instanceof Error ? err.message : err
+        )
+      );
+    }
   }
 
   return c.json({ ok: true, gateRunId });

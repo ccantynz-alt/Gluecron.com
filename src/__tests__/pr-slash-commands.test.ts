@@ -16,7 +16,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "bun:test";
 import { join } from "path";
 import { mkdir, rm } from "fs/promises";
-import { eq } from "drizzle-orm";
 
 import {
   parseSlashCommand,
@@ -30,7 +29,6 @@ import {
 import { db } from "../db";
 import {
   pullRequests,
-  prComments,
   repositories,
   users,
   workflows,
@@ -315,9 +313,9 @@ describe.skipIf(!HAS_DB)("executeSlashCommand — /merge (DB-backed)", () => {
   it("forwards the requested strategy and reports the merge result", async () => {
     const fx = await seedFixture("merge");
 
-    let observedActor: string | null = null;
+    const observed: { actor: string | null } = { actor: null };
     const fakeMerge = async (mergeArgs: any) => {
-      observedActor = mergeArgs.actorUserId;
+      observed.actor = mergeArgs.actorUserId;
       expect(mergeArgs.pr.id).toBe(fx.prId);
       expect(mergeArgs.pr.headBranch).toBe("feat-x");
       expect(mergeArgs.pr.baseBranch).toBe("main");
@@ -342,7 +340,7 @@ describe.skipIf(!HAS_DB)("executeSlashCommand — /merge (DB-backed)", () => {
       },
     });
     expect(result.ok).toBe(true);
-    expect(observedActor).toBe(fx.userId);
+    expect(observed.actor).toBe(fx.userId);
     expect(result.body).toContain(slashCmdMarker("merge"));
     expect(result.body).toContain("Merged");
     expect(result.body).toContain("/merge squash");

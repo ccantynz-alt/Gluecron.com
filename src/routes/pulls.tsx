@@ -2665,6 +2665,25 @@ pulls.post(
       })
       .where(eq(pullRequests.id, pr.id));
 
+    // Chat notifier — fan out merge event to Slack/Discord/Teams.
+    import("../lib/chat-notifier")
+      .then((m) =>
+        m.notifyChatChannels({
+          ownerUserId: resolved.repo.ownerId,
+          repositoryId: resolved.repo.id,
+          event: {
+            event: "pr.merged",
+            repo: `${ownerName}/${repoName}`,
+            title: `#${pr.number} ${pr.title}`,
+            url: `/${ownerName}/${repoName}/pulls/${pr.number}`,
+            actor: user.username,
+          },
+        })
+      )
+      .catch((err) =>
+        console.warn(`[chat-notifier] PR merge notify failed:`, err)
+      );
+
     // J7 — closing keywords. Scan PR title + body for "closes #N" style refs
     // and auto-close each matching open issue with a back-link comment. Bounded
     // to the same repo for v1 (cross-repo refs ignored). Failures never block

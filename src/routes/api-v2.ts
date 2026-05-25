@@ -73,6 +73,11 @@ import {
   computeLifetimeAiSavingsForUser,
 } from "../lib/ai-hours-saved";
 import {
+  summarizeCostsForUser,
+  summarizeCostsForRepo,
+  startOfUtcMonth,
+} from "../lib/ai-cost-tracker";
+import {
   generateCommitMessage,
   DIFF_BYTE_CAP,
 } from "../lib/ai-commit-message";
@@ -268,6 +273,54 @@ apiv2.get("/users/:username", async (c) => {
  * VS Code extension, and CLI. Returns the same numbers the web UI shows.
  * No special scope — any authenticated token can read its own counter.
  */
+/**
+ * Per-user AI cost summary. Same shape as the /billing/usage dashboard.
+ * Defaults to "this calendar month UTC" when no window is supplied.
+ * Query params: ?from=ISO8601&to=ISO8601 to override.
+ */
+apiv2.get("/usage/me", requireApiAuth, async (c) => {
+  const user = c.get("user")!;
+  const now = new Date();
+  const fromQ = c.req.query("from");
+  const toQ = c.req.query("to");
+  const fromDate = fromQ ? new Date(fromQ) : startOfUtcMonth(now);
+  const toDate = toQ ? new Date(toQ) : now;
+  const summary = await summarizeCostsForUser(user.id, { fromDate, toDate });
+  return c.json({
+    window: { fromDate: fromDate.toISOString(), toDate: toDate.toISOString() },
+    ...summary,
+  });
+});
+
+/**
+ * Per-repo AI cost summary. Public repos: any caller. Private repos: only
+ * the owner (matches the existing GET /repos/:owner/:repo behaviour). The
+ * window defaults to "this calendar month UTC" as above.
+ */
+apiv2.get("/usage/repo/:owner/:repo", requireApiAuth, async (c) => {
+  const { owner, repo } = c.req.param();
+  const resolved = await resolveRepo(owner, repo);
+  if (!resolved) return c.json({ error: "Not found" }, 404);
+  const user = c.get("user")!;
+  if ((resolved.repo as any).isPrivate && user.id !== resolved.owner.id) {
+    return c.json({ error: "Not found" }, 404);
+  }
+  const now = new Date();
+  const fromQ = c.req.query("from");
+  const toQ = c.req.query("to");
+  const fromDate = fromQ ? new Date(fromQ) : startOfUtcMonth(now);
+  const toDate = toQ ? new Date(toQ) : now;
+  const summary = await summarizeCostsForRepo((resolved.repo as any).id, {
+    fromDate,
+    toDate,
+  });
+  return c.json({
+    repository: { owner, repo, id: (resolved.repo as any).id },
+    window: { fromDate: fromDate.toISOString(), toDate: toDate.toISOString() },
+    ...summary,
+  });
+});
+
 apiv2.get("/me/ai-savings", requireApiAuth, async (c) => {
   const user = c.get("user")!;
   const [window, lifetime] = await Promise.all([

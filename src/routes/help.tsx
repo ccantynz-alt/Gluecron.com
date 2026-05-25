@@ -281,6 +281,7 @@ help.get("/help", (c) => {
             <a href="#git-ssh">Git over SSH</a>
             <a href="#import">Importing from GitHub</a>
             <a href="#webhooks">Webhooks</a>
+            <a href="#chat-bots">Slack &amp; Discord bots</a>
             <a href="#tokens">Personal access tokens</a>
             <a href="#gates">Gates & AI review</a>
             <a href="#ai-native">AI-native flow</a>
@@ -448,6 +449,47 @@ help.get("/help", (c) => {
             <div class="help-item">
               Deliveries are retried with exponential backoff; inspect the
               last N attempts from the webhook's settings page.
+            </div>
+          </div>
+        </section>
+
+        {/* ─── Slack + Discord bots ─── */}
+        <section id="chat-bots" class="help-section">
+          <div class="help-section-head">
+            <div class="help-section-eyebrow">Integrations</div>
+            <h2 class="help-section-title">Slack &amp; Discord</h2>
+            <p class="help-section-desc">
+              Install the Gluecron bot from{" "}
+              <a href="/settings/integrations">/settings/integrations</a>{" "}
+              to drive your repos from chat. PR opens, merges, and AI
+              review summaries also push back into the channel.
+            </p>
+          </div>
+          <div class="help-section-body">
+            <div class="help-item">
+              <strong>Slash commands.</strong>
+              <pre class="help-code">
+{`/gluecron pr list owner/repo
+/gluecron pr open owner/repo "Add dark mode"
+/gluecron issue list owner/repo
+/gluecron issue create owner/repo "Bug in foo()"
+/gluecron spec ship "rewrite the cron scheduler"
+/gluecron chat "How do I run the tests?"
+/gluecron help`}
+              </pre>
+            </div>
+            <div class="help-item">
+              <strong>Signature verification.</strong> Slack requests are
+              checked against your signing secret (HMAC-SHA256 over{" "}
+              <code>v0:&lt;timestamp&gt;:&lt;body&gt;</code>). Discord
+              interactions are verified against your Application Public
+              Key with Ed25519. Bad signatures get a 401.
+            </div>
+            <div class="help-item">
+              <strong>Outbound notifications.</strong> Once installed, PR
+              opens / merges, issue creates, and AI review summaries
+              auto-post to your channel. Disable on a per-workspace basis
+              from <a href="/settings/integrations">/settings/integrations</a>.
             </div>
           </div>
         </section>

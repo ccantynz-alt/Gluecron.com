@@ -768,6 +768,7 @@ const navScript = `
       { label: 'Passkeys settings', href: '/settings/passkeys', kw: 'webauthn' },
       { label: 'Personal access tokens', href: '/settings/tokens', kw: 'pat api' },
       { label: 'Billing + quotas', href: '/settings/billing', kw: 'plans money' },
+      { label: 'AI usage + cost', href: '/billing/usage', kw: 'spend tokens anthropic budget' },
       { label: 'Audit log (personal)', href: '/settings/audit', kw: 'history' },
       { label: 'Gists', href: '/gists', kw: 'snippets' },
       { label: 'GraphQL explorer', href: '/api/graphql', kw: 'api query' },

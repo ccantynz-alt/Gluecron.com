@@ -24,6 +24,8 @@ import magicLinkRoutes from "./routes/magic-link";
 import settingsRoutes from "./routes/settings";
 import settings2faRoutes from "./routes/settings-2fa";
 import settingsAgentsRoutes from "./routes/settings-agents";
+import settingsIntegrationsRoutes from "./routes/settings-integrations";
+import integrationsChatRoutes from "./routes/integrations-chat";
 import agentsRoutes from "./routes/agents";
 import issueRoutes from "./routes/issues";
 import repoSettings from "./routes/repo-settings";
@@ -377,6 +379,11 @@ app.route("/", settings2faRoutes);
 
 // Agent multiplayer — /settings/agents management UI
 app.route("/", settingsAgentsRoutes);
+
+// Chat integrations — Slack / Discord / Teams (/settings/integrations
+// + /api/v2/integrations/{slack,discord}/*). See src/lib/chat-bot.ts.
+app.route("/", settingsIntegrationsRoutes);
+app.route("/", integrationsChatRoutes);
 
 // WebAuthn / passkey routes (Block B5)
 app.route("/", passkeyRoutes);

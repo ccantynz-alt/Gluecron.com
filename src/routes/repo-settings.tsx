@@ -840,6 +840,52 @@ repoSettings.get("/:owner/:repo/settings", requireAuth, requireRepoAccess("admin
           </div>
         </section>
 
+        {/* ─── AI test generator ─── */}
+        <section class="repo-settings-section">
+          <div class="repo-settings-section-head">
+            <div class="repo-settings-section-eyebrow">AI tests</div>
+            <h2 class="repo-settings-section-title">Auto-generate tests on PR open</h2>
+            <p class="repo-settings-section-desc">
+              When a pull request opens, Gluecron AI reads the diff and writes
+              tests for the new code, matching whatever framework your repo
+              already uses. Tests land on the same branch. Default off —
+              opt in here.
+            </p>
+          </div>
+          <form
+            method="post"
+            action={`/${ownerName}/${repoName}/settings/ai-tests`}
+          >
+            <div class="repo-settings-section-body">
+              <label
+                class="repo-settings-toggle-row"
+                aria-label="Auto-generate tests when a PR opens"
+              >
+                <input
+                  type="checkbox"
+                  name="auto_generate_tests"
+                  value="1"
+                  checked={repo.autoGenerateTests}
+                />
+                <span class="repo-settings-toggle-text">
+                  <span class="repo-settings-toggle-text-title">
+                    Auto-generate tests on PR open
+                  </span>
+                  <span class="repo-settings-toggle-text-hint">
+                    Requires <code>ANTHROPIC_API_KEY</code>. Skips PRs without
+                    source-file changes and PRs already opened by AI.
+                  </span>
+                </span>
+              </label>
+            </div>
+            <div class="repo-settings-section-foot">
+              <button type="submit" class="repo-settings-cta">
+                Save AI test settings <span class="arrow">→</span>
+              </button>
+            </div>
+          </form>
+        </section>
+
         {/* ─── Stale activity ─── */}
         <section class="repo-settings-section">
           <div class="repo-settings-section-head">
@@ -1187,6 +1233,64 @@ repoSettings.post(
 
     return c.redirect(
       `/${ownerName}/${repoName}/settings?success=Stale+settings+saved`
+    );
+  }
+);
+
+// AI test generator opt-in. Owner-only; audits the toggle delta so the
+// repo's audit log shows the change.
+repoSettings.post(
+  "/:owner/:repo/settings/ai-tests",
+  requireAuth,
+  requireRepoAccess("admin"),
+  async (c) => {
+    const { owner: ownerName, repo: repoName } = c.req.param();
+    const user = c.get("user")!;
+    const body = await c.req.parseBody();
+    const [owner] = await db
+      .select()
+      .from(users)
+      .where(eq(users.username, ownerName))
+      .limit(1);
+    if (!owner || owner.id !== user.id) {
+      return c.redirect(`/${ownerName}/${repoName}`);
+    }
+    const [repo] = await db
+      .select()
+      .from(repositories)
+      .where(
+        and(
+          eq(repositories.ownerId, owner.id),
+          eq(repositories.name, repoName)
+        )
+      )
+      .limit(1);
+    if (!repo) return c.notFound();
+
+    // Unchecked checkboxes are absent from the form payload, so coerce.
+    const next = body.auto_generate_tests === "1";
+
+    await db
+      .update(repositories)
+      .set({
+        autoGenerateTests: next,
+        updatedAt: new Date(),
+      })
+      .where(eq(repositories.id, repo.id));
+
+    if (next !== repo.autoGenerateTests) {
+      await audit({
+        userId: user.id,
+        repositoryId: repo.id,
+        action: "repo.auto_generate_tests.toggled",
+        targetType: "repository",
+        targetId: repo.id,
+        metadata: { from: repo.autoGenerateTests, to: next },
+      });
+    }
+
+    return c.redirect(
+      `/${ownerName}/${repoName}/settings?success=AI+test+settings+saved`
     );
   }
 );

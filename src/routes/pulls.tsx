@@ -42,6 +42,10 @@ import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
 import { requireRepoAccess } from "../middleware/repo-access";
 import { isAiReviewEnabled, triggerAiReview } from "../lib/ai-review";
+import {
+  generateTestsForPr,
+  AI_TESTS_MARKER,
+} from "../lib/ai-test-generator";
 import { triggerPrTriage } from "../lib/pr-triage";
 import { generatePrSummary } from "../lib/ai-generators";
 import { isAiAvailable } from "../lib/ai-client";
@@ -1727,6 +1731,26 @@ pulls.post(
       headBranch,
     }).catch((err) => console.error("[pr-triage] Failed:", err));
 
+    // Chat notifier — fan out to Slack/Discord/Teams.
+    import("../lib/chat-notifier")
+      .then((m) =>
+        m.notifyChatChannels({
+          ownerUserId: resolved.repo.ownerId,
+          repositoryId: resolved.repo.id,
+          event: {
+            event: "pr.opened",
+            repo: `${ownerName}/${repoName}`,
+            title: `#${pr.number} ${title}`,
+            url: `/${ownerName}/${repoName}/pulls/${pr.number}`,
+            body: prBody || undefined,
+            actor: user.username,
+          },
+        })
+      )
+      .catch((err) =>
+        console.warn(`[chat-notifier] PR opened notify failed:`, err)
+      );
+
     // R3 — fast-lane auto-merge evaluation. Fires after AI review lands.
     import("../lib/auto-merge")
       .then((m) => m.tryAutoMergeNow(pr.id))
@@ -1791,6 +1815,13 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
   const canManage =
     user &&
     (user.id === resolved.owner.id || user.id === pr.authorId);
+
+  // Has any previous AI-test-generator run already tagged this PR? Used
+  // both to hide the "Generate tests with AI" button and to short-circuit
+  // the explicit POST handler.
+  const hasAiTestsMarker = comments.some(({ comment }) =>
+    (comment.body || "").includes(AI_TESTS_MARKER)
+  );
 
   const error = c.req.query("error");
   const info = c.req.query("info");
@@ -2300,6 +2331,17 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
                           title="Re-run AI review (e.g. after a force-push). Posts a fresh summary + inline comments."
                         >
                           Re-run AI review
+                        </button>
+                      )}
+                      {isAiReviewEnabled() && !hasAiTestsMarker && (
+                        <button
+                          type="submit"
+                          formaction={`/${ownerName}/${repoName}/pulls/${pr.number}/generate-tests`}
+                          formnovalidate
+                          class="btn"
+                          title="Ask Claude to read this PR's diff and write tests for the new code. Tests land as a follow-up PR against this branch."
+                        >
+                          Generate tests with AI
                         </button>
                       )}
                       <Button
@@ -2843,6 +2885,65 @@ pulls.post(
     return c.redirect(
       `/${ownerName}/${repoName}/pulls/${prNum}?info=${encodeURIComponent(
         "AI re-review queued. The new comment will appear in 10-30s; reload to see it."
+      )}`
+    );
+  }
+);
+
+// Generate-tests-with-AI explicit trigger. Opens a follow-up PR against
+// the PR's head branch carrying just the new test files. Write-access only.
+// Idempotent — if `ai:added-tests` was previously applied we redirect with
+// an `info` banner instead of re-firing.
+pulls.post(
+  "/:owner/:repo/pulls/:number/generate-tests",
+  softAuth,
+  requireAuth,
+  requireRepoAccess("write"),
+  async (c) => {
+    const { owner: ownerName, repo: repoName } = c.req.param();
+    const prNum = parseInt(c.req.param("number"), 10);
+    const resolved = await resolveRepo(ownerName, repoName);
+    if (!resolved) return c.redirect(`/${ownerName}/${repoName}`);
+
+    const [pr] = await db
+      .select()
+      .from(pullRequests)
+      .where(
+        and(
+          eq(pullRequests.repositoryId, resolved.repo.id),
+          eq(pullRequests.number, prNum)
+        )
+      )
+      .limit(1);
+    if (!pr) return c.redirect(`/${ownerName}/${repoName}/pulls`);
+
+    if (!isAiReviewEnabled()) {
+      return c.redirect(
+        `/${ownerName}/${repoName}/pulls/${prNum}?error=${encodeURIComponent(
+          "AI test generation is not configured (ANTHROPIC_API_KEY)."
+        )}`
+      );
+    }
+
+    // Fire-and-forget. The lib never throws.
+    generateTestsForPr({ prId: pr.id, mode: "follow-up-pr" })
+      .then((res) => {
+        if (!res.ok) {
+          console.warn(
+            `[generate-tests] PR ${pr.id}: ${res.error || "no patches"}`
+          );
+        }
+      })
+      .catch((err) => {
+        console.warn(
+          `[generate-tests] generateTestsForPr threw for PR ${pr.id}:`,
+          err instanceof Error ? err.message : err
+        );
+      });
+
+    return c.redirect(
+      `/${ownerName}/${repoName}/pulls/${prNum}?info=${encodeURIComponent(
+        "Generating tests with AI. The follow-up PR will appear in 20-60s; reload to see it."
       )}`
     );
   }

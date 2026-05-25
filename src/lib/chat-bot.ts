@@ -263,7 +263,7 @@ export async function verifyDiscordSignature(opts: {
     const msg = new TextEncoder().encode(opts.timestamp + opts.body);
     const key = await crypto.subtle.importKey(
       "raw",
-      pubBytes,
+      pubBytes.buffer as ArrayBuffer,
       { name: "Ed25519" } as AlgorithmIdentifier,
       false,
       ["verify"]
@@ -271,8 +271,8 @@ export async function verifyDiscordSignature(opts: {
     return await crypto.subtle.verify(
       { name: "Ed25519" } as AlgorithmIdentifier,
       key,
-      sigBytes,
-      msg
+      sigBytes.buffer as ArrayBuffer,
+      msg.buffer as ArrayBuffer
     );
   } catch {
     return false;

@@ -385,6 +385,19 @@ async function askClaudeForPlan(
         },
       ],
     });
+    try {
+      const { recordAiCost, extractUsage } = await import("./ai-cost-tracker");
+      const usage = extractUsage(message);
+      await recordAiCost({
+        model: MODEL_SONNET,
+        inputTokens: usage.input,
+        outputTokens: usage.output,
+        category: "refactor",
+        sourceKind: "multi_repo_plan",
+      });
+    } catch {
+      /* swallow — best-effort */
+    }
     const text = extractText(message);
     return parseJsonResponse<ClaudePlanResponse>(text);
   } catch (err) {
@@ -420,6 +433,19 @@ async function askClaudeForEdit(
         },
       ],
     });
+    try {
+      const { recordAiCost, extractUsage } = await import("./ai-cost-tracker");
+      const usage = extractUsage(message);
+      await recordAiCost({
+        model: MODEL_SONNET,
+        inputTokens: usage.input,
+        outputTokens: usage.output,
+        category: "refactor",
+        sourceKind: "multi_repo_edit",
+      });
+    } catch {
+      /* swallow — best-effort */
+    }
     const text = extractText(message);
     return parseJsonResponse<ClaudeEditResponse>(text);
   } catch (err) {

@@ -64,6 +64,7 @@ import { runSpecToPrTaskOnce } from "./autopilot-spec-to-pr";
 import { runMigrationWatcherTaskOnce } from "./migration-assistant";
 import { sweepStale as sweepStalePrLive } from "./pr-live";
 import { runAutoReleaseNotesTaskOnce } from "./ai-release-notes";
+import { runPrTestGeneratorTaskOnce } from "./autopilot-pr-test-generator";
 
 export interface AutopilotTaskResult {
   name: string;
@@ -127,6 +128,14 @@ let _lastMigrationWatcherAt = 0;
  */
 const AUTO_RELEASE_NOTES_INTERVAL_MS = 10 * 60 * 1000;
 let _lastAutoReleaseNotesAt = 0;
+/**
+ * PR test generator cadence. Cheap when opted-in repos are quiet; the
+ * task itself short-circuits via the per-PR `ai:added-tests` marker so
+ * we never re-process the same PR. 5-minute cadence aligns with the
+ * "freshly opened PR" window the task uses for candidate selection.
+ */
+const PR_TEST_GENERATOR_INTERVAL_MS = 5 * 60 * 1000;
+let _lastPrTestGeneratorAt = 0;
 
 /**
  * Default task set. Each task is a thin wrapper around an existing locked
@@ -425,6 +434,33 @@ export function defaultTasks(): AutopilotTask[] {
           );
         } catch (err) {
           console.error("[autopilot] weekly-standup: threw:", err);
+        }
+      },
+    },
+    {
+      // PR test generator — when a fresh PR opens against a repo that's
+      // opted in (`autoGenerateTests=true`) and is not itself AI-generated,
+      // ask Claude to write tests for the new code and push a commit onto
+      // the same branch. Skips PRs without source-file changes; idempotent
+      // via the `ai:added-tests` marker comment. Skips entirely when
+      // ANTHROPIC_API_KEY is unset.
+      name: "pr-test-generator",
+      run: async () => {
+        if (!process.env.ANTHROPIC_API_KEY) return;
+        const now = Date.now();
+        if (now - _lastPrTestGeneratorAt < PR_TEST_GENERATOR_INTERVAL_MS) {
+          return;
+        }
+        _lastPrTestGeneratorAt = now;
+        try {
+          const summary = await runPrTestGeneratorTaskOnce();
+          if (summary.considered > 0) {
+            console.log(
+              `[autopilot] pr-test-generator: considered=${summary.considered} dispatched=${summary.dispatched} skipped=${summary.skipped} failed=${summary.failed}`
+            );
+          }
+        } catch (err) {
+          console.error("[autopilot] pr-test-generator: threw:", err);
         }
       },
     },

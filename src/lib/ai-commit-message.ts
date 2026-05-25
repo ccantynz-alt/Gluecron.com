@@ -282,6 +282,19 @@ export async function generateCommitMessage(
         },
       ],
     });
+    try {
+      const { recordAiCost, extractUsage } = await import("./ai-cost-tracker");
+      const usage = extractUsage(message);
+      await recordAiCost({
+        model: MODEL_HAIKU,
+        inputTokens: usage.input,
+        outputTokens: usage.output,
+        category: "other",
+        sourceKind: "commit_message",
+      });
+    } catch {
+      /* swallow — best-effort */
+    }
     const text = extractText(message);
     if (!text.trim()) {
       return heuristicMessage(trimmed, style);

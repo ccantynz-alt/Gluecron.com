@@ -319,6 +319,19 @@ ${summariseTelemetryForPrompt(telemetry)}`,
         },
       ],
     });
+    try {
+      const { recordAiCost, extractUsage } = await import("./ai-cost-tracker");
+      const usage = extractUsage(message);
+      await recordAiCost({
+        model: MODEL_SONNET,
+        inputTokens: usage.input,
+        outputTokens: usage.output,
+        category: "other",
+        sourceKind: "proactive_monitor",
+      });
+    } catch {
+      /* swallow — best-effort */
+    }
     const parsed = parseJsonResponse<{ findings: ProactiveFinding[] }>(
       extractText(message)
     );

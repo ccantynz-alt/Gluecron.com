@@ -497,6 +497,19 @@ async function askClaudeForMigration(
       max_tokens: 8192,
       messages: [{ role: "user", content: prompt }],
     });
+    try {
+      const { recordAiCost, extractUsage } = await import("./ai-cost-tracker");
+      const usage = extractUsage(message);
+      await recordAiCost({
+        model: MODEL_SONNET,
+        inputTokens: usage.input,
+        outputTokens: usage.output,
+        category: "refactor",
+        sourceKind: "migration_assistant",
+      });
+    } catch {
+      /* swallow — best-effort */
+    }
     const text = extractText(message);
     return parseJsonResponse<ClaudeMigrationResponse>(text);
   } catch (err) {

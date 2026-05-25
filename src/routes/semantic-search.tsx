@@ -37,6 +37,7 @@ import {
   searchRepository,
   isEmbeddingsProviderAvailable,
 } from "../lib/semantic-search";
+import { searchSemantic } from "../lib/semantic-index";
 
 const semanticSearch = new Hono<AuthEnv>();
 semanticSearch.use("*", softAuth);
@@ -427,15 +428,50 @@ semanticSearch.get("/:owner/:repo/search/semantic", async (c) => {
   }
 
   let hits: Awaited<ReturnType<typeof searchRepository>> = [];
-  if (q && indexedCount > 0) {
+  if (q) {
+    // Prefer the continuous per-push index (pgvector-backed). It's kept
+    // fresh by `src/hooks/post-receive.ts` → `indexChangedFiles`, so it
+    // typically beats the chunked full-repo index on staleness. Returns
+    // `[]` when pgvector isn't available; fall back to the chunked index
+    // in that case.
     try {
-      hits = await searchRepository({
+      const live = await searchSemantic({
         repositoryId: repo.id,
         query: q,
         limit: 20,
       });
+      if (live.length > 0) {
+        // Adapt to the chunked search-hit shape the UI expects. The
+        // continuous index stores whole-file snippets (no line ranges),
+        // so we surface line `1` and the snippet length as a best-effort
+        // line span.
+        hits = live.map((h) => {
+          const lineCount = h.snippet
+            ? Math.max(1, h.snippet.split("\n").length)
+            : 1;
+          return {
+            path: h.filePath,
+            startLine: 1,
+            endLine: lineCount,
+            content: h.snippet,
+            score: h.score,
+          };
+        });
+      }
     } catch {
       hits = [];
+    }
+    // Fall back to the chunked index if the continuous one had nothing.
+    if (hits.length === 0 && indexedCount > 0) {
+      try {
+        hits = await searchRepository({
+          repositoryId: repo.id,
+          query: q,
+          limit: 20,
+        });
+      } catch {
+        hits = [];
+      }
     }
   }
 

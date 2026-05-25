@@ -528,6 +528,78 @@ apiv2.get("/repos/:owner/:repo/contents/:path{.+$}", async (c) => {
   });
 });
 
+// ─── Semantic search ────────────────────────────────────────────────────────
+//
+// Continuous semantic index — see src/lib/semantic-index.ts. Every push
+// embeds the changed files into pgvector. This endpoint ranks them by
+// cosine similarity to the query.
+//
+// Public repos: anonymous read is allowed.
+// Private repos: requireApiAuth + requireScope("repo") (plus the same
+//                owner-only check the rest of /repos/:owner/:repo enforces).
+//
+// Returns `[]` (not 5xx) when pgvector is missing or the index is empty,
+// so callers can treat absence as "no hits" rather than a hard error.
+
+apiv2.get("/repos/:owner/:repo/semantic-search", async (c) => {
+  const { owner, repo } = c.req.param();
+  const q = (c.req.query("q") || "").trim();
+  const limit = Math.max(1, Math.min(parseInt(c.req.query("limit") || "20"), 100));
+
+  const resolved = await resolveRepo(owner, repo);
+  if (!resolved) return c.json({ error: "Not found" }, 404);
+
+  // Private-repo gate: requireApiAuth + requireScope("repo") + owner match.
+  // We can't compose Hono middleware conditionally per-request, so we
+  // inline the same checks the apiv2 middleware would have applied.
+  if ((resolved.repo as any).isPrivate) {
+    const user = c.get("user");
+    if (!user) {
+      return c.json(
+        { error: "Authentication required", hint: "Use Authorization: Bearer <token> header" },
+        401
+      );
+    }
+    const scopes = (c.get("tokenScopes") as string[] | undefined) || [];
+    // tokenScopes is [] for unauthenticated; ["repo","user","admin"] for
+    // session-cookie auth (web UI); whatever scopes the PAT carries
+    // otherwise. The "admin" wildcard skips the scope check.
+    if (
+      scopes.length > 0 &&
+      !scopes.includes("repo") &&
+      !scopes.includes("admin")
+    ) {
+      return c.json({ error: "Insufficient scope. Required: repo" }, 403);
+    }
+    if (user.id !== resolved.owner.id) {
+      return c.json({ error: "Not found" }, 404);
+    }
+  }
+
+  if (!q) return c.json([]);
+
+  const { searchSemantic, semanticIndexProvider } = await import(
+    "../lib/semantic-index"
+  );
+  const hits = await searchSemantic({
+    repositoryId: (resolved.repo as any).id,
+    query: q,
+    limit,
+  });
+
+  // Shape matches the task spec: { file_path, snippet, score, blob_sha }.
+  const payload = hits.map((h) => ({
+    file_path: h.filePath,
+    snippet: h.snippet,
+    score: h.score,
+    blob_sha: h.blobSha,
+  }));
+
+  // Surface the provider so clients can detect graceful-degrade mode.
+  c.header("X-Gluecron-Semantic-Provider", semanticIndexProvider());
+  return c.json(payload);
+});
+
 // ─── Issues ─────────────────────────────────────────────────────────────────
 
 apiv2.get("/repos/:owner/:repo/issues", async (c) => {

@@ -19,7 +19,12 @@ import { analyzePush, computeHealthScore } from "../lib/intelligence";
 import { db } from "../db";
 import { deployments, repositories, users } from "../db/schema";
 import { onDeployFailure } from "../lib/ai-incident";
-import { commitsBetween, getDefaultBranch } from "../git/repository";
+import {
+  commitsBetween,
+  getDefaultBranch,
+  getRepoPath,
+} from "../git/repository";
+import { indexChangedFiles } from "../lib/semantic-index";
 
 interface PushRef {
   oldSha: string;
@@ -86,6 +91,18 @@ export async function onPostReceive(
     if (ref.newSha.startsWith("0000")) continue;
     notifyGateTestOfPush(owner, repo, ref.refName, ref.newSha).catch((err) =>
       console.warn("[gatetest] notify error:", err)
+    );
+  }
+
+  // 4b. Continuous semantic index — embed changed files on every push so
+  //     /api/v2/.../semantic-search has fresh vectors. Fire-and-forget;
+  //     all failures are swallowed inside semantic-index.ts so a missing
+  //     pgvector extension or absent embeddings API key never breaks the
+  //     push path. Capped to MAX_FILES_PER_PUSH inside the lib.
+  for (const ref of refs) {
+    if (ref.newSha.startsWith("0000")) continue;
+    void fireSemanticIndex(owner, repo, ref.oldSha, ref.newSha).catch((err) =>
+      console.warn("[semantic-index] dispatch error:", err)
     );
   }
 
@@ -389,5 +406,100 @@ function cryptoRandomId(): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+/**
+ * Resolve `owner/repo` to its DB repository.id and dispatch the
+ * semantic-index update. Pulls the list of changed paths via
+ * `git diff --name-only`, dropping any deletions (handled implicitly
+ * because deleted blobs simply don't resolve in `indexChangedFiles`).
+ *
+ * Never throws — exhaust every external call inside a try/catch so the
+ * push completes even if Postgres or the embedding API is down.
+ */
+async function fireSemanticIndex(
+  owner: string,
+  repo: string,
+  oldSha: string,
+  newSha: string
+): Promise<void> {
+  let repositoryId = "";
+  try {
+    const [row] = await db
+      .select({ id: repositories.id })
+      .from(repositories)
+      .innerJoin(users, eq(repositories.ownerId, users.id))
+      .where(and(eq(users.username, owner), eq(repositories.name, repo)))
+      .limit(1);
+    repositoryId = row?.id || "";
+  } catch {
+    return;
+  }
+  if (!repositoryId) return;
+
+  let changedPaths: string[] = [];
+  try {
+    changedPaths = await listChangedPaths(owner, repo, oldSha, newSha);
+  } catch {
+    return;
+  }
+  if (!changedPaths.length) return;
+
+  try {
+    const out = await indexChangedFiles({
+      repositoryId,
+      ownerName: owner,
+      repoName: repo,
+      commitSha: newSha,
+      changedPaths,
+    });
+    if (out.indexed > 0) {
+      console.log(
+        `[semantic-index] ${owner}/${repo}@${newSha.slice(0, 7)}: indexed ${out.indexed} file(s) via ${out.model}`
+      );
+    }
+  } catch (err) {
+    console.warn("[semantic-index] indexChangedFiles error:", err);
+  }
+}
+
+/**
+ * Returns the list of files touched between `oldSha` and `newSha`. For
+ * the initial push on a branch (oldSha all-zero) we walk every file in
+ * the new tree via `git ls-tree -r`. Returns [] on any subprocess error.
+ */
+async function listChangedPaths(
+  owner: string,
+  repo: string,
+  oldSha: string,
+  newSha: string
+): Promise<string[]> {
+  const cwd = getRepoPath(owner, repo);
+  const allZero = /^0+$/.test(oldSha);
+  const cmd = allZero
+    ? ["git", "ls-tree", "-r", "--name-only", newSha]
+    : ["git", "diff", "--name-only", oldSha, newSha];
+  try {
+    const proc = Bun.spawn(cmd, {
+      cwd,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const text = await new Response(proc.stdout).text();
+    await proc.exited;
+    return text
+      .split("\n")
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+  } catch {
+    return [];
+  }
+}
+
 /** Test-only access to internal helpers. */
-export const __test = { triggerCrontechDeploy, signBody, buildPayload, RETRY_DELAYS_MS };
+export const __test = {
+  triggerCrontechDeploy,
+  signBody,
+  buildPayload,
+  RETRY_DELAYS_MS,
+  listChangedPaths,
+  fireSemanticIndex,
+};

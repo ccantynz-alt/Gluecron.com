@@ -56,6 +56,10 @@ import {
 } from "./synthetic-monitor";
 import { aiProactiveMonitorTick } from "./ai-proactive-monitor";
 import { runCiHealerTick } from "./ai-ci-healer";
+import {
+  runDailyStandupTaskOnce,
+  runWeeklyStandupTaskOnce,
+} from "./ai-standup";
 
 export interface AutopilotTaskResult {
   name: string;
@@ -301,6 +305,40 @@ export function defaultTasks(): AutopilotTask[] {
           );
         } catch (err) {
           console.error("[autopilot] synthetic-monitor: threw:", err);
+        }
+      },
+    },
+    {
+      // AI Standup — daily Claude-generated team brief.
+      // Fires at the user's configured UTC hour (default 09:00). Skips
+      // entirely when ANTHROPIC_API_KEY is unset (the lib still has a
+      // deterministic fallback, but we keep this task quiet unless the
+      // operator has wired AI). Per-user dedupe via `hasStandupForToday`.
+      name: "daily-standup",
+      run: async () => {
+        if (!process.env.ANTHROPIC_API_KEY) return;
+        try {
+          const summary = await runDailyStandupTaskOnce();
+          console.log(
+            `[autopilot] daily-standup: sent=${summary.sent} skipped=${summary.skipped} errors=${summary.errors}`
+          );
+        } catch (err) {
+          console.error("[autopilot] daily-standup: threw:", err);
+        }
+      },
+    },
+    {
+      // AI Standup — weekly Claude-generated team brief. Mondays only.
+      name: "weekly-standup",
+      run: async () => {
+        if (!process.env.ANTHROPIC_API_KEY) return;
+        try {
+          const summary = await runWeeklyStandupTaskOnce();
+          console.log(
+            `[autopilot] weekly-standup: sent=${summary.sent} skipped=${summary.skipped} errors=${summary.errors}`
+          );
+        } catch (err) {
+          console.error("[autopilot] weekly-standup: threw:", err);
         }
       },
     },

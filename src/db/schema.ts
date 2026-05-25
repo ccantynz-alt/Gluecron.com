@@ -23,6 +23,36 @@ const bytea = customType<{ data: Buffer; default: false }>({
   },
 });
 
+// pgvector `vector(N)` — drizzle-orm has no first-class pgvector column.
+// We map it to `number[]` and serialise/deserialise via Postgres's
+// canonical text format `[0.1,0.2,...]`. The `default: false` flag tells
+// drizzle this column has no default value.
+//
+// Migration 0057 creates the column with `vector(1024)`. If the migration
+// degraded (pgvector unavailable on the host), the column is missing and
+// every read/write throws; src/lib/semantic-index.ts catches at the
+// boundary and falls back to empty-result behaviour.
+const vector = customType<{ data: number[]; driverData: string; default: false }>({
+  dataType(config: unknown) {
+    const cfg = config as { dimensions?: number } | undefined;
+    return cfg?.dimensions ? `vector(${cfg.dimensions})` : "vector";
+  },
+  toDriver(value: number[]): string {
+    return "[" + value.join(",") + "]";
+  },
+  fromDriver(value: string | number[]): number[] {
+    if (Array.isArray(value)) return value as number[];
+    // Canonical format: "[0.1,0.2,0.3]"
+    const trimmed = String(value).trim();
+    if (!trimmed) return [];
+    const inner = trimmed.startsWith("[") && trimmed.endsWith("]")
+      ? trimmed.slice(1, -1)
+      : trimmed;
+    if (!inner) return [];
+    return inner.split(",").map((s) => parseFloat(s));
+  },
+});
+
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
   username: text("username").notNull().unique(),
@@ -2935,4 +2965,44 @@ export const syntheticChecks = pgTable(
 
 export type SyntheticCheckRow = typeof syntheticChecks.$inferSelect;
 export type NewSyntheticCheckRow = typeof syntheticChecks.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// 0057 — Continuous semantic index (per-push embeddings).
+//
+// One row per (repository_id, file_path) — the unique index in the
+// migration enforces this. `indexChangedFiles()` upserts on every push,
+// `searchSemantic()` ranks by cosine distance using pgvector's `<=>`.
+//
+// Distinct from `code_chunks` (which slices large files into chunks for
+// the full-repo reindex flow). This table favours fast incremental
+// updates over chunk granularity — one whole-file embedding per path.
+// ---------------------------------------------------------------------------
+export const codeEmbeddings = pgTable(
+  "code_embeddings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    filePath: text("file_path").notNull(),
+    blobSha: text("blob_sha").notNull(),
+    commitSha: text("commit_sha").notNull(),
+    contentSnippet: text("content_snippet").notNull().default(""),
+    embedding: vector("embedding", { dimensions: 1024 }),
+    embeddingModel: text("embedding_model"),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("code_embeddings_repo_path_uniq").on(
+      table.repositoryId,
+      table.filePath
+    ),
+    index("code_embeddings_repo_idx").on(table.repositoryId),
+  ]
+);
+
+export type CodeEmbedding = typeof codeEmbeddings.$inferSelect;
+export type NewCodeEmbedding = typeof codeEmbeddings.$inferInsert;
 

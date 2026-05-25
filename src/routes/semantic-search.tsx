@@ -7,6 +7,15 @@
  * Intentionally tolerates a missing DB / missing repo / missing index so the
  * page is always navigable. When there's no index yet, the page shows a
  * "Build index" CTA pointing at the reindex endpoint.
+ *
+ * 2026 polish:
+ *   - Scoped `.ss-*` CSS — sits below RepoHeader + IssueNav.
+ *   - Eyebrow + display headline + 1-line subtitle.
+ *   - Prominent search input w/ focus ring + gradient submit button.
+ *   - Result cards show file:line in mono, snippet, and match score chip.
+ *   - Dashed empty state w/ orb + Build/Reindex CTA when no index exists.
+ *
+ * All query strings + POST handlers preserved verbatim.
  */
 
 import { Hono } from "hono";
@@ -31,6 +40,315 @@ import {
 
 const semanticSearch = new Hono<AuthEnv>();
 semanticSearch.use("*", softAuth);
+
+// ─── Scoped CSS (.ss-*) ──────────────────────────────────────────────────
+const ssStyles = `
+  .ss-wrap { max-width: 1100px; margin: 0 auto; padding: var(--space-5) var(--space-4) var(--space-8); }
+
+  .ss-head {
+    margin-bottom: var(--space-5);
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: var(--space-4);
+    flex-wrap: wrap;
+  }
+  .ss-head-text { flex: 1; min-width: 280px; }
+  .ss-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    text-transform: uppercase;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    color: var(--text-muted);
+    font-weight: 600;
+    margin-bottom: 10px;
+  }
+  .ss-eyebrow-dot {
+    width: 8px; height: 8px;
+    border-radius: 9999px;
+    background: linear-gradient(135deg, #8c6dff, #36c5d6);
+    box-shadow: 0 0 0 3px rgba(140,109,255,0.18);
+  }
+  .ss-title {
+    font-family: var(--font-display);
+    font-size: clamp(24px, 3.4vw, 36px);
+    font-weight: 800;
+    letter-spacing: -0.028em;
+    line-height: 1.1;
+    margin: 0 0 6px;
+    color: var(--text-strong);
+  }
+  .ss-title-grad {
+    background-image: linear-gradient(135deg, #a48bff 0%, #8c6dff 50%, #36c5d6 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+  }
+  .ss-sub {
+    margin: 0;
+    font-size: 14px;
+    color: var(--text-muted);
+    line-height: 1.5;
+    max-width: 720px;
+  }
+
+  .ss-provider {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    border-radius: 9999px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-muted);
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border);
+  }
+  .ss-provider .dot {
+    width: 6px; height: 6px;
+    border-radius: 9999px;
+    background: linear-gradient(135deg, #8c6dff, #36c5d6);
+  }
+
+  .ss-banner {
+    margin-bottom: var(--space-4);
+    padding: 10px 14px;
+    border-radius: 10px;
+    font-size: 13.5px;
+    border: 1px solid var(--border);
+    background: rgba(255,255,255,0.025);
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .ss-banner.is-ok { border-color: rgba(52,211,153,0.40); background: rgba(52,211,153,0.08); color: #bbf7d0; }
+  .ss-banner-dot { width: 8px; height: 8px; border-radius: 9999px; background: currentColor; flex-shrink: 0; }
+
+  /* ─── Search bar ─── */
+  .ss-search {
+    display: flex;
+    gap: 10px;
+    align-items: stretch;
+    margin-bottom: var(--space-4);
+  }
+  .ss-search-input-wrap { position: relative; flex: 1; }
+  .ss-search-icon {
+    position: absolute;
+    top: 50%;
+    left: 14px;
+    transform: translateY(-50%);
+    color: var(--text-muted);
+    pointer-events: none;
+  }
+  .ss-search-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 12px 14px 12px 40px;
+    font: inherit;
+    font-size: 14.5px;
+    color: var(--text);
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border-strong);
+    border-radius: 12px;
+    outline: none;
+    transition: border-color 120ms ease, background 120ms ease, box-shadow 120ms ease;
+  }
+  .ss-search-input:focus {
+    border-color: rgba(140,109,255,0.55);
+    background: rgba(255,255,255,0.05);
+    box-shadow: 0 0 0 3px rgba(140,109,255,0.20);
+  }
+  .ss-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 0 18px;
+    border-radius: 12px;
+    font-size: 14px;
+    font-weight: 600;
+    text-decoration: none;
+    border: 1px solid transparent;
+    cursor: pointer;
+    font: inherit;
+    transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease, border-color 120ms ease;
+    line-height: 1;
+    white-space: nowrap;
+  }
+  .ss-btn-primary {
+    background: linear-gradient(135deg, #8c6dff 0%, #36c5d6 100%);
+    color: #ffffff;
+    box-shadow: 0 6px 18px -6px rgba(140,109,255,0.55), inset 0 1px 0 rgba(255,255,255,0.16);
+  }
+  .ss-btn-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 10px 24px -8px rgba(140,109,255,0.65), inset 0 1px 0 rgba(255,255,255,0.20);
+    text-decoration: none;
+    color: #ffffff;
+  }
+  .ss-btn-ghost {
+    background: transparent;
+    color: var(--text);
+    border-color: var(--border-strong);
+    padding: 7px 12px;
+    font-size: 12.5px;
+    border-radius: 9px;
+  }
+  .ss-btn-ghost:hover {
+    background: rgba(140,109,255,0.06);
+    border-color: rgba(140,109,255,0.45);
+    color: var(--text-strong);
+    text-decoration: none;
+  }
+
+  /* ─── Index status bar ─── */
+  .ss-status {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    margin-bottom: var(--space-3);
+    padding: 9px 14px;
+    border-radius: 10px;
+    background: rgba(255,255,255,0.025);
+    border: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .ss-status .num { color: var(--text-strong); font-weight: 600; }
+
+  /* ─── Result cards ─── */
+  .ss-results { display: flex; flex-direction: column; gap: 10px; }
+  .ss-result {
+    padding: 14px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    transition: border-color 120ms ease, background 120ms ease;
+  }
+  .ss-result:hover {
+    border-color: var(--border-strong);
+    background: rgba(255,255,255,0.025);
+  }
+  .ss-result-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+  }
+  .ss-result-path {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-strong);
+    text-decoration: none;
+    word-break: break-all;
+    letter-spacing: -0.005em;
+  }
+  .ss-result-path .lines { color: var(--text-muted); font-weight: 500; }
+  .ss-result-path:hover { color: #c4b5fd; text-decoration: none; }
+  .ss-score {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 9px;
+    border-radius: 9999px;
+    background: rgba(54,197,214,0.12);
+    color: #67e8f9;
+    box-shadow: inset 0 0 0 1px rgba(54,197,214,0.30);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .ss-snippet {
+    margin: 0;
+    padding: 10px 12px;
+    background: rgba(0,0,0,0.25);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.55;
+    color: var(--text);
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  /* ─── Empty state ─── */
+  .ss-empty {
+    position: relative;
+    overflow: hidden;
+    padding: clamp(28px, 5vw, 52px) clamp(20px, 4vw, 40px);
+    text-align: center;
+    background: var(--bg-elevated);
+    border: 1px dashed var(--border-strong);
+    border-radius: 16px;
+  }
+  .ss-empty-orb {
+    position: absolute;
+    inset: -40% 25% auto 25%;
+    height: 300px;
+    background: radial-gradient(circle, rgba(140,109,255,0.18), rgba(54,197,214,0.10) 45%, transparent 70%);
+    filter: blur(72px);
+    opacity: 0.7;
+    pointer-events: none;
+    z-index: 0;
+  }
+  .ss-empty-inner { position: relative; z-index: 1; }
+  .ss-empty-icon {
+    width: 56px; height: 56px;
+    margin: 0 auto 14px;
+    border-radius: 9999px;
+    background: linear-gradient(135deg, rgba(140,109,255,0.25), rgba(54,197,214,0.20));
+    box-shadow: inset 0 0 0 1px rgba(140,109,255,0.40);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #c4b5fd;
+  }
+  .ss-empty-title {
+    font-family: var(--font-display);
+    font-size: 18px;
+    font-weight: 700;
+    margin: 0 0 6px;
+    color: var(--text-strong);
+  }
+  .ss-empty-sub {
+    margin: 0 auto 16px;
+    font-size: 13.5px;
+    color: var(--text-muted);
+    max-width: 480px;
+    line-height: 1.5;
+  }
+`;
+
+function IconSearch() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <circle cx="11" cy="11" r="7" />
+      <line x1="21" y1="21" x2="16.65" y2="16.65" />
+    </svg>
+  );
+}
+function IconSparkles() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M12 3l1.7 4.6L18 9.3l-4.3 1.7L12 15l-1.7-4-4.3-1.7L10 7.6 12 3z" />
+      <path d="M19 13l.9 2.4L22 16l-2.1.6L19 19l-.9-2.4L16 16l2.1-.6L19 13z" />
+    </svg>
+  );
+}
 
 async function resolveRepo(ownerName: string, repoName: string) {
   try {
@@ -85,7 +403,6 @@ semanticSearch.get("/:owner/:repo/search/semantic", async (c) => {
   let lastIndexedAt: Date | null = null;
   let indexedCommitSha: string | null = null;
   try {
-    // Grab the newest chunk row for metadata (sha + createdAt).
     const [newest] = await db
       .select({
         createdAt: codeChunks.createdAt,
@@ -98,7 +415,6 @@ semanticSearch.get("/:owner/:repo/search/semantic", async (c) => {
     if (newest) {
       lastIndexedAt = newest.createdAt as unknown as Date;
       indexedCommitSha = newest.commitSha || null;
-      // Rough count for the UI blurb — order of magnitude is fine.
       const rows = await db
         .select({ id: codeChunks.id })
         .from(codeChunks)
@@ -107,7 +423,7 @@ semanticSearch.get("/:owner/:repo/search/semantic", async (c) => {
       indexedCount = rows.length;
     }
   } catch {
-    // DB unavailable — show the page anyway so the URL always resolves.
+    // DB unavailable — show the page anyway.
   }
 
   let hits: Awaited<ReturnType<typeof searchRepository>> = [];
@@ -136,127 +452,177 @@ semanticSearch.get("/:owner/:repo/search/semantic", async (c) => {
       <RepoHeader owner={ownerName} repo={repoName} />
       <IssueNav owner={ownerName} repo={repoName} active="code" />
 
-      <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px">
-        <h2 style="margin: 0">Semantic search</h2>
-        <div class="meta" style="font-size: 12px">
-          Provider: <strong>{providerLabel}</strong>
-        </div>
-      </div>
-
-      {flash && (
-        <div class="auth-success" style="margin-bottom: 16px">
-          {decodeURIComponent(flash)}
-        </div>
-      )}
-
-      <form
-        method="get"
-        action={`/${ownerName}/${repoName}/search/semantic`}
-        style="margin-bottom: 16px"
-      >
-        <input
-          type="search"
-          name="q"
-          value={q}
-          placeholder="Ask a question or describe what you're looking for…"
-          aria-label="Search"
-          style="width: 100%; padding: 10px 14px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); font-size: 14px"
-          autofocus
-        />
-      </form>
-
-      {indexedCount === 0 ? (
-        <div class="empty-state">
-          <h3>No index yet</h3>
-          <p>
-            This repository hasn't been indexed for semantic search. Build the
-            index to enable AI-powered code lookup.
-          </p>
-          {isOwner ? (
-            <form
-              method="post"
-              action={`/${ownerName}/${repoName}/search/semantic/reindex`}
-              style="margin-top: 12px"
-            >
-              <button type="submit" class="btn btn-primary">
-                Build index
-              </button>
-            </form>
-          ) : (
-            <p class="meta" style="margin-top: 8px">
-              Only the repository owner can trigger indexing.
+      <div class="ss-wrap">
+        <header class="ss-head">
+          <div class="ss-head-text">
+            <div class="ss-eyebrow">
+              <span class="ss-eyebrow-dot" aria-hidden="true" />
+              Repository · Semantic search
+            </div>
+            <h1 class="ss-title">
+              <span class="ss-title-grad">Ask the codebase anything.</span>
+            </h1>
+            <p class="ss-sub">
+              Embeddings-powered code search across every indexed chunk —
+              describe what you're looking for in natural language.
             </p>
-          )}
-        </div>
-      ) : (
-        <>
-          <div
-            class="meta"
-            style="font-size: 12px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center"
-          >
-            <span>
-              {indexedCount} chunk{indexedCount === 1 ? "" : "s"} indexed
-              {lastIndexedAt && (
-                <>
-                  {" · last indexed "}
-                  {new Date(lastIndexedAt).toLocaleString()}
-                </>
-              )}
-            </span>
-            {isOwner && (
-              <form
-                method="post"
-                action={`/${ownerName}/${repoName}/search/semantic/reindex`}
-                style="display: inline"
-              >
-                <button type="submit" class="btn btn-sm">
-                  Reindex
-                </button>
-              </form>
-            )}
           </div>
+          <div class="ss-provider" title="Active embeddings provider">
+            <span class="dot" aria-hidden="true" />
+            {providerLabel}
+          </div>
+        </header>
 
-          {!q ? (
-            <div class="empty-state">
-              <p>Type a query to search across this repo's code.</p>
+        {flash && (
+          <div class="ss-banner is-ok" role="status">
+            <span class="ss-banner-dot" aria-hidden="true" />
+            {decodeURIComponent(flash)}
+          </div>
+        )}
+
+        <form
+          method="get"
+          action={`/${ownerName}/${repoName}/search/semantic`}
+          class="ss-search"
+        >
+          <div class="ss-search-input-wrap">
+            <span class="ss-search-icon" aria-hidden="true">
+              <IconSearch />
+            </span>
+            <input
+              type="search"
+              name="q"
+              value={q}
+              placeholder="Ask a question or describe what you're looking for…"
+              aria-label="Search"
+              class="ss-search-input"
+              autofocus
+            />
+          </div>
+          <button type="submit" class="ss-btn ss-btn-primary">
+            <IconSparkles />
+            Search
+          </button>
+        </form>
+
+        {indexedCount === 0 ? (
+          <div class="ss-empty">
+            <div class="ss-empty-orb" aria-hidden="true" />
+            <div class="ss-empty-inner">
+              <div class="ss-empty-icon" aria-hidden="true">
+                <IconSparkles />
+              </div>
+              <h3 class="ss-empty-title">No index yet</h3>
+              <p class="ss-empty-sub">
+                This repository hasn't been indexed for semantic search. Build
+                the index to enable AI-powered code lookup.
+              </p>
+              {isOwner ? (
+                <form
+                  method="post"
+                  action={`/${ownerName}/${repoName}/search/semantic/reindex`}
+                >
+                  <button type="submit" class="ss-btn ss-btn-primary">
+                    <IconSparkles />
+                    Build index
+                  </button>
+                </form>
+              ) : (
+                <p
+                  style="margin:0;color:var(--text-muted);font-size:13px"
+                >
+                  Only the repository owner can trigger indexing.
+                </p>
+              )}
             </div>
-          ) : hits.length === 0 ? (
-            <div class="empty-state">
-              <p>No results for "{q}"</p>
+          </div>
+        ) : (
+          <>
+            <div class="ss-status">
+              <span>
+                <span class="num">{indexedCount}</span> chunk
+                {indexedCount === 1 ? "" : "s"} indexed
+                {lastIndexedAt && (
+                  <>
+                    {" · last indexed "}
+                    <span class="num">
+                      {new Date(lastIndexedAt).toLocaleString()}
+                    </span>
+                  </>
+                )}
+              </span>
+              {isOwner && (
+                <form
+                  method="post"
+                  action={`/${ownerName}/${repoName}/search/semantic/reindex`}
+                  style="display:inline"
+                >
+                  <button type="submit" class="ss-btn ss-btn-ghost">
+                    Reindex
+                  </button>
+                </form>
+              )}
             </div>
-          ) : (
-            <div class="panel">
-              {hits.map((h) => {
-                const href = `/${ownerName}/${repoName}/blob/${refForLinks}/${h.path}#L${h.startLine}`;
-                const preview =
-                  h.content.length > 600
-                    ? h.content.slice(0, 600) + "\n…"
-                    : h.content;
-                return (
-                  <div class="panel-item" style="flex-direction: column; align-items: stretch">
-                    <div
-                      style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px"
-                    >
-                      <a href={href} style="font-weight: 600">
-                        {h.path}
-                      </a>
-                      <span class="meta" style="font-size: 11px">
-                        lines {h.startLine}–{h.endLine} · score{" "}
-                        {h.score.toFixed(3)}
-                      </span>
-                    </div>
-                    <pre
-                      style="margin: 0; padding: 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; font-size: 12px; overflow-x: auto; white-space: pre-wrap"
-                    >
-                      {preview}
-                    </pre>
+
+            {!q ? (
+              <div class="ss-empty">
+                <div class="ss-empty-orb" aria-hidden="true" />
+                <div class="ss-empty-inner">
+                  <div class="ss-empty-icon" aria-hidden="true">
+                    <IconSearch />
                   </div>
-                );
-              })}
-            </div>
-          )}
-        </>
-      )}
+                  <h3 class="ss-empty-title">Type a query to begin</h3>
+                  <p class="ss-empty-sub">
+                    Search across this repo's code — try a function name, a
+                    file path, or a plain-English description of what you're
+                    looking for.
+                  </p>
+                </div>
+              </div>
+            ) : hits.length === 0 ? (
+              <div class="ss-empty">
+                <div class="ss-empty-orb" aria-hidden="true" />
+                <div class="ss-empty-inner">
+                  <div class="ss-empty-icon" aria-hidden="true">
+                    <IconSearch />
+                  </div>
+                  <h3 class="ss-empty-title">No results for "{q}"</h3>
+                  <p class="ss-empty-sub">
+                    Try a different phrasing or a related symbol name.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div class="ss-results">
+                {hits.map((h) => {
+                  const href = `/${ownerName}/${repoName}/blob/${refForLinks}/${h.path}#L${h.startLine}`;
+                  const preview =
+                    h.content.length > 600
+                      ? h.content.slice(0, 600) + "\n…"
+                      : h.content;
+                  return (
+                    <div class="ss-result">
+                      <div class="ss-result-head">
+                        <a href={href} class="ss-result-path">
+                          {h.path}
+                          <span class="lines">
+                            :{h.startLine}–{h.endLine}
+                          </span>
+                        </a>
+                        <span class="ss-score" title="Cosine similarity score">
+                          score {h.score.toFixed(3)}
+                        </span>
+                      </div>
+                      <pre class="ss-snippet">{preview}</pre>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+      <style dangerouslySetInnerHTML={{ __html: ssStyles }} />
     </Layout>
   );
 });

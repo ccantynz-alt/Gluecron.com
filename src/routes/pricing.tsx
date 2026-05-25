@@ -83,6 +83,8 @@ const PricingPage: FC<{ plans: Plan[]; loggedIn: boolean }> = ({
     <div class="pl-root">
       {/* ------------------- Hero ------------------- */}
       <header class="pl-hero">
+        <div class="pl-hero-hairline" aria-hidden="true" />
+        <div class="pl-hero-orb" aria-hidden="true" />
         <div class="eyebrow">Pricing</div>
         <h1 class="display pl-hero-title">
           One subscription.{" "}
@@ -376,6 +378,38 @@ const pricingCss = `
     background: radial-gradient(ellipse at center, rgba(140,109,255,0.14), transparent 65%);
     z-index: -1;
     pointer-events: none;
+  }
+  /* 2026 polish — gradient hairline accent across the top of the hero
+     (matches /admin, /admin/ops, error pages). */
+  .pl-hero-hairline {
+    position: absolute;
+    top: 0; left: 8%; right: 8%;
+    height: 2px;
+    background: linear-gradient(90deg, transparent 0%, #8c6dff 30%, #36c5d6 70%, transparent 100%);
+    opacity: 0.65;
+    pointer-events: none;
+    z-index: 0;
+    border-radius: 2px;
+  }
+  /* 2026 polish — soft animated radial orb behind the headline. */
+  .pl-hero-orb {
+    position: absolute;
+    top: 8%; left: 50%;
+    transform: translateX(-50%);
+    width: 420px; height: 420px;
+    background: radial-gradient(circle, rgba(140,109,255,0.20), rgba(54,197,214,0.10) 45%, transparent 70%);
+    filter: blur(80px);
+    opacity: 0.7;
+    pointer-events: none;
+    z-index: -1;
+    animation: plHeroOrb 16s ease-in-out infinite;
+  }
+  @keyframes plHeroOrb {
+    0%, 100% { transform: translateX(-50%) scale(1); opacity: 0.55; }
+    50%      { transform: translateX(-50%) scale(1.12); opacity: 0.85; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .pl-hero-orb { animation: none; }
   }
   .pl-hero .eyebrow { justify-content: center; margin: 0 auto var(--s-4); }
   .pl-hero-title {

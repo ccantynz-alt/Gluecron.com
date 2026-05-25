@@ -670,6 +670,1717 @@ const adminStyles = `
   .admin-403 p { color: var(--text-muted); margin: 0; font-size: 14px; }
 `;
 
+/* ─────────────────────────────────────────────────────────────────────────
+ * Per-sub-page scoped CSS — each handler gets its own namespace so they
+ * cannot bleed into each other or back into the shared `.admin-*` panel.
+ *
+ *   .adm-users-*      /admin/users
+ *   .adm-repos-*      /admin/repos
+ *   .adm-flags-*      /admin/flags
+ *   .adm-digests-*    /admin/digests
+ *   .adm-autopilot-*  /admin/autopilot
+ *
+ * All five mirror the 2026 design language from /admin and /admin/ops:
+ *   - gradient hairline (::before)
+ *   - animated radial-gradient orb
+ *   - clamp() display headline + gradient-text span
+ *   - eyebrow + subtitle
+ *   - cards with avatar/icon + mono IDs + action buttons
+ *   - filter pills / search bar
+ *   - empty state with orb
+ * ───────────────────────────────────────────────────────────────────── */
+const admUsersStyles = `
+  .adm-users-wrap { max-width: 1080px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
+
+  /* Hero */
+  .adm-users-hero {
+    position: relative;
+    margin-bottom: var(--space-5);
+    padding: var(--space-5) var(--space-6);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+  .adm-users-hero::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent 0%, #8c6dff 30%, #36c5d6 70%, transparent 100%);
+    opacity: 0.7;
+    pointer-events: none;
+  }
+  .adm-users-hero-orb {
+    position: absolute;
+    inset: -20% -10% auto auto;
+    width: 380px; height: 380px;
+    background: radial-gradient(circle, rgba(140,109,255,0.20), rgba(54,197,214,0.10) 45%, transparent 70%);
+    filter: blur(80px);
+    opacity: 0.7;
+    pointer-events: none;
+    z-index: 0;
+    animation: admUsersOrb 14s ease-in-out infinite;
+  }
+  @keyframes admUsersOrb {
+    0%, 100% { transform: scale(1) translate(0, 0); opacity: 0.6; }
+    50%      { transform: scale(1.1) translate(-10px, 8px); opacity: 0.85; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .adm-users-hero-orb { animation: none; }
+  }
+  .adm-users-hero-inner {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: var(--space-4);
+    flex-wrap: wrap;
+  }
+  .adm-users-hero-text { max-width: 720px; flex: 1; min-width: 240px; }
+  .adm-users-eyebrow {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: var(--space-2);
+    letter-spacing: 0.02em;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .adm-users-eyebrow-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px; height: 22px;
+    border-radius: 6px;
+    background: rgba(140,109,255,0.14);
+    color: #b69dff;
+    box-shadow: inset 0 0 0 1px rgba(140,109,255,0.35);
+  }
+  .adm-users-title {
+    font-size: clamp(28px, 4vw, 40px);
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: -0.028em;
+    line-height: 1.05;
+    margin: 0 0 var(--space-2);
+    color: var(--text-strong);
+  }
+  .adm-users-title-grad {
+    background-image: linear-gradient(135deg, #a48bff 0%, #8c6dff 50%, #36c5d6 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+  }
+  .adm-users-sub {
+    font-size: 15px;
+    color: var(--text-muted);
+    margin: 0;
+    line-height: 1.5;
+    max-width: 620px;
+  }
+  .adm-users-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 12px;
+    font-size: 12.5px;
+    color: var(--text-muted);
+    background: rgba(255,255,255,0.02);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    text-decoration: none;
+    font-weight: 500;
+    transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+  }
+  .adm-users-back:hover {
+    border-color: var(--border-strong);
+    color: var(--text-strong);
+    background: rgba(255,255,255,0.04);
+  }
+
+  /* Filter bar */
+  .adm-users-filterbar {
+    display: flex;
+    gap: var(--space-3);
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: var(--space-4);
+    flex-wrap: wrap;
+  }
+  .adm-users-search {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    min-width: 280px;
+  }
+  .adm-users-search-ico {
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-muted);
+    pointer-events: none;
+    display: inline-flex;
+  }
+  .adm-users-input {
+    flex: 1;
+    width: 100%;
+    padding: 10px 12px 10px 36px;
+    font-size: 14px;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--border-strong);
+    border-radius: 10px;
+    outline: none;
+    font-family: var(--font-sans);
+    transition: border-color 120ms ease, box-shadow 120ms ease;
+  }
+  .adm-users-input:focus {
+    border-color: var(--border-focus);
+    box-shadow: 0 0 0 3px rgba(140,109,255,0.18);
+  }
+  .adm-users-pills {
+    display: inline-flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .adm-users-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 9999px;
+    font-size: 11.5px;
+    font-weight: 600;
+    background: rgba(255,255,255,0.04);
+    color: var(--text-muted);
+    box-shadow: inset 0 0 0 1px var(--border);
+  }
+  .adm-users-pill .dot {
+    width: 6px; height: 6px;
+    border-radius: 9999px;
+    background: currentColor;
+  }
+  .adm-users-pill.is-admin {
+    background: rgba(140,109,255,0.16);
+    color: #c5b3ff;
+    box-shadow: inset 0 0 0 1px rgba(140,109,255,0.35);
+  }
+
+  /* Buttons */
+  .adm-users-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    text-decoration: none;
+    border: 1px solid var(--border-strong);
+    background: rgba(255,255,255,0.02);
+    color: var(--text);
+    cursor: pointer;
+    font: inherit;
+    font-weight: 600;
+    line-height: 1;
+    transition: border-color 120ms ease, background 120ms ease, color 120ms ease;
+  }
+  .adm-users-btn:hover { border-color: rgba(140,109,255,0.45); background: rgba(140,109,255,0.06); color: var(--text-strong); }
+  .adm-users-btn-ghost { background: transparent; color: var(--text-muted); border-color: var(--border); }
+  .adm-users-btn-ghost:hover { color: var(--text); background: rgba(255,255,255,0.03); border-color: var(--border-strong); }
+  .adm-users-btn-primary {
+    background: linear-gradient(135deg, #8c6dff 0%, #36c5d6 100%);
+    color: #fff;
+    border-color: transparent;
+    box-shadow: 0 6px 18px -6px rgba(140,109,255,0.45), inset 0 1px 0 rgba(255,255,255,0.16);
+  }
+  .adm-users-btn-primary:hover { color: #fff; transform: translateY(-1px); box-shadow: 0 10px 24px -8px rgba(140,109,255,0.55); }
+  .adm-users-btn-danger {
+    background: transparent;
+    color: #fca5a5;
+    border-color: rgba(248,113,113,0.40);
+  }
+  .adm-users-btn-danger:hover {
+    background: rgba(248,113,113,0.08);
+    border-color: rgba(248,113,113,0.70);
+    color: #fecaca;
+  }
+
+  /* Card grid */
+  .adm-users-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: var(--space-3);
+  }
+  .adm-users-card {
+    position: relative;
+    padding: var(--space-4);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+  }
+  .adm-users-card:hover {
+    transform: translateY(-2px);
+    border-color: var(--border-strong);
+    box-shadow: 0 10px 28px -16px rgba(0,0,0,0.55);
+  }
+  .adm-users-card.is-admin {
+    border-color: rgba(140,109,255,0.35);
+    background:
+      linear-gradient(180deg, rgba(140,109,255,0.04), transparent 60%),
+      var(--bg-elevated);
+  }
+  .adm-users-card-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .adm-users-avatar {
+    width: 38px; height: 38px;
+    border-radius: 9999px;
+    background: linear-gradient(135deg, rgba(140,109,255,0.30), rgba(54,197,214,0.22));
+    color: var(--text-strong);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 700;
+    box-shadow: inset 0 0 0 1px rgba(140,109,255,0.30);
+    flex-shrink: 0;
+    text-transform: uppercase;
+  }
+  .adm-users-avatar.is-admin {
+    background: linear-gradient(135deg, rgba(140,109,255,0.50), rgba(54,197,214,0.35));
+    color: #fff;
+    box-shadow: inset 0 0 0 1px rgba(140,109,255,0.55), 0 0 12px rgba(140,109,255,0.25);
+  }
+  .adm-users-card-id { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .adm-users-card-name {
+    font-size: 14.5px;
+    font-weight: 700;
+    color: var(--text-strong);
+    text-decoration: none;
+    letter-spacing: -0.005em;
+  }
+  .adm-users-card-name:hover { color: var(--accent-hover, var(--accent)); }
+  .adm-users-card-mono {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-muted);
+    background: rgba(255,255,255,0.03);
+    padding: 1px 6px;
+    border-radius: 4px;
+    border: 1px solid var(--border-subtle);
+    width: fit-content;
+  }
+  .adm-users-card-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 12.5px;
+  }
+  .adm-users-meta-item { display: flex; gap: 8px; align-items: baseline; min-width: 0; }
+  .adm-users-meta-key {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    flex-shrink: 0;
+    width: 50px;
+  }
+  .adm-users-meta-val { color: var(--text); word-break: break-all; min-width: 0; }
+  .adm-users-card-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: auto;
+  }
+  .adm-users-card-actions form { margin: 0; }
+
+  /* Empty state */
+  .adm-users-empty {
+    position: relative;
+    padding: var(--space-12) var(--space-6);
+    border: 1px dashed var(--border);
+    border-radius: 16px;
+    background: var(--bg-elevated);
+    text-align: center;
+    overflow: hidden;
+  }
+  .adm-users-empty-orb {
+    position: absolute;
+    inset: 50% auto auto 50%;
+    transform: translate(-50%, -50%);
+    width: 320px; height: 320px;
+    background: radial-gradient(circle, rgba(140,109,255,0.16), rgba(54,197,214,0.08) 45%, transparent 70%);
+    filter: blur(60px);
+    pointer-events: none;
+    z-index: 0;
+  }
+  .adm-users-empty-inner { position: relative; z-index: 1; }
+  .adm-users-empty-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 56px; height: 56px;
+    border-radius: 16px;
+    background: rgba(140,109,255,0.10);
+    color: #b69dff;
+    box-shadow: inset 0 0 0 1px rgba(140,109,255,0.28);
+    margin-bottom: var(--space-3);
+  }
+  .adm-users-empty-icon svg { width: 24px; height: 24px; }
+  .adm-users-empty-title {
+    font-family: var(--font-display);
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: -0.015em;
+    color: var(--text-strong);
+    margin-bottom: 6px;
+  }
+  .adm-users-empty-sub {
+    color: var(--text-muted);
+    font-size: 13.5px;
+    line-height: 1.5;
+  }
+  .adm-users-empty-sub code {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    background: var(--bg-tertiary);
+    padding: 1px 6px;
+    border-radius: 4px;
+    color: var(--text);
+  }
+`;
+
+const admReposStyles = `
+  .adm-repos-wrap { max-width: 1080px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
+
+  .adm-repos-hero {
+    position: relative;
+    margin-bottom: var(--space-5);
+    padding: var(--space-5) var(--space-6);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+  .adm-repos-hero::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent 0%, #8c6dff 30%, #36c5d6 70%, transparent 100%);
+    opacity: 0.7;
+    pointer-events: none;
+  }
+  .adm-repos-hero-orb {
+    position: absolute;
+    inset: -20% -10% auto auto;
+    width: 380px; height: 380px;
+    background: radial-gradient(circle, rgba(140,109,255,0.20), rgba(54,197,214,0.10) 45%, transparent 70%);
+    filter: blur(80px);
+    opacity: 0.7;
+    pointer-events: none;
+    z-index: 0;
+    animation: admReposOrb 14s ease-in-out infinite;
+  }
+  @keyframes admReposOrb {
+    0%, 100% { transform: scale(1) translate(0, 0); opacity: 0.6; }
+    50%      { transform: scale(1.1) translate(-10px, 8px); opacity: 0.85; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .adm-repos-hero-orb { animation: none; }
+  }
+  .adm-repos-hero-inner {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: var(--space-4);
+    flex-wrap: wrap;
+  }
+  .adm-repos-hero-text { max-width: 720px; flex: 1; min-width: 240px; }
+  .adm-repos-eyebrow {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: var(--space-2);
+    letter-spacing: 0.02em;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .adm-repos-eyebrow-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px; height: 22px;
+    border-radius: 6px;
+    background: rgba(140,109,255,0.14);
+    color: #b69dff;
+    box-shadow: inset 0 0 0 1px rgba(140,109,255,0.35);
+  }
+  .adm-repos-title {
+    font-size: clamp(28px, 4vw, 40px);
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: -0.028em;
+    line-height: 1.05;
+    margin: 0 0 var(--space-2);
+    color: var(--text-strong);
+  }
+  .adm-repos-title-grad {
+    background-image: linear-gradient(135deg, #a48bff 0%, #8c6dff 50%, #36c5d6 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+  }
+  .adm-repos-sub {
+    font-size: 15px;
+    color: var(--text-muted);
+    margin: 0;
+    line-height: 1.5;
+    max-width: 620px;
+  }
+  .adm-repos-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 12px;
+    font-size: 12.5px;
+    color: var(--text-muted);
+    background: rgba(255,255,255,0.02);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    text-decoration: none;
+    font-weight: 500;
+    transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+  }
+  .adm-repos-back:hover {
+    border-color: var(--border-strong);
+    color: var(--text-strong);
+    background: rgba(255,255,255,0.04);
+  }
+
+  .adm-repos-pills {
+    display: inline-flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: var(--space-4);
+  }
+  .adm-repos-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 9999px;
+    font-size: 11.5px;
+    font-weight: 600;
+    background: rgba(255,255,255,0.04);
+    color: var(--text-muted);
+    box-shadow: inset 0 0 0 1px var(--border);
+  }
+  .adm-repos-pill .dot { width: 6px; height: 6px; border-radius: 9999px; background: currentColor; }
+  .adm-repos-pill.is-private {
+    background: rgba(251,191,36,0.10);
+    color: #fde68a;
+    box-shadow: inset 0 0 0 1px rgba(251,191,36,0.30);
+  }
+  .adm-repos-pill.is-public {
+    background: rgba(52,211,153,0.10);
+    color: #86efac;
+    box-shadow: inset 0 0 0 1px rgba(52,211,153,0.28);
+  }
+
+  .adm-repos-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    text-decoration: none;
+    border: 1px solid var(--border-strong);
+    background: rgba(255,255,255,0.02);
+    color: var(--text);
+    cursor: pointer;
+    font: inherit;
+    line-height: 1;
+    transition: border-color 120ms ease, background 120ms ease, color 120ms ease;
+  }
+  .adm-repos-btn:hover { border-color: rgba(140,109,255,0.45); background: rgba(140,109,255,0.06); color: var(--text-strong); }
+  .adm-repos-btn-ghost { background: transparent; color: var(--text-muted); border-color: var(--border); }
+  .adm-repos-btn-ghost:hover { color: var(--text); background: rgba(255,255,255,0.03); border-color: var(--border-strong); }
+  .adm-repos-btn-danger {
+    background: transparent;
+    color: #fca5a5;
+    border-color: rgba(248,113,113,0.40);
+  }
+  .adm-repos-btn-danger:hover {
+    background: rgba(248,113,113,0.08);
+    border-color: rgba(248,113,113,0.70);
+    color: #fecaca;
+  }
+
+  .adm-repos-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: var(--space-3);
+  }
+  .adm-repos-card {
+    position: relative;
+    padding: var(--space-4);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+  }
+  .adm-repos-card:hover {
+    transform: translateY(-2px);
+    border-color: var(--border-strong);
+    box-shadow: 0 10px 28px -16px rgba(0,0,0,0.55);
+  }
+  .adm-repos-card-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .adm-repos-icon {
+    width: 38px; height: 38px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, rgba(140,109,255,0.18), rgba(54,197,214,0.12));
+    color: #b69dff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: inset 0 0 0 1px rgba(140,109,255,0.28);
+    flex-shrink: 0;
+  }
+  .adm-repos-icon svg { width: 18px; height: 18px; }
+  .adm-repos-card-title { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+  .adm-repos-card-name {
+    font-size: 14.5px;
+    font-weight: 700;
+    color: var(--text-strong);
+    text-decoration: none;
+    letter-spacing: -0.005em;
+    word-break: break-all;
+  }
+  .adm-repos-card-name:hover { color: var(--accent-hover, var(--accent)); }
+  .adm-repos-card-mono {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-muted);
+    background: rgba(255,255,255,0.03);
+    padding: 1px 6px;
+    border-radius: 4px;
+    border: 1px solid var(--border-subtle);
+    width: fit-content;
+  }
+  .adm-repos-card-meta {
+    display: flex;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    font-size: 12.5px;
+    color: var(--text-muted);
+  }
+  .adm-repos-meta-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .adm-repos-meta-item svg { width: 13px; height: 13px; color: var(--text-muted); }
+  .adm-repos-card-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: auto;
+  }
+  .adm-repos-card-actions form { margin: 0; }
+
+  .adm-repos-empty {
+    position: relative;
+    padding: var(--space-12) var(--space-6);
+    border: 1px dashed var(--border);
+    border-radius: 16px;
+    background: var(--bg-elevated);
+    text-align: center;
+    overflow: hidden;
+  }
+  .adm-repos-empty-orb {
+    position: absolute;
+    inset: 50% auto auto 50%;
+    transform: translate(-50%, -50%);
+    width: 320px; height: 320px;
+    background: radial-gradient(circle, rgba(140,109,255,0.16), rgba(54,197,214,0.08) 45%, transparent 70%);
+    filter: blur(60px);
+    pointer-events: none;
+    z-index: 0;
+  }
+  .adm-repos-empty-inner { position: relative; z-index: 1; }
+  .adm-repos-empty-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 56px; height: 56px;
+    border-radius: 16px;
+    background: rgba(140,109,255,0.10);
+    color: #b69dff;
+    box-shadow: inset 0 0 0 1px rgba(140,109,255,0.28);
+    margin-bottom: var(--space-3);
+  }
+  .adm-repos-empty-icon svg { width: 24px; height: 24px; }
+  .adm-repos-empty-title {
+    font-family: var(--font-display);
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: -0.015em;
+    color: var(--text-strong);
+    margin-bottom: 6px;
+  }
+  .adm-repos-empty-sub {
+    color: var(--text-muted);
+    font-size: 13.5px;
+    line-height: 1.5;
+  }
+`;
+
+const admFlagsStyles = `
+  .adm-flags-wrap { max-width: 880px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
+
+  .adm-flags-hero {
+    position: relative;
+    margin-bottom: var(--space-5);
+    padding: var(--space-5) var(--space-6);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+  .adm-flags-hero::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent 0%, #8c6dff 30%, #36c5d6 70%, transparent 100%);
+    opacity: 0.7;
+    pointer-events: none;
+  }
+  .adm-flags-hero-orb {
+    position: absolute;
+    inset: -20% -10% auto auto;
+    width: 380px; height: 380px;
+    background: radial-gradient(circle, rgba(140,109,255,0.20), rgba(54,197,214,0.10) 45%, transparent 70%);
+    filter: blur(80px);
+    opacity: 0.7;
+    pointer-events: none;
+    z-index: 0;
+    animation: admFlagsOrb 14s ease-in-out infinite;
+  }
+  @keyframes admFlagsOrb {
+    0%, 100% { transform: scale(1) translate(0, 0); opacity: 0.6; }
+    50%      { transform: scale(1.1) translate(-10px, 8px); opacity: 0.85; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .adm-flags-hero-orb { animation: none; }
+  }
+  .adm-flags-hero-inner {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: var(--space-4);
+    flex-wrap: wrap;
+  }
+  .adm-flags-hero-text { max-width: 720px; flex: 1; min-width: 240px; }
+  .adm-flags-eyebrow {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: var(--space-2);
+    letter-spacing: 0.02em;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .adm-flags-eyebrow-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px; height: 22px;
+    border-radius: 6px;
+    background: rgba(140,109,255,0.14);
+    color: #b69dff;
+    box-shadow: inset 0 0 0 1px rgba(140,109,255,0.35);
+  }
+  .adm-flags-title {
+    font-size: clamp(28px, 4vw, 40px);
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: -0.028em;
+    line-height: 1.05;
+    margin: 0 0 var(--space-2);
+    color: var(--text-strong);
+  }
+  .adm-flags-title-grad {
+    background-image: linear-gradient(135deg, #a48bff 0%, #8c6dff 50%, #36c5d6 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+  }
+  .adm-flags-sub {
+    font-size: 15px;
+    color: var(--text-muted);
+    margin: 0;
+    line-height: 1.5;
+    max-width: 620px;
+  }
+  .adm-flags-sub code {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    background: var(--bg-tertiary);
+    padding: 1px 5px;
+    border-radius: 4px;
+    color: var(--text);
+  }
+  .adm-flags-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 12px;
+    font-size: 12.5px;
+    color: var(--text-muted);
+    background: rgba(255,255,255,0.02);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    text-decoration: none;
+    font-weight: 500;
+    transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+  }
+  .adm-flags-back:hover {
+    border-color: var(--border-strong);
+    color: var(--text-strong);
+    background: rgba(255,255,255,0.04);
+  }
+
+  .adm-flags-card {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+  }
+  .adm-flags-card-body { padding: var(--space-5); display: flex; flex-direction: column; gap: var(--space-4); }
+  .adm-flags-card-foot {
+    padding: var(--space-3) var(--space-5);
+    border-top: 1px solid var(--border);
+    background: rgba(255,255,255,0.012);
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-2);
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .adm-flags-foot-hint {
+    margin-right: auto;
+    font-size: 12.5px;
+    color: var(--text-muted);
+  }
+
+  .adm-flags-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: var(--space-3);
+    border: 1px solid var(--border-subtle);
+    border-radius: 12px;
+    background: rgba(255,255,255,0.015);
+    transition: border-color 120ms ease, background 120ms ease;
+  }
+  .adm-flags-field:hover { border-color: var(--border); background: rgba(255,255,255,0.025); }
+  .adm-flags-field-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .adm-flags-key {
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--text-strong);
+    letter-spacing: -0.005em;
+  }
+  .adm-flags-mono {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--text-muted);
+    background: rgba(255,255,255,0.04);
+    padding: 1px 6px;
+    border-radius: 4px;
+    border: 1px solid var(--border-subtle);
+  }
+  .adm-flags-input {
+    width: 100%;
+    padding: 9px 12px;
+    font-size: 13.5px;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    outline: none;
+    font-family: var(--font-mono);
+    transition: border-color 120ms ease, box-shadow 120ms ease;
+    box-sizing: border-box;
+  }
+  .adm-flags-input:focus {
+    border-color: var(--border-focus);
+    box-shadow: 0 0 0 3px rgba(140,109,255,0.18);
+  }
+  .adm-flags-hint {
+    font-size: 11.5px;
+    color: var(--text-muted);
+    margin-top: 2px;
+    line-height: 1.45;
+  }
+  .adm-flags-hint code {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    background: var(--bg-tertiary);
+    padding: 1px 5px;
+    border-radius: 4px;
+    color: var(--text);
+  }
+
+  .adm-flags-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 9px 16px;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 600;
+    text-decoration: none;
+    border: 1px solid transparent;
+    cursor: pointer;
+    font: inherit;
+    line-height: 1;
+    transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease, border-color 120ms ease, color 120ms ease;
+  }
+  .adm-flags-btn-primary {
+    background: linear-gradient(135deg, #8c6dff 0%, #36c5d6 100%);
+    color: #fff;
+    box-shadow: 0 6px 18px -6px rgba(140,109,255,0.45), inset 0 1px 0 rgba(255,255,255,0.16);
+  }
+  .adm-flags-btn-primary:hover { transform: translateY(-1px); box-shadow: 0 10px 24px -8px rgba(140,109,255,0.55); }
+`;
+
+const admDigestsStyles = `
+  .adm-digests-wrap { max-width: 1000px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
+
+  .adm-digests-hero {
+    position: relative;
+    margin-bottom: var(--space-5);
+    padding: var(--space-5) var(--space-6);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+  .adm-digests-hero::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent 0%, #8c6dff 30%, #36c5d6 70%, transparent 100%);
+    opacity: 0.7;
+    pointer-events: none;
+  }
+  .adm-digests-hero-orb {
+    position: absolute;
+    inset: -20% -10% auto auto;
+    width: 380px; height: 380px;
+    background: radial-gradient(circle, rgba(140,109,255,0.20), rgba(54,197,214,0.10) 45%, transparent 70%);
+    filter: blur(80px);
+    opacity: 0.7;
+    pointer-events: none;
+    z-index: 0;
+    animation: admDigestsOrb 14s ease-in-out infinite;
+  }
+  @keyframes admDigestsOrb {
+    0%, 100% { transform: scale(1) translate(0, 0); opacity: 0.6; }
+    50%      { transform: scale(1.1) translate(-10px, 8px); opacity: 0.85; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .adm-digests-hero-orb { animation: none; }
+  }
+  .adm-digests-hero-inner {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: var(--space-4);
+    flex-wrap: wrap;
+  }
+  .adm-digests-hero-text { max-width: 720px; flex: 1; min-width: 240px; }
+  .adm-digests-eyebrow {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: var(--space-2);
+    letter-spacing: 0.02em;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .adm-digests-eyebrow-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px; height: 22px;
+    border-radius: 6px;
+    background: rgba(140,109,255,0.14);
+    color: #b69dff;
+    box-shadow: inset 0 0 0 1px rgba(140,109,255,0.35);
+  }
+  .adm-digests-title {
+    font-size: clamp(28px, 4vw, 40px);
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: -0.028em;
+    line-height: 1.05;
+    margin: 0 0 var(--space-2);
+    color: var(--text-strong);
+  }
+  .adm-digests-title-grad {
+    background-image: linear-gradient(135deg, #a48bff 0%, #8c6dff 50%, #36c5d6 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+  }
+  .adm-digests-sub {
+    font-size: 15px;
+    color: var(--text-muted);
+    margin: 0;
+    line-height: 1.5;
+    max-width: 620px;
+  }
+  .adm-digests-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 12px;
+    font-size: 12.5px;
+    color: var(--text-muted);
+    background: rgba(255,255,255,0.02);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    text-decoration: none;
+    font-weight: 500;
+    transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+  }
+  .adm-digests-back:hover {
+    border-color: var(--border-strong);
+    color: var(--text-strong);
+    background: rgba(255,255,255,0.04);
+  }
+
+  .adm-digests-banner {
+    margin-bottom: var(--space-4);
+    padding: 10px 14px;
+    border-radius: 10px;
+    font-size: 13.5px;
+    border: 1px solid var(--border);
+    background: rgba(255,255,255,0.025);
+    color: var(--text);
+  }
+  .adm-digests-banner.is-ok {
+    border-color: rgba(52,211,153,0.40);
+    background: rgba(52,211,153,0.08);
+    color: #bbf7d0;
+  }
+  .adm-digests-banner.is-error {
+    border-color: rgba(248,113,113,0.40);
+    background: rgba(248,113,113,0.08);
+    color: #fecaca;
+  }
+
+  .adm-digests-pills {
+    display: inline-flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: var(--space-4);
+  }
+  .adm-digests-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 9999px;
+    font-size: 11.5px;
+    font-weight: 600;
+    background: rgba(255,255,255,0.04);
+    color: var(--text-muted);
+    box-shadow: inset 0 0 0 1px var(--border);
+  }
+  .adm-digests-pill .dot { width: 6px; height: 6px; border-radius: 9999px; background: currentColor; }
+  .adm-digests-pill.is-on {
+    background: rgba(52,211,153,0.14);
+    color: #6ee7b7;
+    box-shadow: inset 0 0 0 1px rgba(52,211,153,0.32);
+  }
+
+  .adm-digests-section {
+    margin-bottom: var(--space-5);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+  }
+  .adm-digests-section-head {
+    padding: var(--space-4) var(--space-5);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .adm-digests-section-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px; height: 26px;
+    border-radius: 8px;
+    background: rgba(140,109,255,0.12);
+    color: #b69dff;
+    box-shadow: inset 0 0 0 1px rgba(140,109,255,0.28);
+    flex-shrink: 0;
+  }
+  .adm-digests-section-title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: 17px;
+    font-weight: 700;
+    letter-spacing: -0.018em;
+    color: var(--text-strong);
+  }
+  .adm-digests-section-sub { margin: 4px 0 0; font-size: 12.5px; color: var(--text-muted); }
+  .adm-digests-section-body { padding: var(--space-5); display: flex; flex-direction: column; gap: var(--space-4); }
+
+  .adm-digests-input {
+    width: 100%;
+    padding: 9px 12px;
+    font-size: 13.5px;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    outline: none;
+    font-family: var(--font-mono);
+    transition: border-color 120ms ease, box-shadow 120ms ease;
+    box-sizing: border-box;
+    max-width: 280px;
+  }
+  .adm-digests-input:focus {
+    border-color: var(--border-focus);
+    box-shadow: 0 0 0 3px rgba(140,109,255,0.18);
+  }
+  .adm-digests-form-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
+  .adm-digests-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 9px 16px;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 600;
+    text-decoration: none;
+    border: 1px solid var(--border-strong);
+    background: rgba(255,255,255,0.02);
+    color: var(--text);
+    cursor: pointer;
+    font: inherit;
+    line-height: 1;
+    transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease, border-color 120ms ease, color 120ms ease;
+  }
+  .adm-digests-btn:hover { border-color: rgba(140,109,255,0.45); background: rgba(140,109,255,0.06); color: var(--text-strong); }
+  .adm-digests-btn-primary {
+    background: linear-gradient(135deg, #8c6dff 0%, #36c5d6 100%);
+    color: #fff;
+    border-color: transparent;
+    box-shadow: 0 6px 18px -6px rgba(140,109,255,0.45), inset 0 1px 0 rgba(255,255,255,0.16);
+  }
+  .adm-digests-btn-primary:hover { color: #fff; transform: translateY(-1px); box-shadow: 0 10px 24px -8px rgba(140,109,255,0.55); }
+
+  .adm-digests-section-divider {
+    border-top: 1px solid var(--border-subtle);
+    padding-top: var(--space-3);
+    margin-top: var(--space-2);
+  }
+  .adm-digests-divider-hint {
+    font-size: 12.5px;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+  }
+
+  .adm-digests-h3 {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-3);
+    margin: var(--space-5) 0 var(--space-3);
+  }
+  .adm-digests-h3 h3 {
+    font-family: var(--font-display);
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: -0.014em;
+    margin: 0;
+    color: var(--text-strong);
+  }
+  .adm-digests-h3-meta { font-size: 12px; color: var(--text-muted); }
+
+  .adm-digests-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: var(--space-3);
+  }
+  .adm-digests-card {
+    padding: var(--space-3) var(--space-4);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    transition: transform 160ms ease, border-color 160ms ease;
+  }
+  .adm-digests-card:hover { transform: translateY(-1px); border-color: var(--border-strong); }
+  .adm-digests-avatar {
+    width: 36px; height: 36px;
+    border-radius: 9999px;
+    background: linear-gradient(135deg, rgba(140,109,255,0.30), rgba(54,197,214,0.22));
+    color: var(--text-strong);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 700;
+    box-shadow: inset 0 0 0 1px rgba(140,109,255,0.30);
+    flex-shrink: 0;
+    text-transform: uppercase;
+  }
+  .adm-digests-card-text { min-width: 0; flex: 1; }
+  .adm-digests-card-name {
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--text-strong);
+    text-decoration: none;
+  }
+  .adm-digests-card-name:hover { color: var(--accent-hover, var(--accent)); }
+  .adm-digests-card-sent {
+    margin-top: 2px;
+    font-size: 11.5px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+  }
+
+  .adm-digests-empty {
+    position: relative;
+    padding: var(--space-12) var(--space-6);
+    border: 1px dashed var(--border);
+    border-radius: 16px;
+    background: var(--bg-elevated);
+    text-align: center;
+    overflow: hidden;
+  }
+  .adm-digests-empty-orb {
+    position: absolute;
+    inset: 50% auto auto 50%;
+    transform: translate(-50%, -50%);
+    width: 320px; height: 320px;
+    background: radial-gradient(circle, rgba(140,109,255,0.16), rgba(54,197,214,0.08) 45%, transparent 70%);
+    filter: blur(60px);
+    pointer-events: none;
+    z-index: 0;
+  }
+  .adm-digests-empty-inner { position: relative; z-index: 1; }
+  .adm-digests-empty-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 56px; height: 56px;
+    border-radius: 16px;
+    background: rgba(140,109,255,0.10);
+    color: #b69dff;
+    box-shadow: inset 0 0 0 1px rgba(140,109,255,0.28);
+    margin-bottom: var(--space-3);
+  }
+  .adm-digests-empty-icon svg { width: 24px; height: 24px; }
+  .adm-digests-empty-title {
+    font-family: var(--font-display);
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: -0.015em;
+    color: var(--text-strong);
+    margin-bottom: 6px;
+  }
+  .adm-digests-empty-sub {
+    color: var(--text-muted);
+    font-size: 13.5px;
+    line-height: 1.5;
+  }
+`;
+
+const admAutopilotStyles = `
+  .adm-autopilot-wrap { max-width: 1080px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
+
+  .adm-autopilot-hero {
+    position: relative;
+    margin-bottom: var(--space-5);
+    padding: var(--space-5) var(--space-6);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+  .adm-autopilot-hero::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent 0%, #8c6dff 30%, #36c5d6 70%, transparent 100%);
+    opacity: 0.7;
+    pointer-events: none;
+  }
+  .adm-autopilot-hero-orb {
+    position: absolute;
+    inset: -20% -10% auto auto;
+    width: 380px; height: 380px;
+    background: radial-gradient(circle, rgba(140,109,255,0.20), rgba(54,197,214,0.10) 45%, transparent 70%);
+    filter: blur(80px);
+    opacity: 0.7;
+    pointer-events: none;
+    z-index: 0;
+    animation: admAutopilotOrb 14s ease-in-out infinite;
+  }
+  @keyframes admAutopilotOrb {
+    0%, 100% { transform: scale(1) translate(0, 0); opacity: 0.6; }
+    50%      { transform: scale(1.1) translate(-10px, 8px); opacity: 0.85; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .adm-autopilot-hero-orb { animation: none; }
+  }
+  .adm-autopilot-hero-inner {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: var(--space-4);
+    flex-wrap: wrap;
+  }
+  .adm-autopilot-hero-text { max-width: 720px; flex: 1; min-width: 240px; }
+  .adm-autopilot-eyebrow {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: var(--space-2);
+    letter-spacing: 0.02em;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .adm-autopilot-eyebrow-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px; height: 22px;
+    border-radius: 6px;
+    background: rgba(140,109,255,0.14);
+    color: #b69dff;
+    box-shadow: inset 0 0 0 1px rgba(140,109,255,0.35);
+  }
+  .adm-autopilot-title {
+    font-size: clamp(28px, 4vw, 40px);
+    font-family: var(--font-display);
+    font-weight: 800;
+    letter-spacing: -0.028em;
+    line-height: 1.05;
+    margin: 0 0 var(--space-2);
+    color: var(--text-strong);
+  }
+  .adm-autopilot-title-grad {
+    background-image: linear-gradient(135deg, #a48bff 0%, #8c6dff 50%, #36c5d6 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+  }
+  .adm-autopilot-sub {
+    font-size: 15px;
+    color: var(--text-muted);
+    margin: 0;
+    line-height: 1.5;
+    max-width: 620px;
+  }
+  .adm-autopilot-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 12px;
+    font-size: 12.5px;
+    color: var(--text-muted);
+    background: rgba(255,255,255,0.02);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    text-decoration: none;
+    font-weight: 500;
+    transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+  }
+  .adm-autopilot-back:hover {
+    border-color: var(--border-strong);
+    color: var(--text-strong);
+    background: rgba(255,255,255,0.04);
+  }
+
+  .adm-autopilot-banner {
+    margin-bottom: var(--space-4);
+    padding: 10px 14px;
+    border-radius: 10px;
+    font-size: 13.5px;
+    border: 1px solid var(--border);
+    background: rgba(255,255,255,0.025);
+    color: var(--text);
+  }
+  .adm-autopilot-banner.is-ok {
+    border-color: rgba(52,211,153,0.40);
+    background: rgba(52,211,153,0.08);
+    color: #bbf7d0;
+  }
+  .adm-autopilot-banner.is-error {
+    border-color: rgba(248,113,113,0.40);
+    background: rgba(248,113,113,0.08);
+    color: #fecaca;
+  }
+
+  .adm-autopilot-statgrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: var(--space-3);
+    margin-bottom: var(--space-5);
+  }
+  .adm-autopilot-stat {
+    position: relative;
+    padding: var(--space-4);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+    transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+  }
+  .adm-autopilot-stat:hover {
+    transform: translateY(-2px);
+    border-color: var(--border-strong);
+    box-shadow: 0 10px 28px -16px rgba(0,0,0,0.55);
+  }
+  .adm-autopilot-stat-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: var(--space-2);
+  }
+  .adm-autopilot-stat-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+  .adm-autopilot-stat-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px; height: 26px;
+    border-radius: 8px;
+    background: rgba(140,109,255,0.12);
+    color: #b69dff;
+    box-shadow: inset 0 0 0 1px rgba(140,109,255,0.28);
+  }
+  .adm-autopilot-stat-value {
+    font-family: var(--font-display);
+    font-size: 32px;
+    font-weight: 800;
+    letter-spacing: -0.028em;
+    line-height: 1;
+    color: var(--text-strong);
+  }
+  .adm-autopilot-stat-value.is-mono {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 1.3;
+    word-break: break-all;
+  }
+  .adm-autopilot-stat-hint { margin-top: 6px; font-size: 12px; color: var(--text-muted); }
+  .adm-autopilot-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 8px;
+    border-radius: 9999px;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .adm-autopilot-pill .dot { width: 6px; height: 6px; border-radius: 9999px; background: currentColor; }
+  .adm-autopilot-pill.is-on {
+    background: rgba(52,211,153,0.14);
+    color: #6ee7b7;
+    box-shadow: inset 0 0 0 1px rgba(52,211,153,0.32);
+  }
+  .adm-autopilot-pill.is-off {
+    background: rgba(255,255,255,0.04);
+    color: var(--text-muted);
+    box-shadow: inset 0 0 0 1px var(--border);
+  }
+
+  .adm-autopilot-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: var(--space-5);
+  }
+  .adm-autopilot-actions form { margin: 0; }
+  .adm-autopilot-action-hint {
+    color: var(--text-muted);
+    font-size: 13px;
+  }
+
+  .adm-autopilot-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 9px 16px;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 600;
+    text-decoration: none;
+    border: 1px solid transparent;
+    cursor: pointer;
+    font: inherit;
+    line-height: 1;
+    transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease, border-color 120ms ease, color 120ms ease;
+  }
+  .adm-autopilot-btn-primary {
+    background: linear-gradient(135deg, #8c6dff 0%, #36c5d6 100%);
+    color: #fff;
+    box-shadow: 0 6px 18px -6px rgba(140,109,255,0.45), inset 0 1px 0 rgba(255,255,255,0.16);
+  }
+  .adm-autopilot-btn-primary:hover { transform: translateY(-1px); box-shadow: 0 10px 24px -8px rgba(140,109,255,0.55); }
+
+  .adm-autopilot-h3 {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-3);
+    margin: 0 0 var(--space-3);
+  }
+  .adm-autopilot-h3 h3 {
+    font-family: var(--font-display);
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: -0.014em;
+    margin: 0;
+    color: var(--text-strong);
+  }
+  .adm-autopilot-h3-meta { font-size: 12px; color: var(--text-muted); }
+
+  .adm-autopilot-tasks {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: var(--space-3);
+  }
+  .adm-autopilot-task {
+    padding: var(--space-3) var(--space-4);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    transition: transform 160ms ease, border-color 160ms ease;
+  }
+  .adm-autopilot-task:hover { transform: translateY(-1px); border-color: var(--border-strong); }
+  .adm-autopilot-task.is-ok { border-color: rgba(52,211,153,0.28); }
+  .adm-autopilot-task.is-fail { border-color: rgba(248,113,113,0.32); }
+  .adm-autopilot-task-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .adm-autopilot-task-light {
+    flex-shrink: 0;
+    width: 10px; height: 10px;
+    border-radius: 9999px;
+    background: #6b7280;
+    box-shadow: 0 0 0 3px rgba(107,114,128,0.16);
+  }
+  .adm-autopilot-task-light.is-ok {
+    background: #34d399;
+    box-shadow: 0 0 0 3px rgba(52,211,153,0.22), 0 0 8px rgba(52,211,153,0.45);
+  }
+  .adm-autopilot-task-light.is-fail {
+    background: #f87171;
+    box-shadow: 0 0 0 3px rgba(248,113,113,0.22), 0 0 10px rgba(248,113,113,0.50);
+    animation: admApPulse 1.8s ease-in-out infinite;
+  }
+  @keyframes admApPulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50%      { opacity: 0.7; transform: scale(0.92); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .adm-autopilot-task-light.is-fail { animation: none; }
+  }
+  .adm-autopilot-task-name {
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--text-strong);
+    word-break: break-word;
+    flex: 1;
+    min-width: 0;
+  }
+  .adm-autopilot-task-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 9999px;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    flex-shrink: 0;
+  }
+  .adm-autopilot-task-status.is-ok {
+    background: rgba(52,211,153,0.14);
+    color: #6ee7b7;
+    box-shadow: inset 0 0 0 1px rgba(52,211,153,0.32);
+  }
+  .adm-autopilot-task-status.is-fail {
+    background: rgba(248,113,113,0.12);
+    color: #fecaca;
+    box-shadow: inset 0 0 0 1px rgba(248,113,113,0.32);
+  }
+  .adm-autopilot-task-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 11.5px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+  }
+  .adm-autopilot-task-err {
+    font-size: 11.5px;
+    color: #fecaca;
+    line-height: 1.5;
+    background: rgba(248,113,113,0.06);
+    border: 1px solid rgba(248,113,113,0.20);
+    padding: 6px 8px;
+    border-radius: 6px;
+    word-break: break-word;
+  }
+
+  .adm-autopilot-empty {
+    position: relative;
+    padding: var(--space-12) var(--space-6);
+    border: 1px dashed var(--border);
+    border-radius: 16px;
+    background: var(--bg-elevated);
+    text-align: center;
+    overflow: hidden;
+  }
+  .adm-autopilot-empty-orb {
+    position: absolute;
+    inset: 50% auto auto 50%;
+    transform: translate(-50%, -50%);
+    width: 320px; height: 320px;
+    background: radial-gradient(circle, rgba(140,109,255,0.16), rgba(54,197,214,0.08) 45%, transparent 70%);
+    filter: blur(60px);
+    pointer-events: none;
+    z-index: 0;
+  }
+  .adm-autopilot-empty-inner { position: relative; z-index: 1; }
+  .adm-autopilot-empty-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 56px; height: 56px;
+    border-radius: 16px;
+    background: rgba(140,109,255,0.10);
+    color: #b69dff;
+    box-shadow: inset 0 0 0 1px rgba(140,109,255,0.28);
+    margin-bottom: var(--space-3);
+  }
+  .adm-autopilot-empty-icon svg { width: 24px; height: 24px; }
+  .adm-autopilot-empty-title {
+    font-family: var(--font-display);
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: -0.015em;
+    color: var(--text-strong);
+    margin-bottom: 6px;
+  }
+  .adm-autopilot-empty-sub {
+    color: var(--text-muted);
+    font-size: 13.5px;
+    line-height: 1.5;
+  }
+
+  .adm-autopilot-foot {
+    margin-top: var(--space-5);
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--border-subtle);
+    background: rgba(255,255,255,0.015);
+    border-radius: 10px;
+    color: var(--text-muted);
+    font-size: 12.5px;
+  }
+  .adm-autopilot-foot code {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    background: var(--bg-tertiary);
+    padding: 1px 5px;
+    border-radius: 4px;
+    color: var(--text);
+  }
+`;
+
 /** Inline-SVG icons (no external deps). Stroke-based, currentColor. */
 const Icons = {
   shield: (
@@ -1057,99 +2768,132 @@ admin.get("/admin/users", async (c) => {
     .limit(200);
 
   const adminIds = new Set((await listSiteAdmins()).map((a) => a.userId));
+  const adminCount = rows.filter((u) => adminIds.has(u.id)).length;
 
   return c.html(
     <Layout title="Admin — Users" user={user}>
-      <div class="admin-wrap">
-        <section class="admin-sec-hero">
-          <div class="admin-sec-hero-text">
-            <div class="admin-sec-eyebrow">Site admin</div>
-            <h2 class="admin-sec-title">Users</h2>
-            <p class="admin-sec-sub">
-              Search, audit, and grant or revoke the site-admin flag.
-              Showing up to 200 accounts ordered by signup recency.
-            </p>
-          </div>
-          <div class="admin-sec-hero-actions">
-            <a href="/admin" class="btn btn-sm">
+      <div class="adm-users-wrap">
+        <section class="adm-users-hero">
+          <div class="adm-users-hero-orb" aria-hidden="true" />
+          <div class="adm-users-hero-inner">
+            <div class="adm-users-hero-text">
+              <div class="adm-users-eyebrow">
+                <span class="adm-users-eyebrow-pill" aria-hidden="true">{Icons.users}</span>
+                Site admin · Users
+              </div>
+              <h1 class="adm-users-title">
+                <span class="adm-users-title-grad">Users</span>.
+              </h1>
+              <p class="adm-users-sub">
+                Search, audit, and grant or revoke the site-admin flag.
+                Showing up to 200 accounts ordered by signup recency.
+              </p>
+            </div>
+            <a href="/admin" class="adm-users-back">
               {Icons.arrowLeft} Back
             </a>
           </div>
         </section>
 
-        <form method="get" action="/admin/users" class="admin-search">
-          <input
-            type="text"
-            name="q"
-            value={q}
-            placeholder="Search username or email"
-            aria-label="Search username or email"
-            class="admin-input"
-          />
-          <button type="submit" class="btn">
-            Search
-          </button>
-          {q && (
-            <a href="/admin/users" class="btn btn-sm">
-              Clear
-            </a>
-          )}
-        </form>
+        <div class="adm-users-filterbar">
+          <form method="get" action="/admin/users" class="adm-users-search">
+            <span class="adm-users-search-ico" aria-hidden="true">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="11" cy="11" r="8" />
+                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              </svg>
+            </span>
+            <input
+              type="text"
+              name="q"
+              value={q}
+              placeholder="Search username or email"
+              aria-label="Search username or email"
+              class="adm-users-input"
+            />
+            <button type="submit" class="adm-users-btn">Search</button>
+            {q && (
+              <a href="/admin/users" class="adm-users-btn adm-users-btn-ghost">Clear</a>
+            )}
+          </form>
+          <div class="adm-users-pills">
+            <span class="adm-users-pill"><span class="dot" aria-hidden="true" />{rows.length} shown</span>
+            <span class="adm-users-pill is-admin"><span class="dot" aria-hidden="true" />{adminCount} admin{adminCount === 1 ? "" : "s"}</span>
+          </div>
+        </div>
 
-        <div class="admin-list">
-          {rows.length === 0 ? (
-            <div class="admin-list-empty">No users found.</div>
-          ) : (
-            rows.map((u) => {
+        {rows.length === 0 ? (
+          <div class="adm-users-empty">
+            <div class="adm-users-empty-orb" aria-hidden="true" />
+            <div class="adm-users-empty-inner">
+              <div class="adm-users-empty-icon" aria-hidden="true">{Icons.users}</div>
+              <div class="adm-users-empty-title">No users found</div>
+              <div class="adm-users-empty-sub">
+                {q ? <>No accounts match <code>{q}</code>. Try a different query.</> : "There are no registered accounts yet."}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div class="adm-users-grid">
+            {rows.map((u) => {
               const isAdmin = adminIds.has(u.id);
               return (
-                <div class="admin-list-row">
-                  <div class="admin-list-main">
-                    <span class={"admin-avatar" + (isAdmin ? " is-admin" : "")} aria-hidden="true">
+                <div class={"adm-users-card" + (isAdmin ? " is-admin" : "")}>
+                  <div class="adm-users-card-head">
+                    <span class={"adm-users-avatar" + (isAdmin ? " is-admin" : "")} aria-hidden="true">
                       {initials(u.username)}
                     </span>
-                    <div class="admin-row-text">
-                      <a href={`/${u.username}`} class="admin-row-title">
-                        {u.username}
-                      </a>
-                      {isAdmin && (
-                        <span class="admin-pill is-admin" style="margin-left:8px">
-                          <span class="dot" aria-hidden="true" /> Admin
-                        </span>
-                      )}
-                      <div class="admin-row-sub">
-                        <span>{u.email}</span>
-                        {u.createdAt && (
-                          <span>
-                            ·{" "}
-                            {new Date(
-                              u.createdAt as unknown as string
-                            ).toLocaleDateString()}
-                          </span>
-                        )}
-                      </div>
+                    <div class="adm-users-card-id">
+                      <a href={`/${u.username}`} class="adm-users-card-name">{u.username}</a>
+                      <code class="adm-users-card-mono" title={u.id}>{u.id.slice(0, 8)}</code>
                     </div>
+                    {isAdmin && (
+                      <span class="adm-users-pill is-admin" style="margin-left:auto"><span class="dot" aria-hidden="true" />Admin</span>
+                    )}
                   </div>
-                  <form
-                    method="post"
-                    action={`/admin/users/${u.id}/admin`}
-                    onsubmit={
-                      isAdmin
-                        ? "return confirm('Revoke site admin?')"
-                        : "return confirm('Grant site admin?')"
-                    }
-                  >
-                    <button type="submit" class="btn btn-sm">
-                      {isAdmin ? "Revoke admin" : "Grant admin"}
-                    </button>
-                  </form>
+                  <div class="adm-users-card-meta">
+                    <span class="adm-users-meta-item">
+                      <span class="adm-users-meta-key">Email</span>
+                      <span class="adm-users-meta-val">{u.email}</span>
+                    </span>
+                    {u.createdAt && (
+                      <span class="adm-users-meta-item">
+                        <span class="adm-users-meta-key">Joined</span>
+                        <span class="adm-users-meta-val">
+                          {new Date(u.createdAt as unknown as string).toLocaleDateString()}
+                        </span>
+                      </span>
+                    )}
+                  </div>
+                  <div class="adm-users-card-actions">
+                    <form
+                      method="post"
+                      action={`/admin/users/${u.id}/admin`}
+                      onsubmit={
+                        isAdmin
+                          ? "return confirm('Revoke site admin?')"
+                          : "return confirm('Grant site admin?')"
+                      }
+                    >
+                      <button
+                        type="submit"
+                        class={"adm-users-btn " + (isAdmin ? "adm-users-btn-danger" : "adm-users-btn-primary")}
+                      >
+                        {isAdmin ? "Revoke admin" : "Grant admin"}
+                      </button>
+                    </form>
+                    <a href={`/${u.username}`} class="adm-users-btn adm-users-btn-ghost">
+                      View profile
+                    </a>
+                  </div>
                 </div>
               );
-            })
-          )}
-        </div>
+            })}
+          </div>
+        )}
       </div>
       <style dangerouslySetInnerHTML={{ __html: adminStyles }} />
+      <style dangerouslySetInnerHTML={{ __html: admUsersStyles }} />
     </Layout>
   );
 });
@@ -1201,77 +2945,117 @@ admin.get("/admin/repos", async (c) => {
     .orderBy(desc(repositories.createdAt))
     .limit(200);
 
+  const privateCount = rows.filter((r) => r.isPrivate).length;
+  const publicCount = rows.length - privateCount;
+
   return c.html(
     <Layout title="Admin — Repos" user={user}>
-      <div class="admin-wrap">
-        <section class="admin-sec-hero">
-          <div class="admin-sec-hero-text">
-            <div class="admin-sec-eyebrow">Site admin</div>
-            <h2 class="admin-sec-title">Repositories</h2>
-            <p class="admin-sec-sub">
-              Every repository on the platform — public and private.
-              Delete is irreversible and audit-logged.
-            </p>
-          </div>
-          <div class="admin-sec-hero-actions">
-            <a href="/admin" class="btn btn-sm">
+      <div class="adm-repos-wrap">
+        <section class="adm-repos-hero">
+          <div class="adm-repos-hero-orb" aria-hidden="true" />
+          <div class="adm-repos-hero-inner">
+            <div class="adm-repos-hero-text">
+              <div class="adm-repos-eyebrow">
+                <span class="adm-repos-eyebrow-pill" aria-hidden="true">{Icons.repo}</span>
+                Site admin · Repositories
+              </div>
+              <h1 class="adm-repos-title">
+                <span class="adm-repos-title-grad">Repositories</span>.
+              </h1>
+              <p class="adm-repos-sub">
+                Every repository on the platform — public and private.
+                Delete is irreversible and audit-logged.
+              </p>
+            </div>
+            <a href="/admin" class="adm-repos-back">
               {Icons.arrowLeft} Back
             </a>
           </div>
         </section>
 
-        <div class="admin-list">
-          {rows.length === 0 ? (
-            <div class="admin-list-empty">No repositories.</div>
-          ) : (
-            rows.map((r) => (
-              <div class="admin-list-row">
-                <div class="admin-list-main">
-                  <span class="admin-avatar" aria-hidden="true">
-                    {initials(r.ownerUsername)}
-                  </span>
-                  <div class="admin-row-text">
+        <div class="adm-repos-pills">
+          <span class="adm-repos-pill"><span class="dot" aria-hidden="true" />{rows.length} shown</span>
+          <span class="adm-repos-pill is-public"><span class="dot" aria-hidden="true" />{publicCount} public</span>
+          <span class="adm-repos-pill is-private"><span class="dot" aria-hidden="true" />{privateCount} private</span>
+        </div>
+
+        {rows.length === 0 ? (
+          <div class="adm-repos-empty">
+            <div class="adm-repos-empty-orb" aria-hidden="true" />
+            <div class="adm-repos-empty-inner">
+              <div class="adm-repos-empty-icon" aria-hidden="true">{Icons.repo}</div>
+              <div class="adm-repos-empty-title">No repositories yet</div>
+              <div class="adm-repos-empty-sub">
+                When users create their first repos, they'll appear here.
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div class="adm-repos-grid">
+            {rows.map((r) => (
+              <div class="adm-repos-card">
+                <div class="adm-repos-card-head">
+                  <span class="adm-repos-icon" aria-hidden="true">{Icons.repo}</span>
+                  <div class="adm-repos-card-title">
                     <a
                       href={`/${r.ownerUsername}/${r.name}`}
-                      class="admin-row-title"
+                      class="adm-repos-card-name"
                     >
                       {r.ownerUsername}/{r.name}
                     </a>
-                    <span
-                      class={
-                        "admin-pill " +
-                        (r.isPrivate ? "is-private" : "is-public")
-                      }
-                      style="margin-left:8px"
-                    >
-                      {r.isPrivate ? "private" : "public"}
-                    </span>
-                    <div class="admin-row-sub">
-                      <span>{r.starCount} star{r.starCount === 1 ? "" : "s"}</span>
-                      <span>·</span>
-                      <span>
-                        {r.createdAt
-                          ? new Date(r.createdAt as unknown as string).toLocaleDateString()
-                          : ""}
-                      </span>
-                    </div>
+                    <code class="adm-repos-card-mono" title={r.id}>{r.id.slice(0, 8)}</code>
                   </div>
+                  <span
+                    class={
+                      "adm-repos-pill " +
+                      (r.isPrivate ? "is-private" : "is-public")
+                    }
+                    style="margin-left:auto"
+                  >
+                    <span class="dot" aria-hidden="true" />
+                    {r.isPrivate ? "private" : "public"}
+                  </span>
                 </div>
-                <form
-                  method="post"
-                  action={`/admin/repos/${r.id}/delete`}
-                  onsubmit="return confirm('Delete repository permanently? This cannot be undone.')"
-                >
-                  <button type="submit" class="btn btn-sm btn-danger">
-                    Delete
-                  </button>
-                </form>
+                <div class="adm-repos-card-meta">
+                  <span class="adm-repos-meta-item">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                    </svg>
+                    {r.starCount} star{r.starCount === 1 ? "" : "s"}
+                  </span>
+                  {r.createdAt && (
+                    <span class="adm-repos-meta-item">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <rect x="3" y="4" width="18" height="18" rx="2" />
+                        <line x1="16" y1="2" x2="16" y2="6" />
+                        <line x1="8" y1="2" x2="8" y2="6" />
+                        <line x1="3" y1="10" x2="21" y2="10" />
+                      </svg>
+                      {new Date(r.createdAt as unknown as string).toLocaleDateString()}
+                    </span>
+                  )}
+                </div>
+                <div class="adm-repos-card-actions">
+                  <a href={`/${r.ownerUsername}/${r.name}`} class="adm-repos-btn adm-repos-btn-ghost">
+                    Open repo
+                  </a>
+                  <form
+                    method="post"
+                    action={`/admin/repos/${r.id}/delete`}
+                    onsubmit="return confirm('Delete repository permanently? This cannot be undone.')"
+                  >
+                    <button type="submit" class="adm-repos-btn adm-repos-btn-danger">
+                      Delete
+                    </button>
+                  </form>
+                </div>
               </div>
-            ))
-          )}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
       <style dangerouslySetInnerHTML={{ __html: adminStyles }} />
+      <style dangerouslySetInnerHTML={{ __html: admReposStyles }} />
     </Layout>
   );
 });
@@ -1308,58 +3092,70 @@ admin.get("/admin/flags", async (c) => {
 
   return c.html(
     <Layout title="Admin — Flags" user={user}>
-      <div class="admin-wrap">
-        <section class="admin-sec-hero">
-          <div class="admin-sec-hero-text">
-            <div class="admin-sec-eyebrow">Site admin</div>
-            <h2 class="admin-sec-title">Site flags</h2>
-            <p class="admin-sec-sub">
-              Runtime feature flags surfaced to the rest of the app via
-              <code style="margin:0 4px;padding:1px 5px;border-radius:4px;background:var(--bg-tertiary);font-family:var(--font-mono);font-size:12px">
-                getFlag()
-              </code>
-              — registration lock, site banner, read-only mode, and more.
-            </p>
-          </div>
-          <div class="admin-sec-hero-actions">
-            <a href="/admin" class="btn btn-sm">
+      <div class="adm-flags-wrap">
+        <section class="adm-flags-hero">
+          <div class="adm-flags-hero-orb" aria-hidden="true" />
+          <div class="adm-flags-hero-inner">
+            <div class="adm-flags-hero-text">
+              <div class="adm-flags-eyebrow">
+                <span class="adm-flags-eyebrow-pill" aria-hidden="true">{Icons.flag}</span>
+                Site admin · Feature flags
+              </div>
+              <h1 class="adm-flags-title">
+                <span class="adm-flags-title-grad">Site flags</span>.
+              </h1>
+              <p class="adm-flags-sub">
+                Runtime feature flags surfaced to the rest of the app via{" "}
+                <code>getFlag()</code> — registration lock, site banner, read-only mode, and more.
+              </p>
+            </div>
+            <a href="/admin" class="adm-flags-back">
               {Icons.arrowLeft} Back
             </a>
           </div>
         </section>
 
-        <form method="post" action="/admin/flags" class="admin-card">
-          <div class="admin-card-body">
+        <form method="post" action="/admin/flags" class="adm-flags-card">
+          <div class="adm-flags-card-body">
             {keys.map((k) => {
               const current = existingMap.get(k) ?? (KNOWN_FLAGS as any)[k];
+              const isOverridden =
+                existingMap.has(k) && existingMap.get(k) !== (KNOWN_FLAGS as any)[k];
               return (
-                <div class="admin-field">
-                  <label>{k}</label>
+                <div class="adm-flags-field">
+                  <div class="adm-flags-field-head">
+                    <label for={`flag-${k}`} class="adm-flags-key">{k}</label>
+                    {isOverridden && (
+                      <span class="adm-flags-mono">overridden</span>
+                    )}
+                  </div>
                   <input
+                    id={`flag-${k}`}
                     type="text"
                     name={k}
                     value={current}
                     aria-label={k}
-                    class="admin-input-mono"
+                    class="adm-flags-input"
                   />
-                  <div class="admin-field-hint">
+                  <div class="adm-flags-hint">
                     default: <code>{(KNOWN_FLAGS as any)[k] || "(empty)"}</code>
                   </div>
                 </div>
               );
             })}
           </div>
-          <div class="admin-card-foot">
-            <span class="admin-foot-hint">
+          <div class="adm-flags-card-foot">
+            <span class="adm-flags-foot-hint">
               Saved values overwrite the defaults at runtime.
             </span>
-            <button type="submit" class="btn btn-primary">
-              Save
+            <button type="submit" class="adm-flags-btn adm-flags-btn-primary">
+              Save changes
             </button>
           </div>
         </form>
       </div>
       <style dangerouslySetInnerHTML={{ __html: adminStyles }} />
+      <style dangerouslySetInnerHTML={{ __html: admFlagsStyles }} />
     </Layout>
   );
 });
@@ -1407,58 +3203,70 @@ admin.get("/admin/digests", async (c) => {
 
   return c.html(
     <Layout title="Admin — Digests" user={user}>
-      <div class="admin-wrap">
-        <section class="admin-sec-hero">
-          <div class="admin-sec-hero-text">
-            <div class="admin-sec-eyebrow">Site admin</div>
-            <h2 class="admin-sec-title">Email digests</h2>
-            <p class="admin-sec-sub">
-              Manually trigger the weekly digest for every opted-in user
-              or preview the email for a single account.
-            </p>
-          </div>
-          <div class="admin-sec-hero-actions">
-            <a href="/admin" class="btn btn-sm">
+      <div class="adm-digests-wrap">
+        <section class="adm-digests-hero">
+          <div class="adm-digests-hero-orb" aria-hidden="true" />
+          <div class="adm-digests-hero-inner">
+            <div class="adm-digests-hero-text">
+              <div class="adm-digests-eyebrow">
+                <span class="adm-digests-eyebrow-pill" aria-hidden="true">{Icons.mail}</span>
+                Site admin · Email
+              </div>
+              <h1 class="adm-digests-title">
+                <span class="adm-digests-title-grad">Email digests</span>.
+              </h1>
+              <p class="adm-digests-sub">
+                Manually trigger the weekly digest for every opted-in user
+                or preview the email for a single account.
+              </p>
+            </div>
+            <a href="/admin" class="adm-digests-back">
               {Icons.arrowLeft} Back
             </a>
           </div>
         </section>
 
         {result && (
-          <div class="admin-banner is-ok">{decodeURIComponent(result)}</div>
+          <div class="adm-digests-banner is-ok">{decodeURIComponent(result)}</div>
         )}
         {error && (
-          <div class="admin-banner is-error">{decodeURIComponent(error)}</div>
+          <div class="adm-digests-banner is-error">{decodeURIComponent(error)}</div>
         )}
 
-        <div class="admin-card" style="margin-bottom:var(--space-5)">
-          <div class="admin-card-body">
-            <div style="display:flex;align-items:center;gap:10px;margin-bottom:var(--space-3);flex-wrap:wrap">
-              <span class="admin-pill is-on">
-                <span class="dot" aria-hidden="true" />
-                {opted} opted-in
-              </span>
-              <span style="font-size:13px;color:var(--text-muted)">
-                user{opted === 1 ? "" : "s"} subscribed to the weekly digest.
-              </span>
+        <div class="adm-digests-pills">
+          <span class="adm-digests-pill is-on"><span class="dot" aria-hidden="true" />{opted} opted-in</span>
+          <span class="adm-digests-pill"><span class="dot" aria-hidden="true" />{recentlySent.length} recent</span>
+        </div>
+
+        <section class="adm-digests-section">
+          <header class="adm-digests-section-head">
+            <span class="adm-digests-section-icon" aria-hidden="true">{Icons.mail}</span>
+            <div>
+              <h3 class="adm-digests-section-title">Send digests</h3>
+              <p class="adm-digests-section-sub">
+                {opted} user{opted === 1 ? "" : "s"} subscribed to the weekly digest.
+              </p>
             </div>
-            <form method="post" action="/admin/digests/run" style="margin-bottom:var(--space-4)">
+          </header>
+          <div class="adm-digests-section-body">
+            <form method="post" action="/admin/digests/run">
               <button
                 type="submit"
-                class="btn btn-primary"
+                class="adm-digests-btn adm-digests-btn-primary"
                 onclick="return confirm('Send weekly digest to all opted-in users now?')"
               >
+                {Icons.mail}
                 Send digests now
               </button>
             </form>
-            <div style="border-top:1px solid var(--border-subtle);padding-top:var(--space-4)">
-              <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:8px">
+            <div class="adm-digests-section-divider">
+              <div class="adm-digests-divider-hint">
                 Preview / one-off — send the digest to a single user.
               </div>
               <form
                 method="post"
                 action="/admin/digests/preview"
-                class="admin-digest-row"
+                class="adm-digests-form-row"
               >
                 <input
                   type="text"
@@ -1466,53 +3274,51 @@ admin.get("/admin/digests", async (c) => {
                   placeholder="username"
                   required
                   aria-label="Username"
-                  class="admin-input"
-                  style="width:240px"
+                  class="adm-digests-input"
                 />
-                <button type="submit" class="btn btn-sm">
+                <button type="submit" class="adm-digests-btn">
                   Send to one user
                 </button>
               </form>
             </div>
           </div>
-        </div>
+        </section>
 
-        <div class="admin-h3">
+        <div class="adm-digests-h3">
           <h3>Recently sent</h3>
-          <span class="admin-h3-meta">
-            last {recentlySent.length}
-          </span>
+          <span class="adm-digests-h3-meta">last {recentlySent.length}</span>
         </div>
-        <div class="admin-list">
-          {recentlySent.length === 0 ? (
-            <div class="admin-list-empty">No digests have been sent yet.</div>
-          ) : (
-            recentlySent.map((u) => (
-              <div class="admin-list-row">
-                <div class="admin-list-main">
-                  <span class="admin-avatar" aria-hidden="true">{initials(u.username)}</span>
-                  <div class="admin-row-text">
-                    <a href={`/${u.username}`} class="admin-row-title">
-                      {u.username}
-                    </a>
-                    <div class="admin-row-sub">
-                      <span>Sent</span>
-                      <span>
-                        {u.lastDigestSentAt
-                          ? new Date(
-                              u.lastDigestSentAt as unknown as string
-                            ).toLocaleString()
-                          : ""}
-                      </span>
-                    </div>
+        {recentlySent.length === 0 ? (
+          <div class="adm-digests-empty">
+            <div class="adm-digests-empty-orb" aria-hidden="true" />
+            <div class="adm-digests-empty-inner">
+              <div class="adm-digests-empty-icon" aria-hidden="true">{Icons.mail}</div>
+              <div class="adm-digests-empty-title">No digests sent yet</div>
+              <div class="adm-digests-empty-sub">
+                When the weekly digest fires, sent recipients will appear here.
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div class="adm-digests-grid">
+            {recentlySent.map((u) => (
+              <div class="adm-digests-card">
+                <span class="adm-digests-avatar" aria-hidden="true">{initials(u.username)}</span>
+                <div class="adm-digests-card-text">
+                  <a href={`/${u.username}`} class="adm-digests-card-name">{u.username}</a>
+                  <div class="adm-digests-card-sent">
+                    sent {u.lastDigestSentAt
+                      ? new Date(u.lastDigestSentAt as unknown as string).toLocaleString()
+                      : "—"}
                   </div>
                 </div>
               </div>
-            ))
-          )}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
       <style dangerouslySetInnerHTML={{ __html: adminStyles }} />
+      <style dangerouslySetInnerHTML={{ __html: admDigestsStyles }} />
     </Layout>
   );
 });
@@ -1594,130 +3400,140 @@ admin.get("/admin/autopilot", async (c) => {
   const isErr = !!c.req.query("error");
   return c.html(
     <Layout title="Autopilot — admin" user={user}>
-      <div class="admin-wrap" style="padding: var(--space-6) var(--space-4)">
-        <section class="admin-sec-hero">
-          <div class="admin-sec-hero-text">
-            <div class="admin-sec-eyebrow">Site admin</div>
-            <h2 class="admin-sec-title">Autopilot</h2>
-            <p class="admin-sec-sub">
-              Periodic platform-maintenance loop — mirror sync, merge-queue
-              progress, weekly digests, advisory rescans, environment
-              wait-timer release, and scheduled workflow triggers (cron).
-            </p>
-          </div>
-          <div class="admin-sec-hero-actions">
-            <a href="/admin" class="btn btn-sm">
+      <div class="adm-autopilot-wrap">
+        <section class="adm-autopilot-hero">
+          <div class="adm-autopilot-hero-orb" aria-hidden="true" />
+          <div class="adm-autopilot-hero-inner">
+            <div class="adm-autopilot-hero-text">
+              <div class="adm-autopilot-eyebrow">
+                <span class="adm-autopilot-eyebrow-pill" aria-hidden="true">{Icons.bot}</span>
+                Site admin · Maintenance loop
+              </div>
+              <h1 class="adm-autopilot-title">
+                <span class="adm-autopilot-title-grad">Autopilot</span>.
+              </h1>
+              <p class="adm-autopilot-sub">
+                Periodic platform-maintenance loop — mirror sync, merge-queue
+                progress, weekly digests, advisory rescans, environment
+                wait-timer release, and scheduled workflow triggers (cron).
+              </p>
+            </div>
+            <a href="/admin" class="adm-autopilot-back">
               {Icons.arrowLeft} Back
             </a>
           </div>
         </section>
 
         {msg && (
-          <div class={"admin-banner " + (isErr ? "is-error" : "is-ok")}>
+          <div class={"adm-autopilot-banner " + (isErr ? "is-error" : "is-ok")}>
             {decodeURIComponent(msg)}
           </div>
         )}
 
-        <div class="admin-stat-grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr))">
-          <div class="admin-stat">
-            <div class="admin-stat-head">
-              <span class="admin-stat-label">Status</span>
-              <span class={"admin-pill " + (disabled ? "is-off" : "is-on")}>
+        <div class="adm-autopilot-statgrid">
+          <div class="adm-autopilot-stat">
+            <div class="adm-autopilot-stat-head">
+              <span class="adm-autopilot-stat-label">Status</span>
+              <span class={"adm-autopilot-pill " + (disabled ? "is-off" : "is-on")}>
                 <span class="dot" aria-hidden="true" />
                 {disabled ? "disabled" : "running"}
               </span>
             </div>
-            <div class="admin-stat-value" style="font-size:22px">
+            <div class="adm-autopilot-stat-value" style="font-size:22px">
               {disabled ? "disabled" : "running"}
             </div>
+            <div class="adm-autopilot-stat-hint">{disabled ? "AUTOPILOT_DISABLED=1" : "loop active"}</div>
           </div>
-          <div class="admin-stat">
-            <div class="admin-stat-head">
-              <span class="admin-stat-label">Interval</span>
+          <div class="adm-autopilot-stat">
+            <div class="adm-autopilot-stat-head">
+              <span class="adm-autopilot-stat-label">Interval</span>
+              <span class="adm-autopilot-stat-icon" aria-hidden="true">{Icons.refresh}</span>
             </div>
-            <div class="admin-stat-value">{Math.round(intervalMs / 1000)}s</div>
-            <div class="admin-stat-hint">between ticks</div>
+            <div class="adm-autopilot-stat-value">{Math.round(intervalMs / 1000)}s</div>
+            <div class="adm-autopilot-stat-hint">between ticks</div>
           </div>
-          <div class="admin-stat">
-            <div class="admin-stat-head">
-              <span class="admin-stat-label">Ticks this process</span>
+          <div class="adm-autopilot-stat">
+            <div class="adm-autopilot-stat-head">
+              <span class="adm-autopilot-stat-label">Ticks this process</span>
+              <span class="adm-autopilot-stat-icon" aria-hidden="true">{Icons.pulse}</span>
             </div>
-            <div class="admin-stat-value">{total}</div>
-            <div class="admin-stat-hint">since boot</div>
+            <div class="adm-autopilot-stat-value">{total}</div>
+            <div class="adm-autopilot-stat-hint">since boot</div>
           </div>
-          <div class="admin-stat">
-            <div class="admin-stat-head">
-              <span class="admin-stat-label">Last tick</span>
+          <div class="adm-autopilot-stat">
+            <div class="adm-autopilot-stat-head">
+              <span class="adm-autopilot-stat-label">Last tick</span>
+              <span class="adm-autopilot-stat-icon" aria-hidden="true">{Icons.bot}</span>
             </div>
-            <div
-              class="admin-stat-value"
-              style="font-size: 14px; font-family: var(--font-mono); line-height: 1.3"
-            >
+            <div class="adm-autopilot-stat-value is-mono">
               {tick ? tick.finishedAt : "never"}
             </div>
           </div>
         </div>
 
-        <form
-          method="post"
-          action="/admin/autopilot/run"
-          style="margin-bottom: var(--space-5); display:flex; align-items:center; gap:12px; flex-wrap:wrap"
-        >
-          <button class="btn btn-primary" type="submit">
-            Run tick now
-          </button>
-          <span style="color: var(--text-muted); font-size: 13px">
+        <div class="adm-autopilot-actions">
+          <form method="post" action="/admin/autopilot/run">
+            <button class="adm-autopilot-btn adm-autopilot-btn-primary" type="submit">
+              {Icons.bot}
+              Run tick now
+            </button>
+          </form>
+          <span class="adm-autopilot-action-hint">
             Executes all sub-tasks synchronously and records the result.
           </span>
-        </form>
+        </div>
 
-        <div class="admin-h3">
+        <div class="adm-autopilot-h3">
           <h3>Last tick tasks</h3>
           {tick && (
-            <span class="admin-h3-meta">
+            <span class="adm-autopilot-h3-meta">
               {tick.tasks.filter((t) => t.ok).length}/{tick.tasks.length} ok
             </span>
           )}
         </div>
         {tick ? (
-          <table class="admin-ap-table">
-            <thead>
-              <tr>
-                <th>Task</th>
-                <th>Status</th>
-                <th style="text-align: right">Duration</th>
-                <th>Error</th>
-              </tr>
-            </thead>
-            <tbody>
-              {tick.tasks.map((t) => (
-                <tr>
-                  <td>
-                    <code>{t.name}</code>
-                  </td>
-                  <td class={t.ok ? "admin-ap-status-ok" : "admin-ap-status-fail"}>
+          <div class="adm-autopilot-tasks">
+            {tick.tasks.map((t) => (
+              <div class={"adm-autopilot-task " + (t.ok ? "is-ok" : "is-fail")}>
+                <div class="adm-autopilot-task-head">
+                  <span
+                    class={"adm-autopilot-task-light " + (t.ok ? "is-ok" : "is-fail")}
+                    aria-label={t.ok ? "ok" : "failed"}
+                  />
+                  <span class="adm-autopilot-task-name">{t.name}</span>
+                  <span class={"adm-autopilot-task-status " + (t.ok ? "is-ok" : "is-fail")}>
                     {t.ok ? "ok" : "failed"}
-                  </td>
-                  <td style="text-align: right">{t.durationMs}ms</td>
-                  <td style="color: var(--text-muted); font-size: 12.5px">
-                    {t.error || ""}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                  </span>
+                </div>
+                <div class="adm-autopilot-task-meta">
+                  <span>duration</span>
+                  <span>{t.durationMs}ms</span>
+                </div>
+                {t.error && (
+                  <div class="adm-autopilot-task-err">{t.error}</div>
+                )}
+              </div>
+            ))}
+          </div>
         ) : (
-          <div class="admin-ap-empty">
-            No ticks have run yet. The first tick fires after the interval
-            elapses. Click "Run tick now" to fire one immediately.
+          <div class="adm-autopilot-empty">
+            <div class="adm-autopilot-empty-orb" aria-hidden="true" />
+            <div class="adm-autopilot-empty-inner">
+              <div class="adm-autopilot-empty-icon" aria-hidden="true">{Icons.bot}</div>
+              <div class="adm-autopilot-empty-title">No ticks yet</div>
+              <div class="adm-autopilot-empty-sub">
+                The first tick fires after the interval elapses. Click "Run tick now" to fire one immediately.
+              </div>
+            </div>
           </div>
         )}
-        <p class="admin-ap-foot">
+        <p class="adm-autopilot-foot">
           Opt out with env <code>AUTOPILOT_DISABLED=1</code>. Adjust cadence
           with <code>AUTOPILOT_INTERVAL_MS</code> (milliseconds).
         </p>
       </div>
       <style dangerouslySetInnerHTML={{ __html: adminStyles }} />
+      <style dangerouslySetInnerHTML={{ __html: admAutopilotStyles }} />
     </Layout>
   );
 });

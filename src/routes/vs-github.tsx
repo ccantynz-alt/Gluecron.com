@@ -237,6 +237,60 @@ function verdictClass(v: Verdict): string {
   return "vsg-cell-no";
 }
 
+/**
+ * SVG glyphs for the comparison cells — replace the emoji in the visual
+ * cells (emoji are kept for accessibility/no-CSS fallback inside .vsg-icon).
+ * Gluecron-side cells get a polished gradient checkmark; GitHub-side cells
+ * get a plain glyph so the eye lands on the wins.
+ */
+function VerdictGlyph({ verdict, side }: { verdict: Verdict; side: "them" | "us" }) {
+  const id = `vsg-grad-${side}-${verdict}`;
+  if (verdict === "yes") {
+    if (side === "us") {
+      return (
+        <svg class="vsg-glyph vsg-glyph-yes-us" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <defs>
+            <linearGradient id={id} x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="#a48bff" />
+              <stop offset="100%" stop-color="#36c5d6" />
+            </linearGradient>
+          </defs>
+          <circle cx="12" cy="12" r="10" fill={`url(#${id})`} opacity="0.20" />
+          <path d="M7.5 12.5l3 3 6-6.5" stroke={`url(#${id})`} stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+      );
+    }
+    return (
+      <svg class="vsg-glyph vsg-glyph-yes-them" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.4" opacity="0.40" />
+        <path d="M7.5 12.5l3 3 6-6.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+      </svg>
+    );
+  }
+  if (verdict === "partial") {
+    return (
+      <svg class="vsg-glyph vsg-glyph-partial" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.4" opacity="0.55" />
+        <path d="M12 2a10 10 0 0 1 0 20z" fill="currentColor" opacity="0.55" />
+      </svg>
+    );
+  }
+  return (
+    <svg class="vsg-glyph vsg-glyph-no" width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.2" opacity="0.35" />
+      <path d="M8 8l8 8M16 8l-8 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+    </svg>
+  );
+}
+
+/**
+ * A row is a "Gluecron win" when Gluecron is yes and GitHub is no/partial.
+ * Those rows get a soft gradient wash so the visual scan tells the story.
+ */
+function isGluecronWin(row: Row): boolean {
+  return row.gc.verdict === "yes" && row.gh.verdict !== "yes";
+}
+
 // ---------------------------------------------------------------------------
 // Route
 // ---------------------------------------------------------------------------
@@ -246,35 +300,47 @@ vsGithub.get("/vs-github", (c) => {
   return c.html(
     <Layout title="Gluecron vs GitHub" user={user}>
       <style dangerouslySetInnerHTML={{ __html: pageCss }} />
-      <div class="vsg-root">
-        {/* ---------- Hero ---------- */}
+      <div class="vsg-page vsg-root">
+        {/* ---------- Hero (2026 polish: gradient hairline + orb + grad headline) ---------- */}
         <header class="vsg-hero">
-          <div class="eyebrow">Side by side</div>
-          <h1 class="display vsg-hero-title">
-            Gluecron <span class="vsg-vs">vs</span>{" "}
-            <span class="vsg-gh-word">GitHub</span>
-          </h1>
-          <p class="vsg-hero-sub">
-            The git host built around Claude.
-          </p>
-          <div class="vsg-logos">
-            <div class="vsg-logo-card vsg-logo-them">
-              <span class="vsg-logo-text">GitHub</span>
-              <span class="vsg-logo-sub">the incumbent</span>
+          <div class="vsg-hero-orb" aria-hidden="true" />
+          <div class="vsg-hero-inner">
+            <div class="vsg-eyebrow">
+              <span class="vsg-eyebrow-pill" aria-hidden="true">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              </span>
+              Side by side · The honest scorecard · Updated 2026-05
             </div>
-            <div class="vsg-logo-vs" aria-hidden="true">vs</div>
-            <div class="vsg-logo-card vsg-logo-us">
-              <span class="vsg-logo-text gradient-text">gluecron</span>
-              <span class="vsg-logo-sub">the Claude-native one</span>
+            <h1 class="vsg-hero-title">
+              Gluecron{" "}
+              <span class="vsg-vs">vs</span>{" "}
+              <span class="vsg-gh-word">GitHub</span>
+            </h1>
+            <p class="vsg-hero-sub">
+              The git host built around Claude. One base-URL swap, three new
+              superpowers, zero per-seat fees.
+            </p>
+            <div class="vsg-logos">
+              <div class="vsg-logo-card vsg-logo-them">
+                <span class="vsg-logo-text">GitHub</span>
+                <span class="vsg-logo-sub">the incumbent</span>
+              </div>
+              <div class="vsg-logo-vs" aria-hidden="true">vs</div>
+              <div class="vsg-logo-card vsg-logo-us">
+                <span class="vsg-logo-text vsg-title-grad">gluecron</span>
+                <span class="vsg-logo-sub">the Claude-native one</span>
+              </div>
             </div>
-          </div>
-          <div class="vsg-hero-cta">
-            <a href="/import" class="btn btn-primary btn-lg">
-              Migrate from GitHub in 60 seconds &rarr;
-            </a>
-            <a href="/demo" class="btn btn-ghost btn-lg">
-              Try the demo
-            </a>
+            <div class="vsg-hero-cta">
+              <a href="/import" class="btn btn-primary btn-lg">
+                Migrate from GitHub in 60 seconds &rarr;
+              </a>
+              <a href="/demo" class="btn btn-ghost btn-lg">
+                Try the demo
+              </a>
+            </div>
           </div>
         </header>
 
@@ -293,42 +359,55 @@ vsGithub.get("/vs-github", (c) => {
           <div class="vsg-table" role="table" aria-label="Gluecron vs GitHub feature comparison">
             <div class="vsg-thead" role="row">
               <div class="vsg-th vsg-th-feature" role="columnheader">Feature</div>
-              <div class="vsg-th vsg-th-them" role="columnheader">GitHub</div>
-              <div class="vsg-th vsg-th-us" role="columnheader">Gluecron</div>
+              <div class="vsg-th vsg-th-them" role="columnheader">
+                <span class="vsg-th-dot vsg-th-dot-them" aria-hidden="true" />
+                GitHub
+              </div>
+              <div class="vsg-th vsg-th-us" role="columnheader">
+                <span class="vsg-th-dot vsg-th-dot-us" aria-hidden="true" />
+                Gluecron
+              </div>
             </div>
 
             {CATEGORIES.map((cat) => (
               <>
                 <div class="vsg-cat-row" role="row">
                   <div class="vsg-cat-title" role="cell">
+                    <span class="vsg-cat-bar" aria-hidden="true" />
                     {cat.title}
                   </div>
                 </div>
-                {cat.rows.map((row) => (
-                  <div class="vsg-row" role="row">
-                    <div class="vsg-cell vsg-cell-feature" role="cell">
-                      {row.feature}
+                {cat.rows.map((row) => {
+                  const win = isGluecronWin(row);
+                  return (
+                    <div class={`vsg-row${win ? " vsg-row-win" : ""}`} role="row">
+                      <div class="vsg-cell vsg-cell-feature" role="cell">
+                        {win && <span class="vsg-win-bar" aria-hidden="true" />}
+                        {row.feature}
+                      </div>
+                      <div
+                        class={`vsg-cell vsg-cell-them ${verdictClass(row.gh.verdict)}`}
+                        role="cell"
+                      >
+                        <VerdictGlyph verdict={row.gh.verdict} side="them" />
+                        <span class="vsg-icon vsg-icon-fallback" aria-hidden="true">
+                          {verdictIcon(row.gh.verdict)}
+                        </span>
+                        <span class="vsg-note">{row.gh.note}</span>
+                      </div>
+                      <div
+                        class={`vsg-cell vsg-cell-us ${verdictClass(row.gc.verdict)}`}
+                        role="cell"
+                      >
+                        <VerdictGlyph verdict={row.gc.verdict} side="us" />
+                        <span class="vsg-icon vsg-icon-fallback" aria-hidden="true">
+                          {verdictIcon(row.gc.verdict)}
+                        </span>
+                        <span class="vsg-note">{row.gc.note}</span>
+                      </div>
                     </div>
-                    <div
-                      class={`vsg-cell vsg-cell-them ${verdictClass(row.gh.verdict)}`}
-                      role="cell"
-                    >
-                      <span class="vsg-icon" aria-hidden="true">
-                        {verdictIcon(row.gh.verdict)}
-                      </span>
-                      <span class="vsg-note">{row.gh.note}</span>
-                    </div>
-                    <div
-                      class={`vsg-cell vsg-cell-us ${verdictClass(row.gc.verdict)}`}
-                      role="cell"
-                    >
-                      <span class="vsg-icon" aria-hidden="true">
-                        {verdictIcon(row.gc.verdict)}
-                      </span>
-                      <span class="vsg-note">{row.gc.note}</span>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </>
             ))}
           </div>
@@ -337,19 +416,29 @@ vsGithub.get("/vs-github", (c) => {
         {/* ---------- The killer move ---------- */}
         <section class="vsg-section vsg-killer">
           <div class="vsg-killer-card">
-            <div class="eyebrow">The killer move</div>
-            <h2 class="vsg-killer-headline">
-              Toggle Sleep Mode, walk away,{" "}
-              <span class="gradient-text">wake up to a digest.</span>
-            </h2>
-            <p class="vsg-killer-sub">
-              GitHub: not possible. Gluecron: ships in L1. While you sleep,
-              Claude auto-merges green PRs, builds features from{" "}
-              <code>ai:build</code> issues, and patches the gates that fail.
-            </p>
-            <a href="/sleep-mode" class="btn btn-secondary btn-lg">
-              See how Sleep Mode works &rarr;
-            </a>
+            <div class="vsg-killer-orb" aria-hidden="true" />
+            <div class="vsg-killer-inner">
+              <div class="vsg-eyebrow">
+                <span class="vsg-eyebrow-pill" aria-hidden="true">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+                  </svg>
+                </span>
+                The killer move
+              </div>
+              <h2 class="vsg-killer-headline">
+                Toggle Sleep Mode, walk away,{" "}
+                <span class="vsg-title-grad">wake up to a digest.</span>
+              </h2>
+              <p class="vsg-killer-sub">
+                GitHub: not possible. Gluecron: ships in L1. While you sleep,
+                Claude auto-merges green PRs, builds features from{" "}
+                <code>ai:build</code> issues, and patches the gates that fail.
+              </p>
+              <a href="/sleep-mode" class="btn btn-secondary btn-lg">
+                See how Sleep Mode works &rarr;
+              </a>
+            </div>
           </div>
         </section>
 
@@ -371,9 +460,10 @@ vsGithub.get("/vs-github", (c) => {
 
         {/* ---------- CTA ---------- */}
         <section class="vsg-section vsg-cta-section">
+          <div class="vsg-cta-orb" aria-hidden="true" />
           <h2 class="vsg-cta-title">
             Stop renting your repos.{" "}
-            <span class="gradient-text">Start owning your stack.</span>
+            <span class="vsg-title-grad">Start owning your stack.</span>
           </h2>
           <p class="vsg-cta-sub">
             One command imports a GitHub repo. One toggle hands the night
@@ -394,32 +484,100 @@ vsGithub.get("/vs-github", (c) => {
 });
 
 const pageCss = `
-  .vsg-root {
+  /* ───────── Scoped under .vsg-page so nothing leaks ───────── */
+  .vsg-page.vsg-root {
     max-width: 1120px;
     margin: 0 auto;
     padding: 48px 24px 80px;
   }
 
-  /* ---------- Hero ---------- */
-  .vsg-hero { text-align: center; padding: 32px 0 48px; }
-  .vsg-hero-title {
+  /* ---------- Gradient text utility (scoped local copy) ---------- */
+  .vsg-page .vsg-title-grad {
+    background-image: linear-gradient(135deg, #a48bff 0%, #8c6dff 50%, #36c5d6 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+  }
+
+  /* ---------- Hero (2026 polish — hairline + orb + grad headline) ---------- */
+  .vsg-page .vsg-hero {
+    position: relative;
+    text-align: center;
+    padding: clamp(28px, 4vw, 56px) clamp(24px, 4vw, 48px);
+    margin-bottom: 48px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    overflow: hidden;
+    box-shadow: 0 1px 0 rgba(255,255,255,0.04), 0 20px 48px -16px rgba(0,0,0,0.45);
+  }
+  .vsg-page .vsg-hero::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent 0%, #8c6dff 30%, #36c5d6 70%, transparent 100%);
+    opacity: 0.78;
+    pointer-events: none;
+    z-index: 2;
+  }
+  .vsg-page .vsg-hero-orb {
+    position: absolute;
+    inset: -28% -10% auto auto;
+    width: 520px; height: 520px;
+    background: radial-gradient(circle, rgba(140,109,255,0.22), rgba(54,197,214,0.10) 45%, transparent 70%);
+    filter: blur(80px);
+    opacity: 0.75;
+    pointer-events: none;
+    z-index: 0;
+  }
+  .vsg-page .vsg-hero-inner { position: relative; z-index: 1; }
+
+  .vsg-page .vsg-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--text-muted);
+    font-weight: 600;
+    margin-bottom: 18px;
+  }
+  .vsg-page .vsg-eyebrow-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px; height: 18px;
+    border-radius: 6px;
+    background: rgba(140,109,255,0.14);
+    color: #b69dff;
+    box-shadow: inset 0 0 0 1px rgba(140,109,255,0.35);
+  }
+
+  .vsg-page .vsg-hero-title {
+    font-family: var(--font-display);
     font-size: clamp(40px, 7vw, 80px);
-    line-height: 1.05;
-    letter-spacing: -0.03em;
-    margin: 16px 0 16px;
+    line-height: 1.04;
+    letter-spacing: -0.034em;
+    font-weight: 800;
+    margin: 6px 0 16px;
     color: var(--text-strong);
   }
-  .vsg-vs {
+  .vsg-page .vsg-vs {
     font-family: var(--font-mono);
-    font-size: 0.55em;
+    font-size: 0.42em;
     color: var(--text-faint);
     text-transform: lowercase;
-    letter-spacing: 0.06em;
-    vertical-align: 0.18em;
-    padding: 0 0.2em;
+    letter-spacing: 0.10em;
+    vertical-align: 0.32em;
+    padding: 0 0.25em;
+    font-weight: 500;
   }
-  .vsg-gh-word { color: var(--text-muted); }
-  .vsg-hero-sub {
+  .vsg-page .vsg-gh-word { color: var(--text-muted); }
+  .vsg-page .vsg-hero-sub {
     max-width: 640px;
     margin: 0 auto 32px;
     color: var(--text-muted);
@@ -427,16 +585,16 @@ const pageCss = `
     line-height: 1.55;
   }
 
-  .vsg-logos {
+  .vsg-page .vsg-logos {
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 18px;
-    margin: 32px auto 28px;
+    margin: 28px auto 28px;
     flex-wrap: wrap;
   }
-  .vsg-logo-card {
-    background: var(--bg-elevated);
+  .vsg-page .vsg-logo-card {
+    background: var(--bg);
     border: 1px solid var(--border);
     border-radius: 14px;
     padding: 20px 32px;
@@ -446,26 +604,27 @@ const pageCss = `
     gap: 6px;
     align-items: center;
   }
-  .vsg-logo-us {
+  .vsg-page .vsg-logo-us {
     border-color: rgba(140,109,255,0.35);
+    background: linear-gradient(160deg, rgba(140,109,255,0.07), rgba(54,197,214,0.04) 55%, var(--bg) 100%);
     box-shadow: 0 0 0 1px rgba(140,109,255,0.18), 0 12px 32px -10px rgba(140,109,255,0.30);
   }
-  .vsg-logo-text {
+  .vsg-page .vsg-logo-text {
     font-family: var(--font-display);
     font-size: 32px;
     font-weight: 700;
     letter-spacing: -0.025em;
     line-height: 1;
   }
-  .vsg-logo-them .vsg-logo-text { color: var(--text); }
-  .vsg-logo-sub {
+  .vsg-page .vsg-logo-them .vsg-logo-text { color: var(--text); }
+  .vsg-page .vsg-logo-sub {
     font-family: var(--font-mono);
     font-size: 10.5px;
     letter-spacing: 0.14em;
     text-transform: uppercase;
     color: var(--text-faint);
   }
-  .vsg-logo-vs {
+  .vsg-page .vsg-logo-vs {
     font-family: var(--font-mono);
     font-size: 14px;
     color: var(--text-faint);
@@ -473,7 +632,7 @@ const pageCss = `
     text-transform: uppercase;
   }
 
-  .vsg-hero-cta {
+  .vsg-page .vsg-hero-cta {
     display: flex;
     gap: 12px;
     justify-content: center;
@@ -482,25 +641,40 @@ const pageCss = `
   }
 
   /* ---------- Section base ---------- */
-  .vsg-section { margin: 64px 0; }
+  .vsg-page .vsg-section { margin: 64px 0; }
+  .vsg-page .vsg-section .section-header { text-align: center; margin-bottom: 8px; }
 
-  /* ---------- Comparison table ---------- */
-  .vsg-table {
+  /* ---------- Comparison table (polished, gradient-highlight on wins) ---------- */
+  .vsg-page .vsg-table {
     margin: 32px auto 0;
     border: 1px solid var(--border);
-    border-radius: 14px;
+    border-radius: 16px;
     overflow: hidden;
     background: var(--bg-elevated);
+    box-shadow: 0 1px 0 rgba(255,255,255,0.04), 0 14px 40px -20px rgba(0,0,0,0.55);
   }
-  .vsg-thead {
+  .vsg-page .vsg-thead {
     display: grid;
     grid-template-columns: 1.7fr 1fr 1fr;
     align-items: center;
     padding: 14px 20px;
     border-bottom: 1px solid var(--border);
-    background: var(--bg-hover, rgba(255,255,255,0.02));
+    background:
+      linear-gradient(180deg, rgba(255,255,255,0.025), transparent),
+      var(--bg-elevated);
+    position: relative;
   }
-  .vsg-th {
+  .vsg-page .vsg-thead::after {
+    content: '';
+    position: absolute;
+    left: 0; right: 0; bottom: -1px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent 0%, rgba(140,109,255,0.50) 30%, rgba(54,197,214,0.50) 70%, transparent 100%);
+  }
+  .vsg-page .vsg-th {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
     font-family: var(--font-mono);
     font-size: 11px;
     letter-spacing: 0.14em;
@@ -508,16 +682,28 @@ const pageCss = `
     color: var(--text-faint);
     font-weight: 600;
   }
-  .vsg-th-them, .vsg-th-us { text-align: left; }
-  .vsg-th-us { color: var(--accent); }
-
-  .vsg-cat-row {
-    padding: 14px 20px 6px;
-    border-top: 1px solid var(--border-subtle, var(--border));
-    background: var(--accent-gradient-faint, rgba(140,109,255,0.04));
+  .vsg-page .vsg-th-them, .vsg-page .vsg-th-us { text-align: left; }
+  .vsg-page .vsg-th-us { color: #b69dff; }
+  .vsg-page .vsg-th-dot {
+    width: 7px; height: 7px; border-radius: 9999px;
+    flex-shrink: 0;
   }
-  .vsg-cat-row:first-of-type { border-top: none; }
-  .vsg-cat-title {
+  .vsg-page .vsg-th-dot-them { background: var(--text-faint); opacity: 0.6; }
+  .vsg-page .vsg-th-dot-us {
+    background: linear-gradient(135deg, #8c6dff, #36c5d6);
+    box-shadow: 0 0 0 3px rgba(140,109,255,0.16);
+  }
+
+  .vsg-page .vsg-cat-row {
+    padding: 16px 20px 8px;
+    border-top: 1px solid var(--border-subtle, var(--border));
+    background: linear-gradient(90deg, rgba(140,109,255,0.06), rgba(54,197,214,0.025) 45%, transparent 100%);
+  }
+  .vsg-page .vsg-cat-row:first-of-type { border-top: none; }
+  .vsg-page .vsg-cat-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
     font-family: var(--font-mono);
     font-size: 11px;
     letter-spacing: 0.16em;
@@ -525,70 +711,136 @@ const pageCss = `
     color: var(--accent);
     font-weight: 700;
   }
+  .vsg-page .vsg-cat-bar {
+    display: inline-block;
+    width: 18px; height: 2px;
+    background: linear-gradient(90deg, #8c6dff, #36c5d6);
+    border-radius: 2px;
+  }
 
-  .vsg-row {
+  .vsg-page .vsg-row {
     display: grid;
     grid-template-columns: 1.7fr 1fr 1fr;
     align-items: stretch;
-    padding: 12px 20px;
+    padding: 14px 20px;
     border-top: 1px solid var(--border-subtle, var(--border));
     font-size: 14px;
-    transition: background var(--t-fast, 0.15s) ease;
+    transition: background 150ms ease;
+    position: relative;
   }
-  .vsg-row:hover { background: var(--bg-hover, rgba(255,255,255,0.02)); }
-  .vsg-cell {
+  .vsg-page .vsg-row:hover { background: rgba(255,255,255,0.025); }
+
+  /* Gluecron-win row: soft gradient wash + accent left bar */
+  .vsg-page .vsg-row-win {
+    background: linear-gradient(90deg, rgba(140,109,255,0.05) 0%, rgba(54,197,214,0.025) 45%, transparent 100%);
+  }
+  .vsg-page .vsg-row-win:hover {
+    background: linear-gradient(90deg, rgba(140,109,255,0.085) 0%, rgba(54,197,214,0.04) 45%, transparent 100%);
+  }
+  .vsg-page .vsg-win-bar {
+    position: absolute;
+    left: 0;
+    top: 18%;
+    bottom: 18%;
+    width: 2px;
+    border-radius: 2px;
+    background: linear-gradient(180deg, #8c6dff, #36c5d6);
+    box-shadow: 0 0 8px rgba(140,109,255,0.45);
+  }
+
+  .vsg-page .vsg-cell {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     padding-right: 12px;
+    min-width: 0;
   }
-  .vsg-cell-feature {
+  .vsg-page .vsg-cell-feature {
     color: var(--text-strong);
     font-weight: 500;
+    position: relative;
   }
-  .vsg-icon {
+  .vsg-page .vsg-row-win .vsg-cell-feature {
+    color: var(--text-strong);
+    font-weight: 600;
+  }
+  .vsg-page .vsg-icon {
     flex-shrink: 0;
     font-size: 14px;
     line-height: 1;
   }
-  .vsg-note {
+  /* The emoji are a fallback only — hide when SVG glyph is present. */
+  .vsg-page .vsg-icon-fallback { display: none; }
+  .vsg-page .vsg-glyph { flex-shrink: 0; }
+  .vsg-page .vsg-glyph-yes-them { color: var(--text); }
+  .vsg-page .vsg-glyph-partial { color: #f0c674; }
+  .vsg-page .vsg-glyph-no { color: var(--text-faint); }
+  .vsg-page .vsg-note {
     color: var(--text-muted);
     font-size: 13px;
     line-height: 1.4;
   }
-  .vsg-cell-yes .vsg-note { color: var(--text); }
-  .vsg-cell-partial .vsg-note { color: var(--text-muted); }
-  .vsg-cell-no .vsg-note { color: var(--text-faint); }
+  .vsg-page .vsg-cell-us.vsg-cell-yes .vsg-note { color: var(--text-strong); font-weight: 500; }
+  .vsg-page .vsg-cell-yes .vsg-note { color: var(--text); }
+  .vsg-page .vsg-cell-partial .vsg-note { color: var(--text-muted); }
+  .vsg-page .vsg-cell-no .vsg-note { color: var(--text-faint); }
 
   @media (max-width: 720px) {
-    .vsg-thead, .vsg-row { grid-template-columns: 1.4fr 1fr 1fr; padding: 10px 12px; }
-    .vsg-note { font-size: 12px; }
+    .vsg-page .vsg-thead, .vsg-page .vsg-row { grid-template-columns: 1.4fr 1fr 1fr; padding: 10px 12px; }
+    .vsg-page .vsg-note { font-size: 12px; }
+    .vsg-page .vsg-glyph { width: 18px; height: 18px; }
   }
 
-  /* ---------- Killer move ---------- */
-  .vsg-killer-card {
-    padding: 40px 32px;
+  /* ---------- Killer move (now also gets hairline + orb treatment) ---------- */
+  .vsg-page .vsg-killer-card {
+    position: relative;
+    padding: clamp(32px, 4vw, 56px) clamp(24px, 4vw, 40px);
     border: 1px solid rgba(140,109,255,0.35);
-    border-radius: 18px;
+    border-radius: 20px;
     background:
       linear-gradient(135deg, rgba(140,109,255,0.10), rgba(54,197,214,0.06)),
       var(--bg-elevated);
     text-align: center;
+    overflow: hidden;
+    box-shadow: 0 1px 0 rgba(255,255,255,0.04), 0 20px 48px -18px rgba(140,109,255,0.30);
   }
-  .vsg-killer-headline {
+  .vsg-page .vsg-killer-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent 0%, #8c6dff 30%, #36c5d6 70%, transparent 100%);
+    opacity: 0.78;
+    pointer-events: none;
+  }
+  .vsg-page .vsg-killer-orb {
+    position: absolute;
+    inset: auto auto -30% -10%;
+    width: 420px; height: 420px;
+    background: radial-gradient(circle, rgba(54,197,214,0.18), rgba(140,109,255,0.10) 45%, transparent 70%);
+    filter: blur(80px);
+    opacity: 0.75;
+    pointer-events: none;
+    z-index: 0;
+  }
+  .vsg-page .vsg-killer-inner { position: relative; z-index: 1; }
+  .vsg-page .vsg-killer-headline {
+    font-family: var(--font-display);
     font-size: clamp(24px, 3.8vw, 40px);
     line-height: 1.15;
-    margin: 12px 0 16px;
+    margin: 10px 0 16px;
     letter-spacing: -0.025em;
+    font-weight: 700;
+    color: var(--text-strong);
   }
-  .vsg-killer-sub {
+  .vsg-page .vsg-killer-sub {
     max-width: 620px;
     margin: 0 auto 24px;
     color: var(--text-muted);
     line-height: 1.55;
     font-size: 15px;
   }
-  .vsg-killer-sub code {
+  .vsg-page .vsg-killer-sub code {
     background: rgba(255,255,255,0.06);
     border: 1px solid rgba(255,255,255,0.10);
     padding: 1px 6px;
@@ -598,58 +850,89 @@ const pageCss = `
   }
 
   /* ---------- FAQ ---------- */
-  .vsg-faq-grid {
+  .vsg-page .vsg-faq-grid {
     margin-top: 32px;
     display: grid;
     grid-template-columns: repeat(2, 1fr);
     gap: 18px;
   }
-  .vsg-faq {
+  .vsg-page .vsg-faq {
     background: var(--bg-elevated);
     border: 1px solid var(--border);
-    border-radius: 12px;
+    border-radius: 14px;
     padding: 22px;
+    transition: border-color 160ms ease, transform 160ms ease;
   }
-  .vsg-faq-q {
+  .vsg-page .vsg-faq:hover {
+    border-color: rgba(140,109,255,0.35);
+    transform: translateY(-2px);
+  }
+  .vsg-page .vsg-faq-q {
     margin: 0 0 10px;
+    font-family: var(--font-display);
     font-size: 16px;
     font-weight: 600;
     color: var(--text-strong);
     letter-spacing: -0.015em;
   }
-  .vsg-faq-a {
+  .vsg-page .vsg-faq-a {
     margin: 0;
     color: var(--text-muted);
     font-size: 14px;
     line-height: 1.6;
   }
   @media (max-width: 720px) {
-    .vsg-faq-grid { grid-template-columns: 1fr; }
+    .vsg-page .vsg-faq-grid { grid-template-columns: 1fr; }
   }
 
   /* ---------- CTA ---------- */
-  .vsg-cta-section {
+  .vsg-page .vsg-cta-section {
+    position: relative;
     text-align: center;
-    padding: 56px 24px;
-    background: var(--accent-gradient-soft, rgba(140,109,255,0.06));
+    padding: clamp(40px, 5vw, 64px) 24px;
+    background: var(--bg-elevated);
     border: 1px solid var(--border);
-    border-radius: 18px;
+    border-radius: 20px;
+    overflow: hidden;
+    box-shadow: 0 1px 0 rgba(255,255,255,0.04), 0 18px 44px -18px rgba(0,0,0,0.42);
   }
-  .vsg-cta-title {
+  .vsg-page .vsg-cta-section::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent 0%, #8c6dff 30%, #36c5d6 70%, transparent 100%);
+    opacity: 0.75;
+  }
+  .vsg-page .vsg-cta-orb {
+    position: absolute;
+    inset: -25% auto auto 50%;
+    transform: translateX(-50%);
+    width: 620px; height: 360px;
+    background: radial-gradient(ellipse, rgba(140,109,255,0.18), rgba(54,197,214,0.08) 45%, transparent 70%);
+    filter: blur(80px);
+    opacity: 0.6;
+    pointer-events: none;
+    z-index: 0;
+  }
+  .vsg-page .vsg-cta-section > * { position: relative; z-index: 1; }
+  .vsg-page .vsg-cta-title {
+    font-family: var(--font-display);
     font-size: clamp(26px, 4vw, 44px);
     line-height: 1.1;
     margin: 0 0 14px;
-    letter-spacing: -0.025em;
+    letter-spacing: -0.028em;
+    font-weight: 800;
     color: var(--text-strong);
   }
-  .vsg-cta-sub {
+  .vsg-page .vsg-cta-sub {
     max-width: 560px;
     margin: 0 auto 28px;
     color: var(--text-muted);
     line-height: 1.55;
     font-size: 15px;
   }
-  .vsg-cta-buttons {
+  .vsg-page .vsg-cta-buttons {
     display: flex;
     gap: 12px;
     justify-content: center;

@@ -20,6 +20,8 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { runCommit, runAiCommitMsg } from "./commands/commit";
+import { runHook } from "./install-hook";
 
 const VERSION = "0.1.0";
 const DEFAULT_HOST = process.env.GLUECRON_HOST || "http://localhost:3000";
@@ -117,6 +119,11 @@ Usage:
   gluecron host [url]                  Get or set the server URL
   gluecron deploy [--repo owner/name] [--workflow id] [--ref branch] [--no-watch]
                                        Trigger a Hetzner deploy via GitHub Actions
+  gluecron commit [-a] [-m <msg>] [-y] [--plain]
+                                       Commit with an AI-drafted message
+  gluecron ai commit-msg               Print an AI commit draft (used by hooks)
+  gluecron hook install commit-msg     Install the prepare-commit-msg hook
+  gluecron hook uninstall commit-msg   Remove the hook
   gluecron config set <key> <value>    Set a config value (e.g. github-token)
   gluecron version                     Print version
   gluecron help                        Print this help
@@ -684,6 +691,19 @@ export async function dispatch(argv: string[], out = console.log): Promise<numbe
         return await handleGqlCmd(cfg, rest, out);
       case "deploy":
         return await handleDeployCmd(cfg, rest, out);
+      case "commit":
+        return await runCommit(rest, { host: cfg.host, token: cfg.token }, { out });
+      case "ai":
+        if (rest[0] === "commit-msg") {
+          return await runAiCommitMsg(
+            { host: cfg.host, token: cfg.token },
+            { out }
+          );
+        }
+        out("usage: gluecron ai commit-msg");
+        return 1;
+      case "hook":
+        return await runHook(rest, { out });
       case "config":
         return await handleConfigCmd(cfg, rest, out);
       default:

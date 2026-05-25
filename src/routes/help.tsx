@@ -546,6 +546,65 @@ help.get("/help", (c) => {
           </div>
         </section>
 
+        {/* ─── Setup AI commits ─── */}
+        <section id="ai-commits" class="help-section">
+          <div class="help-section-head">
+            <div class="help-section-eyebrow">CLI</div>
+            <h2 class="help-section-title">Setup AI commits</h2>
+            <p class="help-section-desc">
+              Let Claude write your commit messages. Two ways in: an
+              explicit <code>gluecron commit</code> wrapper, or a git
+              hook that fires whenever <code>git commit</code> runs
+              without <code>-m</code>.
+            </p>
+          </div>
+          <div class="help-section-body">
+            <div class="help-item">
+              <strong>1. Install the CLI.</strong> Grab a personal
+              access token from{" "}
+              <a href="/settings/tokens">/settings/tokens</a>, then:
+              <pre class="help-code">
+{`bun build --compile --outfile gluecron cli/gluecron.ts
+sudo mv gluecron /usr/local/bin/
+gluecron login   # paste the token`}
+              </pre>
+            </div>
+            <div class="help-item">
+              <strong>2. Use <code>gluecron commit</code>.</strong>{" "}
+              Stage your changes the usual way, then:
+              <pre class="help-code">
+{`gluecron commit          # AI drafts → [y]es / [e]dit / [n]o
+gluecron commit -a       # same, but stages tracked changes first
+gluecron commit -m "..." # plain pass-through, no AI`}
+              </pre>
+              The draft is a Conventional Commit by default
+              (<code>feat(scope): subject</code> + body explaining why).
+              Pass <code>--plain</code> for a plain-English subject.
+            </div>
+            <div class="help-item">
+              <strong>3. Or: install the git hook.</strong> One-time
+              setup; every plain <code>git commit</code> (no <code>-m</code>)
+              gets a draft pre-filled into the editor.
+              <pre class="help-code">
+{`cd /path/to/your/repo
+gluecron hook install commit-msg
+# undo:
+gluecron hook uninstall commit-msg`}
+              </pre>
+              The hook only fires when the message is empty — explicit
+              <code> -m</code>, <code>--amend</code>, and merge commits
+              are left untouched.
+            </div>
+            <div class="help-item">
+              All AI calls hit <code>POST /api/v2/ai/commit-message</code>,
+              rate-limited to <strong>60 requests/minute per token</strong>.
+              If <code>ANTHROPIC_API_KEY</code> is unset on the server,
+              the endpoint falls back to a deterministic heuristic so
+              the CLI keeps working.
+            </div>
+          </div>
+        </section>
+
         {/* ─── Shortcuts ─── */}
         <section id="shortcuts" class="help-section">
           <div class="help-section-head">

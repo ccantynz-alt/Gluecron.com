@@ -68,6 +68,10 @@ import {
   computeAiSavingsForUser,
   computeLifetimeAiSavingsForUser,
 } from "../lib/ai-hours-saved";
+import {
+  generateCommitMessage,
+  DIFF_BYTE_CAP,
+} from "../lib/ai-commit-message";
 
 const apiv2 = new Hono<ApiAuthEnv & AgentAuthEnv>().basePath("/api/v2");
 
@@ -279,6 +283,111 @@ apiv2.get("/me/ai-savings", requireApiAuth, async (c) => {
     },
   });
 });
+
+// ─── AI: commit-message ─────────────────────────────────────────────────────
+//
+// POST /api/v2/ai/commit-message
+//
+// Body: { diff: string, style?: "conventional" | "plain" }
+// Returns: { subject, body }
+//
+// Powers the `gluecron commit` CLI + the `prepare-commit-msg` git hook.
+// Rate-limited to 60 req/min per token (this runs once per developer
+// commit; we don't want a runaway `git rebase -i exec` to burn $$$).
+// Falls back to a heuristic when ANTHROPIC_API_KEY is missing, so the
+// route never 5xx's on a misconfigured deploy — the CLI can always show
+// the developer something.
+
+interface AiCommitBucket {
+  count: number;
+  resetAt: number;
+}
+const _aiCommitBuckets = new Map<string, AiCommitBucket>();
+const AI_COMMIT_LIMIT = 60; // requests
+const AI_COMMIT_WINDOW_MS = 60_000; // per minute, per token
+
+function aiCommitRateLimit(c: {
+  req: { header: (k: string) => string | undefined };
+  get: (k: string) => unknown;
+}): { ok: true } | { ok: false; retryAfter: number } {
+  // Key on the raw bearer token where possible (so two CLIs sharing an
+  // IP each get their own bucket); fall back to user id for session
+  // callers (web UI) and to "anon" as a last resort.
+  const authHeader = c.req.header("Authorization") || "";
+  let key: string;
+  if (authHeader.toLowerCase().startsWith("bearer ")) {
+    // Hash the token so we don't keep the plaintext in memory forever.
+    const tok = authHeader.slice(7).trim();
+    const hasher = new Bun.CryptoHasher("sha256");
+    hasher.update(tok);
+    key = "tok:" + hasher.digest("hex").slice(0, 32);
+  } else {
+    const user = c.get("user") as { id?: string } | null | undefined;
+    key = user?.id ? `usr:${user.id}` : "anon";
+  }
+  const now = Date.now();
+  let bucket = _aiCommitBuckets.get(key);
+  if (!bucket || bucket.resetAt < now) {
+    bucket = { count: 0, resetAt: now + AI_COMMIT_WINDOW_MS };
+    _aiCommitBuckets.set(key, bucket);
+  }
+  bucket.count++;
+  if (bucket.count > AI_COMMIT_LIMIT) {
+    return {
+      ok: false,
+      retryAfter: Math.max(1, Math.ceil((bucket.resetAt - now) / 1000)),
+    };
+  }
+  return { ok: true };
+}
+
+apiv2.post(
+  "/ai/commit-message",
+  requireApiAuth,
+  requireScope("repo"),
+  async (c) => {
+    // In test env we keep the bucket disabled (matches the global pattern
+    // in src/middleware/rate-limit.ts — see the isTestEnv branch there).
+    const isTestEnv =
+      process.env.NODE_ENV !== "production" &&
+      (process.env.NODE_ENV === "test" || process.env.BUN_ENV === "test");
+    if (!isTestEnv) {
+      const gate = aiCommitRateLimit(c);
+      if (!gate.ok) {
+        c.header("Retry-After", String(gate.retryAfter));
+        return c.json(
+          {
+            error: "Rate limit exceeded — 60 commit-message requests per minute per token.",
+            retryAfter: gate.retryAfter,
+          },
+          429
+        );
+      }
+    }
+
+    let body: { diff?: unknown; style?: unknown } = {};
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: "Invalid JSON body" }, 400);
+    }
+    const diff = typeof body.diff === "string" ? body.diff : "";
+    if (!diff.trim()) {
+      return c.json({ error: "diff is required" }, 400);
+    }
+    // Hard cap so we never blow memory even before the lib truncates.
+    // Library re-truncates as a defence-in-depth measure.
+    const capped = diff.length > DIFF_BYTE_CAP * 4 ? diff.slice(0, DIFF_BYTE_CAP * 4) : diff;
+
+    const style =
+      body.style === "plain" || body.style === "conventional"
+        ? body.style
+        : "conventional";
+
+    const result = await generateCommitMessage(capped, { style });
+    return c.json(result);
+  }
+);
 
 apiv2.patch("/user", requireApiAuth, requireScope("user"), async (c) => {
   const user = c.get("user")!;
@@ -2677,6 +2786,10 @@ apiv2.get("/", (c) => {
       },
       activity: {
         "GET /api/v2/repos/:owner/:repo/activity": "Get activity feed",
+      },
+      ai: {
+        "POST /api/v2/ai/commit-message":
+          "Generate a Conventional Commits message from a staged diff (60/min/token)",
       },
       actions: {
         "POST /api/v2/repos/:owner/:repo/actions/workflows/:filename/dispatches":

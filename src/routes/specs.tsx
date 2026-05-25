@@ -11,6 +11,11 @@
  * parallel. We import it dynamically so this file compiles and its tests
  * pass even if the module is not yet on disk — if the import fails we
  * fall back to a "Backend not available" banner.
+ *
+ * 2026 polish: scoped `.specs-*` class system. Eyebrow + display headline +
+ * subtitle hero, card sections for the form + the "how this works" steps,
+ * primary CTA on the submit button. All form fields, names, actions, and
+ * the dynamic-import behaviour are unchanged.
  */
 import { Hono } from "hono";
 import { and, eq } from "drizzle-orm";
@@ -21,17 +26,6 @@ import { RepoHeader } from "../views/components";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
 import { listBranches } from "../git/repository";
-import {
-  Alert,
-  Button,
-  Container,
-  EmptyState,
-  Form,
-  FormGroup,
-  Select,
-  TextArea,
-  Text,
-} from "../views/ui";
 
 const specs = new Hono<AuthEnv>();
 
@@ -47,11 +41,341 @@ const DISABLE_ON_SUBMIT_JS = `
     var ta = form.querySelector('textarea[name="spec"]');
     if (btn) {
       btn.disabled = true;
-      btn.textContent = 'Working... this can take 10-30s';
+      btn.textContent = 'Working… this can take 10-30s';
     }
     if (ta) ta.readOnly = true;
   });
 })();
+`;
+
+// ─── Scoped CSS (.specs-*) ─────────────────────────────────────────────────
+const specsStyles = `
+  .specs-wrap { max-width: 1100px; margin: 0 auto; padding: var(--space-5) var(--space-4) var(--space-8); }
+
+  /* ─── Header ─── */
+  .specs-head { margin-bottom: var(--space-5); }
+  .specs-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    text-transform: uppercase;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    color: var(--text-muted);
+    font-weight: 600;
+    margin-bottom: 10px;
+  }
+  .specs-eyebrow-dot {
+    width: 8px; height: 8px;
+    border-radius: 9999px;
+    background: linear-gradient(135deg, #8c6dff, #36c5d6);
+    box-shadow: 0 0 0 3px rgba(140,109,255,0.18);
+  }
+  .specs-pill-experimental {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 8px;
+    margin-left: 4px;
+    border-radius: 9999px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    background: rgba(251,191,36,0.12);
+    color: #fde68a;
+    box-shadow: inset 0 0 0 1px rgba(251,191,36,0.32);
+  }
+  .specs-title {
+    font-family: var(--font-display);
+    font-size: clamp(26px, 3.6vw, 40px);
+    font-weight: 800;
+    letter-spacing: -0.028em;
+    line-height: 1.05;
+    margin: 0 0 6px;
+    color: var(--text-strong);
+  }
+  .specs-title-grad {
+    background-image: linear-gradient(135deg, #a48bff 0%, #8c6dff 50%, #36c5d6 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+  }
+  .specs-sub {
+    margin: 0;
+    font-size: 14px;
+    color: var(--text-muted);
+    line-height: 1.5;
+    max-width: 720px;
+  }
+  .specs-sub a { color: var(--accent); text-decoration: none; }
+  .specs-sub a:hover { text-decoration: underline; }
+  .specs-sub code {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    background: rgba(255,255,255,0.04);
+    padding: 1px 6px;
+    border-radius: 4px;
+  }
+
+  /* ─── Banners ─── */
+  .specs-banner {
+    margin-bottom: var(--space-4);
+    padding: 10px 14px;
+    border-radius: 10px;
+    font-size: 13.5px;
+    border: 1px solid var(--border);
+    background: rgba(255,255,255,0.025);
+    color: var(--text);
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    line-height: 1.45;
+  }
+  .specs-banner.is-info {
+    border-color: rgba(54,197,214,0.40);
+    background: rgba(54,197,214,0.08);
+    color: #cffafe;
+  }
+  .specs-banner.is-error {
+    border-color: rgba(248,113,113,0.40);
+    background: rgba(248,113,113,0.08);
+    color: #fecaca;
+  }
+  .specs-banner-dot {
+    width: 8px; height: 8px;
+    border-radius: 9999px;
+    background: currentColor;
+    margin-top: 6px;
+    flex-shrink: 0;
+  }
+  .specs-banner a {
+    color: inherit;
+    text-decoration: underline;
+    font-weight: 600;
+  }
+
+  /* ─── Section card ─── */
+  .specs-section {
+    margin-bottom: var(--space-5);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+    position: relative;
+  }
+  .specs-section::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent 0%, #8c6dff 30%, #36c5d6 70%, transparent 100%);
+    opacity: 0.55;
+    pointer-events: none;
+  }
+  .specs-section-head {
+    padding: var(--space-4) var(--space-5) var(--space-3);
+    border-bottom: 1px solid var(--border);
+  }
+  .specs-section-title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: -0.018em;
+    color: var(--text-strong);
+  }
+  .specs-section-sub {
+    margin: 6px 0 0;
+    font-size: 12.5px;
+    color: var(--text-muted);
+    line-height: 1.45;
+  }
+  .specs-section-body {
+    padding: var(--space-4) var(--space-5);
+  }
+
+  /* ─── Form fields ─── */
+  .specs-field { margin-bottom: var(--space-4); }
+  .specs-field:last-child { margin-bottom: 0; }
+  .specs-field-label {
+    display: block;
+    font-size: 11.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+  }
+  .specs-input,
+  .specs-select,
+  .specs-textarea {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 10px 12px;
+    font: inherit;
+    font-size: 13.5px;
+    color: var(--text);
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border-strong);
+    border-radius: 10px;
+    transition: border-color 120ms ease, background 120ms ease, box-shadow 120ms ease;
+  }
+  .specs-textarea {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 1.55;
+    resize: vertical;
+    min-height: 200px;
+  }
+  .specs-input:focus,
+  .specs-select:focus,
+  .specs-textarea:focus {
+    outline: none;
+    border-color: rgba(140,109,255,0.55);
+    background: rgba(255,255,255,0.05);
+    box-shadow: 0 0 0 3px rgba(140,109,255,0.18);
+  }
+  .specs-select {
+    appearance: none;
+    padding-right: 30px;
+    background-image:
+      linear-gradient(45deg, transparent 50%, var(--text-muted) 50%),
+      linear-gradient(135deg, var(--text-muted) 50%, transparent 50%);
+    background-position: right 12px top 50%, right 7px top 50%;
+    background-size: 5px 5px, 5px 5px;
+    background-repeat: no-repeat;
+  }
+  .specs-field-hint {
+    margin-top: 6px;
+    font-size: 11.5px;
+    color: var(--text-muted);
+    line-height: 1.45;
+  }
+
+  /* ─── Buttons ─── */
+  .specs-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding-top: 4px;
+  }
+  .specs-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 10px 18px;
+    border-radius: 10px;
+    font-size: 13.5px;
+    font-weight: 600;
+    text-decoration: none;
+    border: 1px solid transparent;
+    cursor: pointer;
+    font: inherit;
+    line-height: 1;
+    white-space: nowrap;
+    transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease, border-color 120ms ease, color 120ms ease;
+  }
+  .specs-btn-primary {
+    background: linear-gradient(135deg, #8c6dff 0%, #36c5d6 100%);
+    color: #ffffff;
+    box-shadow: 0 6px 18px -6px rgba(140,109,255,0.50), inset 0 1px 0 rgba(255,255,255,0.16);
+  }
+  .specs-btn-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 10px 24px -8px rgba(140,109,255,0.60), inset 0 1px 0 rgba(255,255,255,0.20);
+    color: #ffffff;
+    text-decoration: none;
+  }
+  .specs-btn-primary:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+    transform: none;
+    box-shadow: none;
+  }
+  .specs-actions-hint {
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  /* ─── How-this-works step cards ─── */
+  .specs-steps {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 10px;
+  }
+  .specs-step {
+    padding: 14px;
+    background: rgba(255,255,255,0.018);
+    border: 1px solid var(--border);
+    border-radius: 11px;
+    transition: border-color 120ms ease, background 120ms ease;
+  }
+  .specs-step:hover {
+    border-color: var(--border-strong);
+    background: rgba(255,255,255,0.03);
+  }
+  .specs-step-num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px; height: 24px;
+    border-radius: 7px;
+    background: rgba(140,109,255,0.16);
+    color: #c4b5fd;
+    box-shadow: inset 0 0 0 1px rgba(140,109,255,0.32);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 700;
+    margin-bottom: 10px;
+  }
+  .specs-step-title {
+    margin: 0 0 4px;
+    font-family: var(--font-display);
+    font-size: 13.5px;
+    font-weight: 700;
+    color: var(--text-strong);
+    letter-spacing: -0.005em;
+  }
+  .specs-step-body {
+    margin: 0;
+    font-size: 12.5px;
+    color: var(--text-muted);
+    line-height: 1.5;
+  }
+  .specs-step-body code {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    background: rgba(255,255,255,0.04);
+    padding: 1px 5px;
+    border-radius: 4px;
+    color: var(--text);
+  }
+
+  /* ─── 403 / not-found ─── */
+  .specs-empty {
+    max-width: 540px;
+    margin: var(--space-8) auto;
+    padding: var(--space-6);
+    text-align: center;
+    background: var(--bg-elevated);
+    border: 1px dashed var(--border-strong);
+    border-radius: 16px;
+  }
+  .specs-empty h2 {
+    font-family: var(--font-display);
+    font-size: 20px;
+    margin: 0 0 8px;
+    color: var(--text-strong);
+  }
+  .specs-empty p {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 13.5px;
+  }
 `;
 
 interface ResolvedRepo {
@@ -166,109 +490,141 @@ function SpecForm({
     ? baseRef
     : defaultBranch;
   return (
-    <Container maxWidth={820}>
-      <div
-        class="panel"
-        style="padding:14px 16px;margin-bottom:20px;border-left:3px solid var(--accent)"
-      >
-        <strong>Experimental</strong>
-        {" — "}
-        AI-generated PRs are draft by default. Review every line before
-        merging.
-      </div>
+    <div class="specs-wrap">
+      <header class="specs-head">
+        <div class="specs-eyebrow">
+          <span class="specs-eyebrow-dot" aria-hidden="true" />
+          Repository · Spec to PR
+          <span class="specs-pill-experimental">Experimental</span>
+        </div>
+        <h1 class="specs-title">
+          <span class="specs-title-grad">Describe it. Ship a draft.</span>
+        </h1>
+        <p class="specs-sub">
+          Write a feature in plain English. Claude drafts the code changes
+          and opens a pull request against the branch you pick. Every PR is{" "}
+          <strong>draft by default</strong> — review every line before merging.
+        </p>
+      </header>
 
       {fromIssueNumber && (
-        <Alert variant="info">
-          Building from issue{" "}
-          <a href={`/${ownerName}/${repoName}/issues/${fromIssueNumber}`}>
-            #{fromIssueNumber}
-            {fromIssueTitle ? ` — ${fromIssueTitle}` : ""}
-          </a>
-          . The spec below has been pre-filled from the issue and will
-          auto-close it on merge.
-        </Alert>
+        <div class="specs-banner is-info" role="status">
+          <span class="specs-banner-dot" aria-hidden="true" />
+          <span>
+            Building from issue{" "}
+            <a href={`/${ownerName}/${repoName}/issues/${fromIssueNumber}`}>
+              #{fromIssueNumber}
+              {fromIssueTitle ? ` — ${fromIssueTitle}` : ""}
+            </a>
+            . The spec below has been pre-filled and will auto-close the
+            issue on merge.
+          </span>
+        </div>
       )}
 
-      <h2 style="margin-bottom:4px">Spec to PR</h2>
-      <Text muted style="display:block;margin-bottom:16px">
-        Describe a feature in plain English. Claude will draft the code
-        changes and open a pull request against the branch you choose.
-      </Text>
-
-      {error && <Alert variant="error">{error}</Alert>}
-
-      <Form
-        method="post"
-        action={`/${ownerName}/${repoName}/spec`}
-        id="spec-form"
-      >
-        <FormGroup label="Feature spec" htmlFor="spec">
-          <TextArea
-            name="spec"
-            id="spec"
-            rows={10}
-            required
-            value={spec || ""}
-            placeholder="add a dark mode toggle to the settings page"
-          />
-        </FormGroup>
-
-        <FormGroup label="Base branch" htmlFor="baseRef">
-          <Select name="baseRef" id="baseRef" value={selectedBase}>
-            {branchList.map((b) => (
-              <option value={b} selected={b === selectedBase}>
-                {b}
-              </option>
-            ))}
-          </Select>
-        </FormGroup>
-
-        <Button type="submit" variant="primary">
-          Generate PR with AI
-        </Button>
-      </Form>
-
-      <div class="panel" style="margin-top:28px">
-        <div
-          class="panel-item"
-          style="flex-direction:column;align-items:flex-start;gap:4px;padding:14px 16px"
-        >
-          <strong>How this works</strong>
+      {error && (
+        <div class="specs-banner is-error" role="alert">
+          <span class="specs-banner-dot" aria-hidden="true" />
+          <span>{error}</span>
         </div>
-        <div class="panel-item" style="padding:12px 16px">
-          <div>
-            <strong>1. You write a spec.</strong>
-            {" "}
-            <Text muted>
-              A sentence or a paragraph describing the change you want.
-            </Text>
+      )}
+
+      <section class="specs-section">
+        <header class="specs-section-head">
+          <h2 class="specs-section-title">Feature spec</h2>
+          <p class="specs-section-sub">
+            One sentence or a paragraph. Be specific about files, behaviour,
+            or success criteria when you can.
+          </p>
+        </header>
+        <div class="specs-section-body">
+          <form
+            method="post"
+            action={`/${ownerName}/${repoName}/spec`}
+            id="spec-form"
+          >
+            <div class="specs-field">
+              <label class="specs-field-label" for="spec">What do you want built?</label>
+              <textarea
+                class="specs-textarea"
+                name="spec"
+                id="spec"
+                rows={10}
+                required
+                placeholder="add a dark mode toggle to the settings page"
+              >{spec || ""}</textarea>
+            </div>
+
+            <div class="specs-field">
+              <label class="specs-field-label" for="baseRef">Base branch</label>
+              <select
+                class="specs-select"
+                name="baseRef"
+                id="baseRef"
+                value={selectedBase}
+              >
+                {branchList.map((b) => (
+                  <option value={b} selected={b === selectedBase}>
+                    {b}
+                  </option>
+                ))}
+              </select>
+              <p class="specs-field-hint">
+                The draft PR will target this branch. Nothing lands without
+                your approval.
+              </p>
+            </div>
+
+            <div class="specs-actions">
+              <button type="submit" class="specs-btn specs-btn-primary">
+                Generate PR with AI
+              </button>
+              <span class="specs-actions-hint">Typically 10-30 seconds.</span>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      <section class="specs-section">
+        <header class="specs-section-head">
+          <h2 class="specs-section-title">How this works</h2>
+          <p class="specs-section-sub">
+            Three steps from spec to mergeable diff — all observable, all
+            reversible.
+          </p>
+        </header>
+        <div class="specs-section-body">
+          <div class="specs-steps">
+            <div class="specs-step">
+              <span class="specs-step-num">1</span>
+              <h3 class="specs-step-title">You write a spec.</h3>
+              <p class="specs-step-body">
+                A sentence or a paragraph describing the change you want.
+              </p>
+            </div>
+            <div class="specs-step">
+              <span class="specs-step-num">2</span>
+              <h3 class="specs-step-title">Claude drafts the diff.</h3>
+              <p class="specs-step-body">
+                We fetch the base branch, run Claude against the repo, and
+                commit the proposed changes to a new branch.
+              </p>
+            </div>
+            <div class="specs-step">
+              <span class="specs-step-num">3</span>
+              <h3 class="specs-step-title">A draft PR opens.</h3>
+              <p class="specs-step-body">
+                You review, edit, and merge on your terms. Nothing lands on{" "}
+                <code>{selectedBase}</code> automatically.
+              </p>
+            </div>
           </div>
         </div>
-        <div class="panel-item" style="padding:12px 16px">
-          <div>
-            <strong>2. Claude drafts the diff.</strong>
-            {" "}
-            <Text muted>
-              We fetch the base branch, run Claude against the repo, and
-              commit the proposed changes to a new branch.
-            </Text>
-          </div>
-        </div>
-        <div class="panel-item" style="padding:12px 16px">
-          <div>
-            <strong>3. A draft PR opens.</strong>
-            {" "}
-            <Text muted>
-              You review, edit, and merge on your terms. Nothing lands on
-              {" "}
-              <code>{selectedBase}</code> automatically.
-            </Text>
-          </div>
-        </div>
-      </div>
+      </section>
 
       <script dangerouslySetInnerHTML={{ __html: DISABLE_ON_SUBMIT_JS }} />
-    </Container>
+      <style dangerouslySetInnerHTML={{ __html: specsStyles }} />
+    </div>
   );
 }
 
@@ -280,9 +636,11 @@ specs.get("/:owner/:repo/spec", softAuth, requireAuth, async (c) => {
   if (!resolved) {
     return c.html(
       <Layout title="Not Found" user={user}>
-        <EmptyState title="Repository not found">
+        <div class="specs-empty">
+          <h2>Repository not found</h2>
           <p>No such repository.</p>
-        </EmptyState>
+        </div>
+        <style dangerouslySetInnerHTML={{ __html: specsStyles }} />
       </Layout>,
       404
     );
@@ -292,9 +650,11 @@ specs.get("/:owner/:repo/spec", softAuth, requireAuth, async (c) => {
     return c.html(
       <Layout title="Forbidden" user={user}>
         <RepoHeader owner={owner} repo={repo} />
-        <EmptyState title="Write access required">
+        <div class="specs-empty">
+          <h2>Write access required</h2>
           <p>You need write access to generate a spec-to-PR on this repository.</p>
-        </EmptyState>
+        </div>
+        <style dangerouslySetInnerHTML={{ __html: specsStyles }} />
       </Layout>,
       403
     );
@@ -367,9 +727,11 @@ specs.post("/:owner/:repo/spec", softAuth, requireAuth, async (c) => {
     return c.html(
       <Layout title="Forbidden" user={user}>
         <RepoHeader owner={owner} repo={repo} />
-        <EmptyState title="Write access required">
+        <div class="specs-empty">
+          <h2>Write access required</h2>
           <p>You need write access to generate a spec-to-PR on this repository.</p>
-        </EmptyState>
+        </div>
+        <style dangerouslySetInnerHTML={{ __html: specsStyles }} />
       </Layout>,
       403
     );

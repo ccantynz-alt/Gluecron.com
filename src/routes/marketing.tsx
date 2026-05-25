@@ -32,17 +32,28 @@ marketing.get("/pricing", (c) => {
 const PricingPage: FC = () => (
   <>
     <style dangerouslySetInnerHTML={{ __html: pricingCss }} />
-    <div class="mkt-root">
+    <div class="mkt-page-pricing mkt-root">
       <header class="mkt-hero">
-        <div class="eyebrow">Pricing</div>
-        <h1 class="display mkt-hero-title">
-          Honest pricing for{" "}
-          <span class="gradient-text">teams that ship.</span>
-        </h1>
-        <p class="mkt-hero-sub">
-          Self-hosting is free forever. Hosted plans price the AI calls, not
-          the seats. No one pays per developer.
-        </p>
+        <div class="mkt-hero-orb" aria-hidden="true" />
+        <div class="mkt-hero-inner">
+          <div class="mkt-eyebrow">
+            <span class="mkt-eyebrow-pill" aria-hidden="true">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="12" y1="1" x2="12" y2="23" />
+                <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+              </svg>
+            </span>
+            Pricing
+          </div>
+          <h1 class="display mkt-hero-title">
+            Honest pricing for{" "}
+            <span class="mkt-grad">teams that ship.</span>
+          </h1>
+          <p class="mkt-hero-sub">
+            Self-hosting is free forever. Hosted plans price the AI calls, not
+            the seats. No one pays per developer.
+          </p>
+        </div>
       </header>
 
       <section class="mkt-pricing-grid stagger">
@@ -254,19 +265,71 @@ marketing.get("/features", (c) => {
 const FeaturesPage: FC = () => (
   <>
     <style dangerouslySetInnerHTML={{ __html: featuresCss }} />
-    <div class="mkt-root">
+    <div class="mkt-page-features mkt-root">
       <header class="mkt-hero">
-        <div class="eyebrow">Features</div>
-        <h1 class="display mkt-hero-title">
-          A complete dev platform.{" "}
-          <span class="gradient-text">Nothing extra to buy.</span>
-        </h1>
-        <p class="mkt-hero-sub">
-          Hosting, CI, AI review, security scanning, deploy webhooks,
-          marketplace, packages, pages — every surface you need, ready on
-          day one.
-        </p>
+        <div class="mkt-hero-orb" aria-hidden="true" />
+        <div class="mkt-hero-inner">
+          <div class="mkt-eyebrow">
+            <span class="mkt-eyebrow-pill" aria-hidden="true">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+              </svg>
+            </span>
+            Features
+          </div>
+          <h1 class="display mkt-hero-title">
+            A complete dev platform.{" "}
+            <span class="mkt-grad">Nothing extra to buy.</span>
+          </h1>
+          <p class="mkt-hero-sub">
+            Hosting, CI, AI review, security scanning, deploy webhooks,
+            marketplace, packages, pages — every surface you need, ready on
+            day one.
+          </p>
+        </div>
       </header>
+
+      {/* 3-column feature grid teaser — at-a-glance pitch above the deep dives. */}
+      <section class="mkt-section mkt-feature-teaser">
+        <div class="mkt-teaser-grid">
+          <div class="mkt-teaser-card">
+            <div class="mkt-teaser-icon" aria-hidden="true">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+              </svg>
+            </div>
+            <h3 class="mkt-teaser-title">AI is a teammate</h3>
+            <p class="mkt-teaser-desc">
+              Claude reviews every PR, drafts changelogs, opens incident
+              issues, fixes failing gates — labelled and revertable.
+            </p>
+          </div>
+          <div class="mkt-teaser-card">
+            <div class="mkt-teaser-icon" aria-hidden="true">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+              </svg>
+            </div>
+            <h3 class="mkt-teaser-title">Green by default</h3>
+            <p class="mkt-teaser-desc">
+              Branch protection, secret scanning, required checks, merge
+              queue — pre-wired on every new repo. Nothing broken ships.
+            </p>
+          </div>
+          <div class="mkt-teaser-card">
+            <div class="mkt-teaser-icon" aria-hidden="true">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+              </svg>
+            </div>
+            <h3 class="mkt-teaser-title">Real-time everything</h3>
+            <p class="mkt-teaser-desc">
+              SSE for logs, comments, deploys, presence. No polling, no
+              spinners on tabs you've already loaded.
+            </p>
+          </div>
+        </div>
+      </section>
 
       <FeatureCategory
         eyebrow="Code intelligence"
@@ -504,18 +567,30 @@ marketing.get("/about", (c) => {
 const AboutPage: FC = () => (
   <>
     <style dangerouslySetInnerHTML={{ __html: aboutCss }} />
-    <div class="mkt-root">
+    <div class="mkt-page-about mkt-root">
       <header class="mkt-hero">
-        <div class="eyebrow">About</div>
-        <h1 class="display mkt-hero-title">
-          We're building the platform{" "}
-          <span class="gradient-text">software writes itself on.</span>
-        </h1>
-        <p class="mkt-hero-sub">
-          Most code in 2026 is written by AI. Most reviews are too. The
-          platforms hosting that code were built for a previous era.
-          Gluecron is built for this one.
-        </p>
+        <div class="mkt-hero-orb" aria-hidden="true" />
+        <div class="mkt-hero-inner">
+          <div class="mkt-eyebrow">
+            <span class="mkt-eyebrow-pill" aria-hidden="true">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="16" x2="12" y2="12" />
+                <line x1="12" y1="8" x2="12.01" y2="8" />
+              </svg>
+            </span>
+            About
+          </div>
+          <h1 class="display mkt-hero-title">
+            We're building the platform{" "}
+            <span class="mkt-grad">software writes itself on.</span>
+          </h1>
+          <p class="mkt-hero-sub">
+            Most code in 2026 is written by AI. Most reviews are too. The
+            platforms hosting that code were built for a previous era.
+            Gluecron is built for this one.
+          </p>
+        </div>
       </header>
 
       <section class="mkt-section">
@@ -691,32 +766,101 @@ const sharedMktCss = `
     padding: 0 16px;
   }
 
-  /* Hero */
-  .mkt-hero {
-    text-align: center;
-    padding: var(--s-16) 0 var(--s-12);
-    max-width: 920px;
-    margin: 0 auto;
+  /* ───── 2026 hero polish ─────
+     Three pages share the same shell (.mkt-page-pricing/-features/-about);
+     each adds its own page-scoped class to qualify selectors so this
+     block can't leak. */
+  .mkt-page-pricing .mkt-hero,
+  .mkt-page-features .mkt-hero,
+  .mkt-page-about .mkt-hero {
     position: relative;
+    text-align: center;
+    margin: var(--s-10) auto var(--s-12);
+    max-width: 980px;
+    padding: clamp(28px, 4vw, 56px) clamp(24px, 4vw, 48px);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 22px;
+    overflow: hidden;
+    box-shadow: 0 1px 0 rgba(255,255,255,0.04), 0 22px 56px -20px rgba(0,0,0,0.45);
   }
-  .mkt-hero::before {
+  .mkt-page-pricing .mkt-hero::before,
+  .mkt-page-features .mkt-hero::before,
+  .mkt-page-about .mkt-hero::before {
     content: '';
     position: absolute;
-    top: 0; left: 50%;
-    transform: translateX(-50%);
-    width: 70%; height: 60%;
-    background: radial-gradient(ellipse at center, rgba(140,109,255,0.14), transparent 65%);
-    z-index: -1;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent 0%, #8c6dff 30%, #36c5d6 70%, transparent 100%);
+    opacity: 0.78;
     pointer-events: none;
+    z-index: 2;
   }
-  .mkt-hero .eyebrow { justify-content: center; margin: 0 auto var(--s-4); }
-  .mkt-hero-title {
+  .mkt-page-pricing .mkt-hero-orb,
+  .mkt-page-features .mkt-hero-orb,
+  .mkt-page-about .mkt-hero-orb {
+    position: absolute;
+    inset: -28% -10% auto auto;
+    width: 520px; height: 520px;
+    background: radial-gradient(circle, rgba(140,109,255,0.22), rgba(54,197,214,0.10) 45%, transparent 70%);
+    filter: blur(80px);
+    opacity: 0.75;
+    pointer-events: none;
+    z-index: 0;
+  }
+  .mkt-page-pricing .mkt-hero-inner,
+  .mkt-page-features .mkt-hero-inner,
+  .mkt-page-about .mkt-hero-inner { position: relative; z-index: 1; }
+
+  .mkt-page-pricing .mkt-eyebrow,
+  .mkt-page-features .mkt-eyebrow,
+  .mkt-page-about .mkt-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--text-muted);
+    font-weight: 600;
+    margin-bottom: 14px;
+  }
+  .mkt-page-pricing .mkt-eyebrow-pill,
+  .mkt-page-features .mkt-eyebrow-pill,
+  .mkt-page-about .mkt-eyebrow-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px; height: 18px;
+    border-radius: 6px;
+    background: rgba(140,109,255,0.14);
+    color: #b69dff;
+    box-shadow: inset 0 0 0 1px rgba(140,109,255,0.35);
+  }
+  .mkt-page-pricing .mkt-grad,
+  .mkt-page-features .mkt-grad,
+  .mkt-page-about .mkt-grad {
+    background-image: linear-gradient(135deg, #a48bff 0%, #8c6dff 50%, #36c5d6 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+  }
+  .mkt-page-pricing .mkt-hero-title,
+  .mkt-page-features .mkt-hero-title,
+  .mkt-page-about .mkt-hero-title {
+    font-family: var(--font-display);
     font-size: clamp(36px, 6.5vw, 76px);
     line-height: 1.02;
     letter-spacing: -0.038em;
+    font-weight: 800;
     margin: 0 0 var(--s-5);
+    color: var(--text-strong);
   }
-  .mkt-hero-sub {
+  .mkt-page-pricing .mkt-hero-sub,
+  .mkt-page-features .mkt-hero-sub,
+  .mkt-page-about .mkt-hero-sub {
     font-size: clamp(15px, 1.5vw, 18px);
     color: var(--text-muted);
     max-width: 640px;
@@ -965,6 +1109,64 @@ const pricingCss = sharedMktCss + `
 `;
 
 const featuresCss = sharedMktCss + `
+  /* 3-col feature teaser — sits between the hero and the deep category grids */
+  .mkt-page-features .mkt-feature-teaser { margin: var(--s-8) auto var(--s-12); }
+  .mkt-page-features .mkt-teaser-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+  }
+  .mkt-page-features .mkt-teaser-card {
+    position: relative;
+    padding: var(--s-7) var(--s-6);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    transition: border-color 180ms ease, transform 180ms ease, box-shadow 180ms ease;
+    overflow: hidden;
+  }
+  .mkt-page-features .mkt-teaser-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent 0%, rgba(140,109,255,0.40) 30%, rgba(54,197,214,0.40) 70%, transparent 100%);
+    opacity: 0.7;
+  }
+  .mkt-page-features .mkt-teaser-card:hover {
+    border-color: rgba(140,109,255,0.40);
+    transform: translateY(-3px);
+    box-shadow: 0 14px 36px -18px rgba(140,109,255,0.30);
+  }
+  .mkt-page-features .mkt-teaser-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px; height: 40px;
+    border-radius: 12px;
+    background: linear-gradient(135deg, rgba(140,109,255,0.18), rgba(54,197,214,0.10));
+    color: #b69dff;
+    box-shadow: inset 0 0 0 1px rgba(140,109,255,0.30);
+    margin-bottom: var(--s-4);
+  }
+  .mkt-page-features .mkt-teaser-title {
+    font-family: var(--font-display);
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: -0.018em;
+    color: var(--text-strong);
+    margin: 0 0 var(--s-2);
+  }
+  .mkt-page-features .mkt-teaser-desc {
+    font-size: var(--t-sm);
+    color: var(--text-muted);
+    line-height: 1.55;
+    margin: 0;
+  }
+  @media (max-width: 880px) {
+    .mkt-page-features .mkt-teaser-grid { grid-template-columns: 1fr; }
+  }
+
   .mkt-feat-grid {
     display: grid;
     grid-template-columns: repeat(2, 1fr);

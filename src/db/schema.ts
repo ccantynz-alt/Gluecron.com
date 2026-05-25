@@ -3393,3 +3393,46 @@ export const prSandboxes = pgTable(
 
 export type PrSandbox = typeof prSandboxes.$inferSelect;
 export type NewPrSandbox = typeof prSandboxes.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// 0068 — AI-tracked documentation sections. See src/lib/ai-doc-updater.ts.
+//
+// Stores the currently claimed source-file hash for each
+// `<!-- gluecron:doc-track src=... -->` region in a tracked markdown file.
+// The post-receive hook re-hashes the referenced source after every push
+// and proposes a PR (tagged `ai:doc-update`) when the prose drifts from
+// the truth.
+// ---------------------------------------------------------------------------
+export const docTracking = pgTable(
+  "doc_tracking",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    docPath: text("doc_path").notNull(),
+    sectionMarker: text("section_marker").notNull(),
+    srcPath: text("src_path").notNull(),
+    claimedHash: text("claimed_hash").notNull(),
+    lastCheckedAt: timestamp("last_checked_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    lastPrId: uuid("last_pr_id").references(() => pullRequests.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("doc_tracking_repo_doc_marker").on(
+      table.repositoryId,
+      table.docPath,
+      table.sectionMarker
+    ),
+    index("doc_tracking_repo").on(table.repositoryId),
+  ]
+);
+
+export type DocTracking = typeof docTracking.$inferSelect;
+export type NewDocTracking = typeof docTracking.$inferInsert;

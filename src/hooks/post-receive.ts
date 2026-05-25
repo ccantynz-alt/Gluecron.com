@@ -26,6 +26,7 @@ import {
 } from "../git/repository";
 import { indexChangedFiles } from "../lib/semantic-index";
 import { enqueuePreviewBuild } from "../lib/branch-previews";
+import { runDocDriftCheckForRepo } from "../lib/ai-doc-updater";
 
 interface PushRef {
   oldSha: string;
@@ -114,6 +115,16 @@ export async function onPostReceive(
   //     never break the push path.
   void firePreviewBuilds(owner, repo, refs).catch((err) =>
     console.warn("[branch-previews] dispatch error:", err)
+  );
+
+  // 4d. AI-tracked documentation drift check (migration 0068). Walks the
+  //     repo's markdown files for `<!-- gluecron:doc-track ... -->`
+  //     regions, hashes the referenced source, and opens a PR labelled
+  //     `ai:doc-update` when the prose drifts. Fire-and-forget; failures
+  //     are swallowed inside ai-doc-updater.ts so a missing anthropic key
+  //     or empty doc_tracking table never breaks the push.
+  void fireDocDriftCheck(owner, repo).catch((err) =>
+    console.warn("[ai-doc-updater] dispatch error:", err)
   );
 
   // 5. Crontech deploy (BLK-016) — only fires for the configured Crontech repo
@@ -564,6 +575,37 @@ async function firePreviewBuilds(
   }
 }
 
+/**
+ * Migration 0068 — resolve `owner/repo` to its DB id and kick off the
+ * doc-drift sweep (findTrackedDocs + proposeDocUpdate). Returns immediately
+ * on missing repo or DB error — pushes never block. Never throws.
+ */
+async function fireDocDriftCheck(owner: string, repo: string): Promise<void> {
+  let repositoryId = "";
+  try {
+    const [row] = await db
+      .select({ id: repositories.id })
+      .from(repositories)
+      .innerJoin(users, eq(repositories.ownerId, users.id))
+      .where(and(eq(users.username, owner), eq(repositories.name, repo)))
+      .limit(1);
+    repositoryId = row?.id || "";
+  } catch {
+    return;
+  }
+  if (!repositoryId) return;
+  try {
+    const out = await runDocDriftCheckForRepo(repositoryId);
+    if (out.docs > 0 || out.proposed > 0) {
+      console.log(
+        `[ai-doc-updater] ${owner}/${repo}: docs=${out.docs} proposed=${out.proposed}`
+      );
+    }
+  } catch (err) {
+    console.warn("[ai-doc-updater] runDocDriftCheckForRepo error:", err);
+  }
+}
+
 /** Test-only access to internal helpers. */
 export const __test = {
   triggerCrontechDeploy,
@@ -573,4 +615,5 @@ export const __test = {
   listChangedPaths,
   fireSemanticIndex,
   firePreviewBuilds,
+  fireDocDriftCheck,
 };

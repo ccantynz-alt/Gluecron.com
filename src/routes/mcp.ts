@@ -45,7 +45,19 @@ mcp.get("/mcp", (c) => {
 
 mcp.post("/mcp", async (c) => {
   const user = c.get("user") ?? null;
-  const ctx = { userId: user?.id ?? null };
+  // Scope derivation mirrors the API-auth middleware:
+  //   - OAuth bearer (glct_) → oauthScopes from middleware
+  //   - PAT (glc_) → oauthScopes from middleware
+  //   - Session cookie → full ["repo","user","admin"]
+  //   - Anonymous → []
+  const oauthScopes = c.get("oauthScopes");
+  let scopes: string[] = [];
+  if (Array.isArray(oauthScopes)) {
+    scopes = oauthScopes;
+  } else if (user) {
+    scopes = ["repo", "user", "admin"];
+  }
+  const ctx = { userId: user?.id ?? null, scopes };
   const tools = defaultTools();
 
   let body: unknown;

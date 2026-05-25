@@ -1035,6 +1035,14 @@ gluecron hook uninstall commit-msg`}
               — endpoint list, auth scopes, webhook payloads, and the
               <code>ai:build</code> label convention.
             </div>
+            <div class="help-item">
+              Prefer model-context-protocol over REST? Same page now
+              documents the full 50+ <strong>MCP tool surface</strong> at{" "}
+              <a href="/docs/build-agent-integration#ba-mcp-title">/docs/build-agent-integration</a>{" "}
+              — every Gluecron action callable from any Claude/Cursor/etc.
+              tool-use loop. The JSON-RPC endpoint is{" "}
+              <code>POST /mcp</code>.
+            </div>
           </div>
         </section>
 

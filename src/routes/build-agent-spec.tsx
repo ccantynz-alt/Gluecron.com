@@ -395,6 +395,106 @@ Issues:      https://gluecron.com/ccantynz/Gluecron.com/issues
 Contact:     ccantynz on gluecron.com
 ═══════════════════════════════════════════════════════════════════════════════`;
 
+const MCP_TOOLS_TEXT = `═══════════════════════════════════════════════════════════════════════════════
+GLUECRON MCP TOOL SURFACE  (50+ tools, model-context-protocol/2025-06-18)
+═══════════════════════════════════════════════════════════════════════════════
+
+Transport:  POST /mcp           — JSON-RPC 2.0 (single or batch)
+            GET  /mcp           — discovery handshake
+Auth:       same as REST v2     — Bearer glc_… (PAT) or session cookie
+            agent tokens (agt_…) routed via agent-multiplayer
+
+Call shape:
+  {
+    "jsonrpc": "2.0", "id": 1,
+    "method": "tools/call",
+    "params": { "name": "<tool_name>", "arguments": { … } }
+  }
+
+─── READ TOOLS (public, no auth) ────────────────────────────────────────────
+gluecron_repo_search                Search public repos by keyword
+gluecron_repo_read_file             Read a file at a ref
+gluecron_repo_list_issues           List open issues on a repo
+gluecron_repo_explain_codebase      Cached AI 'explain this codebase' markdown
+gluecron_repo_health                Health score + breakdown for a repo
+
+─── REPOS (write — requires 'repo' or 'admin') ──────────────────────────────
+gluecron_fork_repo                  Fork a repo to the caller's namespace
+gluecron_delete_repo                Permanently delete a repo (admin)
+gluecron_update_repo                Description / visibility / default branch
+gluecron_search_repos               Full search (sort, limit, filters)
+gluecron_clone_url                  Authed HTTPS clone URL + helper hint
+
+─── ISSUES (write — requires 'repo') ────────────────────────────────────────
+gluecron_create_issue               Open a new issue
+gluecron_comment_issue              Add a comment
+gluecron_close_issue                Close an open issue (idempotent)
+gluecron_reopen_issue               Reopen a closed issue
+gluecron_label_issue                Attach labels (auto-creates missing)
+gluecron_unlabel_issue              Detach a single label
+gluecron_assign_issue               Assign to a user (via assignee:* label)
+gluecron_search_issues              Title/body keyword search per repo
+
+─── PULL REQUESTS (write — requires 'repo') ─────────────────────────────────
+gluecron_create_pr                  Open a PR
+gluecron_open_draft_pr              Open a draft PR
+gluecron_get_pr                     Fetch full PR record
+gluecron_list_prs                   List PRs by state
+gluecron_search_prs                 Keyword search on title/body
+gluecron_comment_pr                 Add a PR comment
+gluecron_request_changes            Post an AI-review 'changes requested' comment
+gluecron_merge_pr                   Merge a PR (enforces every gate + risk score)
+gluecron_close_pr                   Close without merging (idempotent)
+gluecron_generate_pr_description    AI commit-message-style description
+
+─── FILES & GIT PLUMBING (write — requires 'repo') ──────────────────────────
+gluecron_read_file                  GET /contents wrapper
+gluecron_write_file                 PUT /contents wrapper (utf8 or base64)
+gluecron_delete_file                DELETE /contents wrapper
+gluecron_list_tree                  GET /tree wrapper (recursive supported)
+gluecron_get_commit                 GET /commits/:sha wrapper
+gluecron_create_branch              Create a new branch ref at a sha
+gluecron_atomic_multi_file_commit   blob/tree/commit/ref-update in one call
+                                    — the killer agent tool
+
+─── AI WORKFLOWS (Gluecron-native — requires 'repo') ────────────────────────
+gluecron_ship_spec                  Drop .gluecron/specs/*.md status:ready
+gluecron_voice_to_pr                Transcript → spec or issue (auto-classified)
+gluecron_refactor_across_repos      Plan + execute a multi-repo refactor
+gluecron_explain_repo               Cached 'explain this repo' markdown
+gluecron_chat_with_repo             Start a chat + send the first message
+gluecron_chat_continue              Send another message in a chat
+gluecron_generate_tests             AI tests for a PR (follow-up-pr / append)
+gluecron_generate_commit_message    Conventional / plain commit message for a diff
+gluecron_generate_release_notes     Section-bucketed notes between two tags
+gluecron_propose_migration          Dep-upgrade PR via migration-assistant
+gluecron_propose_doc_update         Doc-drift scan + PR opens
+
+─── CI / DEPLOYS (write — requires 'repo') ──────────────────────────────────
+gluecron_trigger_workflow           workflow_dispatch
+gluecron_get_workflow_run           Run status + metadata
+gluecron_get_workflow_logs          Per-job log payload (JSON; ZIP via REST)
+gluecron_cancel_workflow_run        Cancel queued/running run
+gluecron_get_preview_url            Branch-preview URL + status
+gluecron_provision_pr_sandbox       Re-provision a PR sandbox
+
+─── AGENTS (multiplayer surface — admin to mint, repo to lease) ─────────────
+gluecron_create_agent_session       Mint agent token (returned ONCE) (admin)
+gluecron_acquire_lease              Grab an exclusive target lease
+gluecron_release_lease              Release a held lease
+gluecron_get_agent_budget           spent / cap / remaining cents
+
+─── SEMANTIC ────────────────────────────────────────────────────────────────
+gluecron_semantic_search            Vector-index query (Voyage or hash)
+gluecron_find_symbol                findDefinitions wrapper
+
+─── INSIGHTS ────────────────────────────────────────────────────────────────
+gluecron_pr_status_summary          State + risk + trio verdict for a PR
+gluecron_repo_health                (also under READ; included here for parity)
+gluecron_ai_cost_summary            Spend rollup (user / repo / agent)
+
+═══════════════════════════════════════════════════════════════════════════════`;
+
 buildAgentSpec.get("/docs/build-agent-integration", (c) => {
   const user = c.get("user");
   return c.html(
@@ -447,6 +547,23 @@ buildAgentSpec.get("/docs/build-agent-integration", (c) => {
           <pre class="ba-spec-pre" data-spec-text>{SPEC_TEXT}</pre>
           <div class="ba-spec-foot">
             Share this page directly: <code>https://gluecron.com/docs/build-agent-integration</code>
+          </div>
+        </section>
+
+        {/* ─── MCP tools surface ─────────────────────────────────────── */}
+        <section class="ba-spec-block" aria-labelledby="ba-mcp-title">
+          <header class="ba-spec-head">
+            <div>
+              <p class="ba-spec-title-bar" id="ba-mcp-title">
+                <span class="ba-spec-dot" aria-hidden="true" />
+                MCP tools — every Gluecron action callable from any AI agent
+              </p>
+            </div>
+          </header>
+          <pre class="ba-spec-pre">{MCP_TOOLS_TEXT}</pre>
+          <div class="ba-spec-foot">
+            JSON-RPC 2.0 endpoint: <code>POST https://gluecron.com/mcp</code> —
+            send <code>{"{ method: \"tools/list\" }"}</code> to enumerate at runtime.
           </div>
         </section>
 

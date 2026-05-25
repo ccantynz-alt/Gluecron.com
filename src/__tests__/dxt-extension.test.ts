@@ -78,7 +78,7 @@ describe("Block Q1 — .dxt manifest", () => {
     expect(raw).not.toMatch(/glct_[A-Za-z0-9_-]+/);
   });
 
-  it("declares all 15 MCP tools, cross-checked against defaultTools()", () => {
+  it("declares every MCP tool, cross-checked against defaultTools()", () => {
     const m = loadManifest();
     const manifestNames = new Set(m.tools.map((t) => t.name));
     const handlerNames = new Set(Object.keys(defaultTools()));
@@ -91,10 +91,12 @@ describe("Block Q1 — .dxt manifest", () => {
     for (const name of manifestNames) {
       expect(handlerNames.has(name)).toBe(true);
     }
-    // Lock the count at 15 so a future tool addition forces this test
-    // (and therefore the manifest) to be updated in lockstep.
-    expect(manifestNames.size).toBe(15);
-    expect(handlerNames.size).toBe(15);
+    // Floor at 50 to guarantee the expanded surface is exposed; the
+    // exact count travels with `defaultTools()` so adding a tool there
+    // and forgetting the manifest still trips the per-name assertions
+    // above.
+    expect(manifestNames.size).toBe(handlerNames.size);
+    expect(manifestNames.size).toBeGreaterThanOrEqual(50);
   });
 });
 

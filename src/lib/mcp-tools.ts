@@ -49,6 +49,7 @@ import {
   getLatestCachedPrRisk,
   type PrRiskScore,
 } from "./pr-risk";
+import { expandedTools } from "./mcp-tools-expanded";
 
 export type McpTool = {
   name: string;
@@ -1418,6 +1419,16 @@ function sqlExpr(expr: string) {
 // ---------------------------------------------------------------------------
 
 export function defaultTools(): Record<string, McpToolHandler> {
+  // The original 15-tool surface (read + K1 write) remains the source of
+  // truth for the core gate-enforced workflows. The expanded set in
+  // `mcp-tools-expanded.ts` adds ~40 additional wrappers — each a thin
+  // adapter over an existing lib helper — so AI agents can drive
+  // Gluecron end-to-end.
+  //
+  // The expanded module imports the `mcp*` helpers re-exported above —
+  // since those are `const` exports they're populated by the time
+  // `defaultTools()` is called at request time, so the circular ESM
+  // import resolves cleanly.
   return {
     [repoSearch.tool.name]: repoSearch,
     [repoReadFile.tool.name]: repoReadFile,
@@ -1435,8 +1446,29 @@ export function defaultTools(): Record<string, McpToolHandler> {
     [commentPr.tool.name]: commentPr,
     [mergePr.tool.name]: mergePr,
     [closePr.tool.name]: closePr,
+    // Expanded surface (50+ tools total)
+    ...expandedTools(),
   };
 }
+
+// ---------------------------------------------------------------------------
+// Shared helpers (re-exported so the expanded tool surface in
+// `mcp-tools-expanded.ts` can reuse the same gating + arg-parsing without
+// duplicating logic). Each is a thin pure helper or DB lookup — exporting
+// them keeps the wrapper modules tiny.
+// ---------------------------------------------------------------------------
+
+export {
+  argString as mcpArgString,
+  argNumber as mcpArgNumber,
+  gateWriteAccess as mcpGateWriteAccess,
+  resolveAccessibleRepo as mcpResolveAccessibleRepo,
+  requireAuthedCtx as mcpRequireAuthedCtx,
+  loadPrByNumber as mcpLoadPrByNumber,
+  loadIssueByNumber as mcpLoadIssueByNumber,
+  prUrl as mcpPrUrl,
+  issueUrl as mcpIssueUrl,
+};
 
 /** Test-only export of internal helpers + per-tool handlers. */
 export const __test = {

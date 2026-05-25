@@ -54,6 +54,13 @@ export const ERR_INTERNAL = -32603;
 export type McpContext = {
   /** Authenticated user id; null for anonymous (only allowed for some calls). */
   userId: string | null;
+  /**
+   * Scopes carried by the auth credential (PAT, OAuth token, session). For
+   * session-cookie users this is `["repo","user","admin"]`. For PATs it's
+   * whatever the token was issued for. Empty array when anonymous.
+   * Optional for back-compat — handlers default to permissive when undefined.
+   */
+  scopes?: string[];
 };
 
 export type McpRouterArgs = {

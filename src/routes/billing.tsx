@@ -9,6 +9,10 @@
  * (FALLBACK_PLANS in lib/billing.ts mirror the seed rows). Plan assignment
  * is site-admin only; there is no self-service purchase flow here — that's
  * Stripe's job, and deliberately out-of-scope for the v1 panel.
+ *
+ * 2026 polish — gradient hairline hero, orb, eyebrow, featured current-plan
+ * card, usage bars with tabular-nums, plan-compare grid, all scoped under
+ * `.bill-*`.
  */
 
 import { Hono } from "hono";
@@ -36,6 +40,552 @@ import { config } from "../lib/config";
 const billing = new Hono<AuthEnv>();
 billing.use("*", softAuth);
 
+/* ─────────────────────────────────────────────────────────────────────────
+ * Scoped CSS — every class prefixed `.bill-` so this surface can't bleed
+ * into other pages. Mirrors the gradient hero + section card patterns
+ * from admin-integrations.tsx, admin-ops.tsx, error-page.tsx.
+ * ───────────────────────────────────────────────────────────────────── */
+const styles = `
+  .bill-wrap { max-width: 1040px; margin: 0 auto; padding: var(--space-6, 32px) var(--space-4, 24px); }
+
+  /* ─── Hero ─── */
+  .bill-hero {
+    position: relative;
+    margin-bottom: var(--space-5);
+    padding: clamp(28px, 4vw, 44px) clamp(24px, 4vw, 44px);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    overflow: hidden;
+  }
+  .bill-hero::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent 0%, #8c6dff 30%, #36c5d6 70%, transparent 100%);
+    opacity: 0.75;
+    pointer-events: none;
+  }
+  .bill-hero-orb {
+    position: absolute;
+    inset: -30% -10% auto auto;
+    width: 460px; height: 460px;
+    background: radial-gradient(circle, rgba(140,109,255,0.22), rgba(54,197,214,0.10) 45%, transparent 70%);
+    filter: blur(80px);
+    opacity: 0.7;
+    pointer-events: none;
+    z-index: 0;
+  }
+  .bill-hero-inner {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: var(--space-4);
+    flex-wrap: wrap;
+  }
+  .bill-hero-text { max-width: 680px; flex: 1; min-width: 240px; }
+  .bill-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    font-weight: 600;
+    margin-bottom: 16px;
+  }
+  .bill-eyebrow-dot {
+    width: 8px; height: 8px;
+    border-radius: 9999px;
+    background: linear-gradient(135deg, #8c6dff, #36c5d6);
+    box-shadow: 0 0 0 3px rgba(140,109,255,0.18);
+  }
+  .bill-eyebrow strong { color: var(--accent); font-weight: 600; letter-spacing: 0.04em; }
+  .bill-title {
+    font-family: var(--font-display);
+    font-size: clamp(32px, 5vw, 48px);
+    font-weight: 800;
+    letter-spacing: -0.030em;
+    line-height: 1.05;
+    margin: 0 0 var(--space-3);
+    color: var(--text-strong);
+  }
+  .bill-title-grad {
+    background-image: linear-gradient(135deg, #a48bff 0%, #8c6dff 50%, #36c5d6 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+  }
+  .bill-sub {
+    font-size: 16px;
+    color: var(--text-muted);
+    margin: 0;
+    line-height: 1.55;
+    max-width: 580px;
+  }
+  .bill-hero-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    font-size: 12.5px;
+    color: var(--text-muted);
+    background: rgba(255,255,255,0.025);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    text-decoration: none;
+    font-weight: 500;
+    transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+  }
+  .bill-hero-back:hover {
+    border-color: var(--border-strong);
+    color: var(--text-strong);
+    background: rgba(255,255,255,0.04);
+    text-decoration: none;
+  }
+
+  /* ─── Banners ─── */
+  .bill-banner {
+    margin-bottom: var(--space-4);
+    padding: 10px 14px;
+    border-radius: 10px;
+    font-size: 13.5px;
+    border: 1px solid var(--border);
+    background: rgba(255,255,255,0.025);
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .bill-banner.is-ok {
+    border-color: rgba(52,211,153,0.40);
+    background: rgba(52,211,153,0.08);
+    color: #bbf7d0;
+  }
+  .bill-banner.is-error {
+    border-color: rgba(248,113,113,0.40);
+    background: rgba(248,113,113,0.08);
+    color: #fecaca;
+  }
+  .bill-banner-dot {
+    width: 8px; height: 8px;
+    border-radius: 9999px;
+    background: currentColor;
+    flex-shrink: 0;
+  }
+
+  /* ─── Current-plan featured card ─── */
+  .bill-current {
+    position: relative;
+    margin-bottom: var(--space-5);
+    padding: var(--space-5);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+  .bill-current.is-featured {
+    border-color: rgba(140,109,255,0.40);
+    background: linear-gradient(180deg, rgba(140,109,255,0.05), var(--bg-elevated) 60%);
+  }
+  .bill-current.is-featured::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent 0%, #8c6dff 30%, #36c5d6 70%, transparent 100%);
+    opacity: 0.85;
+    pointer-events: none;
+  }
+  .bill-current-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-4);
+    flex-wrap: wrap;
+    margin-bottom: var(--space-4);
+  }
+  .bill-current-head {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    font-family: var(--font-mono);
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+  .bill-current-name {
+    font-family: var(--font-display);
+    font-size: 26px;
+    font-weight: 800;
+    letter-spacing: -0.022em;
+    color: var(--text-strong);
+    margin: 0 0 4px;
+  }
+  .bill-current-price {
+    font-size: 14px;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .bill-current-cycle {
+    font-size: 12px;
+    color: var(--text-muted);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .bill-usage-list {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .bill-usage-row .bill-usage-label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 6px;
+    font-size: 13px;
+  }
+  .bill-usage-row .bill-usage-name {
+    color: var(--text-strong);
+    font-weight: 500;
+  }
+  .bill-usage-row .bill-usage-num {
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-size: 12.5px;
+  }
+  .bill-bar {
+    background: var(--bg-secondary, rgba(0,0,0,0.20));
+    height: 12px;
+    border-radius: 7px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+  .bill-bar-fill {
+    height: 100%;
+    border-radius: 7px;
+    transition: width 250ms ease;
+  }
+  .bill-bar-fill.is-ok { background: linear-gradient(90deg, #34d399, #10b981); }
+  .bill-bar-fill.is-warn { background: linear-gradient(90deg, #fbbf24, #f59e0b); }
+  .bill-bar-fill.is-bad { background: linear-gradient(90deg, #f87171, #ef4444); }
+
+  /* ─── Section card (shared) ─── */
+  .bill-section {
+    margin-bottom: var(--space-5);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+  }
+  .bill-section-head {
+    padding: var(--space-4) var(--space-5);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+  }
+  .bill-section-title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-strong);
+    letter-spacing: -0.014em;
+  }
+  .bill-section-sub {
+    margin: 4px 0 0;
+    font-size: 12.5px;
+    color: var(--text-muted);
+  }
+  .bill-section-body { padding: var(--space-4) var(--space-5); }
+
+  /* ─── Plan compare grid ─── */
+  .bill-plans {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: var(--space-3);
+  }
+  .bill-plan {
+    position: relative;
+    padding: var(--space-4);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    transition: border-color 150ms ease, transform 150ms ease, box-shadow 150ms ease;
+  }
+  .bill-plan:hover {
+    border-color: rgba(140,109,255,0.45);
+    transform: translateY(-2px);
+    box-shadow: 0 10px 28px -10px rgba(140,109,255,0.30);
+  }
+  .bill-plan.is-current {
+    border-color: rgba(52,211,153,0.50);
+    background: linear-gradient(180deg, rgba(52,211,153,0.05), var(--bg-elevated) 60%);
+  }
+  .bill-plan-badge {
+    position: absolute;
+    top: -10px; right: 14px;
+    padding: 3px 10px;
+    border-radius: 9999px;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .bill-plan-badge.is-current {
+    background: rgba(52,211,153,0.18);
+    color: #6ee7b7;
+    box-shadow: inset 0 0 0 1px rgba(52,211,153,0.50);
+  }
+  .bill-plan-name {
+    font-family: var(--font-display);
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--text-strong);
+    margin: 0;
+    letter-spacing: -0.012em;
+  }
+  .bill-plan-price {
+    font-family: var(--font-display);
+    font-size: 22px;
+    font-weight: 800;
+    color: var(--text-strong);
+    letter-spacing: -0.020em;
+    margin: 2px 0 8px;
+    font-variant-numeric: tabular-nums;
+  }
+  .bill-plan-feats {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--text-muted);
+    line-height: 1.5;
+    flex: 1;
+  }
+  .bill-plan-feats li {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-variant-numeric: tabular-nums;
+  }
+  .bill-plan-feats .check {
+    flex-shrink: 0;
+    color: #34d399;
+    font-weight: 700;
+  }
+  .bill-plan-feats .x {
+    flex-shrink: 0;
+    color: var(--text-muted);
+    opacity: 0.6;
+  }
+  .bill-plan-action { margin-top: auto; }
+  .bill-plan-action form { margin: 0; }
+
+  /* ─── Buttons ─── */
+  .bill-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 9px 14px;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 600;
+    text-decoration: none;
+    border: 1px solid transparent;
+    cursor: pointer;
+    font: inherit;
+    transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease, border-color 120ms ease;
+    line-height: 1;
+    width: 100%;
+  }
+  .bill-btn-primary {
+    background: linear-gradient(135deg, #8c6dff 0%, #36c5d6 100%);
+    color: #ffffff;
+    box-shadow: 0 6px 18px -6px rgba(140,109,255,0.50), inset 0 1px 0 rgba(255,255,255,0.16);
+  }
+  .bill-btn-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 10px 24px -8px rgba(140,109,255,0.60), inset 0 1px 0 rgba(255,255,255,0.20);
+    color: #ffffff;
+    text-decoration: none;
+  }
+  .bill-btn-ghost {
+    background: transparent;
+    color: var(--text);
+    border-color: var(--border-strong, var(--border));
+    width: auto;
+  }
+  .bill-btn-ghost:hover {
+    background: rgba(140,109,255,0.06);
+    border-color: rgba(140,109,255,0.45);
+    color: var(--text-strong);
+    text-decoration: none;
+  }
+  .bill-current-cta { display: inline-flex; }
+
+  /* ─── Payment + invoices section ─── */
+  .bill-pay-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+  }
+  .bill-pay-text {
+    font-size: 13px;
+    color: var(--text-muted);
+    line-height: 1.5;
+    max-width: 480px;
+  }
+  .bill-pay-text strong { color: var(--text); font-weight: 600; }
+
+  /* ─── Invoices list (empty) ─── */
+  .bill-invoices-empty {
+    padding: var(--space-4);
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 13px;
+    border: 1px dashed var(--border);
+    border-radius: 12px;
+    background: rgba(255,255,255,0.012);
+  }
+  .bill-invoices-empty a { color: var(--accent); text-decoration: none; }
+  .bill-invoices-empty a:hover { text-decoration: underline; }
+
+  /* ─── Foot (link to /pricing) ─── */
+  .bill-foot {
+    margin-top: var(--space-5);
+    padding: var(--space-4);
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 13px;
+    border: 1px dashed var(--border);
+    border-radius: 12px;
+  }
+  .bill-foot a { color: var(--accent); text-decoration: none; font-weight: 600; }
+  .bill-foot a:hover { text-decoration: underline; }
+
+  .bill-stripe-note {
+    font-size: 12.5px;
+    color: var(--text-muted);
+    margin: var(--space-3) 0 0;
+    font-style: italic;
+    line-height: 1.5;
+  }
+
+  /* ─── Admin list ─── */
+  .bill-admin-list {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+  }
+  .bill-admin-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+  .bill-admin-row:last-child { border-bottom: none; }
+  .bill-admin-user a {
+    font-weight: 600;
+    color: var(--text-strong);
+    text-decoration: none;
+  }
+  .bill-admin-user a:hover { color: var(--accent); }
+  .bill-admin-meta {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 2px;
+    font-variant-numeric: tabular-nums;
+  }
+  .bill-admin-form {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin: 0;
+  }
+  .bill-admin-form select {
+    font-size: 12px;
+    padding: 5px 8px;
+    border-radius: 8px;
+    background: var(--bg-secondary, rgba(0,0,0,0.15));
+    border: 1px solid var(--border);
+    color: var(--text);
+  }
+  .bill-403 {
+    max-width: 540px;
+    margin: var(--space-12, 96px) auto;
+    padding: var(--space-6);
+    text-align: center;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+  }
+  .bill-403 h2 {
+    font-family: var(--font-display);
+    font-size: 22px;
+    margin: 0 0 8px;
+    color: var(--text-strong);
+  }
+`;
+
+function barClass(pct: number): string {
+  if (pct >= 90) return "is-bad";
+  if (pct >= 70) return "is-warn";
+  return "is-ok";
+}
+
+function IconWallet() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M21 12V7H5a2 2 0 0 1 0-4h14v4" />
+      <path d="M3 5v14a2 2 0 0 0 2 2h16v-5" />
+      <rect x="16" y="12" width="6" height="5" rx="1" />
+    </svg>
+  );
+}
+function IconReceipt() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M4 2v20l3-2 3 2 3-2 3 2 3-2V2H4z" />
+      <line x1="8" y1="7" x2="16" y2="7" />
+      <line x1="8" y1="11" x2="16" y2="11" />
+      <line x1="8" y1="15" x2="13" y2="15" />
+    </svg>
+  );
+}
+function IconArrowLeft() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <line x1="19" y1="12" x2="5" y2="12" />
+      <polyline points="12 19 5 12 12 5" />
+    </svg>
+  );
+}
+
 // ----- Personal billing page -----
 
 billing.get("/settings/billing", requireAuth, async (c) => {
@@ -45,234 +595,232 @@ billing.get("/settings/billing", requireAuth, async (c) => {
     listPlans(),
   ]);
 
-  const bar = (pct: number) => {
-    const color = pct >= 90 ? "var(--red)" : pct >= 70 ? "#f0b72f" : "var(--green)";
-    return (
-      <div
-        style="background:var(--bg-secondary);height:8px;border-radius:4px;overflow:hidden"
-      >
-        <div
-          style={`width:${pct}%;height:100%;background:${color};transition:width .2s`}
-        />
-      </div>
-    );
-  };
-
-  // L8 — bigger usage bar styles (scoped, additive). The original panel
-  // bars below are left untouched.
-  const bigBar = (pct: number) => {
-    const color = pct >= 90 ? "var(--red)" : pct >= 70 ? "#f0b72f" : "var(--green)";
-    return (
-      <div
-        style="background:var(--bg-secondary);height:14px;border-radius:7px;overflow:hidden;border:1px solid var(--border-subtle)"
-      >
-        <div
-          style={`width:${pct}%;height:100%;background:${color};transition:width .3s`}
-        />
-      </div>
-    );
-  };
+  const upgraded = c.req.query("upgraded") === "1";
+  const canceled = c.req.query("canceled") === "1";
+  const errorMsg = c.req.query("error");
+  const isPaid = quota.planSlug !== "free";
 
   return c.html(
     <Layout title="Billing — Gluecron" user={user}>
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-        <h2>Billing & usage</h2>
-        <a href="/settings" class="btn btn-sm">
-          Back to settings
-        </a>
-      </div>
-
-      {/* L8 — "here's what you've used this month" hero panel. */}
-      <div
-        class="panel"
-        style="padding:20px;margin-bottom:20px;background:linear-gradient(180deg,rgba(140,109,255,0.05),transparent 70%),var(--bg-elevated);border-color:rgba(140,109,255,0.20)"
-      >
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:16px">
-          <div>
-            <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.14em;font-family:var(--font-mono);margin-bottom:6px">
-              Hey, here's what you've used this month
-            </div>
-            <div style="font-size:14px;color:var(--text-muted)">
-              On the <strong style="color:var(--text-strong)">{quota.plan.name}</strong> plan —{" "}
-              {formatPrice(quota.plan.priceCents)}
-            </div>
-          </div>
-          {quota.planSlug === "free" && (
-            <form method="post" action="/billing/upgrade/pro">
-              <button type="submit" class="btn btn-primary">
-                Upgrade to Pro &rarr;
-              </button>
-            </form>
-          )}
-        </div>
-        <div style="display:flex;flex-direction:column;gap:14px">
-          <div>
-            <div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:13px">
-              <span style="color:var(--text-strong);font-weight:500">Repos</span>
-              <span style="color:var(--text-muted);font-family:var(--font-mono)">
-                {Math.min(quota.plan.repoLimit, quota.plan.repoLimit)} max on plan
-              </span>
-            </div>
-            {bigBar(0)}
-          </div>
-          <div>
-            <div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:13px">
-              <span style="color:var(--text-strong);font-weight:500">AI calls</span>
-              <span style="color:var(--text-muted);font-family:var(--font-mono)">
-                {quota.usage.aiTokensUsedThisMonth.toLocaleString()} /{" "}
-                {quota.plan.aiTokensMonthly.toLocaleString()} ({quota.percent.aiTokens}%)
-              </span>
-            </div>
-            {bigBar(quota.percent.aiTokens)}
-          </div>
-          <div>
-            <div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:13px">
-              <span style="color:var(--text-strong);font-weight:500">Storage</span>
-              <span style="color:var(--text-muted);font-family:var(--font-mono)">
-                {quota.usage.storageMbUsed} / {quota.plan.storageMbLimit} MB ({quota.percent.storage}%)
-              </span>
-            </div>
-            {bigBar(quota.percent.storage)}
-          </div>
-        </div>
-      </div>
-
-      <div class="panel" style="padding:16px;margin-bottom:20px">
-        <div style="display:flex;justify-content:space-between;align-items:center">
-          <div>
-            <div style="font-size:12px;color:var(--text-muted);text-transform:uppercase">
-              Current plan
-            </div>
-            <div style="font-size:22px;font-weight:700">{quota.plan.name}</div>
-            <div style="font-size:13px;color:var(--text-muted)">
-              {formatPrice(quota.plan.priceCents)}
-            </div>
-          </div>
-          <div style="text-align:right;font-size:12px;color:var(--text-muted)">
-            {quota.cycleStart
-              ? `Cycle started ${new Date(quota.cycleStart).toLocaleDateString()}`
-              : "No cycle recorded"}
-          </div>
-        </div>
-      </div>
-
-      <h3>Usage this cycle</h3>
-      <div class="panel" style="padding:16px;margin-bottom:20px">
-        <div class="form-group">
-          <div style="display:flex;justify-content:space-between;margin-bottom:4px">
-            <span>Storage</span>
-            <span style="color:var(--text-muted);font-family:var(--font-mono)">
-              {quota.usage.storageMbUsed} / {quota.plan.storageMbLimit} MB
-            </span>
-          </div>
-          {bar(quota.percent.storage)}
-        </div>
-        <div class="form-group">
-          <div style="display:flex;justify-content:space-between;margin-bottom:4px">
-            <span>AI tokens (monthly)</span>
-            <span style="color:var(--text-muted);font-family:var(--font-mono)">
-              {quota.usage.aiTokensUsedThisMonth.toLocaleString()} /{" "}
-              {quota.plan.aiTokensMonthly.toLocaleString()}
-            </span>
-          </div>
-          {bar(quota.percent.aiTokens)}
-        </div>
-        <div class="form-group" style="margin-bottom:0">
-          <div style="display:flex;justify-content:space-between;margin-bottom:4px">
-            <span>Bandwidth (monthly)</span>
-            <span style="color:var(--text-muted);font-family:var(--font-mono)">
-              {quota.usage.bandwidthGbUsedThisMonth} /{" "}
-              {quota.plan.bandwidthGbMonthly} GB
-            </span>
-          </div>
-          {bar(quota.percent.bandwidth)}
-        </div>
-      </div>
-
-      <h3>Available plans</h3>
-      <div
-        style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px"
-      >
-        {plans.map((p) => {
-          const isCurrent = p.slug === quota.planSlug;
-          return (
-            <div
-              class="panel"
-              style={`padding:16px${isCurrent ? ";border-color:var(--green)" : ""}`}
-            >
-              <div style="font-size:16px;font-weight:700">{p.name}</div>
-              <div style="font-size:18px;margin:6px 0">
-                {formatPrice(p.priceCents)}
+      <style dangerouslySetInnerHTML={{ __html: styles }} />
+      <div class="bill-wrap">
+        {/* ─── Hero ─── */}
+        <section class="bill-hero">
+          <div class="bill-hero-orb" aria-hidden="true" />
+          <div class="bill-hero-inner">
+            <div class="bill-hero-text">
+              <div class="bill-eyebrow">
+                <span class="bill-eyebrow-dot" aria-hidden="true" />
+                Billing · <strong>@{user.username}</strong>
               </div>
-              <div style="font-size:12px;color:var(--text-muted);line-height:1.6">
-                <div>{p.repoLimit.toLocaleString()} repos</div>
-                <div>{p.storageMbLimit.toLocaleString()} MB storage</div>
-                <div>{p.aiTokensMonthly.toLocaleString()} AI tokens/mo</div>
-                <div>{p.bandwidthGbMonthly} GB bandwidth/mo</div>
-                <div>
-                  {p.privateRepos ? "Private repos ✓" : "Public repos only"}
-                </div>
-              </div>
-              {isCurrent && (
-                <div
-                  style="margin-top:10px;font-size:11px;color:var(--green);font-weight:600"
-                >
-                  CURRENT PLAN
-                </div>
+              <h1 class="bill-title">
+                <span class="bill-title-grad">Plan + usage.</span>
+              </h1>
+              <p class="bill-sub">
+                Your current plan, this cycle's usage, and one-click upgrades.
+                Cancel any time — your data stays on the free tier.
+              </p>
+            </div>
+            <a href="/settings" class="bill-hero-back">
+              <IconArrowLeft />
+              Back to settings
+            </a>
+          </div>
+        </section>
+
+        {upgraded && (
+          <div class="bill-banner is-ok" role="status">
+            <span class="bill-banner-dot" aria-hidden="true" />
+            Subscription updated — your new plan is active.
+          </div>
+        )}
+        {canceled && (
+          <div class="bill-banner" role="status">
+            <span class="bill-banner-dot" aria-hidden="true" />
+            Checkout canceled. You can upgrade any time.
+          </div>
+        )}
+        {errorMsg && (
+          <div class="bill-banner is-error" role="alert">
+            <span class="bill-banner-dot" aria-hidden="true" />
+            {decodeURIComponent(errorMsg)}
+          </div>
+        )}
+
+        {/* ─── Featured current-plan card ─── */}
+        <section class={"bill-current" + (isPaid ? " is-featured" : "")}>
+          <div class="bill-current-row">
+            <div>
+              <div class="bill-current-head">Current plan</div>
+              <h2 class="bill-current-name">{quota.plan.name}</h2>
+              <div class="bill-current-price">{formatPrice(quota.plan.priceCents)}</div>
+            </div>
+            <div>
+              {quota.planSlug === "free" && (
+                <form method="post" action="/billing/upgrade/pro" class="bill-current-cta">
+                  <button type="submit" class="bill-btn bill-btn-primary" style="width:auto">
+                    Upgrade to Pro &rarr;
+                  </button>
+                </form>
               )}
-              {!isCurrent && p.slug !== "free" && p.priceCents > 0 && (
-                <form
-                  method="post"
-                  action={`/billing/upgrade/${p.slug}`}
-                  style="margin-top:10px"
-                >
-                  <button
-                    type="submit"
-                    class="btn btn-primary"
-                    style="width:100%;font-size:13px"
-                  >
-                    {quota.planSlug === "free" ? "Upgrade" : "Switch"} to {p.name}
+              <div class="bill-current-cycle" style="margin-top:8px">
+                {quota.cycleStart
+                  ? `Cycle started ${new Date(quota.cycleStart).toLocaleDateString()}`
+                  : "No cycle recorded"}
+              </div>
+            </div>
+          </div>
+
+          <div class="bill-usage-list">
+            <div class="bill-usage-row">
+              <div class="bill-usage-label">
+                <span class="bill-usage-name">Storage</span>
+                <span class="bill-usage-num">
+                  {quota.usage.storageMbUsed} / {quota.plan.storageMbLimit} MB · {quota.percent.storage}%
+                </span>
+              </div>
+              <div class="bill-bar">
+                <div class={"bill-bar-fill " + barClass(quota.percent.storage)} style={`width:${quota.percent.storage}%`} />
+              </div>
+            </div>
+            <div class="bill-usage-row">
+              <div class="bill-usage-label">
+                <span class="bill-usage-name">AI tokens (monthly)</span>
+                <span class="bill-usage-num">
+                  {quota.usage.aiTokensUsedThisMonth.toLocaleString()} / {quota.plan.aiTokensMonthly.toLocaleString()} · {quota.percent.aiTokens}%
+                </span>
+              </div>
+              <div class="bill-bar">
+                <div class={"bill-bar-fill " + barClass(quota.percent.aiTokens)} style={`width:${quota.percent.aiTokens}%`} />
+              </div>
+            </div>
+            <div class="bill-usage-row">
+              <div class="bill-usage-label">
+                <span class="bill-usage-name">Bandwidth (monthly)</span>
+                <span class="bill-usage-num">
+                  {quota.usage.bandwidthGbUsedThisMonth} / {quota.plan.bandwidthGbMonthly} GB · {quota.percent.bandwidth}%
+                </span>
+              </div>
+              <div class="bill-bar">
+                <div class={"bill-bar-fill " + barClass(quota.percent.bandwidth)} style={`width:${quota.percent.bandwidth}%`} />
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* ─── Plan compare grid ─── */}
+        <section class="bill-section">
+          <header class="bill-section-head">
+            <div>
+              <h3 class="bill-section-title">Available plans</h3>
+              <p class="bill-section-sub">
+                Switch any time — pro-rated mid-cycle. Cancel and you keep your data on the free tier.
+              </p>
+            </div>
+          </header>
+          <div class="bill-section-body">
+            <div class="bill-plans">
+              {plans.map((p) => {
+                const isCurrent = p.slug === quota.planSlug;
+                return (
+                  <div class={"bill-plan" + (isCurrent ? " is-current" : "")}>
+                    {isCurrent && (
+                      <span class="bill-plan-badge is-current">Current</span>
+                    )}
+                    <h4 class="bill-plan-name">{p.name}</h4>
+                    <div class="bill-plan-price">{formatPrice(p.priceCents)}</div>
+                    <ul class="bill-plan-feats">
+                      <li><span class="check">✓</span> {p.repoLimit.toLocaleString()} repos</li>
+                      <li><span class="check">✓</span> {p.storageMbLimit.toLocaleString()} MB storage</li>
+                      <li><span class="check">✓</span> {p.aiTokensMonthly.toLocaleString()} AI tokens/mo</li>
+                      <li><span class="check">✓</span> {p.bandwidthGbMonthly} GB bandwidth/mo</li>
+                      <li>
+                        {p.privateRepos
+                          ? <><span class="check">✓</span> Private repos</>
+                          : <><span class="x">—</span> Public repos only</>}
+                      </li>
+                    </ul>
+                    <div class="bill-plan-action">
+                      {!isCurrent && p.slug !== "free" && p.priceCents > 0 && (
+                        <form method="post" action={`/billing/upgrade/${p.slug}`}>
+                          <button type="submit" class="bill-btn bill-btn-primary">
+                            {quota.planSlug === "free" ? "Upgrade" : "Switch"} to {p.name}
+                          </button>
+                        </form>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+
+        {/* ─── Payment method section ─── */}
+        <section class="bill-section">
+          <header class="bill-section-head">
+            <div>
+              <h3 class="bill-section-title">
+                <IconWallet /> Payment method
+              </h3>
+              <p class="bill-section-sub">
+                Card, invoices, and cancellation are handled by Stripe's Customer Portal.
+              </p>
+            </div>
+          </header>
+          <div class="bill-section-body">
+            <div class="bill-pay-row">
+              <div class="bill-pay-text">
+                {isPaid ? (
+                  <>Your card and billing address live in the <strong>Stripe Customer Portal</strong>. Update them, download invoices, or cancel any time.</>
+                ) : (
+                  <>You're on the <strong>Free</strong> tier — no card on file. Upgrade above to set one.</>
+                )}
+              </div>
+              {isPaid && (
+                <form method="post" action="/billing/manage" style="margin:0">
+                  <button type="submit" class="bill-btn bill-btn-ghost">
+                    Manage subscription &rarr;
                   </button>
                 </form>
               )}
             </div>
-          );
-        })}
-      </div>
-      {quota.planSlug !== "free" && (
-        <div style="margin-top:16px">
-          <form method="post" action="/billing/manage" style="display:inline">
-            <button
-              type="submit"
-              class="btn"
-              style="font-size:13px"
-            >
-              Manage subscription (Stripe Customer Portal)
-            </button>
-          </form>
-          <span
-            style="font-size:12px;color:var(--text-muted);margin-left:12px"
-          >
-            — change card, download invoices, cancel anytime.
-          </span>
-        </div>
-      )}
-      {!process.env.STRIPE_SECRET_KEY && (
-        <p
-          style="font-size:12px;color:var(--text-muted);margin-top:12px;font-style:italic"
-        >
-          (Stripe not yet configured on this instance — upgrade buttons will
-          return a setup error. Run the Stripe Bootstrap workflow to enable.)
-        </p>
-      )}
+            {!process.env.STRIPE_SECRET_KEY && (
+              <p class="bill-stripe-note">
+                (Stripe not yet configured on this instance — upgrade buttons return a
+                setup error. Run the Stripe Bootstrap workflow to enable.)
+              </p>
+            )}
+          </div>
+        </section>
 
-      {/* L8 — detailed plan comparison link, points at the public /pricing page. */}
-      <p style="font-size:13px;color:var(--text-muted);margin-top:24px;text-align:center">
-        Want the full breakdown of what's included?{" "}
-        <a href="/pricing" style="color:var(--accent);font-weight:500">
-          Detailed plan comparison &rarr;
-        </a>
-      </p>
+        {/* ─── Invoices section (empty state — Stripe owns the list) ─── */}
+        <section class="bill-section">
+          <header class="bill-section-head">
+            <div>
+              <h3 class="bill-section-title">
+                <IconReceipt /> Invoices
+              </h3>
+              <p class="bill-section-sub">
+                Past invoices live in the Stripe Customer Portal — click through above.
+              </p>
+            </div>
+          </header>
+          <div class="bill-section-body">
+            <div class="bill-invoices-empty">
+              {isPaid
+                ? <>Receipts and PDFs are available in the <a href="#" onclick="document.querySelector('form[action=&quot;/billing/manage&quot;] button')?.click();return false;">Customer Portal</a>.</>
+                : <>You'll see invoices here once you upgrade to a paid plan.</>}
+            </div>
+          </div>
+        </section>
+
+        {/* ─── Foot (link to /pricing) ─── */}
+        <div class="bill-foot">
+          Want the full breakdown of what's included?{" "}
+          <a href="/pricing">Detailed plan comparison &rarr;</a>
+        </div>
+      </div>
     </Layout>
   );
 });
@@ -361,8 +909,10 @@ billing.get("/admin/billing", async (c) => {
   if (!(await isSiteAdmin(user.id))) {
     return c.html(
       <Layout title="Forbidden" user={user}>
-        <div class="empty-state">
+        <style dangerouslySetInnerHTML={{ __html: styles }} />
+        <div class="bill-403">
           <h2>403 — Not a site admin</h2>
+          <p>You don't have permission to view this page.</p>
         </div>
       </Layout>,
       403
@@ -385,50 +935,68 @@ billing.get("/admin/billing", async (c) => {
 
   return c.html(
     <Layout title="Admin — Billing" user={user}>
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-        <h2>Billing — all users</h2>
-        <a href="/admin" class="btn btn-sm">
-          Back
-        </a>
-      </div>
-      <div class="panel">
-        {rows.length === 0 ? (
-          <div class="panel-empty">No users.</div>
-        ) : (
-          rows.map((r) => (
-            <div class="panel-item" style="justify-content:space-between">
-              <div style="flex:1;min-width:0">
-                <a href={`/${r.username}`} style="font-weight:600">
-                  {r.username}
-                </a>
-                <div style="font-size:12px;color:var(--text-muted);margin-top:2px">
-                  Plan: <strong>{r.planSlug || "free"}</strong> ·{" "}
-                  {r.storageMbUsed || 0} MB ·{" "}
-                  {(r.aiTokensUsedThisMonth || 0).toLocaleString()} tokens
-                </div>
+      <style dangerouslySetInnerHTML={{ __html: styles }} />
+      <div class="bill-wrap">
+        <section class="bill-hero">
+          <div class="bill-hero-orb" aria-hidden="true" />
+          <div class="bill-hero-inner">
+            <div class="bill-hero-text">
+              <div class="bill-eyebrow">
+                <span class="bill-eyebrow-dot" aria-hidden="true" />
+                Admin · Billing
               </div>
-              <form
-                method="post"
-                action={`/admin/billing/${r.id}/plan`}
-                style="display:flex;gap:6px;align-items:center"
-              >
-                <select name="slug" style="font-size:12px">
-                  {plans.map((p) => (
-                    <option
-                      value={p.slug}
-                      selected={(r.planSlug || "free") === p.slug}
-                    >
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
-                <button type="submit" class="btn btn-sm">
-                  Set
-                </button>
-              </form>
+              <h1 class="bill-title">
+                <span class="bill-title-grad">All users.</span>
+              </h1>
+              <p class="bill-sub">
+                Override any user's plan. Every change is audit-logged under
+                <code style="font-family:var(--font-mono);font-size:13px;background:rgba(255,255,255,0.04);padding:1px 5px;border-radius:4px;margin-left:5px">admin.billing.set_plan</code>.
+              </p>
             </div>
-          ))
-        )}
+            <a href="/admin" class="bill-hero-back">
+              <IconArrowLeft />
+              Back to admin
+            </a>
+          </div>
+        </section>
+
+        <div class="bill-admin-list">
+          {rows.length === 0 ? (
+            <div class="bill-invoices-empty" style="margin:0;border:none">No users.</div>
+          ) : (
+            rows.map((r) => (
+              <div class="bill-admin-row">
+                <div class="bill-admin-user" style="flex:1;min-width:0">
+                  <a href={`/${r.username}`}>{r.username}</a>
+                  <div class="bill-admin-meta">
+                    Plan: <strong>{r.planSlug || "free"}</strong> ·{" "}
+                    {r.storageMbUsed || 0} MB ·{" "}
+                    {(r.aiTokensUsedThisMonth || 0).toLocaleString()} tokens
+                  </div>
+                </div>
+                <form
+                  method="post"
+                  action={`/admin/billing/${r.id}/plan`}
+                  class="bill-admin-form"
+                >
+                  <select name="slug">
+                    {plans.map((p) => (
+                      <option
+                        value={p.slug}
+                        selected={(r.planSlug || "free") === p.slug}
+                      >
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button type="submit" class="bill-btn bill-btn-ghost" style="padding:6px 12px;font-size:12px">
+                    Set
+                  </button>
+                </form>
+              </div>
+            ))
+          )}
+        </div>
       </div>
     </Layout>
   );

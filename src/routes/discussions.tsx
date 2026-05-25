@@ -4,6 +4,11 @@
  * Similar to GitHub Discussions: categorised, pinnable, answer-able threads
  * that sit alongside issues but are conversational (Q&A, ideas, announcements).
  *
+ * 2026 polish: gradient-hairline hero + radial orb + thread cards with
+ * author chip + reply count + recent timestamp + category chip. Every class
+ * prefixed `.disc-` so this surface doesn't bleed into the rest of the repo
+ * polish. All data fetches, queries, and POST handlers preserved exactly.
+ *
  * Never throws — all DB paths wrapped in try/catch; callers see a 500-like
  * shell page or a redirect on any failure.
  */
@@ -36,6 +41,342 @@ export function isValidCategory(c: string): boolean {
 }
 
 const discussionRoutes = new Hono<AuthEnv>();
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * Scoped CSS — every class prefixed `.disc-` so this surface can't bleed
+ * into the wider repo polish. Mirrors the gradient-hairline hero + radial
+ * orb + card patterns from `insights.tsx` and `error-page.tsx`.
+ * ───────────────────────────────────────────────────────────────────── */
+const styles = `
+  .disc-wrap { max-width: 1100px; margin: 0 auto; padding: var(--space-5) var(--space-4); }
+
+  .disc-hero {
+    position: relative;
+    margin-bottom: var(--space-5);
+    padding: var(--space-5) var(--space-6);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+  .disc-hero::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent 0%, #8c6dff 30%, #36c5d6 70%, transparent 100%);
+    opacity: 0.75;
+    pointer-events: none;
+  }
+  .disc-hero-orb {
+    position: absolute;
+    inset: -30% -15% auto auto;
+    width: 460px; height: 460px;
+    background: radial-gradient(circle, rgba(140,109,255,0.22), rgba(54,197,214,0.10) 45%, transparent 70%);
+    filter: blur(80px);
+    opacity: 0.75;
+    pointer-events: none;
+    z-index: 0;
+  }
+  .disc-hero-inner {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-4);
+    flex-wrap: wrap;
+  }
+  .disc-hero-text { max-width: 720px; }
+  .disc-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    text-transform: uppercase;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    color: var(--text-muted);
+    font-weight: 600;
+    margin-bottom: 14px;
+  }
+  .disc-eyebrow-dot {
+    width: 8px; height: 8px;
+    border-radius: 9999px;
+    background: linear-gradient(135deg, #8c6dff, #36c5d6);
+    box-shadow: 0 0 0 3px rgba(140,109,255,0.18);
+  }
+  .disc-title {
+    font-family: var(--font-display);
+    font-size: clamp(28px, 4vw, 40px);
+    font-weight: 800;
+    letter-spacing: -0.028em;
+    line-height: 1.05;
+    margin: 0 0 var(--space-2);
+    color: var(--text-strong);
+  }
+  .disc-title-grad {
+    background-image: linear-gradient(135deg, #a48bff 0%, #8c6dff 50%, #36c5d6 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+  }
+  .disc-sub {
+    font-size: 15px;
+    color: var(--text-muted);
+    margin: 0;
+    line-height: 1.55;
+  }
+
+  /* Primary CTA — gradient pill that matches the hero stripe. */
+  .disc-cta {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 10px 18px;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 600;
+    text-decoration: none;
+    border: 1px solid transparent;
+    background: linear-gradient(135deg, #8c6dff 0%, #36c5d6 100%);
+    color: #fff;
+    box-shadow: 0 6px 18px -4px rgba(140,109,255,0.45), inset 0 1px 0 rgba(255,255,255,0.16);
+    transition: transform 120ms ease, box-shadow 120ms ease;
+    white-space: nowrap;
+  }
+  .disc-cta:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 10px 24px -6px rgba(140,109,255,0.55), inset 0 1px 0 rgba(255,255,255,0.20);
+    color: #fff;
+    text-decoration: none;
+  }
+
+  /* Category filter chips */
+  .disc-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 0 0 var(--space-4);
+  }
+  .disc-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 9999px;
+    border: 1px solid var(--border);
+    background: var(--bg-elevated);
+    color: var(--text-muted);
+    font-size: 12.5px;
+    font-weight: 600;
+    text-decoration: none;
+    text-transform: lowercase;
+    transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+  }
+  .disc-chip:hover { border-color: rgba(140,109,255,0.45); color: var(--text-strong); text-decoration: none; }
+  .disc-chip.is-active {
+    color: #fff;
+    background: linear-gradient(135deg, rgba(140,109,255,0.85), rgba(54,197,214,0.85));
+    border-color: rgba(140,109,255,0.55);
+  }
+
+  /* Thread card list */
+  .disc-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    margin-bottom: var(--space-5);
+  }
+  .disc-card {
+    position: relative;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: var(--space-3) var(--space-4);
+    transition: border-color 120ms ease, transform 120ms ease;
+  }
+  .disc-card:hover { border-color: var(--border-strong, var(--border)); transform: translateY(-1px); }
+  .disc-card.is-pinned { border-color: rgba(140,109,255,0.32); }
+
+  .disc-card-row {
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+  }
+  .disc-avatar {
+    flex: none;
+    width: 36px; height: 36px;
+    border-radius: 9999px;
+    background: linear-gradient(135deg, #8c6dff, #36c5d6);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font-display);
+    font-size: 14px;
+    font-weight: 700;
+    text-transform: uppercase;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.18);
+  }
+  .disc-card-main { flex: 1; min-width: 0; }
+  .disc-card-title {
+    font-family: var(--font-display);
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text-strong);
+    letter-spacing: -0.005em;
+    line-height: 1.3;
+    margin: 0 0 4px;
+    word-break: break-word;
+  }
+  .disc-card-title a { color: inherit; text-decoration: none; }
+  .disc-card-title a:hover { color: var(--accent); }
+  .disc-card-sub {
+    font-size: 12.5px;
+    color: var(--text-muted);
+    line-height: 1.5;
+    margin: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 10px;
+    align-items: center;
+  }
+  .disc-card-sub a { color: var(--text); text-decoration: none; }
+  .disc-card-sub a:hover { color: var(--text-strong); }
+  .disc-num {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  .disc-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 8px;
+    border-radius: 9999px;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    background: rgba(140,109,255,0.10);
+    color: #b69dff;
+    box-shadow: inset 0 0 0 1px rgba(140,109,255,0.32);
+  }
+  .disc-tag.is-pinned { background: rgba(252,211,77,0.10); color: #fcd34d; box-shadow: inset 0 0 0 1px rgba(252,211,77,0.32); }
+  .disc-tag.is-closed { background: rgba(248,113,113,0.10); color: #fca5a5; box-shadow: inset 0 0 0 1px rgba(248,113,113,0.32); }
+  .disc-tag.is-locked { background: rgba(148,163,184,0.10); color: #cbd5e1; box-shadow: inset 0 0 0 1px rgba(148,163,184,0.32); }
+
+  .disc-card-meta {
+    flex: none;
+    text-align: right;
+    font-size: 12px;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+    min-width: 80px;
+  }
+  .disc-card-meta .replies {
+    font-family: var(--font-display);
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-strong);
+    line-height: 1;
+  }
+  .disc-card-meta .replies-label {
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-weight: 700;
+  }
+
+  /* Empty state — dashed orb card */
+  .disc-empty {
+    position: relative;
+    overflow: hidden;
+    text-align: center;
+    padding: var(--space-6) var(--space-4);
+    border: 1px dashed var(--border-strong, var(--border));
+    border-radius: 16px;
+    background: rgba(255,255,255,0.012);
+    color: var(--text-muted);
+    margin-bottom: var(--space-5);
+  }
+  .disc-empty::before {
+    content: '';
+    position: absolute;
+    inset: -40% -20% auto auto;
+    width: 320px; height: 320px;
+    background: radial-gradient(circle, rgba(140,109,255,0.14), rgba(54,197,214,0.06) 45%, transparent 70%);
+    filter: blur(60px);
+    pointer-events: none;
+  }
+  .disc-empty-inner { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  .disc-empty strong {
+    display: block;
+    font-family: var(--font-display);
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-strong);
+    margin: 0;
+  }
+  .disc-empty p { font-size: 13px; margin: 0; max-width: 420px; }
+
+  /* New-discussion form polish (preserves form action + field names) */
+  .disc-form-card {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: var(--space-4) var(--space-5);
+    margin-top: var(--space-4);
+  }
+  .disc-form { display: flex; flex-direction: column; gap: 12px; }
+  .disc-input,
+  .disc-textarea,
+  .disc-select {
+    width: 100%;
+    padding: 10px 12px;
+    font-size: 14px;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--border-strong);
+    border-radius: 10px;
+    outline: none;
+    font-family: inherit;
+    box-sizing: border-box;
+    transition: border-color 120ms ease, box-shadow 120ms ease;
+  }
+  .disc-textarea { font-family: var(--font-mono); font-size: 13px; line-height: 1.55; }
+  .disc-input:focus,
+  .disc-textarea:focus,
+  .disc-select:focus {
+    border-color: var(--border-focus, rgba(140,109,255,0.55));
+    box-shadow: 0 0 0 3px rgba(140,109,255,0.18);
+  }
+`;
+
+function relTime(d: Date | string | null | undefined): string {
+  if (!d) return "";
+  const t = typeof d === "string" ? new Date(d).getTime() : d.getTime();
+  if (!Number.isFinite(t)) return "";
+  const diff = (Date.now() - t) / 1000;
+  if (diff < 60) return "just now";
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  if (diff < 86400 * 7) return `${Math.floor(diff / 86400)}d ago`;
+  if (diff < 86400 * 30) return `${Math.floor(diff / (86400 * 7))}w ago`;
+  return new Date(t).toLocaleDateString();
+}
+
+function initials(name: string): string {
+  if (!name) return "?";
+  return name.slice(0, 2);
+}
 
 async function resolveRepo(ownerName: string, repoName: string) {
   try {
@@ -116,68 +457,125 @@ discussionRoutes.get("/:owner/:repo/discussions", softAuth, async (c) => {
           Discussions
         </a>
       </div>
-      <div style="display: flex; justify-content: space-between; align-items: center; margin: 16px 0;">
-        <div style="display: flex; gap: 8px;">
+
+      <div class="disc-wrap">
+        <section class="disc-hero">
+          <div class="disc-hero-orb" aria-hidden="true" />
+          <div class="disc-hero-inner">
+            <div class="disc-hero-text">
+              <div class="disc-eyebrow">
+                <span class="disc-eyebrow-dot" aria-hidden="true" />
+                Discussions · {ownerName}/{repoName}
+              </div>
+              <h2 class="disc-title">
+                <span class="disc-title-grad">Talk it out.</span>
+              </h2>
+              <p class="disc-sub">
+                Q&amp;A, ideas, announcements, and show-and-tell — the
+                conversational space alongside issues and PRs.
+              </p>
+            </div>
+            {user && (
+              <a
+                href={`/${ownerName}/${repoName}/discussions/new`}
+                class="disc-cta"
+              >
+                + New discussion
+              </a>
+            )}
+          </div>
+        </section>
+
+        <div class="disc-filters" aria-label="Filter by category">
           <a
             href={`/${ownerName}/${repoName}/discussions`}
-            class={!category ? "active" : ""}
-            style="padding: 4px 10px; border-radius: 6px;"
+            class={"disc-chip" + (!category ? " is-active" : "")}
           >
-            All
+            all
           </a>
           {CATEGORIES.map((cat) => (
             <a
               href={`/${ownerName}/${repoName}/discussions?category=${cat}`}
-              class={cat === category ? "active" : ""}
-              style="padding: 4px 10px; border-radius: 6px;"
+              class={"disc-chip" + (cat === category ? " is-active" : "")}
             >
               {cat}
             </a>
           ))}
         </div>
-        {user && (
-          <a
-            href={`/${ownerName}/${repoName}/discussions/new`}
-            class="btn btn-primary"
-          >
-            New discussion
-          </a>
+
+        {rows.length === 0 ? (
+          <div class="disc-empty">
+            <div class="disc-empty-inner">
+              <strong>No discussions yet</strong>
+              <p>
+                Start a thread to ask a question, float an idea, or share an
+                announcement with the community.
+              </p>
+              {user && (
+                <a
+                  href={`/${ownerName}/${repoName}/discussions/new`}
+                  class="disc-cta"
+                  style="margin-top:6px"
+                >
+                  + Start a discussion
+                </a>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div class="disc-list">
+            {rows.map((r) => {
+              const replies = Number(r.commentCount || 0);
+              const updated = r.d.updatedAt || r.d.createdAt;
+              return (
+                <article
+                  class={"disc-card" + (r.d.pinned ? " is-pinned" : "")}
+                >
+                  <div class="disc-card-row">
+                    <div
+                      class="disc-avatar"
+                      aria-label={`@${r.author.username}`}
+                    >
+                      {initials(r.author.username)}
+                    </div>
+                    <div class="disc-card-main">
+                      <h3 class="disc-card-title">
+                        <a
+                          href={`/${ownerName}/${repoName}/discussions/${r.d.number}`}
+                        >
+                          {r.d.title}
+                        </a>
+                      </h3>
+                      <div class="disc-card-sub">
+                        <span class="disc-num">#{r.d.number}</span>
+                        <span>by @{r.author.username}</span>
+                        {updated && <span>· active {relTime(updated)}</span>}
+                        <span class="disc-tag">{r.d.category}</span>
+                        {r.d.pinned && (
+                          <span class="disc-tag is-pinned">pinned</span>
+                        )}
+                        {r.d.state === "closed" && (
+                          <span class="disc-tag is-closed">closed</span>
+                        )}
+                        {r.d.locked && (
+                          <span class="disc-tag is-locked">locked</span>
+                        )}
+                      </div>
+                    </div>
+                    <div class="disc-card-meta">
+                      <span class="replies">{replies}</span>
+                      <span class="replies-label">
+                        {replies === 1 ? "reply" : "replies"}
+                      </span>
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
         )}
       </div>
-      {rows.length === 0 ? (
-        <div class="empty-state">
-          <p>No discussions yet.</p>
-        </div>
-      ) : (
-        <table class="file-table">
-          <tbody>
-            {rows.map((r) => (
-              <tr>
-                <td style="width: 40px; color: var(--text-muted);">
-                  #{r.d.number}
-                </td>
-                <td>
-                  {r.d.pinned && <span class="badge">📌 Pinned</span>}{" "}
-                  <a
-                    href={`/${ownerName}/${repoName}/discussions/${r.d.number}`}
-                  >
-                    <strong>{r.d.title}</strong>
-                  </a>{" "}
-                  <span class="badge">{r.d.category}</span>
-                  <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">
-                    by @{r.author.username}
-                    {r.d.state === "closed" ? " · closed" : ""}
-                    {r.d.locked ? " · locked" : ""}
-                  </div>
-                </td>
-                <td style="text-align: right; color: var(--text-muted); font-size: 13px;">
-                  💬 {r.commentCount}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+      <style dangerouslySetInnerHTML={{ __html: styles }} />
     </Layout>
   );
 });
@@ -194,35 +592,60 @@ discussionRoutes.get(
     return c.html(
       <Layout title="New discussion" user={user}>
         <RepoHeader owner={ownerName} repo={repoName} />
-        <h2 style="margin-top: 20px;">Start a discussion</h2>
-        <form
-          method="post"
-          action={`/${ownerName}/${repoName}/discussions`}
-          style="display: flex; flex-direction: column; gap: 12px; margin-top: 16px;"
-        >
-          <input
-            type="text"
-            name="title"
-            placeholder="Title"
-            required
-            aria-label="Discussion title"
-            style="padding: 8px;"
-          />
-          <select name="category" style="padding: 8px;">
-            {CATEGORIES.map((c) => (
-              <option value={c}>{c}</option>
-            ))}
-          </select>
-          <textarea
-            name="body"
-            rows={10}
-            placeholder="Write your post (markdown supported)"
-            style="padding: 8px; font-family: inherit;"
-          ></textarea>
-          <button type="submit" class="btn btn-primary">
-            Start discussion
-          </button>
-        </form>
+        <div class="disc-wrap">
+          <section class="disc-hero">
+            <div class="disc-hero-orb" aria-hidden="true" />
+            <div class="disc-hero-inner">
+              <div class="disc-hero-text">
+                <div class="disc-eyebrow">
+                  <span class="disc-eyebrow-dot" aria-hidden="true" />
+                  New discussion · {ownerName}/{repoName}
+                </div>
+                <h2 class="disc-title">
+                  <span class="disc-title-grad">Start a thread.</span>
+                </h2>
+                <p class="disc-sub">
+                  Pick a category, add a clear title, and tell folks what's on
+                  your mind. Markdown supported.
+                </p>
+              </div>
+            </div>
+          </section>
+
+          <div class="disc-form-card">
+            <form
+              method="post"
+              action={`/${ownerName}/${repoName}/discussions`}
+              class="disc-form"
+            >
+              <input
+                type="text"
+                name="title"
+                placeholder="Title"
+                required
+                aria-label="Discussion title"
+                class="disc-input"
+              />
+              <select name="category" class="disc-select">
+                {CATEGORIES.map((c) => (
+                  <option value={c}>{c}</option>
+                ))}
+              </select>
+              <textarea
+                name="body"
+                rows={10}
+                placeholder="Write your post (markdown supported)"
+                class="disc-textarea"
+              ></textarea>
+              <div>
+                <button type="submit" class="disc-cta">
+                  Start discussion
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+        <style dangerouslySetInnerHTML={{ __html: styles }} />
       </Layout>
     );
   }

@@ -8,6 +8,11 @@
  *   POST /:owner/:repo/releases/:tag/delete — owner-only delete (also removes git tag)
  *
  * Publishing a release fans out `release_published` notifications to starrers.
+ *
+ * 2026 polish: scoped `.rel-*` class system mirrors `admin-ops.tsx` and
+ * `collaborators.tsx` — eyebrow + display headline, polished cards with
+ * tabular-nums for counts/dates, version pills (mono), gradient hero CTA, and
+ * an orb-lit dashed empty state. RepoHeader / RepoNav are untouched.
  */
 
 import { Hono } from "hono";
@@ -60,6 +65,443 @@ async function loadRepo(owner: string, repo: string) {
   return row;
 }
 
+// ─── Scoped CSS (.rel-*) ────────────────────────────────────────────────────
+//
+// Every selector prefixed `.rel-*` so it can't leak into surrounding chrome.
+// Tokens come from the layout (--bg-elevated, --border, --text-strong,
+// --space-*, --font-*).
+const relStyles = `
+  .rel-wrap { max-width: 1100px; margin: 0 auto; padding: var(--space-5) var(--space-4) var(--space-8); }
+
+  .rel-head {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: var(--space-4);
+    flex-wrap: wrap;
+    margin-bottom: var(--space-5);
+  }
+  .rel-head-text { flex: 1; min-width: 280px; }
+  .rel-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    text-transform: uppercase;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    color: var(--text-muted);
+    font-weight: 600;
+    margin-bottom: 10px;
+  }
+  .rel-eyebrow-dot {
+    width: 8px; height: 8px;
+    border-radius: 9999px;
+    background: linear-gradient(135deg, #8c6dff, #36c5d6);
+    box-shadow: 0 0 0 3px rgba(140,109,255,0.18);
+  }
+  .rel-title {
+    font-family: var(--font-display);
+    font-size: clamp(24px, 3.4vw, 36px);
+    font-weight: 800;
+    letter-spacing: -0.028em;
+    line-height: 1.1;
+    margin: 0 0 6px;
+    color: var(--text-strong);
+  }
+  .rel-title-grad {
+    background-image: linear-gradient(135deg, #a48bff 0%, #8c6dff 50%, #36c5d6 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+  }
+  .rel-sub {
+    margin: 0;
+    font-size: 14px;
+    color: var(--text-muted);
+    line-height: 1.5;
+    max-width: 640px;
+  }
+
+  /* Buttons */
+  .rel-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 9px 16px;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 600;
+    text-decoration: none;
+    border: 1px solid transparent;
+    cursor: pointer;
+    font: inherit;
+    line-height: 1;
+    white-space: nowrap;
+    transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease, border-color 120ms ease, color 120ms ease;
+  }
+  .rel-btn-primary {
+    background: linear-gradient(135deg, #8c6dff 0%, #36c5d6 100%);
+    color: #ffffff;
+    box-shadow: 0 6px 18px -6px rgba(140,109,255,0.50), inset 0 1px 0 rgba(255,255,255,0.16);
+  }
+  .rel-btn-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 10px 24px -8px rgba(140,109,255,0.60), inset 0 1px 0 rgba(255,255,255,0.20);
+    text-decoration: none;
+    color: #ffffff;
+  }
+  .rel-btn-ghost {
+    background: transparent;
+    color: var(--text);
+    border-color: var(--border-strong);
+  }
+  .rel-btn-ghost:hover {
+    background: rgba(140,109,255,0.06);
+    border-color: rgba(140,109,255,0.45);
+    color: var(--text-strong);
+    text-decoration: none;
+  }
+  .rel-btn-danger {
+    background: transparent;
+    color: #fca5a5;
+    border-color: rgba(248,113,113,0.35);
+  }
+  .rel-btn-danger:hover {
+    border-style: dashed;
+    border-color: rgba(248,113,113,0.70);
+    background: rgba(248,113,113,0.06);
+    color: #fecaca;
+    text-decoration: none;
+  }
+
+  /* Banner */
+  .rel-banner {
+    margin-bottom: var(--space-4);
+    padding: 10px 14px;
+    border-radius: 10px;
+    font-size: 13.5px;
+    border: 1px solid rgba(248,113,113,0.40);
+    background: rgba(248,113,113,0.08);
+    color: #fecaca;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .rel-banner-dot { width: 8px; height: 8px; border-radius: 9999px; background: currentColor; }
+
+  /* Crumb */
+  .rel-crumbs {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: var(--space-4);
+    font-size: 12.5px;
+  }
+  .rel-crumbs a {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 6px 11px;
+    background: rgba(255,255,255,0.025);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-muted);
+    text-decoration: none;
+    font-weight: 500;
+    transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+  }
+  .rel-crumbs a:hover {
+    border-color: var(--border-strong);
+    color: var(--text-strong);
+    background: rgba(255,255,255,0.04);
+    text-decoration: none;
+  }
+
+  /* Release cards */
+  .rel-list { display: flex; flex-direction: column; gap: 12px; }
+  .rel-card {
+    position: relative;
+    overflow: hidden;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: var(--space-4) var(--space-5);
+    transition: border-color 120ms ease, background 120ms ease;
+  }
+  .rel-card:hover { border-color: var(--border-strong); }
+  .rel-card.is-latest::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent 0%, #8c6dff 30%, #36c5d6 70%, transparent 100%);
+    opacity: 0.6;
+    pointer-events: none;
+  }
+  .rel-card-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 14px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+  }
+  .rel-card-titlewrap { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
+  .rel-card-name {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 18px;
+    letter-spacing: -0.015em;
+    color: var(--text-strong);
+    text-decoration: none;
+  }
+  .rel-card-name:hover { color: var(--text-strong); text-decoration: underline; }
+  .rel-tag-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 9px;
+    border-radius: 9999px;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    font-weight: 600;
+    background: rgba(140,109,255,0.12);
+    color: #c4b5fd;
+    box-shadow: inset 0 0 0 1px rgba(140,109,255,0.30);
+    font-variant-numeric: tabular-nums;
+  }
+  .rel-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 9px;
+    border-radius: 9999px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: capitalize;
+  }
+  .rel-pill .dot { width: 6px; height: 6px; border-radius: 9999px; background: currentColor; }
+  .rel-pill.is-latest {
+    background: rgba(52,211,153,0.14);
+    color: #6ee7b7;
+    box-shadow: inset 0 0 0 1px rgba(52,211,153,0.32);
+  }
+  .rel-pill.is-draft {
+    background: rgba(251,191,36,0.12);
+    color: #fde68a;
+    box-shadow: inset 0 0 0 1px rgba(251,191,36,0.32);
+  }
+  .rel-pill.is-pre {
+    background: rgba(54,197,214,0.14);
+    color: #67e8f9;
+    box-shadow: inset 0 0 0 1px rgba(54,197,214,0.32);
+  }
+  .rel-meta-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    font-size: 12px;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+    margin-bottom: 10px;
+  }
+  .rel-meta-row a { color: var(--text-muted); }
+  .rel-meta-row a:hover { color: var(--text-strong); }
+  .rel-meta-row code, .rel-meta-row .mono {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    padding: 1px 6px;
+    border-radius: 6px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border);
+    color: var(--text);
+  }
+  .rel-meta-row .sep { opacity: 0.4; }
+
+  .rel-notes {
+    font-size: 13.5px;
+    color: var(--text);
+    line-height: 1.55;
+    max-height: 220px;
+    overflow: hidden;
+    position: relative;
+    border-top: 1px dashed var(--border);
+    padding-top: 12px;
+  }
+  .rel-notes::after {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 48px;
+    background: linear-gradient(to top, var(--bg-elevated), transparent);
+    pointer-events: none;
+  }
+  .rel-card-actions { margin-top: 12px; }
+
+  /* Detail card */
+  .rel-detail {
+    position: relative;
+    overflow: hidden;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: var(--space-5);
+  }
+  .rel-detail::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent 0%, #8c6dff 30%, #36c5d6 70%, transparent 100%);
+    opacity: 0.55;
+  }
+
+  /* Form */
+  .rel-form-card {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: var(--space-5);
+    max-width: 720px;
+    position: relative;
+    overflow: hidden;
+  }
+  .rel-form-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent 0%, #8c6dff 30%, #36c5d6 70%, transparent 100%);
+    opacity: 0.55;
+  }
+  .rel-field { margin-bottom: 14px; }
+  .rel-field-label {
+    display: block;
+    font-size: 11.5px;
+    color: var(--text-muted);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 6px;
+  }
+  .rel-input, .rel-select, .rel-textarea {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 9px 12px;
+    font: inherit;
+    font-size: 13.5px;
+    color: var(--text);
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border-strong);
+    border-radius: 10px;
+    transition: border-color 120ms ease, background 120ms ease, box-shadow 120ms ease;
+  }
+  .rel-textarea { font-family: var(--font-mono); font-size: 12.5px; line-height: 1.5; resize: vertical; }
+  .rel-input:focus, .rel-select:focus, .rel-textarea:focus {
+    outline: none;
+    border-color: rgba(140,109,255,0.55);
+    background: rgba(255,255,255,0.05);
+    box-shadow: 0 0 0 3px rgba(140,109,255,0.18);
+  }
+  .rel-checks { display: flex; gap: 18px; flex-wrap: wrap; margin-bottom: 16px; font-size: 13px; }
+  .rel-check { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+
+  /* Empty */
+  .rel-empty {
+    position: relative;
+    overflow: hidden;
+    padding: clamp(32px, 6vw, 60px) clamp(20px, 4vw, 36px);
+    text-align: center;
+    background: var(--bg-elevated);
+    border: 1px dashed var(--border-strong);
+    border-radius: 16px;
+  }
+  .rel-empty-orb {
+    position: absolute;
+    inset: -40% 30% auto 30%;
+    height: 280px;
+    background: radial-gradient(circle, rgba(140,109,255,0.18), rgba(54,197,214,0.10) 45%, transparent 70%);
+    filter: blur(70px);
+    opacity: 0.7;
+    pointer-events: none;
+    z-index: 0;
+  }
+  .rel-empty-inner { position: relative; z-index: 1; }
+  .rel-empty-icon {
+    width: 56px; height: 56px;
+    border-radius: 9999px;
+    background: linear-gradient(135deg, rgba(140,109,255,0.25), rgba(54,197,214,0.20));
+    box-shadow: inset 0 0 0 1px rgba(140,109,255,0.40);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #c4b5fd;
+    margin-bottom: 14px;
+  }
+  .rel-empty-title {
+    font-family: var(--font-display);
+    font-size: 18px;
+    font-weight: 700;
+    margin: 0 0 6px;
+    color: var(--text-strong);
+  }
+  .rel-empty-sub {
+    margin: 0 auto 16px;
+    font-size: 13.5px;
+    color: var(--text-muted);
+    max-width: 420px;
+    line-height: 1.5;
+  }
+`;
+
+function IconTag() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
+      <line x1="7" y1="7" x2="7.01" y2="7" />
+    </svg>
+  );
+}
+function IconPlus() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <line x1="12" y1="5" x2="12" y2="19" />
+      <line x1="5" y1="12" x2="19" y2="12" />
+    </svg>
+  );
+}
+function IconArrowLeft() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <line x1="19" y1="12" x2="5" y2="12" />
+      <polyline points="12 19 5 12 12 5" />
+    </svg>
+  );
+}
+function IconDownload() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline points="7 10 12 15 17 10" />
+      <line x1="12" y1="15" x2="12" y2="3" />
+    </svg>
+  );
+}
+
+/** YYYY-MM-DD with tabular-nums. */
+function shortDate(d: Date | string | null | undefined): string {
+  if (!d) return "—";
+  const dt = d instanceof Date ? d : new Date(d);
+  if (Number.isNaN(dt.getTime())) return "—";
+  return dt.toISOString().slice(0, 10);
+}
+
 releasesRoute.get("/:owner/:repo/releases", requireRepoAccess("read"), async (c) => {
   const user = c.get("user");
   const { owner, repo } = c.req.param();
@@ -85,6 +527,7 @@ releasesRoute.get("/:owner/:repo/releases", requireRepoAccess("read"), async (c)
     .orderBy(desc(releases.createdAt));
 
   const unread = user ? await getUnreadCount(user.id) : 0;
+  const isOwner = !!user && user.id === repoRow.ownerId;
 
   return c.html(
     <Layout
@@ -100,82 +543,129 @@ releasesRoute.get("/:owner/:repo/releases", requireRepoAccess("read"), async (c)
         currentUser={user?.username || null}
       />
       <RepoNav owner={owner} repo={repo} active="releases" />
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px">
-        <h3>Releases</h3>
-        {user && user.id === repoRow.ownerId && (
-          <a href={`/${owner}/${repo}/releases/new`} class="btn btn-primary">
-            + Draft release
-          </a>
-        )}
-      </div>
+      <div class="rel-wrap">
+        <header class="rel-head">
+          <div class="rel-head-text">
+            <div class="rel-eyebrow">
+              <span class="rel-eyebrow-dot" aria-hidden="true" />
+              Repository · Releases
+            </div>
+            <h1 class="rel-title">
+              <span class="rel-title-grad">Tagged snapshots.</span>
+            </h1>
+            <p class="rel-sub">
+              Cut a versioned release of {owner}/{repo}. AI drafts the
+              changelog from your commit history — you decide what ships.
+            </p>
+          </div>
+          {isOwner && (
+            <a href={`/${owner}/${repo}/releases/new`} class="rel-btn rel-btn-primary">
+              <IconPlus />
+              Draft release
+            </a>
+          )}
+        </header>
 
-      {rows.length === 0 ? (
-        <div class="empty-state">
-          <h2>No releases yet</h2>
-          <p>Tag a commit and share a changelog with your users.</p>
-        </div>
-      ) : (
-        <div>
-          {rows.map((r, i) => (
-            <div class="release-card">
-              <div class="release-header">
-                <div>
-                  <span class="release-name">
-                    <a href={`/${owner}/${repo}/releases/${encodeURIComponent(r.tag)}`}>
-                      {r.name}
-                    </a>
-                  </span>
-                  {i === 0 && !r.isDraft && !r.isPrerelease && (
-                    <span class="release-tag release-latest" style="margin-left: 8px">
-                      Latest
-                    </span>
-                  )}
-                  {r.isDraft && (
-                    <span class="badge" style="margin-left: 8px; color: var(--yellow); border-color: var(--yellow)">
-                      Draft
-                    </span>
-                  )}
-                  {r.isPrerelease && (
-                    <span class="badge" style="margin-left: 8px; color: var(--accent); border-color: var(--accent)">
-                      Pre-release
-                    </span>
-                  )}
-                </div>
-                <span class="release-tag">{r.tag}</span>
+        {rows.length === 0 ? (
+          <div class="rel-empty">
+            <div class="rel-empty-orb" aria-hidden="true" />
+            <div class="rel-empty-inner">
+              <div class="rel-empty-icon" aria-hidden="true">
+                <IconTag />
               </div>
-              <div style="color: var(--text-muted); font-size: 13px; margin-bottom: 8px">
-                {r.authorName} released{" "}
-                {new Date(r.publishedAt || r.createdAt).toLocaleDateString()}
-                {" · "}
-                <a href={`/${owner}/${repo}/commit/${r.targetCommit}`}>
-                  {r.targetCommit.slice(0, 7)}
+              <h3 class="rel-empty-title">Tag your first release</h3>
+              <p class="rel-empty-sub">
+                Pick a commit, name a tag like <code>v1.0.0</code>, and let
+                Claude write the changelog. Starrers will be notified the
+                moment it ships.
+              </p>
+              {isOwner && (
+                <a href={`/${owner}/${repo}/releases/new`} class="rel-btn rel-btn-primary">
+                  <IconPlus />
+                  Draft release
                 </a>
-              </div>
-              {r.body && (
-                <div
-                  class="markdown-body"
-                  style="font-size: 13px; max-height: 200px; overflow: hidden; position: relative"
-                  dangerouslySetInnerHTML={{
-                    __html: renderMarkdown(r.body.slice(0, 600) + (r.body.length > 600 ? " …" : "")),
-                  }}
-                ></div>
-              )}
-              {user && user.id === repoRow.ownerId && (
-                <form
-                  method="post"
-                  action={`/${owner}/${repo}/releases/${encodeURIComponent(r.tag)}/delete`}
-                  style="margin-top: 12px"
-                  onsubmit="return confirm('Delete this release?')"
-                >
-                  <button type="submit" class="btn btn-sm btn-danger">
-                    Delete
-                  </button>
-                </form>
               )}
             </div>
-          ))}
-        </div>
-      )}
+          </div>
+        ) : (
+          <div class="rel-list">
+            {rows.map((r, i) => {
+              const isLatest = i === 0 && !r.isDraft && !r.isPrerelease;
+              return (
+                <article class={`rel-card${isLatest ? " is-latest" : ""}`}>
+                  <div class="rel-card-head">
+                    <div class="rel-card-titlewrap">
+                      <a
+                        href={`/${owner}/${repo}/releases/${encodeURIComponent(r.tag)}`}
+                        class="rel-card-name"
+                      >
+                        {r.name}
+                      </a>
+                      <span class="rel-tag-pill">
+                        <IconTag />
+                        {r.tag}
+                      </span>
+                      {isLatest && (
+                        <span class="rel-pill is-latest">
+                          <span class="dot" aria-hidden="true" />
+                          Latest
+                        </span>
+                      )}
+                      {r.isDraft && (
+                        <span class="rel-pill is-draft">
+                          <span class="dot" aria-hidden="true" />
+                          Draft
+                        </span>
+                      )}
+                      {r.isPrerelease && (
+                        <span class="rel-pill is-pre">
+                          <span class="dot" aria-hidden="true" />
+                          Pre-release
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div class="rel-meta-row">
+                    <span>@{r.authorName}</span>
+                    <span class="sep">·</span>
+                    <span>released {shortDate(r.publishedAt || r.createdAt)}</span>
+                    <span class="sep">·</span>
+                    <a href={`/${owner}/${repo}/commit/${r.targetCommit}`}>
+                      <span class="mono">{r.targetCommit.slice(0, 7)}</span>
+                    </a>
+                    <span class="sep">·</span>
+                    <a href={`/${owner}/${repo}/archive/${encodeURIComponent(r.tag)}.zip`}>
+                      <IconDownload /> Download
+                    </a>
+                  </div>
+                  {r.body && (
+                    <div
+                      class="rel-notes markdown-body"
+                      dangerouslySetInnerHTML={{
+                        __html: renderMarkdown(r.body.slice(0, 600) + (r.body.length > 600 ? " …" : "")),
+                      }}
+                    ></div>
+                  )}
+                  {isOwner && (
+                    <div class="rel-card-actions">
+                      <form
+                        method="post"
+                        action={`/${owner}/${repo}/releases/${encodeURIComponent(r.tag)}/delete`}
+                        onsubmit="return confirm('Delete this release?')"
+                      >
+                        <button type="submit" class="rel-btn rel-btn-danger">
+                          Delete
+                        </button>
+                      </form>
+                    </div>
+                  )}
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </div>
+      <style dangerouslySetInnerHTML={{ __html: relStyles }} />
     </Layout>
   );
 });
@@ -206,65 +696,112 @@ releasesRoute.get("/:owner/:repo/releases/new", requireAuth, requireRepoAccess("
         currentUser={user.username}
       />
       <RepoNav owner={owner} repo={repo} active="releases" />
-      <h3>Draft a new release</h3>
-      {error && <div class="auth-error">{decodeURIComponent(error)}</div>}
-      <form
-        method="post"
-        action={`/${owner}/${repo}/releases`}
-        style="max-width: 700px"
-      >
-        <div class="form-group">
-          <label>Tag</label>
-          <input
-            type="text"
-            name="tag"
-            required
-            placeholder="v1.0.0"
-            pattern="[A-Za-z0-9._\\-]+"
-            aria-label="Tag"
-          />
+      <div class="rel-wrap">
+        <div class="rel-crumbs">
+          <a href={`/${owner}/${repo}/releases`}>
+            <IconArrowLeft />
+            All releases
+          </a>
         </div>
-        <div class="form-group">
-          <label>Target branch / commit</label>
-          <select name="target" aria-label="Target branch">
-            {branches.map((b) => (
-              <option value={b} selected={b === repoRow.defaultBranch}>
-                {b}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div class="form-group">
-          <label>Release name</label>
-          <input type="text" name="name" required placeholder="v1.0.0 — the big one" aria-label="Release name" />
-        </div>
-        <div class="form-group">
-          <label>Previous tag (for AI changelog)</label>
-          <select name="previousTag" aria-label="Previous tag">
-            <option value="">(auto — last tag)</option>
-            {tags.map((t) => (
-              <option value={t.name}>{t.name}</option>
-            ))}
-          </select>
-        </div>
-        <div class="form-group">
-          <label>Notes (leave blank for AI-generated)</label>
-          <textarea name="body" rows={10} placeholder="Markdown supported. Leave blank to have Claude generate a grouped changelog from commits."></textarea>
-        </div>
-        <div style="display: flex; gap: 12px">
-          <label style="display: flex; align-items: center; gap: 6px; font-size: 14px">
-            <input type="checkbox" name="isPrerelease" value="1" />
-            Pre-release
-          </label>
-          <label style="display: flex; align-items: center; gap: 6px; font-size: 14px">
-            <input type="checkbox" name="isDraft" value="1" />
-            Save as draft
-          </label>
-        </div>
-        <button type="submit" class="btn btn-primary" style="margin-top: 16px">
-          Publish release
-        </button>
-      </form>
+        <header class="rel-head">
+          <div class="rel-head-text">
+            <div class="rel-eyebrow">
+              <span class="rel-eyebrow-dot" aria-hidden="true" />
+              Releases · New
+            </div>
+            <h1 class="rel-title">
+              <span class="rel-title-grad">Draft a release.</span>
+            </h1>
+            <p class="rel-sub">
+              Pick a tag and target, write notes (or leave blank for the AI
+              changelog), then publish.
+            </p>
+          </div>
+        </header>
+
+        {error && (
+          <div class="rel-banner" role="alert">
+            <span class="rel-banner-dot" aria-hidden="true" />
+            {decodeURIComponent(error)}
+          </div>
+        )}
+
+        <form
+          method="post"
+          action={`/${owner}/${repo}/releases`}
+          class="rel-form-card"
+        >
+          <div class="rel-field">
+            <label class="rel-field-label" for="rel-tag">Tag</label>
+            <input
+              class="rel-input"
+              type="text"
+              id="rel-tag"
+              name="tag"
+              required
+              placeholder="v1.0.0"
+              pattern="[A-Za-z0-9._\\-]+"
+              aria-label="Tag"
+            />
+          </div>
+          <div class="rel-field">
+            <label class="rel-field-label" for="rel-target">Target branch / commit</label>
+            <select class="rel-select" id="rel-target" name="target" aria-label="Target branch">
+              {branches.map((b) => (
+                <option value={b} selected={b === repoRow.defaultBranch}>
+                  {b}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div class="rel-field">
+            <label class="rel-field-label" for="rel-name">Release name</label>
+            <input
+              class="rel-input"
+              type="text"
+              id="rel-name"
+              name="name"
+              required
+              placeholder="v1.0.0 — the big one"
+              aria-label="Release name"
+            />
+          </div>
+          <div class="rel-field">
+            <label class="rel-field-label" for="rel-prev">Previous tag (for AI changelog)</label>
+            <select class="rel-select" id="rel-prev" name="previousTag" aria-label="Previous tag">
+              <option value="">(auto — last tag)</option>
+              {tags.map((t) => (
+                <option value={t.name}>{t.name}</option>
+              ))}
+            </select>
+          </div>
+          <div class="rel-field">
+            <label class="rel-field-label" for="rel-body">Notes (leave blank for AI-generated)</label>
+            <textarea
+              class="rel-textarea"
+              id="rel-body"
+              name="body"
+              rows={10}
+              placeholder="Markdown supported. Leave blank to have Claude generate a grouped changelog from commits."
+            ></textarea>
+          </div>
+          <div class="rel-checks">
+            <label class="rel-check">
+              <input type="checkbox" name="isPrerelease" value="1" />
+              Pre-release
+            </label>
+            <label class="rel-check">
+              <input type="checkbox" name="isDraft" value="1" />
+              Save as draft
+            </label>
+          </div>
+          <button type="submit" class="rel-btn rel-btn-primary">
+            <IconTag />
+            Publish release
+          </button>
+        </form>
+      </div>
+      <style dangerouslySetInnerHTML={{ __html: relStyles }} />
     </Layout>
   );
 });
@@ -428,37 +965,74 @@ releasesRoute.get("/:owner/:repo/releases/:tag", requireRepoAccess("read"), asyn
         currentUser={user?.username || null}
       />
       <RepoNav owner={owner} repo={repo} active="releases" />
-      <div style="margin-bottom: 8px">
-        <a href={`/${owner}/${repo}/releases`}>{"\u2190"} All releases</a>
-      </div>
-      <div class="release-card">
-        <div class="release-header">
-          <span class="release-name">{release.name}</span>
-          <span class="release-tag">{release.tag}</span>
-        </div>
-        <div style="color: var(--text-muted); font-size: 13px; margin-bottom: 16px">
-          {release.authorName} released{" "}
-          {new Date(release.publishedAt || release.createdAt).toLocaleString()}
-          {" · "}
-          <a href={`/${owner}/${repo}/commit/${release.targetCommit}`}>
-            {release.targetCommit.slice(0, 7)}
-          </a>
-          {" · "}
-          <a
-            href={`/${owner}/${repo}/archive/${encodeURIComponent(release.tag)}.zip`}
-          >
-            Download
+      <div class="rel-wrap">
+        <div class="rel-crumbs">
+          <a href={`/${owner}/${repo}/releases`}>
+            <IconArrowLeft />
+            All releases
           </a>
         </div>
-        {release.body && (
-          <div
-            class="markdown-body"
-            dangerouslySetInnerHTML={{
-              __html: renderMarkdown(release.body),
-            }}
-          ></div>
-        )}
+        <header class="rel-head">
+          <div class="rel-head-text">
+            <div class="rel-eyebrow">
+              <span class="rel-eyebrow-dot" aria-hidden="true" />
+              Releases · {release.tag}
+            </div>
+            <h1 class="rel-title">
+              <span class="rel-title-grad">{release.name}</span>
+            </h1>
+            <p class="rel-sub">
+              Released by @{release.authorName} on {shortDate(release.publishedAt || release.createdAt)}.
+            </p>
+          </div>
+        </header>
+
+        <article class="rel-detail">
+          <div class="rel-card-head">
+            <div class="rel-card-titlewrap">
+              <span class="rel-tag-pill">
+                <IconTag />
+                {release.tag}
+              </span>
+              {release.isDraft && (
+                <span class="rel-pill is-draft">
+                  <span class="dot" aria-hidden="true" />
+                  Draft
+                </span>
+              )}
+              {release.isPrerelease && (
+                <span class="rel-pill is-pre">
+                  <span class="dot" aria-hidden="true" />
+                  Pre-release
+                </span>
+              )}
+            </div>
+          </div>
+          <div class="rel-meta-row">
+            <span>@{release.authorName}</span>
+            <span class="sep">·</span>
+            <span>released {shortDate(release.publishedAt || release.createdAt)}</span>
+            <span class="sep">·</span>
+            <a href={`/${owner}/${repo}/commit/${release.targetCommit}`}>
+              <span class="mono">{release.targetCommit.slice(0, 7)}</span>
+            </a>
+            <span class="sep">·</span>
+            <a href={`/${owner}/${repo}/archive/${encodeURIComponent(release.tag)}.zip`}>
+              <IconDownload /> Download
+            </a>
+          </div>
+          {release.body && (
+            <div
+              class="markdown-body"
+              style="border-top: 1px dashed var(--border); padding-top: 14px; margin-top: 4px"
+              dangerouslySetInnerHTML={{
+                __html: renderMarkdown(release.body),
+              }}
+            ></div>
+          )}
+        </article>
       </div>
+      <style dangerouslySetInnerHTML={{ __html: relStyles }} />
     </Layout>
   );
 });

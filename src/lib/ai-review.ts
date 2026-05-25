@@ -11,6 +11,7 @@ import { db } from "../db";
 import { pullRequests, prComments } from "../db/schema";
 import { getRepoPath } from "../git/repository";
 import { config } from "./config";
+import { recordAiCost, extractUsage } from "./ai-cost-tracker";
 
 interface ReviewComment {
   filePath: string;
@@ -59,8 +60,9 @@ export async function reviewDiff(
 ): Promise<ReviewResult> {
   const client = getClient();
 
+  const REVIEW_MODEL = "claude-sonnet-4-20250514";
   const message = await client.messages.create({
-    model: "claude-sonnet-4-20250514",
+    model: REVIEW_MODEL,
     max_tokens: 4096,
     messages: [
       {
@@ -105,6 +107,22 @@ ${diffText.slice(0, 100000)}
 
   const text =
     message.content[0].type === "text" ? message.content[0].text : "";
+
+  // Best-effort cost capture. Caller passes "owner/repo" as repoFullName,
+  // so we can't easily resolve the repo id here; the call site at
+  // `triggerAiReview` records with a repository_id below.
+  try {
+    const usage = extractUsage(message);
+    await recordAiCost({
+      model: REVIEW_MODEL,
+      inputTokens: usage.input,
+      outputTokens: usage.output,
+      category: "ai_review",
+      sourceKind: "pull_request",
+    });
+  } catch {
+    /* never escape — observational only */
+  }
 
   try {
     // Extract JSON from response (may be wrapped in markdown code block)

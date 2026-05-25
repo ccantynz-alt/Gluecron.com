@@ -326,6 +326,21 @@ export async function generateSpecEdits(
       system: systemPrompt,
       messages: [{ role: "user", content: userPrompt }],
     });
+    try {
+      const { recordAiCost, extractUsage } = await import(
+        "./ai-cost-tracker"
+      );
+      const usage = extractUsage(message);
+      await recordAiCost({
+        model,
+        inputTokens: usage.input,
+        outputTokens: usage.output,
+        category: "spec_to_pr",
+        sourceKind: "spec",
+      });
+    } catch {
+      /* swallow — best-effort */
+    }
     rawText = "";
     for (const block of message.content) {
       if (block.type === "text") {

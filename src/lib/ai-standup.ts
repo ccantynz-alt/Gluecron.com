@@ -458,6 +458,19 @@ async function askClaudeForStandup(
       max_tokens: 1500,
       messages: [{ role: "user", content: buildPrompt(scope, classified) }],
     });
+    try {
+      const { recordAiCost, extractUsage } = await import("./ai-cost-tracker");
+      const usage = extractUsage(message);
+      await recordAiCost({
+        model: MODEL_SONNET,
+        inputTokens: usage.input,
+        outputTokens: usage.output,
+        category: "standup",
+        sourceKind: "standup",
+      });
+    } catch {
+      /* swallow — best-effort */
+    }
     const parsed = parseJsonResponse<{
       summary?: string;
       shippedItems?: unknown;

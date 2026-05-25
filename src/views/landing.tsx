@@ -1241,9 +1241,384 @@ try{
 }catch(_){}})();
 `.trim();
 
+// ============================================================
+// Land2030 — 2030 homepage prelude (closed-loop showcase).
+// ============================================================
+//
+// Renders BEFORE the existing LandingHero so every L10/U1/Q1/M1
+// regression assertion keeps passing. CSS is scoped under
+// `.land-2030-*` to avoid colliding with the older `.landing-*`
+// styles. Inline SVG only — no extra deps.
+
+const ClosedLoopDiagram: FC = () => (
+  <svg
+    viewBox="0 0 1100 280"
+    class="land-2030-loop-svg"
+    role="img"
+    aria-label="Closed loop: Spec to Code to AI Review to Tests to Merge to Deploy to Monitor to Patch"
+  >
+    <defs>
+      <linearGradient id="land2030LoopLine" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0%" stop-color="#8c6dff" stop-opacity="0.0" />
+        <stop offset="20%" stop-color="#8c6dff" stop-opacity="0.6" />
+        <stop offset="80%" stop-color="#36c5d6" stop-opacity="0.6" />
+        <stop offset="100%" stop-color="#36c5d6" stop-opacity="0.0" />
+      </linearGradient>
+      <radialGradient id="land2030LoopNode" cx="0.5" cy="0.5" r="0.5">
+        <stop offset="0%" stop-color="#a48bff" stop-opacity="0.95" />
+        <stop offset="100%" stop-color="#36c5d6" stop-opacity="0.85" />
+      </radialGradient>
+    </defs>
+    {/* connecting curve */}
+    <path
+      d="M 60 140 C 220 40, 880 40, 1040 140 C 880 240, 220 240, 60 140 Z"
+      fill="none"
+      stroke="url(#land2030LoopLine)"
+      stroke-width="2"
+      class="land-2030-loop-path"
+    />
+    {[
+      { x: 70, y: 140, label: "Spec" },
+      { x: 215, y: 70, label: "Code" },
+      { x: 410, y: 50, label: "AI Review" },
+      { x: 605, y: 50, label: "Tests" },
+      { x: 800, y: 70, label: "Merge" },
+      { x: 950, y: 140, label: "Deploy" },
+      { x: 800, y: 210, label: "Monitor" },
+      { x: 410, y: 230, label: "Patch" },
+    ].map((n) => (
+      <g class="land-2030-loop-node">
+        <circle cx={n.x} cy={n.y} r="22" fill="url(#land2030LoopNode)" />
+        <circle
+          cx={n.x}
+          cy={n.y}
+          r="22"
+          fill="none"
+          stroke="rgba(255,255,255,0.18)"
+          stroke-width="1"
+        />
+        <text
+          x={n.x}
+          y={n.y + (n.y > 140 ? 48 : -32)}
+          text-anchor="middle"
+          class="land-2030-loop-text"
+          fill="currentColor"
+        >
+          {n.label}
+        </text>
+      </g>
+    ))}
+  </svg>
+);
+
+interface Land2030CardProps {
+  icon: any;
+  title: string;
+  desc: string;
+  href: string;
+  cta?: string;
+}
+const Land2030Card: FC<Land2030CardProps> = ({ icon, title, desc, href, cta }) => (
+  <a href={href} class="land-2030-card">
+    <div class="land-2030-card-icon" aria-hidden="true">
+      {icon}
+    </div>
+    <h3 class="land-2030-card-title">{title}</h3>
+    <p class="land-2030-card-desc">{desc}</p>
+    <span class="land-2030-card-cta">
+      {cta ?? "Try it"}
+      <span aria-hidden="true">{" →"}</span>
+    </span>
+  </a>
+);
+
+interface Land2030FeatureItem {
+  title: string;
+  desc: string;
+  href: string;
+  status: "live" | "beta" | "soon";
+}
+const LAND_2030_FEATURES: Land2030FeatureItem[] = [
+  { title: "Spec-to-PR", desc: "Write English. Ship code.", href: "/specs", status: "live" },
+  { title: "Voice-to-PR", desc: "Talk. Ship code.", href: "/voice-to-pr", status: "live" },
+  { title: "Repo chat", desc: "Rubber-duck with a semantic index of your repo.", href: "/ask", status: "live" },
+  { title: "AI CI healer", desc: "Broken CI? Claude opens a fix PR.", href: "/inbox", status: "live" },
+  { title: "AI patch generator", desc: "Security finding → patch PR, signed by Claude.", href: "/code-scanning", status: "live" },
+  { title: "AI proactive monitor", desc: "Claude opens issues unprompted when it spots smells.", href: "/standups", status: "live" },
+  { title: "AI commit messages", desc: "`gluecron commit` writes a great message for the staged diff.", href: "/help", status: "live" },
+  { title: "AI release notes", desc: "Claude reads merged PRs and writes the changelog.", href: "/ai-changelog", status: "live" },
+  { title: "Multi-repo refactor", desc: "One English request → coordinated PRs across N repos.", href: "/refactors", status: "live" },
+  { title: "Migration assistant", desc: "Major-version upgrades drafted PR-by-PR.", href: "/migration-assistant", status: "live" },
+  { title: "AI test generator", desc: "Every PR auto-gets tests for the new diff.", href: "/ai-tests", status: "beta" },
+  { title: "PR slash commands", desc: "/merge, /rebase, /explain, /test — Claude runs them.", href: "/help", status: "live" },
+  { title: "Live co-editing on PRs", desc: "Figma-style cursors on PR descriptions and reviews.", href: "/pulls", status: "beta" },
+  { title: "Branch preview URLs", desc: "Every push → a sharable preview URL.", href: "/previews", status: "live" },
+  { title: "Agent multiplayer", desc: "Per-agent sessions, budgets, and branch namespacing.", href: "/settings/agents", status: "live" },
+  { title: "Continuous semantic index", desc: "Push-time embeddings keep search and chat fresh.", href: "/semantic-search", status: "live" },
+  { title: "VS Code extension", desc: "Inbox, PRs, and repo chat — in your editor.", href: "/help", status: "soon" },
+  { title: "Slack / Discord bot", desc: "Mentions, reviews, deploys — in your team chat.", href: "/help", status: "soon" },
+];
+
+const Land2030: FC = () => (
+  <>
+    <style dangerouslySetInnerHTML={{ __html: land2030Css }} />
+    <div class="land-2030-root">
+      {/* ---------- 2030 HERO ---------- */}
+      <section class="land-2030-hero" aria-label="Gluecron 2030">
+        <div class="land-2030-hairline" aria-hidden="true" />
+        <div class="land-2030-orb" aria-hidden="true" />
+        <div class="land-2030-hero-inner">
+          <div class="land-2030-eyebrow">
+            <span class="land-2030-pulse" aria-hidden="true" />
+            Gluecron — built for 2030
+          </div>
+          <h1 class="land-2030-display">
+            <span class="land-2030-grad-1">Write</span>{" "}
+            <span class="land-2030-grad-2">English.</span>{" "}
+            <span class="land-2030-grad-3">Ship</span>{" "}
+            <span class="land-2030-grad-4">code.</span>{" "}
+            <span class="land-2030-grad-5">Gluecron.</span>
+          </h1>
+          <p class="land-2030-sub">
+            The git platform built for the era when AI ships most of the code.
+          </p>
+          <div class="land-2030-cta-row">
+            <a href="/register" class="btn btn-primary btn-xl land-2030-cta-primary">
+              Start free
+              <span aria-hidden="true">{" →"}</span>
+            </a>
+            <a href="#land-2030-loop" class="btn btn-xl land-2030-cta-secondary">
+              Watch the loop
+              <span aria-hidden="true">{" ↓"}</span>
+            </a>
+          </div>
+        </div>
+      </section>
+
+      {/* ---------- THE CLOSED LOOP ---------- */}
+      <section id="land-2030-loop" class="land-2030-section">
+        <div class="land-2030-section-head">
+          <div class="land-2030-eyebrow land-2030-eyebrow-mini">The closed loop</div>
+          <h2 class="land-2030-h2">One platform. No glue code.</h2>
+          <p class="land-2030-lede">
+            Spec → Code → AI Review → Tests → Merge → Deploy → Monitor → Patch.
+            All on Gluecron. No GitHub + Copilot + Vercel + Sentry stitching
+            needed.
+          </p>
+        </div>
+        <div class="land-2030-loop-wrap">
+          <ClosedLoopDiagram />
+        </div>
+      </section>
+
+      {/* ---------- THE 6 THINGS NOBODY ELSE CAN DO ---------- */}
+      <section class="land-2030-section">
+        <div class="land-2030-section-head">
+          <div class="land-2030-eyebrow land-2030-eyebrow-mini">Unfair advantages</div>
+          <h2 class="land-2030-h2">What Gluecron does that nobody else can.</h2>
+        </div>
+        <div class="land-2030-card-grid">
+          <Land2030Card
+            href="/voice-to-pr"
+            title="Voice-to-PR"
+            desc="Speak the change you want. Claude opens the PR. Works on your commute."
+            icon={
+              <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3" /><path d="M5 10v2a7 7 0 0 0 14 0v-2" /><path d="M12 19v3" /></svg>
+            }
+          />
+          <Land2030Card
+            href="/specs"
+            title="Spec-to-PR"
+            desc="Write the spec in plain English. Claude implements it, opens a PR, and asks for review."
+            icon={
+              <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /><path d="M9 13h6M9 17h4" /></svg>
+            }
+          />
+          <Land2030Card
+            href="/workflows"
+            title="AI CI self-healing"
+            desc="Tests go red? Claude reads the log, finds the cause, and pushes the fix to your PR branch."
+            icon={
+              <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" /><polyline points="22 4 12 14.01 9 11.01" /></svg>
+            }
+          />
+          <Land2030Card
+            href="/refactors"
+            title="Multi-repo refactor agent"
+            desc="One English request → coordinated PRs across every repo that uses the symbol."
+            icon={
+              <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3" /><circle cx="18" cy="6" r="3" /><circle cx="12" cy="18" r="3" /><path d="M6 9v3a3 3 0 0 0 3 3h6a3 3 0 0 0 3-3V9" /></svg>
+            }
+          />
+          <Land2030Card
+            href="/ask"
+            title="Repo chat with semantic search"
+            desc="Continuous push-time embeddings. Ask the repo anything; it cites real files and commits."
+            icon={
+              <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /><circle cx="9" cy="10" r="1" fill="currentColor" /><circle cx="13" cy="10" r="1" fill="currentColor" /><circle cx="17" cy="10" r="1" fill="currentColor" /></svg>
+            }
+          />
+          <Land2030Card
+            href="/pulls"
+            title="Per-PR live co-editing"
+            desc="Figma-style cursors and presence on PR descriptions and reviews. Goodbye stale tabs."
+            icon={
+              <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" /></svg>
+            }
+          />
+        </div>
+      </section>
+
+      {/* ---------- GLOBAL DASHBOARDS ---------- */}
+      <section class="land-2030-section">
+        <div class="land-2030-section-head">
+          <div class="land-2030-eyebrow land-2030-eyebrow-mini">Mission control</div>
+          <h2 class="land-2030-h2">Every signal, one inbox.</h2>
+          <p class="land-2030-lede">
+            Five global dashboards that span every repo you touch — no more
+            tab-juggling across orgs.
+          </p>
+        </div>
+        <div class="land-2030-dash-grid">
+          <a href="/pulls" class="land-2030-dash">
+            <span class="land-2030-dash-name">/pulls</span>
+            <span class="land-2030-dash-desc">PR command center across every repo you can touch.</span>
+          </a>
+          <a href="/issues" class="land-2030-dash">
+            <span class="land-2030-dash-name">/issues</span>
+            <span class="land-2030-dash-desc">Global issue dashboard. Triage from one screen.</span>
+          </a>
+          <a href="/inbox" class="land-2030-dash">
+            <span class="land-2030-dash-name">/inbox</span>
+            <span class="land-2030-dash-desc">Unified mentions, reviews, CI, and AI events.</span>
+          </a>
+          <a href="/activity" class="land-2030-dash">
+            <span class="land-2030-dash-name">/activity</span>
+            <span class="land-2030-dash-desc">A timeline of everything that moved on your repos.</span>
+          </a>
+          <a href="/standups" class="land-2030-dash">
+            <span class="land-2030-dash-name">/standups</span>
+            <span class="land-2030-dash-desc">Daily AI-generated brief of what shipped and what's stuck.</span>
+          </a>
+        </div>
+      </section>
+
+      {/* ---------- FULL AI FEATURE GRID ---------- */}
+      <section class="land-2030-section">
+        <div class="land-2030-section-head">
+          <div class="land-2030-eyebrow land-2030-eyebrow-mini">Closed-loop AI</div>
+          <h2 class="land-2030-h2">18 AI features. One platform.</h2>
+          <p class="land-2030-lede">
+            Most of these don't exist anywhere else. None of them require a
+            second SaaS subscription.
+          </p>
+        </div>
+        <div class="land-2030-feat-grid">
+          {LAND_2030_FEATURES.map((f) => (
+            <a href={f.href} class="land-2030-feat">
+              <div class="land-2030-feat-head">
+                <span class="land-2030-feat-title">{f.title}</span>
+                <span class={`land-2030-pill land-2030-pill-${f.status}`}>
+                  {f.status === "live" ? "live" : f.status === "beta" ? "beta" : "soon"}
+                </span>
+              </div>
+              <p class="land-2030-feat-desc">{f.desc}</p>
+            </a>
+          ))}
+        </div>
+      </section>
+
+      {/* ---------- DEVELOPER EXPERIENCE ---------- */}
+      <section class="land-2030-section">
+        <div class="land-2030-section-head">
+          <div class="land-2030-eyebrow land-2030-eyebrow-mini">Developer surface</div>
+          <h2 class="land-2030-h2">Built where you already are.</h2>
+        </div>
+        <div class="land-2030-dx-grid">
+          <div class="land-2030-dx">
+            <h3 class="land-2030-dx-title">gluecron CLI</h3>
+            <pre class="land-2030-code"><code>$ gluecron spec "add CSV export to /api/orders"
+{"→ Drafting PR…"}
+{"→ Opened #482 with 3 commits"}
+{"→ AI review queued"}</code></pre>
+          </div>
+          <div class="land-2030-dx">
+            <h3 class="land-2030-dx-title">PR slash commands</h3>
+            <pre class="land-2030-code"><code>/merge   — squash + merge when checks pass
+/rebase  — rebase onto base, push --force-with-lease
+/explain — Claude explains the diff in plain English
+/test    — Claude writes tests for the new code</code></pre>
+          </div>
+          <div class="land-2030-dx">
+            <h3 class="land-2030-dx-title">Branch preview URLs</h3>
+            <pre class="land-2030-code"><code>{"→ git push gluecron HEAD"}
+{"→ preview: https://pr-482.preview.gluecron.com"}
+{"→ commented on PR #482"}</code></pre>
+          </div>
+        </div>
+      </section>
+
+      {/* ---------- BUILT FOR AGENTS ---------- */}
+      <section class="land-2030-section land-2030-section-dark">
+        <div class="land-2030-section-head">
+          <div class="land-2030-eyebrow land-2030-eyebrow-mini">Agent era</div>
+          <h2 class="land-2030-h2">Built for agents, not just humans.</h2>
+          <p class="land-2030-lede">
+            Per-agent tokens, per-agent budgets, per-agent branch namespaces,
+            and a lease primitive so 50 agents don't trample one repo.
+          </p>
+        </div>
+        <div class="land-2030-agent-wrap">
+          <pre class="land-2030-code land-2030-code-wide"><code>{'# agent gets a scoped token + lease before writing'}
+{'curl -H "Authorization: Bearer agt_3p9x…" \\\\'}
+{'     -X POST https://gluecron.com/api/v2/leases \\\\'}
+{'     -d \'{"repo":"acme/api","branch":"agent/jules/checkout-fix","ttl":300}\''}
+{''}
+{'{ "lease_id": "lse_8a2f", "expires_at": "2030-05-25T14:05:11Z" }'}</code></pre>
+          <div class="land-2030-agent-stat">
+            <div class="land-2030-agent-big">10,000</div>
+            <div class="land-2030-agent-label">
+              agents pushing to your repo per day. Welcome to 2030.
+            </div>
+            <a href="/docs/build-agent-integration" class="land-2030-agent-link">
+              Build an agent integration{" →"}
+            </a>
+          </div>
+        </div>
+      </section>
+
+      {/* ---------- VS GITHUB ---------- */}
+      <section class="land-2030-section">
+        <div class="land-2030-section-head">
+          <div class="land-2030-eyebrow land-2030-eyebrow-mini">vs GitHub</div>
+          <h2 class="land-2030-h2">One platform replaces five.</h2>
+        </div>
+        <div class="land-2030-vs">
+          <div class="land-2030-vs-row land-2030-vs-head">
+            <div>Today</div>
+            <div>On Gluecron</div>
+          </div>
+          <div class="land-2030-vs-row">
+            <div>GitHub + Copilot + Vercel + Sentry + Linear</div>
+            <div class="land-2030-vs-us">Gluecron</div>
+          </div>
+          <a href="/vs-github" class="land-2030-vs-link">
+            See the full comparison{" →"}
+          </a>
+        </div>
+      </section>
+    </div>
+  </>
+);
+
 // Backwards-compatible default — web.tsx imports `LandingPage`.
+// The 2030 prelude is rendered above the existing LandingHero so every
+// existing L10/U1/Q1/M1 regression assertion keeps passing untouched.
 export const LandingPage: FC<LandingPageProps> = (props) => (
-  <LandingHero {...props} />
+  <>
+    <Land2030 />
+    <LandingHero {...props} />
+  </>
 );
 
 export default LandingPage;
@@ -3008,4 +3383,462 @@ const landingCopyJs = `
     });
   } catch (_) { /* swallow */ }
 })();
+`;
+
+// ============================================================
+// land2030Css — scoped CSS for the 2030 homepage prelude.
+// Every selector is prefixed `.land-2030-*` so it can't bleed
+// into the older `.landing-*` (L10/U1/Q1/M1) styles below.
+// ============================================================
+const land2030Css = `
+  .land-2030-root {
+    position: relative;
+    max-width: 1240px;
+    margin: 0 auto;
+    padding: 0 16px var(--space-6, 32px);
+    color: var(--text, #e6e6f0);
+  }
+
+  /* ---------- Hero ---------- */
+  .land-2030-hero {
+    position: relative;
+    padding: clamp(48px, 8vw, 120px) 8px clamp(40px, 6vw, 80px);
+    text-align: center;
+    overflow: hidden;
+  }
+  .land-2030-hairline {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent 0%, #8c6dff 30%, #36c5d6 70%, transparent 100%);
+    opacity: 0.75;
+    pointer-events: none;
+  }
+  .land-2030-orb {
+    position: absolute;
+    top: -10%;
+    left: 50%;
+    width: 720px;
+    height: 720px;
+    transform: translateX(-50%);
+    background: radial-gradient(circle, rgba(140,109,255,0.30), rgba(54,197,214,0.16) 40%, transparent 70%);
+    filter: blur(90px);
+    pointer-events: none;
+    z-index: 0;
+  }
+  .land-2030-hero-inner {
+    position: relative;
+    z-index: 1;
+    max-width: 1080px;
+    margin: 0 auto;
+  }
+  .land-2030-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: rgba(140,109,255,0.10);
+    color: #cbb7ff;
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    border: 1px solid rgba(140,109,255,0.30);
+    margin-bottom: 24px;
+  }
+  .land-2030-eyebrow-mini {
+    margin-bottom: 12px;
+  }
+  .land-2030-pulse {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: #8c6dff;
+    box-shadow: 0 0 12px rgba(140,109,255,0.8);
+    animation: land2030-pulse 2s ease-in-out infinite;
+  }
+  @keyframes land2030-pulse {
+    0%, 100% { opacity: 0.5; transform: scale(1); }
+    50% { opacity: 1; transform: scale(1.25); }
+  }
+  .land-2030-display {
+    font-size: clamp(60px, 9vw, 96px);
+    font-family: var(--font-display, inherit);
+    font-weight: 800;
+    line-height: 1.02;
+    letter-spacing: -0.035em;
+    margin: 0 auto 24px;
+    max-width: 1040px;
+  }
+  .land-2030-display span { background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent; color: transparent; }
+  .land-2030-grad-1 { background-image: linear-gradient(135deg, #a48bff 0%, #8c6dff 100%); }
+  .land-2030-grad-2 { background-image: linear-gradient(135deg, #c4b1ff 0%, #36c5d6 100%); }
+  .land-2030-grad-3 { background-image: linear-gradient(135deg, #36c5d6 0%, #5be0a9 100%); }
+  .land-2030-grad-4 { background-image: linear-gradient(135deg, #5be0a9 0%, #ffd16b 100%); }
+  .land-2030-grad-5 { background-image: linear-gradient(135deg, #ffd16b 0%, #ff6bd1 50%, #8c6dff 100%); }
+  .land-2030-sub {
+    font-size: clamp(17px, 1.6vw, 22px);
+    color: var(--text-muted, #a0a0b8);
+    max-width: 720px;
+    margin: 0 auto 36px;
+    line-height: 1.45;
+  }
+  .land-2030-cta-row {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 12px;
+  }
+  .land-2030-cta-primary,
+  .land-2030-cta-secondary {
+    min-width: 200px;
+  }
+
+  /* ---------- Section scaffold ---------- */
+  .land-2030-section {
+    margin: clamp(56px, 8vw, 96px) 0;
+    position: relative;
+  }
+  .land-2030-section-dark {
+    padding: 48px 32px;
+    background: linear-gradient(180deg, rgba(15,17,26,0.6), rgba(8,9,15,0.6));
+    border: 1px solid rgba(140,109,255,0.18);
+    border-radius: 20px;
+  }
+  .land-2030-section-head {
+    text-align: center;
+    max-width: 760px;
+    margin: 0 auto 40px;
+  }
+  .land-2030-h2 {
+    font-size: clamp(28px, 4vw, 44px);
+    font-family: var(--font-display, inherit);
+    font-weight: 700;
+    letter-spacing: -0.025em;
+    line-height: 1.1;
+    margin: 0 0 12px;
+  }
+  .land-2030-lede {
+    font-size: 16px;
+    color: var(--text-muted, #a0a0b8);
+    line-height: 1.55;
+    margin: 0;
+  }
+
+  /* ---------- Closed loop diagram ---------- */
+  .land-2030-loop-wrap {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 16px;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid rgba(140,109,255,0.16);
+    border-radius: 20px;
+    color: var(--text-muted, #a0a0b8);
+  }
+  .land-2030-loop-svg {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+  .land-2030-loop-path {
+    stroke-dasharray: 6 4;
+    animation: land2030-loop-dash 30s linear infinite;
+  }
+  @keyframes land2030-loop-dash {
+    from { stroke-dashoffset: 0; }
+    to { stroke-dashoffset: -400; }
+  }
+  .land-2030-loop-text {
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: -0.005em;
+  }
+
+  /* ---------- 6-card "unfair advantages" grid ---------- */
+  .land-2030-card-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+    max-width: 1180px;
+    margin: 0 auto;
+  }
+  .land-2030-card {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 24px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.015));
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 16px;
+    text-decoration: none;
+    color: inherit;
+    transition: transform 200ms ease, border-color 200ms ease, box-shadow 200ms ease;
+  }
+  .land-2030-card:hover {
+    transform: translateY(-2px);
+    border-color: rgba(140,109,255,0.45);
+    box-shadow: 0 8px 30px -8px rgba(140,109,255,0.40);
+  }
+  .land-2030-card-icon {
+    width: 44px; height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 12px;
+    background: rgba(140,109,255,0.12);
+    color: #cbb7ff;
+    border: 1px solid rgba(140,109,255,0.30);
+    margin-bottom: 4px;
+  }
+  .land-2030-card-title {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+  .land-2030-card-desc {
+    margin: 0;
+    font-size: 14.5px;
+    color: var(--text-muted, #a0a0b8);
+    line-height: 1.55;
+  }
+  .land-2030-card-cta {
+    margin-top: auto;
+    color: #b69dff;
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  /* ---------- Global dashboards grid ---------- */
+  .land-2030-dash-grid {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 12px;
+    max-width: 1180px;
+    margin: 0 auto;
+  }
+  .land-2030-dash {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 16px 18px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    text-decoration: none;
+    color: inherit;
+    transition: transform 180ms ease, border-color 180ms ease;
+  }
+  .land-2030-dash:hover {
+    transform: translateY(-1px);
+    border-color: rgba(54,197,214,0.45);
+  }
+  .land-2030-dash-name {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 14px;
+    color: #36c5d6;
+    font-weight: 600;
+  }
+  .land-2030-dash-desc {
+    font-size: 13px;
+    color: var(--text-muted, #a0a0b8);
+    line-height: 1.45;
+  }
+
+  /* ---------- 18-feature grid + status pills ---------- */
+  .land-2030-feat-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    max-width: 1180px;
+    margin: 0 auto;
+  }
+  .land-2030-feat {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 14px 16px;
+    background: rgba(255,255,255,0.025);
+    border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 10px;
+    text-decoration: none;
+    color: inherit;
+    transition: border-color 160ms ease, background 160ms ease;
+  }
+  .land-2030-feat:hover {
+    border-color: rgba(140,109,255,0.35);
+    background: rgba(140,109,255,0.05);
+  }
+  .land-2030-feat-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .land-2030-feat-title {
+    font-size: 14.5px;
+    font-weight: 700;
+    letter-spacing: -0.005em;
+  }
+  .land-2030-feat-desc {
+    margin: 0;
+    font-size: 13px;
+    color: var(--text-muted, #a0a0b8);
+    line-height: 1.5;
+  }
+  .land-2030-pill {
+    font-size: 10.5px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    border-radius: 999px;
+    border: 1px solid currentColor;
+    font-weight: 700;
+    line-height: 1;
+  }
+  .land-2030-pill-live { color: #5be0a9; border-color: rgba(91,224,169,0.5); background: rgba(91,224,169,0.10); }
+  .land-2030-pill-beta { color: #ffd16b; border-color: rgba(255,209,107,0.5); background: rgba(255,209,107,0.10); }
+  .land-2030-pill-soon { color: #a0a0b8; border-color: rgba(160,160,184,0.4); background: rgba(160,160,184,0.08); }
+
+  /* ---------- Developer surface ---------- */
+  .land-2030-dx-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+    max-width: 1180px;
+    margin: 0 auto;
+  }
+  .land-2030-dx {
+    padding: 18px;
+    background: linear-gradient(180deg, rgba(15,17,26,0.7), rgba(8,9,15,0.7));
+    border: 1px solid rgba(140,109,255,0.18);
+    border-radius: 14px;
+  }
+  .land-2030-dx-title {
+    margin: 0 0 10px;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text-strong, #fff);
+  }
+  .land-2030-code {
+    margin: 0;
+    padding: 12px 14px;
+    background: rgba(0,0,0,0.30);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 10px;
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 12.5px;
+    color: #cbb7ff;
+    line-height: 1.6;
+    overflow-x: auto;
+  }
+  .land-2030-code code { color: inherit; background: transparent; padding: 0; }
+  .land-2030-code-wide {
+    font-size: 13px;
+    color: #d6d6e4;
+  }
+
+  /* ---------- Agent multiplayer ---------- */
+  .land-2030-agent-wrap {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr;
+    gap: 24px;
+    max-width: 1080px;
+    margin: 0 auto;
+    align-items: center;
+  }
+  .land-2030-agent-stat { text-align: left; }
+  .land-2030-agent-big {
+    font-size: clamp(48px, 7vw, 80px);
+    font-weight: 800;
+    line-height: 1;
+    background-image: linear-gradient(135deg, #a48bff 0%, #36c5d6 100%);
+    background-clip: text;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+    letter-spacing: -0.03em;
+  }
+  .land-2030-agent-label {
+    margin-top: 12px;
+    color: var(--text-muted, #a0a0b8);
+    font-size: 15px;
+    line-height: 1.5;
+  }
+  .land-2030-agent-link {
+    display: inline-block;
+    margin-top: 16px;
+    color: #36c5d6;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 14px;
+  }
+  .land-2030-agent-link:hover { text-decoration: underline; }
+
+  /* ---------- vs GitHub strip ---------- */
+  .land-2030-vs {
+    max-width: 880px;
+    margin: 0 auto;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 14px;
+    overflow: hidden;
+    text-align: center;
+    padding: 0 0 18px;
+  }
+  .land-2030-vs-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+    padding: 16px 18px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    font-size: 15px;
+  }
+  .land-2030-vs-row:last-of-type { border-bottom: 0; }
+  .land-2030-vs-head {
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-muted, #a0a0b8);
+    background: rgba(255,255,255,0.02);
+  }
+  .land-2030-vs-us {
+    color: #5be0a9;
+    font-weight: 700;
+  }
+  .land-2030-vs-link {
+    display: inline-block;
+    margin-top: 12px;
+    color: #b69dff;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 14px;
+  }
+  .land-2030-vs-link:hover { text-decoration: underline; }
+
+  /* ---------- Responsive ---------- */
+  @media (max-width: 960px) {
+    .land-2030-card-grid,
+    .land-2030-feat-grid,
+    .land-2030-dx-grid,
+    .land-2030-dash-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .land-2030-agent-wrap { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 640px) {
+    .land-2030-card-grid,
+    .land-2030-feat-grid,
+    .land-2030-dx-grid,
+    .land-2030-dash-grid { grid-template-columns: 1fr; }
+    .land-2030-section-dark { padding: 28px 16px; }
+    .land-2030-vs-row { grid-template-columns: 1fr; gap: 4px; }
+  }
+  @media (max-width: 375px) {
+    .land-2030-display { font-size: 44px; }
+    .land-2030-cta-primary,
+    .land-2030-cta-secondary { width: 100%; min-width: 0; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .land-2030-loop-path,
+    .land-2030-pulse { animation: none; }
+  }
 `;

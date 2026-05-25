@@ -356,6 +356,21 @@ export async function analyzeFailedWorkflowRun(
         },
       ],
     });
+    try {
+      const { recordAiCost, extractUsage } = await import("./ai-cost-tracker");
+      const usage = extractUsage(message);
+      await recordAiCost({
+        repositoryId: run.repositoryId ?? null,
+        model: MODEL_SONNET,
+        inputTokens: usage.input,
+        outputTokens: usage.output,
+        category: "ci_healer",
+        sourceId: runId,
+        sourceKind: "workflow_run",
+      });
+    } catch {
+      /* swallow — best-effort */
+    }
     parsed = parseJsonResponse<ClaudeCiResponse>(extractText(message));
   } catch (err) {
     console.warn(

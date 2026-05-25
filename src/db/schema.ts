@@ -163,6 +163,12 @@ export const repositories = pgTable(
     previewBuildsEnabled: boolean("preview_builds_enabled")
       .default(true)
       .notNull(),
+    // Migration 0065 — opt-in flag for the AI test generator autopilot task.
+    // Default false (off) because writing tests against unreviewed code can
+    // produce noise; owners must explicitly enable it via repo-settings.
+    autoGenerateTests: boolean("auto_generate_tests")
+      .default(false)
+      .notNull(),
   },
   (table) => [
     // Partial: uniqueness only in the user namespace (org-owned rows exempt).
@@ -3283,3 +3289,64 @@ export const chatIntegrations = pgTable(
 export type ChatIntegration = typeof chatIntegrations.$inferSelect;
 export type NewChatIntegration = typeof chatIntegrations.$inferInsert;
 
+// ---------------------------------------------------------------------------
+// 0065 — Per-call AI cost tracking. See src/lib/ai-cost-tracker.ts and
+// src/routes/billing-usage.tsx. Best-effort: insert failures must NEVER
+// throw out of the Claude caller, so every call site wraps recordAiCost in
+// try/catch. Cents are computed at insert time from a hardcoded pricing
+// table so historical aggregates stay stable across price changes.
+// ---------------------------------------------------------------------------
+export const aiCostEvents = pgTable(
+  "ai_cost_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    occurredAt: timestamp("occurred_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    ownerUserId: uuid("owner_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    repositoryId: uuid("repository_id").references(() => repositories.id, {
+      onDelete: "set null",
+    }),
+    agentSessionId: uuid("agent_session_id").references(
+      () => agentSessions.id,
+      { onDelete: "set null" }
+    ),
+    model: text("model").notNull(),
+    inputTokens: integer("input_tokens").default(0).notNull(),
+    outputTokens: integer("output_tokens").default(0).notNull(),
+    centsEstimate: integer("cents_estimate").default(0).notNull(),
+    category: text("category").default("other").notNull(),
+    sourceId: text("source_id"),
+    sourceKind: text("source_kind"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("ai_cost_events_owner_time").on(table.ownerUserId, table.occurredAt),
+    index("ai_cost_events_repo_time").on(table.repositoryId, table.occurredAt),
+    index("ai_cost_events_agent_time").on(
+      table.agentSessionId,
+      table.occurredAt
+    ),
+    index("ai_cost_events_category_time").on(table.category, table.occurredAt),
+  ]
+);
+
+export type AiCostEvent = typeof aiCostEvents.$inferSelect;
+export type NewAiCostEvent = typeof aiCostEvents.$inferInsert;
+
+export const aiBudgets = pgTable("ai_budgets", {
+  userId: uuid("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  monthlyCents: integer("monthly_cents").default(0).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});
+
+export type AiBudget = typeof aiBudgets.$inferSelect;
+export type NewAiBudget = typeof aiBudgets.$inferInsert;

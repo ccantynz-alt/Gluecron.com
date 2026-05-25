@@ -269,6 +269,21 @@ export async function interpretVoiceTranscript(
       max_tokens: 1024,
       messages: [{ role: "user", content: prompt }],
     });
+    try {
+      const { recordAiCost, extractUsage } = await import(
+        "./ai-cost-tracker"
+      );
+      const usage = extractUsage(msg);
+      await recordAiCost({
+        model: MODEL_SONNET,
+        inputTokens: usage.input,
+        outputTokens: usage.output,
+        category: "voice",
+        sourceKind: "voice_transcript",
+      });
+    } catch {
+      /* swallow — best-effort */
+    }
     const text = extractText(msg);
     const parsed = safeParseJson(text);
     return {

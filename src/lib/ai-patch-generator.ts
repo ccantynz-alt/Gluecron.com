@@ -299,6 +299,19 @@ async function askClaudeForPatch(
         { role: "user", content: buildPatchPrompt(finding, filePath, fileContent) },
       ],
     });
+    try {
+      const { recordAiCost, extractUsage } = await import("./ai-cost-tracker");
+      const usage = extractUsage(message);
+      await recordAiCost({
+        model: MODEL_SONNET,
+        inputTokens: usage.input,
+        outputTokens: usage.output,
+        category: "ai_patch",
+        sourceKind: "gatetest_finding",
+      });
+    } catch {
+      /* swallow — best-effort */
+    }
     const text = extractText(message);
     const parsed = parseJsonResponse<ClaudePatchResponse>(text);
     if (!parsed) return null;

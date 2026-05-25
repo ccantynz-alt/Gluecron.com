@@ -494,10 +494,16 @@ webhookRoutes.get(
       .limit(1);
     if (!repo) return c.notFound();
 
-    const hooks = await db
+    // Exclude `chat-bridge` shadow rows — those are created lazily by
+    // src/lib/chat-notifier.ts to pipe events through the existing
+    // webhook_deliveries retry queue, and showing them here would let
+    // users accidentally delete a Slack/Discord install from the wrong
+    // surface (the source of truth lives at /settings/integrations).
+    const allHooks = await db
       .select()
       .from(webhooks)
       .where(eq(webhooks.repositoryId, repo.id));
+    const hooks = allHooks.filter((h) => h.events !== "chat-bridge");
 
     return c.html(
       <Layout title={`Webhooks — ${ownerName}/${repoName}`} user={user}>

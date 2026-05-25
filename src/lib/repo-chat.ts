@@ -543,9 +543,47 @@ async function* claudeStream(args: {
   });
 
   // The SDK's stream object is itself async-iterable over events.
+  // Anthropic emits `message_start` / `message_delta` events that carry
+  // usage data — sample those so we can attribute cost without buffering
+  // the whole response.
+  let inputTokens = 0;
+  let outputTokens = 0;
   for await (const event of stream as AsyncIterable<unknown>) {
+    const ev = event as Record<string, unknown> | null;
+    if (ev && typeof ev === "object") {
+      // message_start.message.usage.input_tokens
+      const msg = (ev as { message?: { usage?: { input_tokens?: number; output_tokens?: number } } }).message;
+      if (msg && msg.usage) {
+        if (typeof msg.usage.input_tokens === "number")
+          inputTokens = msg.usage.input_tokens;
+        if (typeof msg.usage.output_tokens === "number")
+          outputTokens = msg.usage.output_tokens;
+      }
+      // message_delta.usage.output_tokens (incremental output tokens)
+      const usage = (ev as { usage?: { input_tokens?: number; output_tokens?: number } }).usage;
+      if (usage) {
+        if (typeof usage.input_tokens === "number")
+          inputTokens = usage.input_tokens;
+        if (typeof usage.output_tokens === "number")
+          outputTokens = usage.output_tokens;
+      }
+    }
     const delta = extractTextDelta(event);
     if (delta) yield delta;
+  }
+
+  // Record cost AFTER the stream completes so output_tokens is final.
+  try {
+    const { recordAiCost } = await import("./ai-cost-tracker");
+    await recordAiCost({
+      model: MODEL_SONNET,
+      inputTokens,
+      outputTokens,
+      category: "chat",
+      sourceKind: "repo_chat",
+    });
+  } catch {
+    /* swallow — best-effort */
   }
 }
 

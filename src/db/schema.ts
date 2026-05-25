@@ -3253,3 +3253,33 @@ export type NewMultiRepoRefactor = typeof multiRepoRefactors.$inferInsert;
 export type MultiRepoRefactorPr = typeof multiRepoRefactorPrs.$inferSelect;
 export type NewMultiRepoRefactorPr = typeof multiRepoRefactorPrs.$inferInsert;
 
+// ─── Chat integrations (migration 0064) ────────────────────────────────────
+// Slack / Discord / Teams bindings. One row per (owner, kind, team, channel).
+// `webhook_url` is the outbound Incoming-Webhook URL for posting back into
+// the channel; `signing_secret` is the per-install verification key (HMAC for
+// Slack, Ed25519 public key for Discord). See drizzle/0064_chat_integrations.sql
+// for the full schema rationale.
+export const chatIntegrations = pgTable(
+  "chat_integrations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ownerUserId: uuid("owner_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(), // 'slack' | 'discord' | 'teams'
+    teamId: text("team_id"),
+    channelId: text("channel_id"),
+    webhookUrl: text("webhook_url"),
+    signingSecret: text("signing_secret"),
+    enabled: boolean("enabled").default(true).notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    lastUsedAt: timestamp("last_used_at"),
+  },
+  (table) => [
+    index("chat_integrations_owner").on(table.ownerUserId, table.kind),
+  ]
+);
+
+export type ChatIntegration = typeof chatIntegrations.$inferSelect;
+export type NewChatIntegration = typeof chatIntegrations.$inferInsert;
+

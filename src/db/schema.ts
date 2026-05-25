@@ -2968,14 +2968,8 @@ export type NewSyntheticCheckRow = typeof syntheticChecks.$inferInsert;
 
 // ---------------------------------------------------------------------------
 // 0057 — Continuous semantic index (per-push embeddings).
-//
-// One row per (repository_id, file_path) — the unique index in the
-// migration enforces this. `indexChangedFiles()` upserts on every push,
-// `searchSemantic()` ranks by cosine distance using pgvector's `<=>`.
-//
-// Distinct from `code_chunks` (which slices large files into chunks for
-// the full-repo reindex flow). This table favours fast incremental
-// updates over chunk granularity — one whole-file embedding per path.
+// One row per (repository_id, file_path). `indexChangedFiles()` upserts on
+// every push, `searchSemantic()` ranks by cosine distance via pgvector.
 // ---------------------------------------------------------------------------
 export const codeEmbeddings = pgTable(
   "code_embeddings",
@@ -3005,4 +2999,68 @@ export const codeEmbeddings = pgTable(
 
 export type CodeEmbedding = typeof codeEmbeddings.$inferSelect;
 export type NewCodeEmbedding = typeof codeEmbeddings.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// 0058 — Agent multiplayer v1: per-agent namespacing + leases + budget caps.
+// See src/lib/agent-multiplayer.ts for helpers and 0058_agent_multiplayer.sql
+// for the canonical column docs. UNIQUE partial index on (target_type,
+// target_id) WHERE status='active' is enforced in SQL (drizzle exposes it
+// as a regular index here).
+// ---------------------------------------------------------------------------
+export const agentSessions = pgTable(
+  "agent_sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    ownerUserId: uuid("owner_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    repositoryId: uuid("repository_id").references(() => repositories.id, {
+      onDelete: "cascade",
+    }),
+    tokenHash: text("token_hash").notNull().unique(),
+    branchNamespace: text("branch_namespace").notNull(),
+    budgetCentsPerDay: integer("budget_cents_per_day").default(500).notNull(),
+    spentCentsToday: integer("spent_cents_today").default(0).notNull(),
+    lastActiveAt: timestamp("last_active_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("agent_sessions_owner_name").on(table.ownerUserId, table.name),
+    index("agent_sessions_owner").on(table.ownerUserId),
+    index("agent_sessions_repo").on(table.repositoryId),
+  ]
+);
+
+export const agentLeases = pgTable(
+  "agent_leases",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    agentSessionId: uuid("agent_session_id")
+      .notNull()
+      .references(() => agentSessions.id, { onDelete: "cascade" }),
+    targetType: text("target_type").notNull(),
+    targetId: text("target_id").notNull(),
+    acquiredAt: timestamp("acquired_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    status: text("status").default("active").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("agent_leases_active_target").on(table.targetType, table.targetId),
+    index("agent_leases_agent").on(table.agentSessionId, table.status),
+    index("agent_leases_expires").on(table.expiresAt),
+  ]
+);
+
+export type AgentSession = typeof agentSessions.$inferSelect;
+export type NewAgentSession = typeof agentSessions.$inferInsert;
+export type AgentLease = typeof agentLeases.$inferSelect;
+export type NewAgentLease = typeof agentLeases.$inferInsert;
 

@@ -55,6 +55,11 @@ import {
 import { config } from "../lib/config";
 import { apiAuth, requireApiAuth, requireScope } from "../middleware/api-auth";
 import type { ApiAuthEnv } from "../middleware/api-auth";
+import {
+  agentAuth,
+  enforceAgentBranchNamespace,
+} from "../middleware/agent-auth";
+import type { AgentAuthEnv } from "../middleware/agent-auth";
 import { apiRateLimit, searchRateLimit } from "../middleware/rate-limit";
 import { postCommitStatusHandler } from "./commit-statuses";
 import { apiTokens } from "../db/schema";
@@ -64,11 +69,22 @@ import {
   computeLifetimeAiSavingsForUser,
 } from "../lib/ai-hours-saved";
 
-const apiv2 = new Hono<ApiAuthEnv>().basePath("/api/v2");
+const apiv2 = new Hono<ApiAuthEnv & AgentAuthEnv>().basePath("/api/v2");
 
-// Apply auth and rate limiting to all v2 routes
+// Apply auth and rate limiting to all v2 routes.
+//
+// Agent-multiplayer v1: `agentAuth` runs BEFORE `apiAuth` so that an
+// `agt_` Bearer token is detected and stashed at `c.get("agent")`
+// without consuming the token in apiAuth (which only recognises PAT
+// + session). Non-agent tokens fall straight through. The
+// branch-namespace guard runs on PATCH /git/refs/heads/* only.
 apiv2.use("*", apiRateLimit);
+apiv2.use("*", agentAuth);
 apiv2.use("*", apiAuth);
+apiv2.use(
+  "/repos/:owner/:repo/git/refs/heads/:branch",
+  enforceAgentBranchNamespace
+);
 
 // ─── Helper ─────────────────────────────────────────────────────────────────
 

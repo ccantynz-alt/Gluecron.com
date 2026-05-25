@@ -23,6 +23,8 @@ import emailVerificationRoutes from "./routes/email-verification";
 import magicLinkRoutes from "./routes/magic-link";
 import settingsRoutes from "./routes/settings";
 import settings2faRoutes from "./routes/settings-2fa";
+import settingsAgentsRoutes from "./routes/settings-agents";
+import agentsRoutes from "./routes/agents";
 import issueRoutes from "./routes/issues";
 import repoSettings from "./routes/repo-settings";
 import collaboratorRoutes from "./routes/collaborators";
@@ -325,6 +327,10 @@ app.route("/", demoRoutes);
 // REST API v2 (basePath /api/v2)
 app.route("/", apiV2Routes);
 
+// Agent multiplayer v1 — /api/v2/agents/* (sessions, leases, usage).
+// Mounted alongside apiV2Routes (its own basePath, no path conflict).
+app.route("/", agentsRoutes);
+
 // Inbound API hooks (GateTest callback + backup PAT-authed /api/v1/gate-runs)
 app.route("/", hookRoutes);
 app.route("/api/events", eventsRoutes);
@@ -361,6 +367,9 @@ app.route("/", settingsRoutes);
 
 // 2FA / TOTP settings (Block B4)
 app.route("/", settings2faRoutes);
+
+// Agent multiplayer — /settings/agents management UI
+app.route("/", settingsAgentsRoutes);
 
 // WebAuthn / passkey routes (Block B5)
 app.route("/", passkeyRoutes);

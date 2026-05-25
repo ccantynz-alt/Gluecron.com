@@ -29,6 +29,18 @@ export const apiAuth = createMiddleware<ApiAuthEnv>(async (c, next) => {
   const authHeader = c.req.header("Authorization");
   if (authHeader?.startsWith("Bearer ")) {
     const token = authHeader.slice(7);
+
+    // Agent-multiplayer v1: `agentAuth` middleware (when mounted earlier
+    // in the chain) handles `agt_` tokens. Skip them here so we don't
+    // wrongly 401 a valid agent token. authMethod stays "none" because
+    // the agent context lives at c.get("agent"), not c.get("user").
+    if (token.startsWith("agt_")) {
+      c.set("user", null);
+      c.set("authMethod", "none");
+      c.set("tokenScopes", []);
+      return next();
+    }
+
     try {
       const hasher = new Bun.CryptoHasher("sha256");
       hasher.update(token);

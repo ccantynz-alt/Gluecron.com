@@ -552,6 +552,13 @@ const settingsStyles = `
     .settings-danger-head,
     .settings-danger-body { padding-left: var(--space-4); padding-right: var(--space-4); }
     .settings-subnav { width: 100%; }
+    .settings-subnav a { min-height: 40px; padding: 10px 14px; }
+    .settings-section-foot { justify-content: flex-start; flex-wrap: wrap; }
+    .settings-section-foot .settings-foot-hint { margin-right: 0; width: 100%; margin-bottom: 6px; }
+    .settings-danger-row { flex-direction: column; align-items: stretch; }
+    .settings-danger-input { min-width: 0; width: 100%; }
+    .settings-key-card { flex-direction: column; align-items: stretch; }
+    .settings-push-actions .btn { flex: 1; min-width: 0; min-height: 44px; }
   }
 `;
 

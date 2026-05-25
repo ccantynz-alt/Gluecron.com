@@ -155,6 +155,14 @@ const SearchPageStyle = () => (
   @media (max-width: 720px) {
     .search-page-hero { padding: 24px 20px; }
     .search-page-kbd { display: none; }
+    .search-page-input { padding: 14px 16px 14px 44px; min-height: 44px; }
+    .search-page-tabs { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; flex-wrap: nowrap; }
+    .search-page-tab { white-space: nowrap; min-height: 40px; padding: 10px 14px; }
+    .search-page-result { padding: 14px; gap: 10px; }
+    .search-page-result-avatar { width: 36px; height: 36px; font-size: 13px; }
+    .search-page-empty { padding: 40px 20px; }
+    .search-page-code { padding: 12px; }
+    .search-page-shortcut-row { padding: 12px 14px; flex-wrap: wrap; gap: 6px; }
   }
 
   /* ─── Tab pills ─── */

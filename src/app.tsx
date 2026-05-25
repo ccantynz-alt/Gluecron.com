@@ -64,6 +64,7 @@ import importBulkRoutes from "./routes/import-bulk";
 import importSecretsRoutes from "./routes/import-secrets";
 import migrationRoutes from "./routes/migrations";
 import specsRoutes from "./routes/specs";
+import refactorRoutes from "./routes/refactors";
 import webRoutes from "./routes/web";
 import hookRoutes from "./routes/hooks";
 import eventsRoutes from "./routes/events";
@@ -522,6 +523,7 @@ app.route("/", migrationRoutes);
 
 // Spec-to-PR (experimental AI-generated draft PRs)
 app.route("/", specsRoutes);
+app.route("/", refactorRoutes);
 
 // Explore page
 app.route("/", exploreRoutes);

@@ -3159,13 +3159,9 @@ export type PrLiveSession = typeof prLiveSessions.$inferSelect;
 export type NewPrLiveSession = typeof prLiveSessions.$inferInsert;
 
 // ---------------------------------------------------------------------------
-// Migration 0062 — per-branch preview URLs.
 // ---------------------------------------------------------------------------
-// One row per (repo, branch) pair. A push to a non-default branch
-// upserts the row, replacing commit_sha + resetting status to 'building'.
-// `preview_url` is computed at enqueue time so the row can be rendered
-// immediately even while the build is still running.
-
+// Migration 0062 — per-branch preview URLs. See src/lib/branch-previews.ts.
+// ---------------------------------------------------------------------------
 export const branchPreviews = pgTable(
   "branch_previews",
   {
@@ -3176,7 +3172,6 @@ export const branchPreviews = pgTable(
     branchName: text("branch_name").notNull(),
     commitSha: text("commit_sha").notNull(),
     previewUrl: text("preview_url").notNull(),
-    // 'building' | 'ready' | 'failed' | 'expired'
     status: text("status").default("building").notNull(),
     buildStartedAt: timestamp("build_started_at", { withTimezone: true })
       .defaultNow()
@@ -3199,4 +3194,62 @@ export const branchPreviews = pgTable(
 
 export type BranchPreview = typeof branchPreviews.$inferSelect;
 export type NewBranchPreview = typeof branchPreviews.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// 0063 — Multi-repo refactor agent. See src/lib/multi-repo-refactor.ts.
+// ---------------------------------------------------------------------------
+export const multiRepoRefactors = pgTable(
+  "multi_repo_refactors",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ownerUserId: uuid("owner_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    description: text("description").notNull(),
+    status: text("status").default("planning").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("multi_repo_refactors_owner").on(table.ownerUserId, table.createdAt),
+    index("multi_repo_refactors_status").on(table.status, table.updatedAt),
+  ]
+);
+
+export const multiRepoRefactorPrs = pgTable(
+  "multi_repo_refactor_prs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    refactorId: uuid("refactor_id")
+      .notNull()
+      .references(() => multiRepoRefactors.id, { onDelete: "cascade" }),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    pullRequestId: uuid("pull_request_id").references(() => pullRequests.id, {
+      onDelete: "set null",
+    }),
+    status: text("status").default("pending").notNull(),
+    errorMessage: text("error_message"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("multi_repo_refactor_prs_unique").on(
+      table.refactorId,
+      table.repositoryId
+    ),
+    index("multi_repo_refactor_prs_refactor").on(
+      table.refactorId,
+      table.status
+    ),
+    index("multi_repo_refactor_prs_repo").on(table.repositoryId),
+  ]
+);
+
+export type MultiRepoRefactor = typeof multiRepoRefactors.$inferSelect;
+export type NewMultiRepoRefactor = typeof multiRepoRefactors.$inferInsert;
+export type MultiRepoRefactorPr = typeof multiRepoRefactorPrs.$inferSelect;
+export type NewMultiRepoRefactorPr = typeof multiRepoRefactorPrs.$inferInsert;
 

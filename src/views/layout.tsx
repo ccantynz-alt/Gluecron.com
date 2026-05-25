@@ -258,6 +258,9 @@ export const Layout: FC<
                   <a href="/import" class="nav-link">
                     Import
                   </a>
+                  <a href="/refactors" class="nav-link">
+                    Refactors
+                  </a>
                   <a href="/new" class="btn btn-sm btn-primary">
                     + New
                   </a>

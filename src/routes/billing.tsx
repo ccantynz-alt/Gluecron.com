@@ -628,6 +628,17 @@ billing.get("/settings/billing", requireAuth, async (c) => {
           </div>
         </section>
 
+        {/* Sub-link out to the AI usage dashboard — keeps the locked
+            settings-subnav unmodified while still surfacing the new page. */}
+        <div style="margin-bottom:var(--space-4);display:flex;gap:12px;flex-wrap:wrap;font-size:13px">
+          <a
+            href="/billing/usage"
+            style="color:var(--text-muted);text-decoration:none;padding:6px 12px;border-radius:9px;border:1px solid var(--border);background:rgba(255,255,255,0.02)"
+          >
+            AI usage + cost &rarr;
+          </a>
+        </div>
+
         {upgraded && (
           <div class="bill-banner is-ok" role="status">
             <span class="bill-banner-dot" aria-hidden="true" />

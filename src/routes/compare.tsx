@@ -17,7 +17,8 @@
 
 import { Hono } from "hono";
 import { Layout } from "../views/layout";
-import { RepoHeader, DiffView } from "../views/components";
+import { RepoHeader } from "../views/components";
+import { DiffView } from "../views/diff-view";
 import { IssueNav } from "./issues";
 import {
   listBranches,
@@ -734,7 +735,11 @@ compare.get("/:owner/:repo/compare/:spec?", async (c) => {
               </span>
             </span>
           </div>
-          <DiffView raw={raw} files={files} />
+          <DiffView
+            raw={raw}
+            files={files}
+            viewFileBase={`/${owner}/${repo}/blob/${head}`}
+          />
         </>
       )}
     </Layout>

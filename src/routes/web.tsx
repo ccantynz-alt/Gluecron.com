@@ -21,12 +21,12 @@ import {
   Breadcrumb,
   FileTable,
   CommitList,
-  DiffView,
   RepoCard,
   BranchSwitcher,
   HighlightedCode,
   PlainCode,
 } from "../views/components";
+import { DiffView } from "../views/diff-view";
 import {
   getTree,
   getBlob,
@@ -2935,7 +2935,11 @@ web.get("/:owner/:repo/commit/:sha", async (c) => {
           </div>
         )}
       </div>
-      <DiffView raw={raw} files={files} />
+      <DiffView
+        raw={raw}
+        files={files}
+        viewFileBase={`/${owner}/${repo}/blob/${commit.sha}`}
+      />
     </Layout>
   );
 });

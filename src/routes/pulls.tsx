@@ -25,7 +25,8 @@ import {
   issueComments,
 } from "../db/schema";
 import { Layout } from "../views/layout";
-import { RepoHeader, DiffView } from "../views/components";
+import { RepoHeader } from "../views/components";
+import { DiffView } from "../views/diff-view";
 import { ReactionsBar } from "../views/reactions";
 import { summariseReactions } from "../lib/reactions";
 import { loadPrTemplate } from "../lib/templates";
@@ -293,19 +294,51 @@ const PRS_LIST_STYLES = `
   }
 
   .prs-empty {
-    padding: 36px 24px;
+    position: relative;
+    padding: 56px 32px;
     text-align: center;
     border: 1px dashed var(--border);
-    border-radius: 12px;
-    background: var(--bg-secondary);
+    border-radius: 16px;
+    background: var(--bg-elevated);
     color: var(--text-muted);
+    overflow: hidden;
   }
+  .prs-empty::before {
+    content: '';
+    position: absolute;
+    inset: -40% -20% auto auto;
+    width: 320px; height: 320px;
+    background: radial-gradient(circle, rgba(140,109,255,0.18), rgba(54,197,214,0.08) 50%, transparent 75%);
+    filter: blur(70px);
+    opacity: 0.55;
+    pointer-events: none;
+    animation: prsEmptyOrb 16s ease-in-out infinite;
+  }
+  @keyframes prsEmptyOrb {
+    0%, 100% { transform: scale(1) translate(0, 0); opacity: 0.5; }
+    50%      { transform: scale(1.12) translate(-12px, 10px); opacity: 0.8; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .prs-empty::before { animation: none; }
+  }
+  .prs-empty-inner { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; gap: 10px; }
   .prs-empty strong {
     display: block;
     color: var(--text-strong);
-    font-size: 15px;
-    margin-bottom: 4px;
+    font-family: var(--font-display);
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.018em;
+    margin-bottom: 2px;
   }
+  .prs-empty-sub {
+    font-size: 14.5px;
+    color: var(--text-muted);
+    line-height: 1.55;
+    max-width: 460px;
+    margin: 0 0 18px;
+  }
+  .prs-empty-cta { display: inline-flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
 
   @media (max-width: 720px) {
     .prs-hero-inner { flex-direction: column; align-items: flex-start; }
@@ -903,6 +936,43 @@ pulls.get("/:owner/:repo/pulls", softAuth, requireRepoAccess("read"), async (c) 
   const user = c.get("user");
   const state = c.req.query("state") || "open";
 
+  // ── Loading skeleton (flag-gated) ──
+  // Renders an SSR'd PR-row skeleton when `?skeleton=1` is set. Lets
+  // the user see the page structure before counts + select resolve.
+  // Behind a flag for now — we don't ship flashes.
+  if (c.req.query("skeleton") === "1") {
+    return c.html(
+      <Layout title={`Pull Requests — ${ownerName}/${repoName}`} user={user}>
+        <RepoHeader owner={ownerName} repo={repoName} />
+        <PrNav owner={ownerName} repo={repoName} active="pulls" />
+        <style dangerouslySetInnerHTML={{ __html: PRS_LIST_STYLES }} />
+        <style
+          dangerouslySetInnerHTML={{
+            __html: `
+              .prs-skel { background: linear-gradient(90deg, var(--bg-secondary) 0%, var(--bg-elevated) 50%, var(--bg-secondary) 100%); background-size: 200% 100%; animation: prsSkelShimmer 1.4s infinite; border-radius: 6px; display: block; }
+              @keyframes prsSkelShimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+              @media (prefers-reduced-motion: reduce) { .prs-skel { animation: none; } }
+              .prs-skel-hero { height: 152px; border-radius: 16px; margin: 0 0 var(--space-5); }
+              .prs-skel-tabs { height: 40px; width: 360px; border-radius: 9999px; margin: 0 0 16px; }
+              .prs-skel-list { display: flex; flex-direction: column; gap: 8px; }
+              .prs-skel-row { height: 76px; border-radius: 12px; }
+            `,
+          }}
+        />
+        <div class="prs-skel prs-skel-hero" aria-hidden="true" />
+        <div class="prs-skel prs-skel-tabs" aria-hidden="true" />
+        <div class="prs-skel-list" aria-hidden="true">
+          {Array.from({ length: 6 }).map(() => (
+            <div class="prs-skel prs-skel-row" />
+          ))}
+        </div>
+        <span style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0" role="status" aria-live="polite">
+          Loading pull requests for {ownerName}/{repoName}…
+        </span>
+      </Layout>
+    );
+  }
+
   const resolved = await resolveRepo(ownerName, repoName);
   if (!resolved) return c.notFound();
 
@@ -1004,18 +1074,35 @@ pulls.get("/:owner/:repo/pulls", softAuth, requireRepoAccess("read"), async (c) 
 
       {prList.length === 0 ? (
         <div class="prs-empty">
-          <strong>
-            {isAllState
-              ? "Pick a filter above to browse PRs."
-              : `No ${state} pull requests.`}
-          </strong>
-          <span>
-            {state === "open"
-              ? "Push a branch and open one to kick off AI review + gate checks."
-              : isAllState
-                ? "The combined view is coming soon — Open, Merged, Closed, and Draft are all live above."
-                : "Try a different filter."}
-          </span>
+          <div class="prs-empty-inner">
+            <strong>
+              {isAllState
+                ? "Pick a filter above to browse PRs."
+                : `No ${state} pull requests.`}
+            </strong>
+            <p class="prs-empty-sub">
+              {state === "open"
+                ? "Pull requests propose changes from a branch into the base. Open one to kick off AI review, gate checks, and (if eligible) auto-merge."
+                : isAllState
+                  ? "The combined view is coming soon — Open, Merged, Closed, and Draft are all live above."
+                  : `No ${state} pull requests on ${ownerName}/${repoName} right now. Try a different filter.`}
+            </p>
+            <div class="prs-empty-cta">
+              {user && state === "open" && (
+                <a href={`/${ownerName}/${repoName}/pulls/new`} class="btn btn-primary">
+                  + New pull request
+                </a>
+              )}
+              {state !== "open" && (
+                <a href={`/${ownerName}/${repoName}/pulls?state=open`} class="btn">
+                  View open PRs
+                </a>
+              )}
+              <a href={`/${ownerName}/${repoName}`} class="btn">
+                Back to code
+              </a>
+            </div>
+          </div>
         </div>
       ) : (
         <div class="prs-list">
@@ -1573,7 +1660,11 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
       </nav>
 
       {tab === "files" ? (
-        <DiffView raw={diffRaw} files={diffFiles} />
+        <DiffView
+          raw={diffRaw}
+          files={diffFiles}
+          viewFileBase={`/${ownerName}/${repoName}/blob/${pr.headBranch}`}
+        />
       ) : (
         <>
           {pr.body && (

@@ -62,6 +62,7 @@ import {
 } from "./ai-standup";
 import { runSpecToPrTaskOnce } from "./autopilot-spec-to-pr";
 import { runMigrationWatcherTaskOnce } from "./migration-assistant";
+import { sweepStale as sweepStalePrLive } from "./pr-live";
 
 export interface AutopilotTaskResult {
   name: string;
@@ -381,6 +382,25 @@ export function defaultTasks(): AutopilotTask[] {
           );
         } catch (err) {
           console.error("[autopilot] daily-standup: threw:", err);
+        }
+      },
+    },
+    {
+      // PR live co-editing — transition stale `pr_live_sessions` rows
+      // to 'idle' (>60s) and 'left' (>5m) so the presence pill on the
+      // PR detail page never claims a ghost user is still editing.
+      // Cheap pure-SQL UPDATE; runs every tick.
+      name: "pr-live-cleanup",
+      run: async () => {
+        try {
+          const summary = await sweepStalePrLive();
+          if (summary.idled > 0 || summary.left > 0) {
+            console.log(
+              `[autopilot] pr-live-cleanup: idled=${summary.idled} left=${summary.left}`
+            );
+          }
+        } catch (err) {
+          console.error("[autopilot] pr-live-cleanup: threw:", err);
         }
       },
     },

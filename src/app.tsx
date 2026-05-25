@@ -31,6 +31,7 @@ import collaboratorRoutes from "./routes/collaborators";
 import teamCollaboratorRoutes from "./routes/team-collaborators";
 import invitesRoutes from "./routes/invites";
 import liveEventsRoutes from "./routes/live-events";
+import prLiveRoutes from "./routes/pr-live";
 import compareRoutes from "./routes/compare";
 import pullRoutes from "./routes/pulls";
 import editorRoutes from "./routes/editor";
@@ -161,7 +162,9 @@ app.use("*", async (c, next) => {
     p.includes(".git/") ||
     p.startsWith("/live-events") ||
     p.startsWith("/api/events/deploy") ||
-    p.startsWith("/admin/status")
+    p.startsWith("/admin/status") ||
+    // PR live co-editing SSE stream — never etag streaming responses.
+    /^\/api\/v2\/pulls\/[^/]+\/live(\/|$)/.test(p)
   ) {
     return next();
   }
@@ -418,6 +421,9 @@ app.route("/", invitesRoutes);
 
 // Real-time SSE endpoint (topic-based live updates)
 app.route("/", liveEventsRoutes);
+
+// PR live co-editing — presence + cursors + content sync via SSE.
+app.route("/", prLiveRoutes);
 
 // Webhooks management
 app.route("/", webhookRoutes);

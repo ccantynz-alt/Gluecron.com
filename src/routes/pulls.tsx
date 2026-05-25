@@ -748,6 +748,97 @@ const PRS_DETAIL_STYLES = `
     .prs-comment-head { padding: 10px 12px; }
     .prs-files-card { padding: 12px 14px; }
   }
+
+  /* ─── Live co-editing — presence pill + cursor ribbons ─── */
+  .live-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 10px 4px 8px;
+    margin-left: 6px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 9999px;
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1;
+    vertical-align: middle;
+  }
+  .live-pill.is-busy { color: var(--text); }
+  .live-pill-dot {
+    width: 8px; height: 8px;
+    border-radius: 9999px;
+    background: #34d399;
+    box-shadow: 0 0 0 2px rgba(52,211,153,0.18);
+    animation: live-pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes live-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.55; }
+  }
+  .live-avatars {
+    display: inline-flex;
+    margin-left: 2px;
+  }
+  .live-avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px; height: 22px;
+    border-radius: 9999px;
+    font-size: 10px;
+    font-weight: 700;
+    color: #0b1020;
+    margin-left: -6px;
+    border: 2px solid var(--bg-elevated);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.25);
+  }
+  .live-avatar:first-child { margin-left: 0; }
+  .live-avatar.is-idle { opacity: 0.55; filter: grayscale(0.4); }
+  .live-cursor-host {
+    position: relative;
+  }
+  .live-cursor-overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    overflow: hidden;
+    border-radius: inherit;
+  }
+  .live-cursor {
+    position: absolute;
+    width: 2px;
+    height: 18px;
+    border-radius: 2px;
+    transform: translate(-1px, 0);
+    transition: transform 80ms linear, opacity 200ms ease;
+  }
+  .live-cursor::after {
+    content: attr(data-label);
+    position: absolute;
+    top: -16px;
+    left: -2px;
+    font-size: 10px;
+    line-height: 1;
+    color: #0b1020;
+    background: inherit;
+    padding: 2px 5px;
+    border-radius: 4px 4px 4px 0;
+    white-space: nowrap;
+    font-weight: 600;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+  }
+  .live-cursor.is-idle { opacity: 0.4; }
+  .live-edit-tag {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 6px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: #0b1020;
+    border-radius: 9999px;
+  }
 `;
 
 /**
@@ -787,6 +878,104 @@ function AI_PR_DESC_SCRIPT(endpointUrl: string): string {
     "}else{if(status)status.textContent=(j&&j.error)||'AI unavailable.';}" +
     "}).catch(function(){btn.disabled=false;if(status)status.textContent='Network error.';});" +
     "});" +
+    "}catch(e){}})();"
+  );
+}
+
+/**
+ * Live co-editing client. Connects to the per-PR SSE feed and:
+ *   - Maintains a "Live: N editing" pill in the PR header (avatars +
+ *     status colour per user).
+ *   - Renders tinted cursor caret overlays inside #pr-body and every
+ *     `[data-live-field]` element.
+ *   - Broadcasts the local user's cursor position (selectionStart /
+ *     selectionEnd) debounced at 100ms.
+ *   - Broadcasts content patches (`replace` of the whole textarea —
+ *     last-write-wins v1) debounced at 250ms.
+ *   - Pings /heartbeat every 15s; on receiving a peer's edit applies it
+ *     to the matching local field if untouched.
+ *
+ * All endpoint URLs are JSON-escaped via safe replacements so they
+ * can't break out of the <script> tag.
+ */
+function LIVE_COEDIT_SCRIPT(prId: string): string {
+  const idJson = JSON.stringify(prId)
+    .split("<").join("\\u003C")
+    .split(">").join("\\u003E")
+    .split("&").join("\\u0026");
+  return (
+    "(function(){try{" +
+    "if(typeof EventSource==='undefined')return;" +
+    "var prId=" + idJson + ";" +
+    "var base='/api/v2/pulls/'+encodeURIComponent(prId)+'/live';" +
+    "var pill=document.getElementById('live-pill');" +
+    "var avEl=document.getElementById('live-avatars');" +
+    "var countEl=document.getElementById('live-count');" +
+    "var sessionId=null;var myColor=null;" +
+    "var presence={};" + // sessionId -> {color,status,userId,initials}
+    "var lastApplied={};" + // field -> last server value (for echo suppression)
+    "function esc(s){return String(s==null?'':s).replace(/[&<>\"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c];});}" +
+    "function initials(id){if(!id)return '?';var s=String(id);return s.slice(0,2).toUpperCase();}" +
+    "function renderPresence(){if(!pill)return;var ids=Object.keys(presence).filter(function(k){return presence[k].status!=='left'&&k!==sessionId;});" +
+    "var n=ids.length;if(countEl)countEl.textContent=String(n);" +
+    "if(pill.classList){if(n>0)pill.classList.add('is-busy');else pill.classList.remove('is-busy');}" +
+    "if(avEl){var html='';for(var i=0;i<ids.length&&i<5;i++){var p=presence[ids[i]];" +
+    "html+='<span class=\"live-avatar'+(p.status==='idle'?' is-idle':'')+'\" style=\"background:'+esc(p.color)+'\" title=\"'+esc(p.label||'editor')+'\">'+esc(p.initials)+'</span>';}" +
+    "avEl.innerHTML=html;}}" +
+    "function ensureOverlay(host){if(!host)return null;var ov=host.querySelector(':scope > .live-cursor-overlay');" +
+    "if(!ov){ov=document.createElement('div');ov.className='live-cursor-overlay';host.classList.add('live-cursor-host');host.appendChild(ov);}return ov;}" +
+    "function fieldEl(field){if(field==='description')return document.getElementById('pr-body');" +
+    "return document.querySelector('[data-live-field=\"'+(field.replace(/\"/g,'\\\\\"'))+'\"]');}" +
+    "function placeCursor(sid,position){var p=presence[sid];if(!p||sid===sessionId)return;" +
+    "var ta=fieldEl(position.field);if(!ta||!ta.parentElement)return;" +
+    "var host=ta.parentElement;var ov=ensureOverlay(host);if(!ov)return;" +
+    "var c=ov.querySelector('[data-sid=\"'+sid+'\"]');" +
+    "if(!c){c=document.createElement('div');c.className='live-cursor';c.setAttribute('data-sid',sid);c.style.background=p.color;c.setAttribute('data-label',p.label||'editor');ov.appendChild(c);}" +
+    "var rect=ta.getBoundingClientRect();var hostRect=host.getBoundingClientRect();" +
+    "var x=ta.offsetLeft+6;var y=ta.offsetTop+6;" +
+    "try{var lineH=parseFloat(getComputedStyle(ta).lineHeight)||18;" +
+    "var text=ta.value||'';var pos=Math.max(0,Math.min(text.length,position.range&&position.range.start||0));" +
+    "var before=text.slice(0,pos);var nl=(before.match(/\\n/g)||[]).length;" +
+    "var lastNl=before.lastIndexOf('\\n');var col=pos-lastNl-1;" +
+    "x=ta.offsetLeft+6+Math.min(col*7,Math.max(0,rect.width-30));" +
+    "y=ta.offsetTop+6+nl*lineH-ta.scrollTop;" +
+    "}catch(e){}" +
+    "c.style.transform='translate('+x+'px,'+y+'px)';" +
+    "if(p.status==='idle')c.classList.add('is-idle');else c.classList.remove('is-idle');}" +
+    "function removeCursor(sid){var nodes=document.querySelectorAll('[data-sid=\"'+sid+'\"]');" +
+    "for(var i=0;i<nodes.length;i++){try{nodes[i].parentNode.removeChild(nodes[i]);}catch(e){}}}" +
+    "var es;var delay=1000;" +
+    "function connect(){try{es=new EventSource(base);}catch(e){setTimeout(connect,delay);return;}" +
+    "es.addEventListener('hello',function(m){try{var d=JSON.parse(m.data);sessionId=d.sessionId||null;myColor=d.color||null;" +
+    "(d.presence||[]).forEach(function(s){presence[s.id]={color:s.color,status:s.status,userId:s.userId,initials:initials(s.userId||s.agentSessionId),label:s.userId?'user':'agent'};});renderPresence();}catch(e){}});" +
+    "es.addEventListener('presence-join',function(m){try{var d=JSON.parse(m.data);presence[d.sessionId]={color:d.color,status:d.status,userId:d.userId,initials:initials(d.userId||d.agentSessionId),label:d.userId?'user':'agent'};renderPresence();}catch(e){}});" +
+    "es.addEventListener('presence-update',function(m){try{var d=JSON.parse(m.data);if(presence[d.sessionId]){presence[d.sessionId].status=d.status;renderPresence();}}catch(e){}});" +
+    "es.addEventListener('presence-leave',function(m){try{var d=JSON.parse(m.data);delete presence[d.sessionId];removeCursor(d.sessionId);renderPresence();}catch(e){}});" +
+    "es.addEventListener('cursor',function(m){try{var d=JSON.parse(m.data);placeCursor(d.sessionId,d.position);}catch(e){}});" +
+    "es.addEventListener('edit',function(m){try{var d=JSON.parse(m.data);if(d.sessionId===sessionId)return;" +
+    "var patch=d.patch;if(!patch||!patch.field)return;" +
+    "var ta=fieldEl(patch.field);if(!ta)return;" +
+    "if(document.activeElement===ta)return;" + // don't trample local typing
+    "if(patch.op==='replace'&&typeof patch.value==='string'){ta.value=patch.value;lastApplied[patch.field]=patch.value;}" +
+    "}catch(e){}});" +
+    "es.onerror=function(){try{es.close();}catch(e){}setTimeout(connect,delay);};" +
+    "}connect();" +
+    "function post(suffix,body){try{return fetch(base+suffix,{method:'POST',headers:{'content-type':'application/json'},credentials:'same-origin',body:JSON.stringify(body)}).catch(function(){});}catch(e){}}" +
+    "var cursorTimer=null;function sendCursor(field,start,end){if(!sessionId)return;if(cursorTimer)clearTimeout(cursorTimer);" +
+    "cursorTimer=setTimeout(function(){post('/cursor',{sessionId:sessionId,position:{field:field,range:{start:start,end:end}}});},100);}" +
+    "var editTimer=null;function sendEdit(field,value){if(!sessionId)return;if(editTimer)clearTimeout(editTimer);" +
+    "editTimer=setTimeout(function(){post('/edit',{sessionId:sessionId,patch:{field:field,op:'replace',at:0,value:value}});lastApplied[field]=value;},250);}" +
+    "function wire(el,field){if(!el||el.__liveWired)return;el.__liveWired=true;" +
+    "el.addEventListener('input',function(){sendEdit(field,el.value);});" +
+    "el.addEventListener('keyup',function(){sendCursor(field,el.selectionStart||0,el.selectionEnd||0);});" +
+    "el.addEventListener('click',function(){sendCursor(field,el.selectionStart||0,el.selectionEnd||0);});" +
+    "el.addEventListener('select',function(){sendCursor(field,el.selectionStart||0,el.selectionEnd||0);});" +
+    "}" +
+    "var body=document.getElementById('pr-body');if(body)wire(body,'description');" +
+    "var live=document.querySelectorAll('[data-live-field]');" +
+    "for(var i=0;i<live.length;i++){var f=live[i].getAttribute('data-live-field');if(f)wire(live[i],f);}" +
+    "setInterval(function(){if(sessionId)post('/heartbeat',{sessionId:sessionId});},15000);" +
+    "window.addEventListener('beforeunload',function(){if(!sessionId)return;try{var blob=new Blob([JSON.stringify({sessionId:sessionId})],{type:'application/json'});if(navigator.sendBeacon)navigator.sendBeacon(base+'/leave',blob);else post('/leave',{sessionId:sessionId});}catch(e){}});" +
     "}catch(e){}})();"
   );
 }
@@ -1654,6 +1843,17 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
             <span class="prs-branch-pill">{pr.baseBranch}</span>
           </span>
           <span>opened {formatRelative(pr.createdAt)}</span>
+          <span
+            id="live-pill"
+            class="live-pill"
+            title="People editing this PR right now"
+          >
+            <span class="live-pill-dot" aria-hidden="true"></span>
+            <span>
+              Live: <strong id="live-count">0</strong> editing
+            </span>
+            <span id="live-avatars" class="live-avatars" aria-hidden="true"></span>
+          </span>
           {canManage && pr.state === "open" && pr.isDraft && (
             <form
               method="post"
@@ -1667,6 +1867,11 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
           )}
         </div>
       </div>
+      <script
+        dangerouslySetInnerHTML={{
+          __html: LIVE_COEDIT_SCRIPT(pr.id),
+        }}
+      />
 
       <nav class="prs-detail-tabs" aria-label="Pull request sections">
         <a
@@ -1868,13 +2073,17 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
                 action={`/${ownerName}/${repoName}/pulls/${pr.number}/comment`}
               >
                 <FormGroup>
-                  <TextArea
-                    name="body"
-                    rows={5}
-                    required
-                    placeholder="Leave a comment... (Markdown supported)"
-                    mono
-                  />
+                  <div class="live-cursor-host" style="position:relative">
+                    <textarea
+                      name="body"
+                      id="pr-comment-body"
+                      data-live-field="comment_new"
+                      rows={5}
+                      required
+                      placeholder="Leave a comment... (Markdown supported)"
+                      style="font-family:var(--font-mono);font-size:13px;width:100%"
+                    ></textarea>
+                  </div>
                 </FormGroup>
                 <div class="prs-merge-actions">
                   <Button type="submit" variant="primary">

@@ -616,6 +616,151 @@ apiv2.get("/repos/:owner/:repo/semantic-search", async (c) => {
   return c.json(payload);
 });
 
+// ─── Repo chat — streaming SSE ──────────────────────────────────────────────
+//
+// POST /api/v2/repos/:owner/:repo/chat/messages
+//
+// Body (application/json): { chat_id?: string, message: string }
+//
+// Behaviour:
+//   - If no `chat_id`, creates a new chat row scoped to the caller.
+//   - Streams assistant text deltas via SSE (`event: token`, data is the
+//     raw delta). When the stream closes, a final `event: done` carries
+//     `{ chat_id, message_id, citations, token_cost }`.
+//   - On any internal failure we emit `event: error` and end the stream
+//     cleanly so the client can render an inline message.
+//
+// Auth: requireApiAuth + requireScope("repo") so PATs need the right
+// scope, and session-cookie auth (web UI) works out of the box.
+
+apiv2.post(
+  "/repos/:owner/:repo/chat/messages",
+  requireApiAuth,
+  requireScope("repo"),
+  async (c) => {
+    const { owner, repo } = c.req.param();
+    const user = c.get("user")!;
+    const resolved = await resolveRepo(owner, repo);
+    if (!resolved) return c.json({ error: "Not found" }, 404);
+
+    // Private-repo: only the owner (or admin scope) may chat.
+    if ((resolved.repo as any).isPrivate && user.id !== resolved.owner.id) {
+      const scopes = (c.get("tokenScopes") as string[] | undefined) || [];
+      if (!scopes.includes("admin")) {
+        return c.json({ error: "Not found" }, 404);
+      }
+    }
+
+    let body: { chat_id?: string; message?: string };
+    try {
+      body = (await c.req.json()) as { chat_id?: string; message?: string };
+    } catch {
+      return c.json({ error: "Invalid JSON body" }, 400);
+    }
+
+    const userMessage = String(body?.message || "").trim();
+    if (!userMessage) {
+      return c.json({ error: "message is required" }, 400);
+    }
+
+    const {
+      appendUserMessage,
+      createChat,
+      getChatForUser,
+      streamAssistantReply,
+    } = await import("../lib/repo-chat");
+
+    let chatId = String(body?.chat_id || "").trim();
+    const repoId = (resolved.repo as any).id as string;
+
+    if (!chatId) {
+      const created = await createChat({
+        repositoryId: repoId,
+        ownerUserId: user.id,
+        title: userMessage.slice(0, 80),
+      });
+      if (!created) {
+        return c.json({ error: "Failed to create chat" }, 500);
+      }
+      chatId = created.id;
+    } else {
+      const existing = await getChatForUser(chatId, user.id);
+      if (!existing || existing.repositoryId !== repoId) {
+        return c.json({ error: "Not found" }, 404);
+      }
+    }
+
+    await appendUserMessage(chatId, userMessage);
+
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        let closed = false;
+        const safeEnqueue = (chunk: string) => {
+          if (closed) return;
+          try {
+            controller.enqueue(encoder.encode(chunk));
+          } catch {
+            closed = true;
+          }
+        };
+        const sseEvent = (event: string, data: string) => {
+          let payload = `event: ${event}\n`;
+          for (const line of data.split("\n")) {
+            payload += `data: ${line}\n`;
+          }
+          payload += "\n";
+          safeEnqueue(payload);
+        };
+
+        // Initial comment flushes proxy headers.
+        safeEnqueue(": open\n\n");
+
+        try {
+          const stored = await streamAssistantReply({
+            chatId,
+            repoId,
+            userMessage,
+            onChunk: (chunk) => {
+              sseEvent("token", chunk);
+            },
+          });
+
+          sseEvent(
+            "done",
+            JSON.stringify({
+              chat_id: chatId,
+              message_id: stored?.id || null,
+              citations: stored?.citations ?? [],
+              token_cost: stored?.tokenCost ?? 0,
+            })
+          );
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : "unknown error";
+          sseEvent("error", JSON.stringify({ error: msg }));
+        } finally {
+          closed = true;
+          try {
+            controller.close();
+          } catch {
+            /* already closed */
+          }
+        }
+      },
+    });
+
+    return new Response(stream, {
+      status: 200,
+      headers: {
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+        "X-Accel-Buffering": "no",
+      },
+    });
+  }
+);
+
 // ─── Issues ─────────────────────────────────────────────────────────────────
 
 apiv2.get("/repos/:owner/:repo/issues", async (c) => {

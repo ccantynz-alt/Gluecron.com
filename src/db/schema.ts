@@ -3064,3 +3064,61 @@ export type NewAgentSession = typeof agentSessions.$inferInsert;
 export type AgentLease = typeof agentLeases.$inferSelect;
 export type NewAgentLease = typeof agentLeases.$inferInsert;
 
+// ---------------------------------------------------------------------------
+// 0060 — AI repo rubber-duck chat.
+// One row per chat thread + one row per message. Distinct from the older
+// `ai_chats` JSON-blob design so streaming partials, per-message citations,
+// and token-cost accounting all stay first-class. See src/lib/repo-chat.ts
+// for the helpers + src/routes/repo-chat.tsx for the UI.
+// ---------------------------------------------------------------------------
+export const repoChats = pgTable(
+  "repo_chats",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    ownerUserId: uuid("owner_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    title: text("title"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("repo_chats_owner_updated").on(table.ownerUserId, table.updatedAt),
+    index("repo_chats_repo").on(table.repositoryId),
+  ]
+);
+
+export const repoChatMessages = pgTable(
+  "repo_chat_messages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    chatId: uuid("chat_id")
+      .notNull()
+      .references(() => repoChats.id, { onDelete: "cascade" }),
+    // 'user' | 'assistant' | 'system'
+    role: text("role").notNull(),
+    content: text("content").notNull(),
+    // Array of { file_path, blob_sha }. jsonb so we can index later if needed.
+    citations: jsonb("citations").$type<Array<{ file_path: string; blob_sha: string }>>().notNull().default([]),
+    tokenCost: integer("token_cost").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("repo_chat_messages_chat_created").on(table.chatId, table.createdAt),
+  ]
+);
+
+export type RepoChat = typeof repoChats.$inferSelect;
+export type NewRepoChat = typeof repoChats.$inferInsert;
+export type RepoChatMessage = typeof repoChatMessages.$inferSelect;
+export type NewRepoChatMessage = typeof repoChatMessages.$inferInsert;
+

@@ -173,6 +173,31 @@ describe("install — GET /install/vscode", () => {
 });
 
 // ---------------------------------------------------------------------------
+// 1c. GET /install/jetbrains — JetBrains plugin landing
+// ---------------------------------------------------------------------------
+
+describe("install — GET /install/jetbrains", () => {
+  it("returns 200 with an HTML install page", async () => {
+    const res = await app.request("/install/jetbrains");
+    expect(res.status).toBe(200);
+    const ct = res.headers.get("content-type") || "";
+    expect(ct).toContain("text/html");
+    const body = await res.text();
+    expect(body).toContain("Gluecron for JetBrains");
+    // Points users at the plugin source + names the JetBrains IDEs we cover.
+    expect(body).toContain("editor-extensions/jetbrains");
+    expect(body).toContain("IntelliJ");
+    expect(body).toContain("WebStorm");
+  });
+
+  it("serves a cacheable response", async () => {
+    const res = await app.request("/install/jetbrains");
+    const cc = res.headers.get("cache-control") || "";
+    expect(cc).toContain("public");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 2. POST /api/v2/auth/install-token — auth contract
 // ---------------------------------------------------------------------------
 

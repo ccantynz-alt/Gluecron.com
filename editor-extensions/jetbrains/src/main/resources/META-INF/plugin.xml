@@ -1,0 +1,132 @@
+<idea-plugin>
+  <id>com.gluecron.plugin</id>
+  <name>Gluecron</name>
+  <vendor email="hello@gluecron.com" url="https://gluecron.com">gluecron</vendor>
+
+  <description><![CDATA[
+    <h2>Gluecron — AI-native git in your IDE</h2>
+    <p>
+      Chat with the current repo, ship PRs, run specs, draft commit messages,
+      and jump to the Gluecron web UI without leaving JetBrains. Works in
+      IntelliJ&nbsp;IDEA, WebStorm, GoLand, PyCharm, RustRover, and Rider.
+    </p>
+    <ul>
+      <li><b>Repo chat</b> — sidebar tool window grounded in the active repo.</li>
+      <li><b>AI commit messages</b> — sparkle button on the VCS commit dialog.</li>
+      <li><b>PRs / Issues / Standups</b> — embedded views of the live web UI.</li>
+      <li><b>Ship spec</b> + <b>Voice-to-PR</b> — open the right flow with one click.</li>
+    </ul>
+  ]]></description>
+
+  <change-notes><![CDATA[
+    <ul>
+      <li><b>0.1.0</b> — initial release. Mirrors the VS Code extension surface.</li>
+    </ul>
+  ]]></change-notes>
+
+  <!--
+    com.intellij.modules.platform is enough for every JetBrains IDE 2024.1+;
+    we additionally depend on Git4Idea so VCS-bound actions compile against
+    the same APIs the bundled git integration uses.
+  -->
+  <depends>com.intellij.modules.platform</depends>
+  <depends>Git4Idea</depends>
+
+  <!-- Project-level startup. -->
+  <extensions defaultExtensionNs="com.intellij">
+    <postStartupActivity implementation="com.gluecron.plugin.GluecronPlugin"/>
+
+    <!--
+      Sidebar tool window. We register the icon under META-INF/pluginIcon,
+      but JetBrains expects tool-window icons to live under /icons.
+    -->
+    <toolWindow
+        id="Gluecron"
+        anchor="right"
+        icon="/icons/toolWindowIcon.svg"
+        factoryClass="com.gluecron.plugin.toolwindow.GluecronToolWindow"/>
+
+    <!--
+      Application-level service (token storage).
+    -->
+    <applicationService serviceImplementation="com.gluecron.plugin.auth.AuthService"/>
+  </extensions>
+
+  <!--
+    Actions and where they live in the menus.
+  -->
+  <actions>
+    <group id="Gluecron.MainGroup" text="Gluecron" popup="true" icon="/icons/toolWindowIcon.svg">
+      <add-to-group group-id="ToolsMenu" anchor="last"/>
+    </group>
+
+    <action
+        id="Gluecron.SignIn"
+        class="com.gluecron.plugin.actions.SignInAction"
+        text="Sign In (Personal Access Token)"
+        description="Store a Gluecron PAT in the IDE password safe.">
+      <add-to-group group-id="Gluecron.MainGroup" anchor="first"/>
+    </action>
+
+    <action
+        id="Gluecron.ChatWithRepo"
+        class="com.gluecron.plugin.actions.ChatWithRepoAction"
+        text="Chat with This Repo"
+        description="Open the Gluecron tool window and focus the chat view.">
+      <add-to-group group-id="Gluecron.MainGroup"/>
+      <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+    </action>
+
+    <action
+        id="Gluecron.OpenPRs"
+        class="com.gluecron.plugin.actions.OpenPRsAction"
+        text="Open Pull Requests"
+        description="Open the current repo's pull-requests page in your browser.">
+      <add-to-group group-id="Gluecron.MainGroup"/>
+      <add-to-group group-id="VcsGroups" anchor="last"/>
+    </action>
+
+    <action
+        id="Gluecron.OpenIssues"
+        class="com.gluecron.plugin.actions.OpenIssuesAction"
+        text="Open Issues"
+        description="Open the current repo's issues page in your browser.">
+      <add-to-group group-id="Gluecron.MainGroup"/>
+    </action>
+
+    <action
+        id="Gluecron.OpenStandups"
+        class="com.gluecron.plugin.actions.OpenStandupsAction"
+        text="Open AI Standups"
+        description="Open the current repo's AI Standups page in your browser.">
+      <add-to-group group-id="Gluecron.MainGroup"/>
+    </action>
+
+    <action
+        id="Gluecron.ShipSpec"
+        class="com.gluecron.plugin.actions.ShipSpecAction"
+        text="Ship Current File as Spec"
+        description="Send the active file to Gluecron's spec wizard.">
+      <add-to-group group-id="Gluecron.MainGroup"/>
+      <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+    </action>
+
+    <action
+        id="Gluecron.VoiceToPR"
+        class="com.gluecron.plugin.actions.VoiceToPRAction"
+        text="Voice-to-PR"
+        description="Open the Gluecron voice console.">
+      <add-to-group group-id="Gluecron.MainGroup"/>
+    </action>
+
+    <action
+        id="Gluecron.GenerateCommitMessage"
+        class="com.gluecron.plugin.actions.GenerateCommitMessageAction"
+        text="Generate AI Commit Message"
+        description="Draft a commit message from the staged diff and drop it into the dialog."
+        icon="/icons/commitMessageIcon.svg">
+      <add-to-group group-id="Vcs.MessageActionGroup" anchor="last"/>
+      <add-to-group group-id="Gluecron.MainGroup"/>
+    </action>
+  </actions>
+</idea-plugin>

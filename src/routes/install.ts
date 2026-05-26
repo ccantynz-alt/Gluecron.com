@@ -304,4 +304,108 @@ install.get("/install/vscode", (c) => {
   return c.body(vscodeLandingHtml(vsix));
 });
 
+// ─── JetBrains plugin landing ───────────────────────────────────────────────
+//
+// Same pattern as the VS Code landing above: marketplace badge + sideload
+// .zip link if `./gradlew buildPlugin` has been run and the artifact is
+// staged under `public/`. The plugin .zip is named
+// `gluecron-jetbrains-<version>.zip` (declared in build.gradle.kts).
+
+const JETBRAINS_MARKETPLACE_URL =
+  "https://plugins.jetbrains.com/plugin/com.gluecron.plugin";
+
+function findJetbrainsZip(): { name: string; size: number } | null {
+  const candidates = [
+    join(process.cwd(), "public"),
+    join(import.meta.dir, "..", "..", "public"),
+  ];
+  for (const dir of candidates) {
+    try {
+      if (!existsSync(dir)) continue;
+      const files = readdirSync(dir).filter(
+        (f) => f.startsWith("gluecron-jetbrains-") && f.endsWith(".zip")
+      );
+      if (files.length === 0) continue;
+      files.sort();
+      const pick = files[files.length - 1];
+      const st = statSync(join(dir, pick));
+      return { name: pick, size: st.size };
+    } catch {
+      // try the next candidate
+    }
+  }
+  return null;
+}
+
+function jetbrainsLandingHtml(
+  zip: { name: string; size: number } | null
+): string {
+  const zipBlock = zip
+    ? `
+    <p>
+      <a class="cta" href="/${encodeURIComponent(zip.name)}" download>
+        Download ${zip.name} (${formatBytes(zip.size)})
+      </a>
+    </p>
+    <p class="muted">In your IDE: <b>Settings → Plugins → ⚙ → Install Plugin from Disk…</b></p>`
+    : `
+    <p class="muted">
+      No plugin <code>.zip</code> uploaded yet — build one yourself:
+    </p>
+    <pre><code>git clone https://gluecron.com/ccantynz/Gluecron.com
+cd Gluecron.com/editor-extensions/jetbrains
+./gradlew buildPlugin
+# artifact: build/distributions/gluecron-jetbrains-0.1.0.zip</code></pre>`;
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Gluecron for JetBrains</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root { color-scheme: dark light; }
+  body { font: 15px/1.55 system-ui, sans-serif; max-width: 640px; margin: 5rem auto; padding: 0 1rem; }
+  h1 { margin-top: 0; font-size: 1.6rem; }
+  .badge { display: inline-block; padding: 4px 10px; border-radius: 4px; background: #2c2c2c; color: #fff; font-size: 13px; text-decoration: none; }
+  .cta { display: inline-block; padding: 8px 14px; border-radius: 6px; background: #1f6feb; color: #fff; text-decoration: none; font-weight: 600; }
+  pre { background: #0e1116; color: #e6edf3; padding: 12px; border-radius: 6px; overflow-x: auto; }
+  code { font: 13px ui-monospace, monospace; }
+  .muted { opacity: 0.75; }
+  ul { padding-left: 1.2rem; }
+</style>
+</head>
+<body>
+  <h1>Gluecron for JetBrains IDEs</h1>
+  <p>
+    AI-native git inside IntelliJ&nbsp;IDEA, WebStorm, GoLand, PyCharm,
+    RustRover, and Rider — chat with the repo, draft commit messages,
+    ship specs, voice-to-PR.
+  </p>
+  <p>
+    <a class="badge" href="${JETBRAINS_MARKETPLACE_URL}" rel="nofollow">
+      Marketplace listing (coming soon)
+    </a>
+  </p>
+  <h2>Install</h2>
+  ${zipBlock}
+  <h2>What you get</h2>
+  <ul>
+    <li>Sidebar <strong>tool window</strong> with Chat / PRs / Issues / Standups tabs</li>
+    <li>One-click <strong>AI commit messages</strong> in the VCS commit dialog</li>
+    <li><strong>Ship spec</strong> + <strong>Voice-to-PR</strong> from the Tools menu</li>
+    <li>Works on every JetBrains IDE 2024.1+ (IDEA, WebStorm, GoLand, PyCharm, RustRover, Rider)</li>
+  </ul>
+  <p class="muted">Source: <a href="/ccantynz/Gluecron.com/tree/main/editor-extensions/jetbrains">editor-extensions/jetbrains</a></p>
+</body>
+</html>`;
+}
+
+install.get("/install/jetbrains", (c) => {
+  const zip = findJetbrainsZip();
+  c.header("content-type", "text/html; charset=utf-8");
+  c.header("cache-control", "public, max-age=300");
+  return c.body(jetbrainsLandingHtml(zip));
+});
+
 export default install;

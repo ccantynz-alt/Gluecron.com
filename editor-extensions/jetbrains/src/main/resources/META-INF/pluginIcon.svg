@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40" fill="none">
+  <!-- Marketplace pluginIcon: 40x40 per JetBrains spec. Mirrors the
+       globe-with-meridians mark used by the VS Code extension. -->
+  <circle cx="20" cy="20" r="15" stroke="#1f6feb" stroke-width="2.4"/>
+  <path d="M5 20h30" stroke="#1f6feb" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M20 5a22 22 0 0 1 0 30" stroke="#1f6feb" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M20 5a22 22 0 0 0 0 30" stroke="#1f6feb" stroke-width="2.4" stroke-linecap="round"/>
+</svg>

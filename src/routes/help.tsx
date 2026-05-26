@@ -783,6 +783,88 @@ env:
           </div>
         </section>
 
+        {/* ─── Cloud dev environments (migration 0072) ─── */}
+        <section id="dev-envs" class="help-section">
+          <div class="help-section-eyebrow">Per-repo</div>
+          <h2 class="help-section-title">Cloud dev environments</h2>
+          <p class="help-section-desc">
+            Hit <code>/:owner/:repo/dev</code> to get a hosted VS Code IDE
+            in your browser, backed by a cold-start container. One env per
+            (repo, user); idle envs stop themselves after{" "}
+            <strong>30 minutes</strong> so we don&apos;t leak compute.
+            Customise per-repo via <code>.gluecron/dev.yml</code>.
+          </p>
+          <div class="help-section-body">
+            <div class="help-item">
+              <strong>Opt-in defaults.</strong> Cloud dev environments are
+              off by default. Flip the toggle in repo settings under{" "}
+              <code>Settings → Dev environments</code> to surface the route
+              on your repo.
+            </div>
+            <div class="help-item">
+              <strong>Customise via <code>.gluecron/dev.yml</code>.</strong>{" "}
+              Commit this file at the repo root to control what your dev
+              env runs. If it&apos;s missing, Claude drafts one from your
+              repo on first start.
+              <pre class="help-code">
+{`# .gluecron/dev.yml — Node example
+image: node:20-alpine
+ports: [3000]
+install:
+  - npm install
+postCreate:
+  - npm run db:seed
+command: npm run dev
+recommendedExtensions:
+  - dbaeumer.vscode-eslint
+  - esbenp.prettier-vscode`}
+              </pre>
+              <pre class="help-code">
+{`# .gluecron/dev.yml — Python example
+image: python:3.12-slim
+ports: [8000]
+install:
+  - pip install -r requirements.txt
+postCreate:
+  - python manage.py migrate
+command: python manage.py runserver 0.0.0.0:8000
+recommendedExtensions:
+  - ms-python.python
+  - ms-python.vscode-pylance`}
+              </pre>
+              <pre class="help-code">
+{`# .gluecron/dev.yml — Rust example
+image: rust:1.78
+ports: [8080]
+install:
+  - cargo fetch
+postCreate: []
+command: cargo run
+recommendedExtensions:
+  - rust-lang.rust-analyzer
+  - vadimcn.vscode-lldb`}
+              </pre>
+            </div>
+            <div class="help-item">
+              <strong>API.</strong>{" "}
+              <code>POST /api/v2/repos/:owner/:repo/dev/start</code>{" "}
+              provisions (or warms-up) an env;{" "}
+              <code>POST /api/v2/repos/:owner/:repo/dev/stop</code>{" "}
+              gracefully stops one; and{" "}
+              <code>GET /api/v2/repos/:owner/:repo/dev/status</code>{" "}
+              returns the JSON shape used by the in-page poller.
+            </div>
+            <div class="help-item">
+              <strong>Idle sweep.</strong> The{" "}
+              <code>dev-env-idle-sweep</code> autopilot task runs every
+              5 minutes and stops any env whose{" "}
+              <code>last_active_at + idle_minutes</code> has passed. Each
+              page hit bumps <code>last_active_at</code> so an open IDE
+              tab keeps the env warm.
+            </div>
+          </div>
+        </section>
+
         {/* ─── Migration assistant ─── */}
         <section id="migrations" class="help-section">
           <div class="help-section-head">

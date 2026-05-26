@@ -38,6 +38,7 @@ import prLiveRoutes from "./routes/pr-live";
 import compareRoutes from "./routes/compare";
 import pullRoutes from "./routes/pulls";
 import prSandboxRoutes from "./routes/pr-sandbox";
+import devEnvRoutes from "./routes/dev-env";
 import editorRoutes from "./routes/editor";
 import forkRoutes from "./routes/fork";
 import webhookRoutes from "./routes/webhooks";
@@ -461,6 +462,9 @@ app.route("/", commentModerationRoutes);
 app.route("/", pullRoutes);
 // PR sandboxes — runnable per-PR environments. Migration 0067.
 app.route("/", prSandboxRoutes);
+
+// Cloud dev environments — hosted VS Code in the browser. Migration 0072.
+app.route("/", devEnvRoutes);
 
 // Fork
 app.route("/", forkRoutes);

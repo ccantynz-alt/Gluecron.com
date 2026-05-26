@@ -67,6 +67,7 @@ import { runAutoReleaseNotesTaskOnce } from "./ai-release-notes";
 import { runPrTestGeneratorTaskOnce } from "./autopilot-pr-test-generator";
 import { runAdvancementScan } from "./advancement-scanner";
 import { expireOldSandboxes } from "./pr-sandbox";
+import { expireIdleEnvs } from "./dev-env";
 
 export interface AutopilotTaskResult {
   name: string;
@@ -145,6 +146,15 @@ let _lastPrTestGeneratorAt = 0;
  */
 const PR_SANDBOX_CLEANUP_INTERVAL_MS = 30 * 60 * 1000;
 let _lastPrSandboxCleanupAt = 0;
+/**
+ * Dev-env idle sweep cadence (migration 0072). Runs on every autopilot
+ * tick (5 minutes) because per-env idle timeouts can be as short as a
+ * few minutes — we don't want a 30-min cleanup window stranding a user
+ * who set idle_minutes=5. The lib itself is a single SQL UPDATE so this
+ * is cheap regardless of repo count.
+ */
+const DEV_ENV_IDLE_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
+let _lastDevEnvIdleSweepAt = 0;
 /**
  * Advancement scanner cadence. Designed to run weekly on Mondays at
  * 08:00 UTC. The task itself is the cheap gate (checks both day-of-week
@@ -584,6 +594,30 @@ export function defaultTasks(): AutopilotTask[] {
           }
         } catch (err) {
           console.error("[autopilot] pr-sandbox-cleanup: threw:", err);
+        }
+      },
+    },
+    {
+      // Dev-env idle sweep — migration 0072. Stops every dev env whose
+      // `last_active_at + idle_minutes` has slipped into the past. Runs
+      // on every tick (cadence-gated to 5min so a faster outer loop
+      // doesn't hammer it). The lib itself is fail-soft + per-row idle
+      // aware, so this is cheap + correct even when half the rows are
+      // already 'stopped'.
+      name: "dev-env-idle-sweep",
+      run: async () => {
+        const now = Date.now();
+        if (now - _lastDevEnvIdleSweepAt < DEV_ENV_IDLE_SWEEP_INTERVAL_MS) {
+          return;
+        }
+        _lastDevEnvIdleSweepAt = now;
+        try {
+          const stopped = await expireIdleEnvs();
+          if (stopped > 0) {
+            console.log(`[autopilot] dev-env-idle-sweep: stopped=${stopped}`);
+          }
+        } catch (err) {
+          console.error("[autopilot] dev-env-idle-sweep: threw:", err);
         }
       },
     },

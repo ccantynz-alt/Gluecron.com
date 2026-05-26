@@ -191,6 +191,11 @@ export const repositories = pgTable(
     // sandbox on every PR open. Default false (off) because each sandbox
     // burns compute; owners must explicitly enable it via repo-settings.
     autoPrSandbox: boolean("auto_pr_sandbox").default(false).notNull(),
+    // Migration 0072 — opt-in flag for hosted-in-browser dev environments
+    // (cloud Codespaces alternative). Default false (off) because each
+    // env burns a container until the idle sweep tears it down; owners
+    // must explicitly enable per-repo via repo-settings.
+    devEnvsEnabled: boolean("dev_envs_enabled").default(false).notNull(),
   },
   (table) => [
     // Partial: uniqueness only in the user namespace (org-owned rows exempt).
@@ -3655,11 +3660,7 @@ export type HostedClaudeLoopRun = typeof hostedClaudeLoopRuns.$inferSelect;
 export type NewHostedClaudeLoopRun = typeof hostedClaudeLoopRuns.$inferInsert;
 
 // ---------------------------------------------------------------------------
-// 0070 — Agent Marketplace. Third-party AI agents listed in a catalog,
-// one-click install per repo. Builds on agent_sessions (0058): every install
-// provisions a fresh agent_session whose `branch_namespace` and
-// `budget_cents_per_day` are seeded from the listing's `agent_template`.
-// See src/lib/agent-marketplace.ts.
+// 0070 — Agent Marketplace. See src/lib/agent-marketplace.ts.
 // ---------------------------------------------------------------------------
 export const agentMarketplaceListings = pgTable(
   "agent_marketplace_listings",
@@ -3672,9 +3673,7 @@ export const agentMarketplaceListings = pgTable(
     name: text("name").notNull(),
     tagline: text("tagline").default("").notNull(),
     description: text("description").default("").notNull(),
-    // 'reviewer' | 'tester' | 'migrator' | 'security' | 'docs' | 'custom'
     category: text("category").default("custom").notNull(),
-    // 'per_invocation' | 'per_repo_per_month' | 'free'
     pricingModel: text("pricing_model").default("free").notNull(),
     priceCents: integer("price_cents").default(0).notNull(),
     agentTemplate: jsonb("agent_template")
@@ -3687,7 +3686,6 @@ export const agentMarketplaceListings = pgTable(
       .default({})
       .notNull(),
     sourceUrl: text("source_url"),
-    // 'draft' | 'pending_review' | 'approved' | 'rejected'
     status: text("status").default("draft").notNull(),
     installCount: integer("install_count").default(0).notNull(),
     ratingAvg: numeric("rating_avg", { precision: 3, scale: 2 })
@@ -3702,20 +3700,11 @@ export const agentMarketplaceListings = pgTable(
       .notNull(),
   },
   (table) => [
-    index("agent_marketplace_listings_category").on(
-      table.category,
-      table.status
-    ),
-    index("agent_marketplace_listings_rating").on(
-      table.ratingAvg,
-      table.ratingCount
-    ),
+    index("agent_marketplace_listings_category").on(table.category, table.status),
+    index("agent_marketplace_listings_rating").on(table.ratingAvg, table.ratingCount),
     index("agent_marketplace_listings_installs").on(table.installCount),
     index("agent_marketplace_listings_publisher").on(table.publisherUserId),
-    index("agent_marketplace_listings_status_created").on(
-      table.status,
-      table.createdAt
-    ),
+    index("agent_marketplace_listings_status_created").on(table.status, table.createdAt),
   ]
 );
 
@@ -3736,7 +3725,6 @@ export const agentMarketplaceInstalls = pgTable(
       () => agentSessions.id,
       { onDelete: "set null" }
     ),
-    // 'active' | 'paused' | 'uninstalled'
     status: text("status").default("active").notNull(),
     installedAt: timestamp("installed_at", { withTimezone: true })
       .defaultNow()
@@ -3747,10 +3735,7 @@ export const agentMarketplaceInstalls = pgTable(
       .notNull(),
   },
   (table) => [
-    uniqueIndex("agent_marketplace_installs_listing_repo").on(
-      table.listingId,
-      table.repositoryId
-    ),
+    uniqueIndex("agent_marketplace_installs_listing_repo").on(table.listingId, table.repositoryId),
     index("agent_marketplace_installs_repo").on(table.repositoryId, table.status),
     index("agent_marketplace_installs_installer").on(table.installedByUserId),
   ]
@@ -3773,23 +3758,51 @@ export const agentMarketplaceReviews = pgTable(
       .notNull(),
   },
   (table) => [
-    index("agent_marketplace_reviews_listing_created").on(
-      table.listingId,
-      table.createdAt
-    ),
+    index("agent_marketplace_reviews_listing_created").on(table.listingId, table.createdAt),
     index("agent_marketplace_reviews_reviewer").on(table.reviewerUserId),
   ]
 );
 
-export type AgentMarketplaceListing =
-  typeof agentMarketplaceListings.$inferSelect;
-export type NewAgentMarketplaceListing =
-  typeof agentMarketplaceListings.$inferInsert;
-export type AgentMarketplaceInstall =
-  typeof agentMarketplaceInstalls.$inferSelect;
-export type NewAgentMarketplaceInstall =
-  typeof agentMarketplaceInstalls.$inferInsert;
-export type AgentMarketplaceReview =
-  typeof agentMarketplaceReviews.$inferSelect;
-export type NewAgentMarketplaceReview =
-  typeof agentMarketplaceReviews.$inferInsert;
+export type AgentMarketplaceListing = typeof agentMarketplaceListings.$inferSelect;
+export type NewAgentMarketplaceListing = typeof agentMarketplaceListings.$inferInsert;
+export type AgentMarketplaceInstall = typeof agentMarketplaceInstalls.$inferSelect;
+export type NewAgentMarketplaceInstall = typeof agentMarketplaceInstalls.$inferInsert;
+export type AgentMarketplaceReview = typeof agentMarketplaceReviews.$inferSelect;
+export type NewAgentMarketplaceReview = typeof agentMarketplaceReviews.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// 0072 — per-(repo, user) cloud dev environments. See src/lib/dev-env.ts.
+// ---------------------------------------------------------------------------
+export const devEnvs = pgTable(
+  "dev_envs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    ownerUserId: uuid("owner_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    status: text("status").default("cold").notNull(),
+    previewUrl: text("preview_url"),
+    containerId: text("container_id"),
+    machineSize: text("machine_size").default("small").notNull(),
+    idleMinutes: integer("idle_minutes").default(30).notNull(),
+    devYml: text("dev_yml"),
+    errorMessage: text("error_message"),
+    lastActiveAt: timestamp("last_active_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("dev_envs_repo_owner").on(table.repositoryId, table.ownerUserId),
+    index("dev_envs_status_active").on(table.status, table.lastActiveAt),
+  ]
+);
+
+export type DevEnv = typeof devEnvs.$inferSelect;
+export type NewDevEnv = typeof devEnvs.$inferInsert;

@@ -886,6 +886,61 @@ repoSettings.get("/:owner/:repo/settings", requireAuth, requireRepoAccess("admin
           </form>
         </section>
 
+        {/* ─── Cloud dev environments ─── */}
+        <section
+          id="dev-envs"
+          class="repo-settings-section"
+        >
+          <div class="repo-settings-section-head">
+            <div class="repo-settings-section-eyebrow">Dev environments</div>
+            <h2 class="repo-settings-section-title">Enable cloud dev environments</h2>
+            <p class="repo-settings-section-desc">
+              When enabled, anyone with read access can hit{" "}
+              <code>/{ownerName}/{repoName}/dev</code> to spin up a
+              hosted VS Code IDE in the browser, backed by a cold-start
+              container. We read <code>.gluecron/dev.yml</code> for the
+              image + install commands; idle envs stop themselves after
+              30 minutes. Default off — each env burns a container.
+            </p>
+          </div>
+          <form
+            method="post"
+            action={`/${ownerName}/${repoName}/settings/dev-envs`}
+          >
+            <div class="repo-settings-section-body">
+              <label
+                class="repo-settings-toggle-row"
+                aria-label="Enable cloud dev environments for this repo"
+              >
+                <input
+                  type="checkbox"
+                  name="dev_envs_enabled"
+                  value="1"
+                  checked={
+                    (repo as { devEnvsEnabled?: boolean }).devEnvsEnabled ??
+                    false
+                  }
+                />
+                <span class="repo-settings-toggle-text">
+                  <span class="repo-settings-toggle-text-title">
+                    Enable dev environments
+                  </span>
+                  <span class="repo-settings-toggle-text-hint">
+                    Surfaces the <code>/{ownerName}/{repoName}/dev</code>{" "}
+                    route. Commit <code>.gluecron/dev.yml</code> to your
+                    repo to customise the image, ports, and extensions.
+                  </span>
+                </span>
+              </label>
+            </div>
+            <div class="repo-settings-section-foot">
+              <button type="submit" class="repo-settings-cta">
+                Save dev env settings <span class="arrow">→</span>
+              </button>
+            </div>
+          </form>
+        </section>
+
         {/* ─── Stale activity ─── */}
         <section class="repo-settings-section">
           <div class="repo-settings-section-head">
@@ -1291,6 +1346,64 @@ repoSettings.post(
 
     return c.redirect(
       `/${ownerName}/${repoName}/settings?success=AI+test+settings+saved`
+    );
+  }
+);
+
+// Migration 0072 — toggle cloud dev environments. Owner-only; audits
+// the toggle delta so the repo's audit log shows the change.
+repoSettings.post(
+  "/:owner/:repo/settings/dev-envs",
+  requireAuth,
+  requireRepoAccess("admin"),
+  async (c) => {
+    const { owner: ownerName, repo: repoName } = c.req.param();
+    const user = c.get("user")!;
+    const body = await c.req.parseBody();
+    const [owner] = await db
+      .select()
+      .from(users)
+      .where(eq(users.username, ownerName))
+      .limit(1);
+    if (!owner || owner.id !== user.id) {
+      return c.redirect(`/${ownerName}/${repoName}`);
+    }
+    const [repo] = await db
+      .select()
+      .from(repositories)
+      .where(
+        and(
+          eq(repositories.ownerId, owner.id),
+          eq(repositories.name, repoName)
+        )
+      )
+      .limit(1);
+    if (!repo) return c.notFound();
+
+    const next = body.dev_envs_enabled === "1";
+    const prev = (repo as { devEnvsEnabled?: boolean }).devEnvsEnabled ?? false;
+
+    await db
+      .update(repositories)
+      .set({
+        devEnvsEnabled: next,
+        updatedAt: new Date(),
+      })
+      .where(eq(repositories.id, repo.id));
+
+    if (next !== prev) {
+      await audit({
+        userId: user.id,
+        repositoryId: repo.id,
+        action: "repo.dev_envs_enabled.toggled",
+        targetType: "repository",
+        targetId: repo.id,
+        metadata: { from: prev, to: next },
+      });
+    }
+
+    return c.redirect(
+      `/${ownerName}/${repoName}/settings?success=Dev+env+settings+saved#dev-envs`
     );
   }
 );

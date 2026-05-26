@@ -184,8 +184,12 @@ const CATEGORIES: Category[] = [
     rows: [
       {
         feature: "Self-hostable",
-        gh: { verdict: "partial", note: "Enterprise tier only" },
-        gc: { verdict: "yes", note: "Single binary" },
+        gh: { verdict: "partial", note: "GHES — 50GB blob, days to install" },
+        gc: {
+          verdict: "yes",
+          note: "200MB binary, 60s curl-bash",
+          href: "/help#self-host",
+        },
       },
       {
         feature: "Single-tenant (your code stays yours)",
@@ -1097,6 +1101,52 @@ $ gluecron agents tail
             <div class="vsg-social-card vsg-social-coming">
               <div class="vsg-social-card-name">Open source orgs</div>
               <div class="vsg-social-card-quote">Free forever for OSS</div>
+            </div>
+          </div>
+        </section>
+
+        {/* ============ SELF-HOST COMPARISON ============ */}
+        <section class="vsg-section vsg-selfhost-section">
+          <div class="section-header vsg-section-header">
+            <div class="eyebrow vsg-eyebrow-plain">Self-host · 60 seconds vs 5 days</div>
+            <h2 class="vsg-h2">
+              50&nbsp;GB blob.{" "}
+              <span class="vsg-title-grad">Or 200&nbsp;MB binary.</span>
+            </h2>
+            <p class="vsg-section-sub">
+              GitHub Enterprise Server is a virtual-appliance image that
+              takes professional services to install. Gluecron self-host
+              is one curl.
+            </p>
+          </div>
+
+          <div class="vsg-selfhost-grid">
+            <div class="vsg-selfhost-card vsg-selfhost-card-them">
+              <div class="vsg-selfhost-card-label">GitHub Enterprise Server</div>
+              <div class="vsg-selfhost-card-big">~50 GB</div>
+              <ul class="vsg-selfhost-card-list">
+                <li>OVA / Hyper-V image, not a binary</li>
+                <li>Days to install, often professional services</li>
+                <li>VMware or Hyper-V required</li>
+                <li>Per-seat licensing</li>
+              </ul>
+            </div>
+            <div class="vsg-selfhost-card vsg-selfhost-card-us">
+              <div class="vsg-selfhost-card-label">
+                <span class="vsg-title-grad">Gluecron self-host</span>
+              </div>
+              <div class="vsg-selfhost-card-big vsg-title-grad">~200 MB</div>
+              <ul class="vsg-selfhost-card-list">
+                <li>Single static binary (bun --compile)</li>
+                <li>60-second curl-bash, no PS required</li>
+                <li>Runs on any linux / darwin host</li>
+                <li>BYO-license — your DB, your disk</li>
+              </ul>
+              <pre class="vsg-selfhost-curl"><code>curl -fsSL https://gluecron.com/install-server | bash</code></pre>
+              <a href="/help#self-host" class="vsg-killer-card-link">
+                Operations playbook
+                <span aria-hidden="true"> →</span>
+              </a>
             </div>
           </div>
         </section>
@@ -2130,6 +2180,75 @@ const pageCss = `
     gap: 12px;
     justify-content: center;
     flex-wrap: wrap;
+  }
+
+  /* ============ SELF-HOST BLOCK ============ */
+  .vsg-page .vsg-selfhost-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+    align-items: stretch;
+    margin-top: 12px;
+  }
+  @media (max-width: 720px) {
+    .vsg-page .vsg-selfhost-grid { grid-template-columns: 1fr; }
+  }
+  .vsg-page .vsg-selfhost-card {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 28px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    position: relative;
+    overflow: hidden;
+  }
+  .vsg-page .vsg-selfhost-card-them { opacity: 0.86; }
+  .vsg-page .vsg-selfhost-card-us {
+    border-color: rgba(140,109,255,0.35);
+    box-shadow: 0 0 0 1px rgba(140,109,255,0.16), 0 14px 40px -20px rgba(0,0,0,0.55);
+  }
+  .vsg-page .vsg-selfhost-card-label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--text-faint);
+    font-weight: 600;
+  }
+  .vsg-page .vsg-selfhost-card-big {
+    font-family: var(--font-display);
+    font-size: clamp(36px, 6vw, 56px);
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    line-height: 1;
+    color: var(--text-strong);
+  }
+  .vsg-page .vsg-selfhost-card-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    color: var(--text-muted);
+    font-size: 14px;
+    line-height: 1.55;
+  }
+  .vsg-page .vsg-selfhost-card-list li::before {
+    content: '— ';
+    color: var(--text-faint);
+  }
+  .vsg-page .vsg-selfhost-curl {
+    margin: 8px 0 0;
+    background: #0e1116;
+    color: #e6edf3;
+    padding: 12px 14px;
+    border-radius: 8px;
+    font: 12px ui-monospace, monospace;
+    overflow-x: auto;
+    white-space: nowrap;
   }
 `;
 

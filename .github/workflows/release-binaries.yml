@@ -1,0 +1,160 @@
+name: Release self-host binaries
+
+# Build the single-binary Gluecron distribution for all four target
+# platforms on every `v*.*.*` tag, upload to the GitHub Release, and
+# mirror the artifacts to the running Gluecron host so the
+# `curl gluecron.com/install-server | bash` flow picks them up
+# immediately.
+
+permissions:
+  contents: write
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      targets:
+        description: "Comma-separated targets (default: all four)"
+        required: false
+        default: "linux-x64,linux-arm64,darwin-x64,darwin-arm64"
+
+concurrency:
+  group: release-binaries-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: build-${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x64
+            runs-on: ubuntu-latest
+          - target: linux-arm64
+            runs-on: ubuntu-latest
+          - target: darwin-x64
+            runs-on: macos-latest
+          - target: darwin-arm64
+            runs-on: macos-latest
+    runs-on: ${{ matrix.runs-on }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install deps
+        run: bun install --frozen-lockfile
+
+      - name: Build target
+        env:
+          GLUECRON_BUILD_TARGETS: ${{ matrix.target }}
+        run: bash scripts/build-self-host-binary.sh
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gluecron-server-${{ matrix.target }}
+          path: |
+            dist/gluecron-server-${{ matrix.target }}
+            dist/gluecron-server-${{ matrix.target }}.sha256
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: publish
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Download all binary artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: gluecron-server-*
+          merge-multiple: true
+          path: dist
+
+      - name: Build ancillary bundles (hook + migrations + env.example)
+        # Re-run the bundle step with no targets so it only rebuilds the
+        # ancillary assets + the combined manifest. Existing binaries in
+        # dist/ are left in place.
+        env:
+          GLUECRON_BUILD_TARGETS: "linux-x64"
+        run: |
+          # Make sure the script can find every binary the matrix produced.
+          ls -la dist/
+          # Compute combined SHA256SUMS across whatever binaries landed.
+          (
+            cd dist
+            : > SHA256SUMS
+            for f in gluecron-server-*; do
+              if [ -f "$f" ] && [[ "$f" != *.sha256 ]]; then
+                sha256sum "$f" >> SHA256SUMS
+              fi
+            done
+          )
+          # Bundle the post-receive hook + migrations + env.example.
+          cp -f src/hooks/post-receive.ts dist/post-receive || true
+          tar -czf dist/migrations.tar.gz drizzle || true
+          cp -f .env.example dist/env.example || true
+          (
+            cd dist
+            for f in post-receive migrations.tar.gz env.example; do
+              if [ -f "$f" ]; then
+                sha256sum "$f" >> SHA256SUMS
+              fi
+            done
+          )
+          node -p "require('./package.json').version" > dist/VERSION
+          ls -la dist/
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          fail_on_unmatched_files: false
+          files: |
+            dist/gluecron-server-linux-x64
+            dist/gluecron-server-linux-arm64
+            dist/gluecron-server-darwin-x64
+            dist/gluecron-server-darwin-arm64
+            dist/SHA256SUMS
+            dist/VERSION
+            dist/post-receive
+            dist/migrations.tar.gz
+            dist/env.example
+
+      - name: Mirror to Gluecron release endpoint
+        # Best-effort: POST each artifact to the running Gluecron site so
+        # /dist/<filename> serves the new bundle without a deploy. Requires
+        # GLUECRON_RELEASE_TOKEN (admin scope) + GLUECRON_RELEASE_URL secrets.
+        if: ${{ env.GLUECRON_RELEASE_URL != '' }}
+        env:
+          GLUECRON_RELEASE_URL: ${{ secrets.GLUECRON_RELEASE_URL }}
+          GLUECRON_RELEASE_TOKEN: ${{ secrets.GLUECRON_RELEASE_TOKEN }}
+        run: |
+          set -e
+          for f in dist/gluecron-server-* dist/SHA256SUMS dist/VERSION \
+                   dist/post-receive dist/migrations.tar.gz dist/env.example; do
+            [ -f "$f" ] || continue
+            name=$(basename "$f")
+            echo "Uploading $name → $GLUECRON_RELEASE_URL"
+            curl -fsSL --max-time 120 \
+              -H "Authorization: Bearer $GLUECRON_RELEASE_TOKEN" \
+              -H "X-Filename: $name" \
+              --data-binary "@$f" \
+              "$GLUECRON_RELEASE_URL" || echo "mirror failed for $name (non-fatal)"
+          done

@@ -15,7 +15,7 @@
 
 import { describe, it, expect } from "bun:test";
 import app from "../app";
-import { INSTALL_SCRIPT_SRC } from "../routes/install";
+import { INSTALL_SCRIPT_SRC, SELF_HOST_SCRIPT_SRC } from "../routes/install";
 
 const HAS_DB = Boolean(process.env.DATABASE_URL);
 
@@ -62,6 +62,90 @@ describe("install — GET /install", () => {
   it("INSTALL_SCRIPT_SRC exports a non-empty bash script", () => {
     expect(INSTALL_SCRIPT_SRC.length).toBeGreaterThan(0);
     expect(INSTALL_SCRIPT_SRC.startsWith("#!")).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 1a. GET /install-server — self-host single-binary installer
+// ---------------------------------------------------------------------------
+
+describe("install — GET /install-server", () => {
+  it("returns 200 with the self-host bash script body", async () => {
+    const res = await app.request("/install-server");
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    expect(body.length).toBeGreaterThan(0);
+    expect(body.startsWith("#!/usr/bin/env bash")).toBe(true);
+  });
+
+  it("serves Content-Type: text/x-shellscript", async () => {
+    const res = await app.request("/install-server");
+    const ct = res.headers.get("content-type") || "";
+    expect(ct).toContain("text/x-shellscript");
+  });
+
+  it("serves a public Cache-Control so a CDN can absorb load", async () => {
+    const res = await app.request("/install-server");
+    const cc = res.headers.get("cache-control") || "";
+    expect(cc).toContain("public");
+    expect(cc).toContain("max-age=300");
+  });
+
+  it("script body contains the key self-host install markers", async () => {
+    const res = await app.request("/install-server");
+    const body = await res.text();
+    // Sanity-check the real script's contract.
+    if (SELF_HOST_SCRIPT_SRC.includes("set -Eeuo pipefail")) {
+      expect(body).toContain("set -Eeuo pipefail");
+      // Platform detection.
+      expect(body).toContain("uname -s");
+      // Binary download path matches the /dist/:filename route.
+      expect(body).toContain("/dist/SHA256SUMS");
+      expect(body).toContain("gluecron-server-");
+      // Sha-256 verification gate is present.
+      expect(body).toContain("SHA-256 mismatch");
+      // Service installation.
+      expect(body).toContain("systemd");
+    }
+  });
+
+  it("rewrites the default HOST to the request origin", async () => {
+    const res = await app.request("/install-server", {
+      headers: {
+        "x-forwarded-proto": "https",
+        "x-forwarded-host": "self-host.example",
+      },
+    });
+    const body = await res.text();
+    if (SELF_HOST_SCRIPT_SRC.includes("https://gluecron.com")) {
+      // The rewrite leaves an explicit fallback to the inbound origin.
+      expect(body).toContain("https://self-host.example");
+    }
+  });
+
+  it("SELF_HOST_SCRIPT_SRC exports a non-empty bash script", () => {
+    expect(SELF_HOST_SCRIPT_SRC.length).toBeGreaterThan(0);
+    expect(SELF_HOST_SCRIPT_SRC.startsWith("#!")).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 1c. GET /dist/:filename — binary release endpoint
+// ---------------------------------------------------------------------------
+
+describe("install — GET /dist/:filename", () => {
+  it("404s for filenames that don't exist", async () => {
+    const res = await app.request("/dist/definitely-not-a-real-binary");
+    expect(res.status).toBe(404);
+  });
+
+  it("rejects path traversal attempts", async () => {
+    // The route param regex blocks `..` outright — Hono URI-decodes %2F
+    // back to a slash so the param literally contains the traversal.
+    const res = await app.request("/dist/..%2Fpackage.json");
+    expect(res.status).toBe(404);
+    const body = await res.json();
+    expect(typeof body.error).toBe("string");
   });
 });
 

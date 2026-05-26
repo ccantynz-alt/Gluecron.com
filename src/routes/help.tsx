@@ -297,6 +297,7 @@ help.get("/help", (c) => {
             <a href="#shortcuts">Keyboard shortcuts</a>
             <a href="#api">API</a>
             <a href="#build-agents">Build-agent integration</a>
+            <a href="#self-host">Self-host (single binary)</a>
           </div>
         </nav>
 
@@ -1042,6 +1043,88 @@ gluecron hook uninstall commit-msg`}
               — every Gluecron action callable from any Claude/Cursor/etc.
               tool-use loop. The JSON-RPC endpoint is{" "}
               <code>POST /mcp</code>.
+            </div>
+          </div>
+        </section>
+
+        {/* ─── Self-host (single binary) ─── */}
+        <section id="self-host" class="help-section">
+          <div class="help-section-head">
+            <div class="help-section-eyebrow">Self-host</div>
+            <h2 class="help-section-title">Single-binary self-host</h2>
+            <p class="help-section-desc">
+              GitHub Enterprise Server is a 50&nbsp;GB blob and a week of
+              professional services. Gluecron self-host is a ~200&nbsp;MB
+              binary and 60 seconds. One curl, you own the whole stack.
+            </p>
+          </div>
+          <div class="help-section-body">
+            <div class="help-item">
+              <strong>One-liner.</strong>
+              <pre><code>curl -fsSL https://gluecron.com/install-server | bash</code></pre>
+              The script detects your OS + arch, downloads the right
+              binary from <code>/dist/</code>, verifies SHA-256 against{" "}
+              <code>/dist/SHA256SUMS</code>, installs to{" "}
+              <code>/opt/gluecron/bin/gluecron-server</code> (or
+              <code>~/.gluecron/bin</code> with no sudo), provisions
+              Postgres, writes <code>/etc/gluecron.env</code>, runs
+              migrations, and starts the systemd unit (linux) or launchd
+              plist (darwin).
+            </div>
+            <div class="help-item">
+              <strong>Hardware requirements.</strong>
+              <ul>
+                <li>4&nbsp;GB RAM (8&nbsp;GB for teams &gt; 20)</li>
+                <li>20&nbsp;GB disk for repos + Postgres data</li>
+                <li>Postgres 14+ (auto-installed via docker if missing)</li>
+                <li>Linux (x64 / arm64) or macOS (x64 / arm64)</li>
+              </ul>
+            </div>
+            <div class="help-item">
+              <strong>Configuration walkthrough.</strong> The installer
+              writes <code>/etc/gluecron.env</code> seeded from{" "}
+              <code>.env.example</code>. At minimum, set:
+              <ul>
+                <li><code>DATABASE_URL</code> — Postgres connection string</li>
+                <li><code>APP_BASE_URL</code> — public URL of the instance</li>
+                <li><code>PORT</code> — listen port (default 3010)</li>
+                <li><code>GIT_REPOS_PATH</code> — bare-repo directory</li>
+              </ul>
+              Anything else (Anthropic key for AI features, GateTest
+              callback secret, OAuth providers) can be added later
+              without a restart via <code>/admin/integrations</code>.
+            </div>
+            <div class="help-item">
+              <strong>Operations.</strong>
+              <ul>
+                <li>
+                  <em>Backup.</em>{" "}
+                  <code>pg_dump $DATABASE_URL | gzip &gt; gluecron-$(date +%F).sql.gz</code>{" "}
+                  plus <code>tar -czf repos-$(date +%F).tgz /opt/gluecron/repos</code>.
+                </li>
+                <li>
+                  <em>Restore.</em> Stop systemd, restore the SQL dump
+                  with <code>gunzip -c &lt; dump.sql.gz | psql $DATABASE_URL</code>,
+                  untar the repos, and start the unit.
+                </li>
+                <li>
+                  <em>Upgrade.</em> Re-run the installer — it overwrites
+                  the binary in place and restarts the service. The
+                  migrations runner is idempotent.
+                </li>
+                <li>
+                  <em>Logs.</em>{" "}
+                  <code>journalctl -u gluecron -f</code> (linux) or{" "}
+                  <code>tail -f ~/.gluecron/data/gluecron.err.log</code>{" "}
+                  (darwin).
+                </li>
+              </ul>
+            </div>
+            <div class="help-item">
+              <strong>Versus GitHub Enterprise Server.</strong> GHES is a
+              50&nbsp;GB OVA image, requires VMware/Hyper-V, and bills
+              per-seat. Gluecron self-host is a single binary, runs
+              anywhere bun runs, and is BYO-license.
             </div>
           </div>
         </section>

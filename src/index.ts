@@ -7,6 +7,7 @@ import { startAutopilot } from "./lib/autopilot";
 import { ensureDemoContent } from "./lib/demo-seed";
 import { ensureDemoActivity } from "./lib/demo-activity-seed";
 import { ensureEnvSiteAdmin } from "./lib/admin-bootstrap";
+import { ensureMarketplaceSeed } from "./lib/agent-marketplace-seed";
 import { maybeSelfBootstrap } from "./lib/self-bootstrap";
 import { notifySystemdReady } from "./lib/systemd-notify";
 import { loadConfigIntoEnv } from "./lib/system-config";
@@ -62,6 +63,22 @@ void ensureEnvSiteAdmin().catch((err) => {
     err instanceof Error ? err.message : err
   );
 });
+
+// Agent marketplace seed. Idempotent — inserts the 4 canonical example
+// listings only if they don't already exist. Background-fired with a small
+// delay so the admin-bootstrap path lands first (the seed lists the
+// publisher as the bootstrap admin).
+void (async () => {
+  try {
+    await new Promise((r) => setTimeout(r, 1500));
+    await ensureMarketplaceSeed();
+  } catch (err) {
+    console.warn(
+      "[agent-marketplace-seed] failed:",
+      err instanceof Error ? err.message : err
+    );
+  }
+})();
 
 // Opt-in demo content seed on boot (DEMO_SEED_ON_BOOT=1). Idempotent, never
 // throws — safe to run on every start. Block L3 layers extra activity (more

@@ -735,11 +735,20 @@ marketplace.get("/marketplace", async (c) => {
                 in one click — every app runs with its own scoped bot identity.
               </p>
             </div>
-            {user && (
-              <a href="/developer/apps-new" class="mkt-hero-cta">
-                + Register app
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <a href="/marketplace/agents" class="mkt-hero-cta">
+                Agents &rarr;
               </a>
-            )}
+              {user && (
+                <a
+                  href="/developer/apps-new"
+                  class="mkt-hero-cta"
+                  style="background:transparent;border:1px solid var(--border);color:var(--text);box-shadow:none"
+                >
+                  + Register app
+                </a>
+              )}
+            </div>
           </div>
         </section>
 

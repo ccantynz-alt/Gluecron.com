@@ -114,6 +114,15 @@ export const users = pgTable("users", {
   // See drizzle/0052_playground_accounts.sql.
   isPlayground: boolean("is_playground").default(false).notNull(),
   playgroundExpiresAt: timestamp("playground_expires_at"),
+  // Migration 0071 — Personal cross-repo semantic index opt-in. When true,
+  // /chat (and the /api/v2/me/chat/messages endpoint) may search across
+  // every repo the user owns OR is an accepted collaborator on. Default
+  // OFF — privacy-first; the user must explicitly enable it via
+  // /settings/personal-semantic-toggle. The personal-semantic helpers
+  // hard-refuse to return any rows while this flag is false.
+  personalSemanticIndexEnabled: boolean("personal_semantic_index_enabled")
+    .default(false)
+    .notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -3196,6 +3205,69 @@ export type RepoChat = typeof repoChats.$inferSelect;
 export type NewRepoChat = typeof repoChats.$inferInsert;
 export type RepoChatMessage = typeof repoChatMessages.$inferSelect;
 export type NewRepoChatMessage = typeof repoChatMessages.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// 0071 — Personal cross-repo chat. Same shape as repoChats/repoChatMessages
+// but user-scoped, not repo-scoped. The retrieval layer
+// (src/lib/personal-semantic.ts) runs searchSemantic across the union of
+// repos the owner has access to, then attaches a repo_name annotation to
+// each citation. Gated on users.personalSemanticIndexEnabled.
+// ---------------------------------------------------------------------------
+export const personalChats = pgTable(
+  "personal_chats",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ownerUserId: uuid("owner_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    title: text("title"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("personal_chats_owner_updated").on(
+      table.ownerUserId,
+      table.updatedAt
+    ),
+  ]
+);
+
+export const personalChatMessages = pgTable(
+  "personal_chat_messages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    chatId: uuid("chat_id")
+      .notNull()
+      .references(() => personalChats.id, { onDelete: "cascade" }),
+    role: text("role").notNull(),
+    content: text("content").notNull(),
+    citations: jsonb("citations")
+      .$type<
+        Array<{ file_path: string; blob_sha: string; repo_name: string }>
+      >()
+      .notNull()
+      .default([]),
+    tokenCost: integer("token_cost").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("personal_chat_messages_chat_created").on(
+      table.chatId,
+      table.createdAt
+    ),
+  ]
+);
+
+export type PersonalChat = typeof personalChats.$inferSelect;
+export type NewPersonalChat = typeof personalChats.$inferInsert;
+export type PersonalChatMessage = typeof personalChatMessages.$inferSelect;
+export type NewPersonalChatMessage = typeof personalChatMessages.$inferInsert;
 
 // ---------------------------------------------------------------------------
 // 0061 — Live co-editing on PRs. See src/lib/pr-live.ts.

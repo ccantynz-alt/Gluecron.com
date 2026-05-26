@@ -927,6 +927,164 @@ apiv2.post(
   }
 );
 
+// ─── Personal cross-repo chat — streaming SSE ───────────────────────────────
+//
+// POST /api/v2/me/chat/messages
+//
+// Body (application/json): { chat_id?: string, message: string }
+//
+// Behaviour mirrors /repos/:owner/:repo/chat/messages but the retrieval
+// layer crosses every repo the user has access to instead of being pinned
+// to a single repo. Hard refusal if
+// `users.personal_semantic_index_enabled` is false; in that case we
+// return 403 rather than streaming an empty-context reply.
+//
+// Per-message audit log: `ai.personal.chat` — privacy requirement.
+
+apiv2.post(
+  "/me/chat/messages",
+  requireApiAuth,
+  requireScope("repo"),
+  async (c) => {
+    const user = c.get("user")!;
+
+    let body: { chat_id?: string; message?: string };
+    try {
+      body = (await c.req.json()) as { chat_id?: string; message?: string };
+    } catch {
+      return c.json({ error: "Invalid JSON body" }, 400);
+    }
+
+    const userMessage = String(body?.message || "").trim();
+    if (!userMessage) {
+      return c.json({ error: "message is required" }, 400);
+    }
+
+    // Hard opt-in gate — refuse before even touching the chat tables.
+    const { isPersonalSemanticEnabled } = await import(
+      "../lib/personal-semantic"
+    );
+    const enabled = await isPersonalSemanticEnabled(user.id);
+    if (!enabled) {
+      return c.json(
+        {
+          error:
+            "Personal cross-repo chat is disabled. Enable it at /chat (the opt-in toggle).",
+        },
+        403
+      );
+    }
+
+    const {
+      appendPersonalUserMessage,
+      createPersonalChat,
+      getPersonalChatForUser,
+      streamPersonalAssistantReply,
+    } = await import("../lib/personal-chat");
+
+    let chatId = String(body?.chat_id || "").trim();
+    if (!chatId) {
+      const created = await createPersonalChat({
+        ownerUserId: user.id,
+        title: userMessage.slice(0, 80),
+      });
+      if (!created) {
+        return c.json({ error: "Failed to create chat" }, 500);
+      }
+      chatId = created.id;
+    } else {
+      const existing = await getPersonalChatForUser(chatId, user.id);
+      if (!existing) {
+        return c.json({ error: "Not found" }, 404);
+      }
+    }
+
+    await appendPersonalUserMessage(chatId, userMessage);
+
+    // Audit log — one entry per personal chat message.
+    try {
+      const { audit } = await import("../lib/notify");
+      void audit({
+        userId: user.id,
+        action: "ai.personal.chat",
+        targetType: "personal_chat",
+        targetId: chatId,
+        ip: c.req.header("x-forwarded-for") || c.req.header("x-real-ip"),
+        userAgent: c.req.header("user-agent"),
+        metadata: { surface: "api" },
+      });
+    } catch {
+      /* best-effort */
+    }
+
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        let closed = false;
+        const safeEnqueue = (chunk: string) => {
+          if (closed) return;
+          try {
+            controller.enqueue(encoder.encode(chunk));
+          } catch {
+            closed = true;
+          }
+        };
+        const sseEvent = (event: string, data: string) => {
+          let payload = `event: ${event}\n`;
+          for (const line of data.split("\n")) {
+            payload += `data: ${line}\n`;
+          }
+          payload += "\n";
+          safeEnqueue(payload);
+        };
+
+        safeEnqueue(": open\n\n");
+
+        try {
+          const stored = await streamPersonalAssistantReply({
+            chatId,
+            userId: user.id,
+            userMessage,
+            onChunk: (chunk) => {
+              sseEvent("token", chunk);
+            },
+          });
+
+          sseEvent(
+            "done",
+            JSON.stringify({
+              chat_id: chatId,
+              message_id: stored?.id || null,
+              citations: stored?.citations ?? [],
+              token_cost: stored?.tokenCost ?? 0,
+            })
+          );
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : "unknown error";
+          sseEvent("error", JSON.stringify({ error: msg }));
+        } finally {
+          closed = true;
+          try {
+            controller.close();
+          } catch {
+            /* already closed */
+          }
+        }
+      },
+    });
+
+    return new Response(stream, {
+      status: 200,
+      headers: {
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+        "X-Accel-Buffering": "no",
+      },
+    });
+  }
+);
+
 // ─── Issues ─────────────────────────────────────────────────────────────────
 
 apiv2.get("/repos/:owner/:repo/issues", async (c) => {

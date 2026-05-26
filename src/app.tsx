@@ -97,6 +97,7 @@ import aiExplainRoutes from "./routes/ai-explain";
 import aiTestsRoutes from "./routes/ai-tests";
 import askRoutes from "./routes/ask";
 import repoChatRoutes from "./routes/repo-chat";
+import personalChatRoutes from "./routes/personal-chat";
 import billingRoutes from "./routes/billing";
 import billingUsageRoutes from "./routes/billing-usage";
 import stripeWebhookRoutes from "./routes/stripe-webhook";
@@ -566,6 +567,9 @@ app.route("/", aiExplainRoutes);
 app.route("/", aiTestsRoutes);
 app.route("/", askRoutes);
 app.route("/", repoChatRoutes);
+// Personal cross-repo chat — `/chat` (user-scoped). Mounted alongside
+// repoChatRoutes so the two surfaces share the catch-all priority.
+app.route("/", personalChatRoutes);
 app.route("/", billingRoutes);
 app.route("/", billingUsageRoutes);
 app.route("/", stripeWebhookRoutes);

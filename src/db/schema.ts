@@ -3943,3 +3943,78 @@ export const serverTargetAudit = pgTable(
 
 export type ServerTargetAudit = typeof serverTargetAudit.$inferSelect;
 export type NewServerTargetAudit = typeof serverTargetAudit.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Block CW — Claude on the web (drizzle/0074_claude_web_sessions.sql)
+//
+// Per-repo interactive Claude Code sessions runnable from any browser.
+// Each session owns a working dir on the web server (a fresh git clone of
+// the repo's bare store) and persists turn-by-turn transcripts so an iPad
+// user can resume the same conversation later from a laptop.
+//
+// v1 admin-only; v2 will scope by owner_user_id and isolate per-session
+// containers. Schema is forward-compatible with both.
+// ---------------------------------------------------------------------------
+
+export const claudeWebSessions = pgTable(
+  "claude_web_sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    ownerUserId: uuid("owner_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    title: text("title").default("New session").notNull(),
+    branch: text("branch").default("main").notNull(),
+    workdirPath: text("workdir_path").notNull(),
+    claudeSessionId: text("claude_session_id"),
+    status: text("status").default("cold").notNull(),
+    lastActiveAt: timestamp("last_active_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("claude_web_sessions_repo_idx").on(
+      table.repositoryId,
+      table.lastActiveAt
+    ),
+    index("claude_web_sessions_owner_idx").on(
+      table.ownerUserId,
+      table.lastActiveAt
+    ),
+  ]
+);
+
+export type ClaudeWebSession = typeof claudeWebSessions.$inferSelect;
+export type NewClaudeWebSession = typeof claudeWebSessions.$inferInsert;
+
+export const claudeWebMessages = pgTable(
+  "claude_web_messages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => claudeWebSessions.id, { onDelete: "cascade" }),
+    role: text("role").notNull(),
+    body: text("body").notNull(),
+    exitCode: integer("exit_code"),
+    durationMs: integer("duration_ms"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("claude_web_messages_session_idx").on(
+      table.sessionId,
+      table.createdAt
+    ),
+  ]
+);
+
+export type ClaudeWebMessage = typeof claudeWebMessages.$inferSelect;
+export type NewClaudeWebMessage = typeof claudeWebMessages.$inferInsert;

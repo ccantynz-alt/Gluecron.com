@@ -3806,3 +3806,215 @@ export const devEnvs = pgTable(
 
 export type DevEnv = typeof devEnvs.$inferSelect;
 export type NewDevEnv = typeof devEnvs.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Block ST — Server targets (drizzle/0073_server_targets.sql)
+//
+// Admin-managed remote boxes Gluecron can SSH into and run a deploy script
+// on. Each target carries an encrypted private SSH key, a pinned host
+// fingerprint, an optional repo+branch to watch, and a per-target list of
+// env vars materialised on the box at deploy time. Customer-facing rollout
+// is gated to a follow-up block (Block 2) that scopes by owner_user_id.
+// ---------------------------------------------------------------------------
+
+export const serverTargets = pgTable(
+  "server_targets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    host: text("host").notNull(),
+    port: integer("port").default(22).notNull(),
+    sshUser: text("ssh_user").notNull(),
+    encryptedPrivateKey: text("encrypted_private_key").notNull(),
+    hostFingerprint: text("host_fingerprint"),
+    deployPath: text("deploy_path").default("/var/www/app").notNull(),
+    deployScript: text("deploy_script").default("bash deploy.sh").notNull(),
+    watchedRepositoryId: uuid("watched_repository_id").references(
+      () => repositories.id,
+      { onDelete: "set null" }
+    ),
+    watchedBranch: text("watched_branch"),
+    status: text("status").default("unverified").notNull(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+    createdBy: uuid("created_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("server_targets_name_uq").on(table.name),
+    index("server_targets_watch_idx").on(
+      table.watchedRepositoryId,
+      table.watchedBranch
+    ),
+  ]
+);
+
+export type ServerTarget = typeof serverTargets.$inferSelect;
+export type NewServerTarget = typeof serverTargets.$inferInsert;
+
+export const serverTargetEnv = pgTable(
+  "server_target_env",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    targetId: uuid("target_id")
+      .notNull()
+      .references(() => serverTargets.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    encryptedValue: text("encrypted_value").notNull(),
+    isSecret: boolean("is_secret").default(true).notNull(),
+    updatedBy: uuid("updated_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [uniqueIndex("server_target_env_uq").on(table.targetId, table.name)]
+);
+
+export type ServerTargetEnv = typeof serverTargetEnv.$inferSelect;
+export type NewServerTargetEnv = typeof serverTargetEnv.$inferInsert;
+
+export const serverTargetDeployments = pgTable(
+  "server_target_deployments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    targetId: uuid("target_id")
+      .notNull()
+      .references(() => serverTargets.id, { onDelete: "cascade" }),
+    commitSha: text("commit_sha"),
+    ref: text("ref"),
+    status: text("status").default("pending").notNull(),
+    exitCode: integer("exit_code"),
+    stdout: text("stdout"),
+    stderr: text("stderr"),
+    triggeredBy: uuid("triggered_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    triggerSource: text("trigger_source").default("push").notNull(),
+    startedAt: timestamp("started_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("server_target_deployments_target_idx").on(
+      table.targetId,
+      table.startedAt
+    ),
+  ]
+);
+
+export type ServerTargetDeployment =
+  typeof serverTargetDeployments.$inferSelect;
+export type NewServerTargetDeployment =
+  typeof serverTargetDeployments.$inferInsert;
+
+export const serverTargetAudit = pgTable(
+  "server_target_audit",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    targetId: uuid("target_id").references(() => serverTargets.id, {
+      onDelete: "set null",
+    }),
+    actorId: uuid("actor_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    action: text("action").notNull(),
+    detail: text("detail"),
+    ip: text("ip"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("server_target_audit_target_idx").on(table.targetId, table.createdAt),
+  ]
+);
+
+export type ServerTargetAudit = typeof serverTargetAudit.$inferSelect;
+export type NewServerTargetAudit = typeof serverTargetAudit.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Block CW — Claude on the web (drizzle/0074_claude_web_sessions.sql)
+//
+// Per-repo interactive Claude Code sessions runnable from any browser.
+// Each session owns a working dir on the web server (a fresh git clone of
+// the repo's bare store) and persists turn-by-turn transcripts so an iPad
+// user can resume the same conversation later from a laptop.
+//
+// v1 admin-only; v2 will scope by owner_user_id and isolate per-session
+// containers. Schema is forward-compatible with both.
+// ---------------------------------------------------------------------------
+
+export const claudeWebSessions = pgTable(
+  "claude_web_sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    ownerUserId: uuid("owner_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    title: text("title").default("New session").notNull(),
+    branch: text("branch").default("main").notNull(),
+    workdirPath: text("workdir_path").notNull(),
+    claudeSessionId: text("claude_session_id"),
+    status: text("status").default("cold").notNull(),
+    lastActiveAt: timestamp("last_active_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("claude_web_sessions_repo_idx").on(
+      table.repositoryId,
+      table.lastActiveAt
+    ),
+    index("claude_web_sessions_owner_idx").on(
+      table.ownerUserId,
+      table.lastActiveAt
+    ),
+  ]
+);
+
+export type ClaudeWebSession = typeof claudeWebSessions.$inferSelect;
+export type NewClaudeWebSession = typeof claudeWebSessions.$inferInsert;
+
+export const claudeWebMessages = pgTable(
+  "claude_web_messages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => claudeWebSessions.id, { onDelete: "cascade" }),
+    role: text("role").notNull(),
+    body: text("body").notNull(),
+    exitCode: integer("exit_code"),
+    durationMs: integer("duration_ms"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("claude_web_messages_session_idx").on(
+      table.sessionId,
+      table.createdAt
+    ),
+  ]
+);
+
+export type ClaudeWebMessage = typeof claudeWebMessages.$inferSelect;
+export type NewClaudeWebMessage = typeof claudeWebMessages.$inferInsert;

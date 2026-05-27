@@ -27,6 +27,13 @@ import {
 import { indexChangedFiles } from "../lib/semantic-index";
 import { enqueuePreviewBuild } from "../lib/branch-previews";
 import { runDocDriftCheckForRepo } from "../lib/ai-doc-updater";
+import {
+  findTargetsForPush,
+  finishDeployRow,
+  resolveEnv,
+  startDeployRow,
+} from "../lib/server-target-store";
+import { deployToTarget } from "../lib/server-targets";
 
 interface PushRef {
   oldSha: string;
@@ -170,6 +177,15 @@ export async function onPostReceive(
       }
     }
   }
+
+  // 5b. Block ST — Server targets. After core post-receive work, fire
+  //     deploys against any `server_targets` row whose
+  //     (watched_repository_id, watched_branch) matches a pushed ref.
+  //     Fire-and-forget; deploy results land in `server_target_deployments`
+  //     and the UI at /admin/servers/:id surfaces them.
+  void fireServerTargetDeploys(owner, repo, refs).catch((err) =>
+    console.warn("[server-targets] dispatch error:", err)
+  );
 
   // 6. BLOCK W — Self-host. When Gluecron.com itself receives a push to
   // main, fire the local deploy via scripts/self-deploy.sh. The script
@@ -606,6 +622,85 @@ async function fireDocDriftCheck(owner: string, repo: string): Promise<void> {
   }
 }
 
+/**
+ * Block ST — fan out the push to any server targets that watch this
+ * (repo, branch). One sequential deploy per target so a slow box can't
+ * stall the next push, but multiple matching targets run in parallel.
+ * Every failure is contained to its own deploy row + console warn —
+ * nothing here can break the push path.
+ */
+async function fireServerTargetDeploys(
+  owner: string,
+  repo: string,
+  refs: PushRef[]
+): Promise<void> {
+  const liveRefs = refs.filter(
+    (r) => r.refName.startsWith("refs/heads/") && !r.newSha.startsWith("0000")
+  );
+  if (liveRefs.length === 0) return;
+
+  let repositoryId = "";
+  try {
+    const [row] = await db
+      .select({ id: repositories.id })
+      .from(repositories)
+      .innerJoin(users, eq(repositories.ownerId, users.id))
+      .where(and(eq(users.username, owner), eq(repositories.name, repo)))
+      .limit(1);
+    repositoryId = row?.id || "";
+  } catch {
+    return;
+  }
+  if (!repositoryId) return;
+
+  await Promise.all(
+    liveRefs.map(async (ref) => {
+      const branch = ref.refName.replace("refs/heads/", "");
+      let targets;
+      try {
+        targets = await findTargetsForPush({ repositoryId, branch });
+      } catch {
+        return;
+      }
+      if (!targets.length) return;
+
+      await Promise.all(
+        targets.map(async (target) => {
+          try {
+            const env = await resolveEnv(target.id);
+            const deployId = await startDeployRow({
+              targetId: target.id,
+              commitSha: ref.newSha,
+              ref: ref.refName,
+              triggerSource: "push",
+            });
+            const result = await deployToTarget(target, {
+              commitSha: ref.newSha,
+              ref: ref.refName,
+              env,
+            });
+            if (deployId) {
+              await finishDeployRow({
+                id: deployId,
+                exitCode: result.exitCode,
+                stdout: result.stdout,
+                stderr: result.stderr,
+              });
+            }
+            console.log(
+              `[server-targets] ${target.name} @ ${ref.newSha.slice(0, 7)}: exit ${result.exitCode}`
+            );
+          } catch (err) {
+            console.warn(
+              `[server-targets] ${target.name}: deploy threw — ${err instanceof Error ? err.message : err}`
+            );
+          }
+        })
+      );
+    })
+  );
+}
+
 /** Test-only access to internal helpers. */
 export const __test = {
   triggerCrontechDeploy,
@@ -616,4 +711,5 @@ export const __test = {
   fireSemanticIndex,
   firePreviewBuilds,
   fireDocDriftCheck,
+  fireServerTargetDeploys,
 };

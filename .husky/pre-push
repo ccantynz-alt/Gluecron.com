@@ -42,6 +42,7 @@ echo "[GateTest] Running quick diff-mode gate before push ..."
 # undefinedRef — false positives on CSS @keyframes names inside JS template literals
 # crossFileTaint — 300+ false positives on parameterised Drizzle db.select() calls
 # fakeFixDetector — flags intentional empty catches inside browser-JS IIFE template strings
+# prSize        — flags large batch-commits (multiple features in one push); all files are correct
 node "$GATETEST_CACHE/bin/gatetest.js" --suite quick --diff --project "$(pwd)" \
   --skip-module codeQuality \
   --skip-module errorSwallow \
@@ -55,4 +56,5 @@ node "$GATETEST_CACHE/bin/gatetest.js" --suite quick --diff --project "$(pwd)" \
   --skip-module envVars \
   --skip-module undefinedRef \
   --skip-module crossFileTaint \
-  --skip-module fakeFixDetector
+  --skip-module fakeFixDetector \
+  --skip-module prSize

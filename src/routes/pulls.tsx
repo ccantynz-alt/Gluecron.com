@@ -82,8 +82,9 @@ import {
   resolveRef,
   getBlob,
   createOrUpdateFileOnBranch,
+  commitsBetween,
 } from "../git/repository";
-import type { GitDiffFile } from "../git/repository";
+import type { GitDiffFile, GitCommit } from "../git/repository";
 import { html } from "hono/html";
 import {
   getPreviewForBranch,
@@ -1318,6 +1319,29 @@ const PRS_DETAIL_STYLES = `
   .prs-linked-issue-state { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 9999px; }
   .prs-linked-issue-state.is-open { color: #34d399; background: rgba(52,211,153,0.10); }
   .prs-linked-issue-state.is-closed { color: #8b949e; background: var(--bg-tertiary); }
+
+  /* ─── Commits tab ─── */
+  .prs-commits-list { display: flex; flex-direction: column; gap: 0; margin-top: 14px; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .prs-commit-row { display: flex; align-items: flex-start; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--border); text-decoration: none; color: inherit; }
+  .prs-commit-row:last-child { border-bottom: none; }
+  .prs-commit-row:hover { background: var(--bg-hover); }
+  .prs-commit-dot { flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); margin-top: 6px; }
+  .prs-commit-body { flex: 1 1 auto; min-width: 0; }
+  .prs-commit-msg { font-size: 13.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+  .prs-commit-meta { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+  .prs-commit-sha { flex: 0 0 auto; font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); background: var(--bg-elevated); padding: 2px 7px; border-radius: 6px; border: 1px solid var(--border); text-decoration: none; white-space: nowrap; }
+  .prs-commit-sha:hover { color: var(--accent); }
+  .prs-commits-empty { padding: 32px; text-align: center; color: var(--text-muted); font-size: 13.5px; }
+
+  /* ─── Edit PR title/body ─── */
+  .prs-edit-title-wrap { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .prs-edit-btn { background: none; border: 1px solid var(--border); color: var(--text-muted); font-size: 12px; padding: 3px 10px; border-radius: 6px; cursor: pointer; transition: color 120ms, border-color 120ms; }
+  .prs-edit-btn:hover { color: var(--text); border-color: var(--text-muted); }
+  .prs-edit-form { margin-top: 12px; display: flex; flex-direction: column; gap: 10px; }
+  .prs-edit-form input[type=text] { font-size: 15px; padding: 9px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-elevated); color: var(--text); width: 100%; box-sizing: border-box; }
+  .prs-edit-actions { display: flex; gap: 8px; }
+  .prs-edit-save-btn { padding: 7px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; background: var(--accent); color: #fff; border: none; cursor: pointer; }
+  .prs-edit-cancel-btn { padding: 7px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; background: var(--bg-elevated); color: var(--text); border: 1px solid var(--border); cursor: pointer; }
 `;
 
 /**
@@ -3274,6 +3298,12 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
       (c) => !c.passed && c.name !== "Merge check"
     );
 
+  // Commits tab — list commits included in this PR (base..head range)
+  let prCommits: GitCommit[] = [];
+  if (tab === "commits") {
+    prCommits = await commitsBetween(ownerName, repoName, pr.baseBranch, pr.headBranch).catch(() => []);
+  }
+
   return c.html(
     <Layout
       title={`${pr.title} #${pr.number} — ${ownerName}/${repoName}`}
@@ -3307,10 +3337,60 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
       />
 
       <div class="prs-detail-hero">
-        <h1 class="prs-detail-title">
-          {pr.title}{" "}
-          <span class="prs-detail-num">#{pr.number}</span>
-        </h1>
+        <div class="prs-edit-title-wrap">
+          <h1 class="prs-detail-title" id="pr-title-display">
+            {pr.title}{" "}
+            <span class="prs-detail-num">#{pr.number}</span>
+          </h1>
+          {canManage && pr.state === "open" && (
+            <button
+              type="button"
+              class="prs-edit-btn"
+              id="pr-edit-toggle"
+              onclick={`
+                document.getElementById('pr-title-display').style.display='none';
+                document.getElementById('pr-edit-toggle').style.display='none';
+                document.getElementById('pr-edit-form').style.display='flex';
+                document.getElementById('pr-title-input').focus();
+              `}
+            >
+              Edit
+            </button>
+          )}
+        </div>
+        {canManage && pr.state === "open" && (
+          <form
+            id="pr-edit-form"
+            method="post"
+            action={`/${ownerName}/${repoName}/pulls/${pr.number}/edit`}
+            class="prs-edit-form"
+            style="display:none"
+          >
+            <input
+              id="pr-title-input"
+              type="text"
+              name="title"
+              value={pr.title}
+              required
+              maxlength={256}
+              placeholder="Pull request title"
+            />
+            <div class="prs-edit-actions">
+              <button type="submit" class="prs-edit-save-btn">Save</button>
+              <button
+                type="button"
+                class="prs-edit-cancel-btn"
+                onclick={`
+                  document.getElementById('pr-edit-form').style.display='none';
+                  document.getElementById('pr-title-display').style.display='';
+                  document.getElementById('pr-edit-toggle').style.display='';
+                `}
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        )}
         <div class="prs-detail-meta">
           <span class={`prs-state-pill state-${stateKey}`}>
             <span aria-hidden="true">{stateIcon}</span>
@@ -3422,6 +3502,15 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
           <span class="prs-detail-tab-count">{commentCount}</span>
         </a>
         <a
+          class={`prs-detail-tab${tab === "commits" ? " is-active" : ""}`}
+          href={`/${ownerName}/${repoName}/pulls/${pr.number}?tab=commits`}
+        >
+          Commits
+          {branchAhead > 0 && (
+            <span class="prs-detail-tab-count">{branchAhead}</span>
+          )}
+        </a>
+        <a
           class={`prs-detail-tab${tab === "files" ? " is-active" : ""}`}
           href={`/${ownerName}/${repoName}/pulls/${pr.number}?tab=files`}
         >
@@ -3432,7 +3521,33 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
         </a>
       </nav>
 
-      {tab === "files" ? (
+      {tab === "commits" ? (
+        <div class="prs-commits-list">
+          {prCommits.length === 0 ? (
+            <div class="prs-commits-empty">No commits between {pr.baseBranch} and {pr.headBranch}.</div>
+          ) : (
+            prCommits.map((commit) => (
+              <div class="prs-commit-row">
+                <span class="prs-commit-dot" aria-hidden="true"></span>
+                <div class="prs-commit-body">
+                  <div class="prs-commit-msg" title={commit.message}>{commit.message}</div>
+                  <div class="prs-commit-meta">
+                    <strong>{commit.author}</strong> committed{" "}
+                    {formatRelative(new Date(commit.date))}
+                  </div>
+                </div>
+                <a
+                  href={`/${ownerName}/${repoName}/commit/${commit.sha}`}
+                  class="prs-commit-sha"
+                  title="View commit"
+                >
+                  {commit.sha.slice(0, 7)}
+                </a>
+              </div>
+            ))
+          )}
+        </div>
+      ) : tab === "files" ? (
         <DiffView
           raw={diffRaw}
           files={diffFiles}
@@ -3938,6 +4053,52 @@ pulls.post(
     return c.redirect(
       `/${ownerName}/${repoName}/pulls/${prNum}?error=${encodeURIComponent("Update failed — conflicts must be resolved manually")}`
     );
+  }
+);
+
+// Edit PR title (and optionally body). Owner or author only.
+pulls.post(
+  "/:owner/:repo/pulls/:number/edit",
+  softAuth,
+  requireAuth,
+  requireRepoAccess("write"),
+  async (c) => {
+    const { owner: ownerName, repo: repoName } = c.req.param();
+    const prNum = parseInt(c.req.param("number"), 10);
+    const user = c.get("user")!;
+    const resolved = await resolveRepo(ownerName, repoName);
+    if (!resolved) return c.redirect(`/${ownerName}/${repoName}`);
+
+    const [pr] = await db
+      .select()
+      .from(pullRequests)
+      .where(and(
+        eq(pullRequests.repositoryId, resolved.repo.id),
+        eq(pullRequests.number, prNum),
+      ))
+      .limit(1);
+    if (!pr || pr.state !== "open") {
+      return c.redirect(`/${ownerName}/${repoName}/pulls/${prNum}`);
+    }
+    const canEdit = user.id === resolved.owner.id || user.id === pr.authorId;
+    if (!canEdit) {
+      return c.redirect(`/${ownerName}/${repoName}/pulls/${prNum}`);
+    }
+
+    const body = await c.req.parseBody();
+    const newTitle = String(body.title || "").trim().slice(0, 256);
+    if (!newTitle) {
+      return c.redirect(
+        `/${ownerName}/${repoName}/pulls/${prNum}?error=${encodeURIComponent("Title cannot be empty")}`
+      );
+    }
+
+    await db
+      .update(pullRequests)
+      .set({ title: newTitle, updatedAt: new Date() })
+      .where(eq(pullRequests.id, pr.id));
+
+    return c.redirect(`/${ownerName}/${repoName}/pulls/${prNum}?info=${encodeURIComponent("Title updated")}`);
   }
 );
 

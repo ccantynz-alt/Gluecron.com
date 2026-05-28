@@ -1251,6 +1251,73 @@ const PRS_DETAIL_STYLES = `
     .trio-grid { grid-template-columns: 1fr; }
     .trio-wrap { padding: 12px; }
   }
+
+  /* ─── Task list progress pill ─── */
+  .prs-tasks-pill {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 11.5px; font-weight: 600;
+    padding: 2px 9px; border-radius: 9999px;
+    border: 1px solid var(--border);
+    background: var(--bg-elevated);
+    color: var(--text-muted);
+  }
+  .prs-tasks-pill.is-complete {
+    color: #34d399;
+    border-color: rgba(52,211,153,0.40);
+    background: rgba(52,211,153,0.08);
+  }
+  .prs-tasks-progress { display: inline-block; width: 36px; height: 4px; border-radius: 9999px; background: var(--border); overflow: hidden; vertical-align: middle; }
+  .prs-tasks-progress-bar { height: 100%; border-radius: 9999px; background: #34d399; }
+
+  /* ─── Update branch button ─── */
+  .prs-update-branch-btn {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 4px 12px; border-radius: 8px; font-size: 12.5px;
+    font-weight: 600; cursor: pointer;
+    background: rgba(96,165,250,0.10);
+    color: #60a5fa;
+    border: 1px solid rgba(96,165,250,0.30);
+    transition: background 120ms;
+  }
+  .prs-update-branch-btn:hover { background: rgba(96,165,250,0.20); }
+
+  /* ─── Linked issues panel ─── */
+  .prs-linked-issues {
+    margin-top: 16px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .prs-linked-issues-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 16px;
+    background: var(--bg-elevated);
+    border-bottom: 1px solid var(--border);
+    font-size: 13px; font-weight: 600; color: var(--text);
+  }
+  .prs-linked-issues-count {
+    font-size: 11px; font-weight: 700;
+    padding: 1px 7px; border-radius: 9999px;
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
+  }
+  .prs-linked-issue-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 16px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+    text-decoration: none; color: inherit;
+  }
+  .prs-linked-issue-row:last-child { border-bottom: none; }
+  .prs-linked-issue-row:hover { background: var(--bg-hover); }
+  .prs-linked-issue-icon { flex: 0 0 auto; font-size: 14px; }
+  .prs-linked-issue-icon.is-open { color: #34d399; }
+  .prs-linked-issue-icon.is-closed { color: #8b949e; }
+  .prs-linked-issue-title { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .prs-linked-issue-num { color: var(--text-muted); font-size: 12px; }
+  .prs-linked-issue-state { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 9999px; }
+  .prs-linked-issue-state.is-open { color: #34d399; background: rgba(52,211,153,0.10); }
+  .prs-linked-issue-state.is-closed { color: #8b949e; background: var(--bg-tertiary); }
 `;
 
 /**
@@ -3066,6 +3133,32 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
     } catch { /* non-blocking */ }
   }
 
+  // Linked issues — parse closing keywords from PR title+body, look up issues
+  let linkedIssues: Array<{ number: number; title: string; state: string }> = [];
+  try {
+    const { extractClosingRefsMulti } = await import("../lib/close-keywords");
+    const refs = extractClosingRefsMulti([pr.title, pr.body]);
+    if (refs.length > 0) {
+      linkedIssues = await db
+        .select({ number: issues.number, title: issues.title, state: issues.state })
+        .from(issues)
+        .where(and(
+          eq(issues.repositoryId, resolved.repo.id),
+          inArray(issues.number, refs),
+        ));
+    }
+  } catch { /* non-blocking */ }
+
+  // Task list progress — count markdown checkboxes in PR body
+  let taskTotal = 0;
+  let taskChecked = 0;
+  if (pr.body) {
+    for (const m of pr.body.matchAll(/^[ \t]*[-*][ \t]+\[([ xX])\]/gm)) {
+      taskTotal++;
+      if (m[1].trim() !== "") taskChecked++;
+    }
+  }
+
   // Get diff for "Files changed" tab + load inline comments for that tab
   let diffRaw = "";
   let diffFiles: GitDiffFile[] = [];
@@ -3244,6 +3337,35 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
             </span>
           )}
           <span>opened {formatRelative(pr.createdAt)}</span>
+          {taskTotal > 0 && (
+            <span
+              class={`prs-tasks-pill${taskChecked === taskTotal ? " is-complete" : ""}`}
+              title={`${taskChecked} of ${taskTotal} tasks completed`}
+            >
+              <span class="prs-tasks-progress" aria-hidden="true">
+                <span
+                  class="prs-tasks-progress-bar"
+                  style={`width:${Math.round((taskChecked / taskTotal) * 100)}%`}
+                ></span>
+              </span>
+              {taskChecked}/{taskTotal} tasks
+            </span>
+          )}
+          {canManage && pr.state === "open" && branchBehind > 0 && (
+            <form
+              method="post"
+              action={`/${ownerName}/${repoName}/pulls/${pr.number}/update-branch`}
+              class="prs-inline-form"
+            >
+              <button
+                type="submit"
+                class="prs-update-branch-btn"
+                title={`Merge ${pr.baseBranch} into ${pr.headBranch} to bring this branch up to date (${branchBehind} commit${branchBehind === 1 ? "" : "s"} behind)`}
+              >
+                ↑ Update branch
+              </button>
+            </form>
+          )}
           <span
             id="live-pill"
             class="live-pill"
@@ -3413,6 +3535,30 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
               </div>
               <span class="prs-files-card-cta">View diff {"→"}</span>
             </a>
+          )}
+
+          {linkedIssues.length > 0 && (
+            <div class="prs-linked-issues">
+              <div class="prs-linked-issues-head">
+                <span>Closing issues</span>
+                <span class="prs-linked-issues-count">{linkedIssues.length}</span>
+              </div>
+              {linkedIssues.map((issue) => (
+                <a
+                  href={`/${ownerName}/${repoName}/issues/${issue.number}`}
+                  class="prs-linked-issue-row"
+                >
+                  <span class={`prs-linked-issue-icon${issue.state === "open" ? " is-open" : " is-closed"}`} aria-hidden="true">
+                    {issue.state === "open" ? "○" : "✓"}
+                  </span>
+                  <span class="prs-linked-issue-title">{issue.title}</span>
+                  <span class="prs-linked-issue-num">#{issue.number}</span>
+                  <span class={`prs-linked-issue-state${issue.state === "open" ? " is-open" : " is-closed"}`}>
+                    {issue.state}
+                  </span>
+                </a>
+              ))}
+            </div>
           )}
 
           {error && (
@@ -3717,6 +3863,83 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
     </Layout>
   );
 });
+
+// Update branch — merge base into head so the PR branch is up to date.
+// Uses a git worktree so the bare repo stays clean. Write access required.
+pulls.post(
+  "/:owner/:repo/pulls/:number/update-branch",
+  softAuth,
+  requireAuth,
+  requireRepoAccess("write"),
+  async (c) => {
+    const { owner: ownerName, repo: repoName } = c.req.param();
+    const prNum = parseInt(c.req.param("number"), 10);
+    const user = c.get("user")!;
+    const resolved = await resolveRepo(ownerName, repoName);
+    if (!resolved) return c.redirect(`/${ownerName}/${repoName}`);
+
+    const [pr] = await db
+      .select()
+      .from(pullRequests)
+      .where(and(
+        eq(pullRequests.repositoryId, resolved.repo.id),
+        eq(pullRequests.number, prNum),
+      ))
+      .limit(1);
+    if (!pr || pr.state !== "open") {
+      return c.redirect(`/${ownerName}/${repoName}/pulls/${prNum}`);
+    }
+
+    const repoDir = getRepoPath(ownerName, repoName);
+    const wt = `${repoDir}/_update_wt_${Date.now()}`;
+    const gitEnv = {
+      ...process.env,
+      GIT_AUTHOR_NAME: user.displayName || user.username,
+      GIT_AUTHOR_EMAIL: user.email,
+      GIT_COMMITTER_NAME: user.displayName || user.username,
+      GIT_COMMITTER_EMAIL: user.email,
+    };
+
+    const addWt = Bun.spawn(
+      ["git", "worktree", "add", wt, pr.headBranch],
+      { cwd: repoDir, stdout: "pipe", stderr: "pipe" }
+    );
+    if (await addWt.exited !== 0) {
+      return c.redirect(
+        `/${ownerName}/${repoName}/pulls/${prNum}?error=${encodeURIComponent("Could not create working tree — branch may be locked")}`
+      );
+    }
+
+    let ok = false;
+    try {
+      const mergeProc = Bun.spawn(
+        ["git", "merge", "--no-edit", pr.baseBranch],
+        { cwd: wt, env: gitEnv, stdout: "pipe", stderr: "pipe" }
+      );
+      if (await mergeProc.exited === 0) {
+        ok = true;
+      } else {
+        await Bun.spawn(["git", "merge", "--abort"], { cwd: wt }).exited.catch(() => {});
+      }
+    } catch {
+      await Bun.spawn(["git", "merge", "--abort"], { cwd: wt }).exited.catch(() => {});
+    }
+
+    await Bun.spawn(
+      ["git", "worktree", "remove", "--force", wt],
+      { cwd: repoDir }
+    ).exited.catch(() => {});
+
+    if (ok) {
+      return c.redirect(
+        `/${ownerName}/${repoName}/pulls/${prNum}?info=${encodeURIComponent("Branch updated — base merged in successfully")}`
+      );
+    }
+    return c.redirect(
+      `/${ownerName}/${repoName}/pulls/${prNum}?error=${encodeURIComponent("Update failed — conflicts must be resolved manually")}`
+    );
+  }
+);
 
 // Add comment to PR.
 //

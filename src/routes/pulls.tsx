@@ -744,6 +744,32 @@ const PRS_DETAIL_STYLES = `
   }
   .prs-merge-back-draft:hover { color: var(--text); background: var(--bg-hover); }
 
+  /* Merge strategy selector */
+  .prs-merge-strategy-wrap {
+    display: inline-flex; align-items: center;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .prs-merge-strategy-label {
+    font-size: 11.5px; font-weight: 600;
+    color: var(--text-muted);
+    padding: 0 10px 0 12px;
+    white-space: nowrap;
+  }
+  .prs-merge-strategy-select {
+    background: transparent;
+    border: none;
+    color: var(--text);
+    font-size: 13px;
+    padding: 7px 10px 7px 4px;
+    cursor: pointer;
+    outline: none;
+    appearance: auto;
+  }
+  .prs-merge-strategy-select:focus { outline: 2px solid rgba(140,109,255,0.45); }
+
   /* Review summary banner */
   .prs-review-summary {
     display: flex; flex-direction: column; gap: 6px;
@@ -3482,19 +3508,29 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
                           Ready for review
                         </button>
                       ) : (
-                        <button
-                          type="submit"
-                          formaction={`/${ownerName}/${repoName}/pulls/${pr.number}/merge`}
-                          formnovalidate
-                          class={`prs-merge-btn${mergeBlocked ? " is-disabled" : ""}`}
-                          title={
-                            mergeBlocked
-                              ? "Failing gate checks must be resolved before this PR can merge."
-                              : "Merge pull request"
-                          }
-                        >
-                          {"✔"} Merge pull request
-                        </button>
+                        <>
+                          <div class="prs-merge-strategy-wrap">
+                            <span class="prs-merge-strategy-label">Strategy</span>
+                            <select name="merge_strategy" class="prs-merge-strategy-select" title="Choose how commits are combined into the base branch">
+                              <option value="merge">Merge commit</option>
+                              <option value="squash">Squash and merge</option>
+                              <option value="ff">Fast-forward</option>
+                            </select>
+                          </div>
+                          <button
+                            type="submit"
+                            formaction={`/${ownerName}/${repoName}/pulls/${pr.number}/merge`}
+                            formnovalidate
+                            class={`prs-merge-btn${mergeBlocked ? " is-disabled" : ""}`}
+                            title={
+                              mergeBlocked
+                                ? "Failing gate checks must be resolved before this PR can merge."
+                                : "Merge pull request"
+                            }
+                          >
+                            {"✔"} Merge pull request
+                          </button>
+                        </>
                       )}
                       {!pr.isDraft && (
                         <button
@@ -3904,6 +3940,14 @@ pulls.post(
     const prNum = parseInt(c.req.param("number"), 10);
     const user = c.get("user")!;
 
+    // Read merge strategy from form (default: merge commit)
+    let mergeStrategy = "merge";
+    try {
+      const body = await c.req.parseBody();
+      const s = body.merge_strategy;
+      if (s === "squash" || s === "ff" || s === "merge") mergeStrategy = s as string;
+    } catch { /* ignore parse errors — default to merge commit */ }
+
     const resolved = await resolveRepo(ownerName, repoName);
     if (!resolved) return c.redirect(`/${ownerName}/${repoName}`);
 
@@ -4042,21 +4086,92 @@ pulls.post(
         });
       }
     } else {
-      // Standard merge — fast-forward or clean merge
-      const ffProc = Bun.spawn(
-        [
-          "git",
-          "update-ref",
-          `refs/heads/${pr.baseBranch}`,
-          `refs/heads/${pr.headBranch}`,
-        ],
+      // Worktree-based merge: supports merge-commit, squash, and fast-forward
+      const wt = `${repoDir}/_merge_wt_${Date.now()}`;
+      const gitEnv = {
+        ...process.env,
+        GIT_AUTHOR_NAME: user.displayName || user.username,
+        GIT_AUTHOR_EMAIL: user.email,
+        GIT_COMMITTER_NAME: user.displayName || user.username,
+        GIT_COMMITTER_EMAIL: user.email,
+      };
+
+      // Create linked worktree on the base branch
+      const addWt = Bun.spawn(
+        ["git", "worktree", "add", wt, pr.baseBranch],
         { cwd: repoDir, stdout: "pipe", stderr: "pipe" }
       );
-      const ffExit = await ffProc.exited;
-
-      if (ffExit !== 0) {
+      if (await addWt.exited !== 0) {
         return c.redirect(
-          `/${ownerName}/${repoName}/pulls/${prNum}?error=${encodeURIComponent("Merge failed — unable to update branch ref")}`
+          `/${ownerName}/${repoName}/pulls/${prNum}?error=${encodeURIComponent("Merge failed — could not create worktree")}`
+        );
+      }
+
+      const commitMsg = `Merge pull request #${pr.number}: ${pr.title}`;
+      let mergeOk = false;
+
+      try {
+        if (mergeStrategy === "squash") {
+          // Squash: stage all changes without committing
+          const squashProc = Bun.spawn(
+            ["git", "merge", "--squash", headSha],
+            { cwd: wt, stdout: "pipe", stderr: "pipe", env: gitEnv }
+          );
+          if (await squashProc.exited !== 0) {
+            const errTxt = await new Response(squashProc.stderr).text();
+            throw new Error(`Squash merge failed: ${errTxt.trim()}`);
+          }
+          // Commit the squashed changes
+          const commitProc = Bun.spawn(
+            ["git", "commit", "-m", commitMsg],
+            { cwd: wt, stdout: "pipe", stderr: "pipe", env: gitEnv }
+          );
+          if (await commitProc.exited !== 0) {
+            const errTxt = await new Response(commitProc.stderr).text();
+            throw new Error(`Squash commit failed: ${errTxt.trim()}`);
+          }
+          mergeOk = true;
+        } else if (mergeStrategy === "ff") {
+          // Fast-forward only — fail if FF is not possible
+          const ffProc = Bun.spawn(
+            ["git", "merge", "--ff-only", headSha],
+            { cwd: wt, stdout: "pipe", stderr: "pipe", env: gitEnv }
+          );
+          if (await ffProc.exited !== 0) {
+            const errTxt = await new Response(ffProc.stderr).text();
+            throw new Error(`Fast-forward not possible: ${errTxt.trim()}`);
+          }
+          mergeOk = true;
+        } else {
+          // Default: merge commit (--no-ff always creates a merge commit)
+          const mergeProc = Bun.spawn(
+            ["git", "merge", "--no-ff", "-m", commitMsg, headSha],
+            { cwd: wt, stdout: "pipe", stderr: "pipe", env: gitEnv }
+          );
+          if (await mergeProc.exited !== 0) {
+            const errTxt = await new Response(mergeProc.stderr).text();
+            throw new Error(`Merge commit failed: ${errTxt.trim()}`);
+          }
+          mergeOk = true;
+        }
+      } catch (err) {
+        // Always clean up the worktree before redirecting
+        Bun.spawn(["git", "worktree", "remove", "--force", wt], { cwd: repoDir }).exited.catch(() => {});
+        const msg = err instanceof Error ? err.message : "Merge failed";
+        return c.redirect(
+          `/${ownerName}/${repoName}/pulls/${prNum}?error=${encodeURIComponent(msg)}`
+        );
+      }
+
+      // Clean up worktree (changes are now in the bare repo via linked worktree)
+      await Bun.spawn(
+        ["git", "worktree", "remove", "--force", wt],
+        { cwd: repoDir, stdout: "pipe", stderr: "pipe" }
+      ).exited.catch(() => {});
+
+      if (!mergeOk) {
+        return c.redirect(
+          `/${ownerName}/${repoName}/pulls/${prNum}?error=${encodeURIComponent("Merge failed")}`
         );
       }
     }

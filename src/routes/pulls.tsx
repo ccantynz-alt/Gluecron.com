@@ -41,6 +41,7 @@ import {
 } from "../lib/pr-slash-commands";
 import { liveCommentBannerScript } from "../lib/sse-client";
 import { mentionAutocompleteScript } from "../lib/mention-autocomplete";
+import { markdownPreviewScript } from "../lib/markdown-preview";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
 import { requireRepoAccess } from "../middleware/repo-access";
@@ -3521,6 +3522,7 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
         }}
       />
       <script dangerouslySetInnerHTML={{ __html: mentionAutocompleteScript() }} />
+      <script dangerouslySetInnerHTML={{ __html: markdownPreviewScript() }} />
 
       <nav class="prs-detail-tabs" aria-label="Pull request sections">
         <a
@@ -3886,6 +3888,7 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
                       name="body"
                       id="pr-comment-body"
                       data-live-field="comment_new"
+                      data-md-preview=""
                       rows={5}
                       required
                       placeholder="Leave a comment... (Markdown supported)"

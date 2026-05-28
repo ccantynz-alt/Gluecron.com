@@ -9,6 +9,7 @@ import { users, repositories, organizations, orgMembers } from "../db/schema";
 import { initBareRepo, repoExists } from "../git/repository";
 import { hashPassword } from "../lib/auth";
 import { orgRoleAtLeast } from "../lib/orgs";
+import { renderMarkdown } from "../lib/markdown";
 
 const api = new Hono().basePath("/api");
 
@@ -245,6 +246,21 @@ api.post("/setup", async (c) => {
     console.error("[api] POST /setup:", err);
     return c.json({ error: "Service unavailable" }, 503);
   }
+});
+
+// Markdown preview — render markdown to HTML for the live preview tab.
+// Body: { text: string }. Returns { html: string }.
+// Rate-limited by the global limiter in middleware. No auth required.
+api.post("/markdown/preview", async (c) => {
+  let text = "";
+  try {
+    const body = await c.req.json();
+    text = String(body.text || "").slice(0, 64_000);
+  } catch {
+    return c.json({ html: "" }, 400);
+  }
+  const html = renderMarkdown(text);
+  return c.json({ html });
 });
 
 // User mention autocomplete — returns up to 8 matching usernames for `@` suggestions.

@@ -55,6 +55,7 @@ import {
   CommentForm,
   formatRelative,
 } from "../views/ui";
+import { getDefaultBranch, resolveRef, updateRef } from "../git/repository";
 
 const issueRoutes = new Hono<AuthEnv>();
 
@@ -1442,6 +1443,34 @@ issueRoutes.get("/:owner/:repo/issues/:number", softAuth, requireRepoAccess("rea
                 Build with AI
               </a>
             )}
+            {issue.state === "open" && user && (
+              <details class="issue-branch-dropdown" style="position:relative;display:inline-block">
+                <summary
+                  class="btn"
+                  style="font-size:13px;padding:6px 12px;cursor:pointer;list-style:none"
+                  title="Create a new branch for this issue"
+                >
+                  Create branch
+                </summary>
+                <div style="position:absolute;right:0;top:calc(100% + 4px);background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;padding:12px 14px;min-width:280px;z-index:100;box-shadow:0 4px 12px rgba(0,0,0,.3)">
+                  <form method="post" action={`/${ownerName}/${repoName}/issues/${issue.number}/branch`}>
+                    <label style="display:block;font-size:12px;color:var(--fg-muted);margin-bottom:4px">Branch name</label>
+                    <input
+                      type="text"
+                      name="branchName"
+                      class="input"
+                      style="width:100%;font-size:13px;padding:5px 8px;margin-bottom:8px"
+                      value={`issue-${issue.number}-${issue.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40)}`}
+                      pattern="[a-zA-Z0-9._\\-/]+"
+                      required
+                    />
+                    <button type="submit" class="btn btn-primary" style="width:100%;font-size:13px">
+                      Create branch
+                    </button>
+                  </form>
+                </div>
+              </details>
+            )}
           </div>
         </section>
 
@@ -1812,6 +1841,80 @@ issueRoutes.post(
     return c.redirect(
       `/${ownerName}/${repoName}/issues/${issueNum}?info=${encodeURIComponent(
         "AI re-triage queued. The new comment will appear in 10-30s; reload to see it."
+      )}`
+    );
+  }
+);
+
+// ─── Create branch from issue ─────────────────────────────────────────────────
+// POST /:owner/:repo/issues/:number/branch
+// Creates a new git branch from the repo default branch, pre-named after the
+// issue. Write access required. Zero-config — no new DB tables.
+
+issueRoutes.post(
+  "/:owner/:repo/issues/:number/branch",
+  softAuth,
+  requireAuth,
+  requireRepoAccess("write"),
+  async (c) => {
+    const { owner: ownerName, repo: repoName } = c.req.param();
+    const issueNum = parseInt(c.req.param("number"), 10);
+
+    const resolved = await resolveRepo(ownerName, repoName);
+    if (!resolved) return c.redirect(`/${ownerName}/${repoName}/issues`);
+
+    const [issue] = await db
+      .select({ id: issues.id, number: issues.number, title: issues.title })
+      .from(issues)
+      .where(
+        and(
+          eq(issues.repositoryId, resolved.repo.id),
+          eq(issues.number, issueNum)
+        )
+      )
+      .limit(1);
+
+    if (!issue) {
+      return c.redirect(`/${ownerName}/${repoName}/issues`);
+    }
+
+    const body = await c.req.formData().catch(() => null);
+    const rawName = (body?.get("branchName") as string | null)?.trim();
+
+    // Derive a slug from the issue title
+    const titleSlug = issue.title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 40);
+    const suggested = `issue-${issue.number}-${titleSlug}`;
+    const branchName = rawName && /^[a-zA-Z0-9._\-/]+$/.test(rawName)
+      ? rawName
+      : suggested;
+
+    const defaultBranch = (await getDefaultBranch(ownerName, repoName)) ?? "main";
+    const sha = await resolveRef(ownerName, repoName, defaultBranch);
+
+    if (!sha) {
+      return c.redirect(
+        `/${ownerName}/${repoName}/issues/${issueNum}?info=${encodeURIComponent(
+          "Cannot create branch: repository has no commits yet."
+        )}`
+      );
+    }
+
+    const ok = await updateRef(ownerName, repoName, `refs/heads/${branchName}`, sha);
+    if (!ok) {
+      return c.redirect(
+        `/${ownerName}/${repoName}/issues/${issueNum}?info=${encodeURIComponent(
+          `Failed to create branch '${branchName}'. It may already exist.`
+        )}`
+      );
+    }
+
+    return c.redirect(
+      `/${ownerName}/${repoName}/tree/${branchName}?info=${encodeURIComponent(
+        `Branch '${branchName}' created from ${defaultBranch}.`
       )}`
     );
   }

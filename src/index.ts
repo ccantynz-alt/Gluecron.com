@@ -11,6 +11,7 @@ import { ensureMarketplaceSeed } from "./lib/agent-marketplace-seed";
 import { maybeSelfBootstrap } from "./lib/self-bootstrap";
 import { notifySystemdReady } from "./lib/systemd-notify";
 import { loadConfigIntoEnv } from "./lib/system-config";
+import { startSshServer } from "./lib/ssh-server";
 
 // Ensure repos directory exists
 await mkdir(config.gitReposPath, { recursive: true });
@@ -40,6 +41,12 @@ try {
 void maybeSelfBootstrap().catch((err) => {
   console.warn(`[self-bootstrap] swallowed: ${(err as Error).message}`);
 });
+
+// SSH git server (Block SSH-1). Listens for git-over-SSH on SSH_PORT
+// (default 2222). Authenticates by public key from the `ssh_keys` table.
+// Set SSH_PORT=0 to disable. Set SSH_HOST_KEY to a persistent PEM key
+// in production to avoid "host key changed" warnings on restart.
+startSshServer();
 
 // Start the Actions-equivalent workflow worker (Block C1). Polls
 // workflow_runs for queued rows and executes them sequentially.

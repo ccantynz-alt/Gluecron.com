@@ -1,6 +1,6 @@
 # GLUECRON BUILD BIBLE
 
-**Last updated: 2026-05-28T23:02:50Z**
+**Last updated: 2026-05-28T23:58:00Z**
 
 **This file is the single source of truth for the GlueCron build.**
 
@@ -360,8 +360,10 @@ The marketing + acquisition + activation + retention package. Ten sub-blocks shi
 The "lightning-fast push → live site + zero friction" package. Owner directive: be the biggest painkiller for developers; lightning-fast push to bare metal to live site; never any caching issues; most advanced git host until 2030.
 
 - **M0** — DORA metrics dashboard → ✅ shipped (`8d1483c`). `src/routes/dora.tsx` — `GET /:owner/:repo/insights/dora`. Six parallel DB queries (deployment freq, lead time, change failure rate, MTTR, gate pass rate, workflow success rate). DORA level badges (Elite/High/Medium/Low) with colour coding. Last-10-deployments table. All queries wrapped in try/catch for graceful degradation.
-- **M1** — Push Watch page → 🟡 in-flight. `src/routes/push-watch.tsx` — `GET /:owner/:repo/push/:sha`. Per-commit live status: gate results, deploy status, push-to-live latency computation. JSON API at `/api/repos/:owner/:repo/push-status/:sha`. The "lightning-fast feedback" UX: one page that shows everything after a push.
-- **M2** — Org-level Secrets Manager → 🟡 in-flight. `drizzle/0075_org_secrets.sql` + `src/lib/org-secrets.ts` + `src/routes/org-secrets.tsx`. Org secrets apply to all repos in the org (overrideable per-repo). Settings UI at `/orgs/:slug/settings/secrets`. Extends the workflow runner's secrets resolution order: repo secrets > org secrets.
+- **M1** — Push Watch page → ✅ shipped (`05ab9b1`). `src/routes/push-watch.tsx` — `GET /:owner/:repo/push/:sha`. Per-commit live status: gate results, deploy status, push-to-live latency computation. JSON API at `/api/repos/:owner/:repo/push-status/:sha`. 5-second JS poller stops at terminal state. Middleware scoped to specific paths (not `"*"`).
+- **M2** — Org-level Secrets Manager → ✅ shipped (`05ab9b1`). `drizzle/0075_org_secrets.sql` + `src/lib/org-secrets.ts` + `src/routes/org-secrets.tsx`. AES-256-GCM encrypted, inline Drizzle table (schema.ts locked). Settings UI at `/orgs/:slug/settings/secrets`. Extends secrets resolution order: repo secrets > org secrets.
+- **M7** — Cross-repo Code Search → ✅ shipped (`a2b3e99`). `src/routes/cross-repo-search.tsx` — `GET /search/code` + `GET /api/search/code`. Paginated keyword search across all accessible repos. Strategy: `code_chunks` ILIKE first (fast, uses semantic index), then `git grep` fallback (capped at 10 repos/20 files/5 lines per repo). Auth-aware: anonymous sees public only; authenticated sees own + collaborator repos. CSS under `.crs-*`.
+- **M8** — Browser Push Notifications → ✅ shipped (`a2b3e99`). `src/lib/push-notify.ts` typed fan-out helpers (notifyDeploySuccess, notifyGateFailed, notifyPrMerged, notifyAiReview). `src/routes/push-notifications.tsx` — `GET /settings/notifications/push` opt-in UI + `/api/push/subscribe|unsubscribe|test`. VAPID implemented natively via Bun `crypto.subtle` (no npm dep). `drizzle/0076_push_subscriptions.sql` adds user notification prefs columns.
 - **M3** — No-cache middleware → ✅ shipped (`f5b9ef5`). `src/middleware/no-cache.ts` stamps `Cache-Control: no-store, no-cache, must-revalidate` + `Pragma: no-cache` + `Vary: Cookie` on all `text/html` responses. Assets (CSS/JS/images) unaffected. Eliminates stale-page issues after login, deploy, or push.
 - **M4** — Wider platform layout → ✅ shipped (`f5b9ef5`). All `max-width: 1240px` → `1440px` in `src/views/layout.tsx` (nav, main content, footer). Modern wide-screen utilisation for developer dashboards.
 - **M5** — Clean user nav dropdown → ✅ shipped (`f5b9ef5`). Replaced 8+ top-level nav links with a polished user dropdown (avatar initials + caret trigger, Dashboard, PRs, Issues, Activity, Import, Profile, Settings, Tokens, Theme toggle, Sign out) + bell inbox icon with unread badge. Reduces cognitive load; keeps the nav scannable.

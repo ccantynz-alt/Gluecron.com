@@ -352,17 +352,47 @@ export const DiffView: FC<DiffViewProps> = ({ raw, files, viewFileBase, inlineCo
   const totalAdd = files.reduce((s, f) => s + f.additions, 0);
   const totalDel = files.reduce((s, f) => s + f.deletions, 0);
 
+  const fileCount = files.length || parsed.length;
+  const showJumpNav = fileCount > 3;
+
   return (
     <div class="diff-view">
       <style dangerouslySetInnerHTML={{ __html: DIFF_VIEW_CSS }} />
 
       <div class="diff-summary">
         <span class="diff-summary-count">
-          <strong>{files.length || parsed.length}</strong>{" "}
-          changed file{(files.length || parsed.length) !== 1 ? "s" : ""}
+          <strong>{fileCount}</strong>{" "}
+          changed file{fileCount !== 1 ? "s" : ""}
         </span>
         <StatPills add={totalAdd} del={totalDel} />
+        {showJumpNav && (
+          <button
+            type="button"
+            class="diff-jump-toggle"
+            aria-expanded="false"
+            aria-controls="diff-jump-nav"
+          >
+            Jump to file ▾
+          </button>
+        )}
       </div>
+
+      {showJumpNav && (
+        <div id="diff-jump-nav" class="diff-jump-nav" hidden>
+          {parsed.map((file, fIdx) => {
+            const counts = statByPath.get(file.path) ?? statByPath.get(file.oldPath ?? "") ?? countAddsDels(file);
+            return (
+              <a href={`#diff-file-${fIdx}`} class="diff-jump-item" onclick="document.getElementById('diff-jump-nav').hidden=true;document.querySelector('.diff-jump-toggle').setAttribute('aria-expanded','false')">
+                <span class="diff-jump-path">{file.path}</span>
+                <span class="diff-jump-pills">
+                  {counts.add > 0 && <span class="diff-jump-add">+{counts.add}</span>}
+                  {counts.del > 0 && <span class="diff-jump-del">-{counts.del}</span>}
+                </span>
+              </a>
+            );
+          })}
+        </div>
+      )}
 
       {parsed.map((file, fIdx) => {
         const counts =
@@ -579,6 +609,30 @@ export const DiffView: FC<DiffViewProps> = ({ raw, files, viewFileBase, inlineCo
 
 const DIFF_VIEW_JS = `
 (function () {
+  // Jump-to-file nav toggle
+  var jumpToggle = document.querySelector('.diff-jump-toggle');
+  if (jumpToggle) {
+    jumpToggle.addEventListener('click', function () {
+      var nav = document.getElementById('diff-jump-nav');
+      if (!nav) return;
+      var open = nav.hidden;
+      nav.hidden = !open;
+      jumpToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+      if (open) jumpToggle.classList.add('is-open');
+      else jumpToggle.classList.remove('is-open');
+    });
+    // Close on outside click
+    document.addEventListener('click', function (ev) {
+      var nav = document.getElementById('diff-jump-nav');
+      if (!nav || nav.hidden) return;
+      if (!jumpToggle.contains(ev.target) && !nav.contains(ev.target)) {
+        nav.hidden = true;
+        jumpToggle.setAttribute('aria-expanded', 'false');
+        jumpToggle.classList.remove('is-open');
+      }
+    });
+  }
+
   // Copy-path button
   document.addEventListener('click', function (e) {
     var t = e.target;
@@ -1152,4 +1206,60 @@ const DIFF_VIEW_CSS = `
     .diff-hunk-header { padding-left: 64px; }
     .diff-file-blob-link { display: none; }
   }
+
+  /* ─── Jump-to-file nav ─── */
+  .diff-jump-toggle {
+    margin-left: auto;
+    background: var(--bg-elevated);
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 4px 12px;
+    font-size: 12px;
+    cursor: pointer;
+    font-family: var(--font-sans, inherit);
+    white-space: nowrap;
+    transition: all 120ms ease;
+  }
+  .diff-jump-toggle:hover,
+  .diff-jump-toggle.is-open {
+    color: var(--text);
+    border-color: rgba(140,109,255,0.45);
+    background: var(--accent-gradient-faint, var(--bg-elevated));
+  }
+
+  .diff-jump-nav {
+    position: relative;
+    margin-bottom: 12px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+    z-index: 20;
+    max-height: 320px;
+    overflow-y: auto;
+    padding: 6px 0;
+  }
+  .diff-jump-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 6px 14px;
+    text-decoration: none;
+    color: var(--text);
+    font-size: 12.5px;
+    font-family: var(--font-mono);
+    transition: background 80ms ease;
+  }
+  .diff-jump-item:hover { background: var(--bg-secondary); }
+  .diff-jump-path {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+  }
+  .diff-jump-pills { display: flex; gap: 4px; flex-shrink: 0; }
+  .diff-jump-add { color: #6ee7b7; font-size: 11px; }
+  .diff-jump-del { color: #fca5a5; font-size: 11px; }
 `;

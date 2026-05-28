@@ -18,9 +18,9 @@ import app from "../app";
 import {
   renderSleepModeDigest,
   composeSleepModeReport,
-  computeHoursSaved,
   type SleepModeReport,
 } from "../lib/sleep-mode";
+import { computeHoursSaved } from "../lib/ai-hours-saved";
 import {
   runSleepModeDigestTaskOnce,
   type SleepModeDigestCandidate,
@@ -70,22 +70,28 @@ describe("sleep-mode — computeHoursSaved", () => {
         prsAutoMerged: 0,
         issuesBuiltByAi: 0,
         aiReviewsPosted: 0,
-        securityIssuesAutoFixed: 0,
-        gateFailuresAutoRepaired: 0,
+        aiTriagesPosted: 0,
+        aiCommitMsgs: 0,
+        secretsAutoRepaired: 0,
+        gateAutoRepairs: 0,
       })
     ).toBe(0);
   });
 
   it("applies the documented heuristic (rounded to 1 decimal)", () => {
-    // 2*0.3 + 1*1.5 + 3*0.25 + (1+2)*0.5 = 0.6 + 1.5 + 0.75 + 1.5 = 4.35 -> 4.4
+    // 2*0.3 + 1*1.5 + 3*0.25 + 1*0.5 + 2*0.4 = 0.6 + 1.5 + 0.75 + 0.5 + 0.8 = 4.15 -> 4.2
+    // (secretsAutoRepaired=1 * 0.5, gateAutoRepairs=2 * 0.4)
     const v = computeHoursSaved({
       prsAutoMerged: 2,
       issuesBuiltByAi: 1,
       aiReviewsPosted: 3,
-      securityIssuesAutoFixed: 1,
-      gateFailuresAutoRepaired: 2,
+      aiTriagesPosted: 0,
+      aiCommitMsgs: 0,
+      secretsAutoRepaired: 1,
+      gateAutoRepairs: 2,
     });
-    expect(v).toBe(4.4);
+    // 0.6 + 1.5 + 0.75 + 0.5 + 0.8 = 4.15 -> Math.round(41.5)/10 = 4.2
+    expect(v).toBe(4.2);
   });
 
   it("rounds .25 down per HALF_EVEN-ish .5-bias of Math.round", () => {
@@ -95,8 +101,10 @@ describe("sleep-mode — computeHoursSaved", () => {
         prsAutoMerged: 0,
         issuesBuiltByAi: 0,
         aiReviewsPosted: 1,
-        securityIssuesAutoFixed: 0,
-        gateFailuresAutoRepaired: 0,
+        aiTriagesPosted: 0,
+        aiCommitMsgs: 0,
+        secretsAutoRepaired: 0,
+        gateAutoRepairs: 0,
       })
     ).toBe(0.3);
   });

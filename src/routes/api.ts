@@ -3,7 +3,7 @@
  */
 
 import { Hono } from "hono";
-import { eq, and, isNull } from "drizzle-orm";
+import { eq, and, isNull, ilike, sql } from "drizzle-orm";
 import { db } from "../db";
 import { users, repositories, organizations, orgMembers } from "../db/schema";
 import { initBareRepo, repoExists } from "../git/repository";
@@ -244,6 +244,24 @@ api.post("/setup", async (c) => {
   } catch (err) {
     console.error("[api] POST /setup:", err);
     return c.json({ error: "Service unavailable" }, 503);
+  }
+});
+
+// User mention autocomplete — returns up to 8 matching usernames for `@` suggestions.
+// Public endpoint (no auth required) since usernames are public.
+api.get("/users/suggest", async (c) => {
+  const q = String(c.req.query("q") || "").trim().replace(/^@/, "").slice(0, 39);
+  if (!q) return c.json({ users: [] });
+  try {
+    const rows = await db
+      .select({ username: users.username, displayName: users.displayName })
+      .from(users)
+      .where(ilike(users.username, `${q}%`))
+      .orderBy(sql`lower(${users.username})`)
+      .limit(8);
+    return c.json({ users: rows });
+  } catch {
+    return c.json({ users: [] });
   }
 });
 

@@ -40,6 +40,7 @@ import {
   stripSlashCmdMarker,
 } from "../lib/pr-slash-commands";
 import { liveCommentBannerScript } from "../lib/sse-client";
+import { mentionAutocompleteScript } from "../lib/mention-autocomplete";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
 import { requireRepoAccess } from "../middleware/repo-access";
@@ -3519,6 +3520,7 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
           __html: LIVE_COEDIT_SCRIPT(pr.id),
         }}
       />
+      <script dangerouslySetInnerHTML={{ __html: mentionAutocompleteScript() }} />
 
       <nav class="prs-detail-tabs" aria-label="Pull request sections">
         <a

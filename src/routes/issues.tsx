@@ -22,6 +22,7 @@ import { summariseReactions } from "../lib/reactions";
 import { loadIssueTemplate } from "../lib/templates";
 import { renderMarkdown } from "../lib/markdown";
 import { liveCommentBannerScript } from "../lib/sse-client";
+import { mentionAutocompleteScript } from "../lib/mention-autocomplete";
 import { triggerIssueTriage, ISSUE_TRIAGE_MARKER } from "../lib/issue-triage";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
@@ -1262,6 +1263,7 @@ issueRoutes.get("/:owner/:repo/issues/:number", softAuth, requireRepoAccess("rea
           }),
         }}
       />
+      <script dangerouslySetInnerHTML={{ __html: mentionAutocompleteScript() }} />
       <div class="issue-detail">
         {info && (
           <div class="issues-info-banner">

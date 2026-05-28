@@ -436,8 +436,8 @@ connectRoutes.get("/connect/claude-guide", async (c) => {
             </div>
             <div class="cg-step-body">
               <p class="cg-step-desc">
-                Push your code. The repository is created automatically if it
-                doesn't exist yet, and CI gates fire immediately.
+                Push your branch. CI gates fire immediately and a draft PR is
+                auto-created if you're pushing a feature branch.
               </p>
               <div class="cg-code-wrap">
                 <pre id="cg-push" class="cg-code">git push gluecron main</pre>
@@ -445,9 +445,21 @@ connectRoutes.get("/connect/claude-guide", async (c) => {
                   Copy
                 </button>
               </div>
+              <p class="cg-step-desc" style="margin-top: var(--space-3);">
+                For feature branches, auto-create a draft PR in one call:
+              </p>
+              <div class="cg-code-wrap">
+                <pre id="cg-auto-pr" class="cg-code">{`curl -X POST ${host}/api/claude/push \\
+  -H "Authorization: Bearer $GLUECRON_TOKEN" \\
+  -H "Content-Type: application/json" \\
+  -d '{"repoName":"REPO","branch":"my-feature"}'`}</pre>
+                <button type="button" class="cg-copy-btn" data-cg-copy="cg-auto-pr">
+                  Copy
+                </button>
+              </div>
               <p class="cg-step-desc" style="margin-top: var(--space-3); margin-bottom: 0;">
-                That's it. Your push triggers the full gate suite and Claude
-                AI review lands on any PR within seconds.
+                The response includes a <code>pushWatchUrl</code> — open it to watch gates
+                and deployment live. Claude AI review lands within seconds.
               </p>
             </div>
           </section>

@@ -162,6 +162,8 @@ import voiceRoutes from "./routes/voice-to-pr";
 import playgroundRoutes from "./routes/playground";
 import crossRepoSearchRoutes from "./routes/cross-repo-search";
 import pushNotifRoutes from "./routes/push-notifications";
+import velocityRoutes from "./routes/velocity";
+import { staleBranchRoutes } from "./routes/stale-branches";
 import { authRateLimit, gitRateLimit, searchRateLimit } from "./middleware/rate-limit";
 import { csrfToken, csrfProtect } from "./middleware/csrf";
 import { noCache } from "./middleware/no-cache";
@@ -640,6 +642,10 @@ app.route("/", orgSecretsRoutes);
 app.route("/", crossRepoSearchRoutes);
 // Browser push notifications — BLOCK M4 — /settings/notifications/push + /api/push/*
 app.route("/", pushNotifRoutes);
+// Developer Velocity Dashboard — BLOCK M9 — /:owner/:repo/insights/velocity
+app.route("/", velocityRoutes);
+// Stale Branch Cleanup — BLOCK M10 — /:owner/:repo/branches/stale
+app.route("/", staleBranchRoutes);
 // Hosted Claude tool-use loops — paste loop, get endpoint, billing meter.
 // See src/routes/claude-deploy.tsx + src/lib/hosted-claude-loop.ts.
 app.route("/", claudeDeployRoutes);

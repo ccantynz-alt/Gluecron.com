@@ -1,6 +1,6 @@
 # GLUECRON BUILD BIBLE
 
-**Last updated: 2026-05-28T23:58:00Z**
+**Last updated: 2026-05-29T00:30:00Z**
 
 **This file is the single source of truth for the GlueCron build.**
 
@@ -364,6 +364,9 @@ The "lightning-fast push → live site + zero friction" package. Owner directive
 - **M2** — Org-level Secrets Manager → ✅ shipped (`05ab9b1`). `drizzle/0075_org_secrets.sql` + `src/lib/org-secrets.ts` + `src/routes/org-secrets.tsx`. AES-256-GCM encrypted, inline Drizzle table (schema.ts locked). Settings UI at `/orgs/:slug/settings/secrets`. Extends secrets resolution order: repo secrets > org secrets.
 - **M7** — Cross-repo Code Search → ✅ shipped (`a2b3e99`). `src/routes/cross-repo-search.tsx` — `GET /search/code` + `GET /api/search/code`. Paginated keyword search across all accessible repos. Strategy: `code_chunks` ILIKE first (fast, uses semantic index), then `git grep` fallback (capped at 10 repos/20 files/5 lines per repo). Auth-aware: anonymous sees public only; authenticated sees own + collaborator repos. CSS under `.crs-*`.
 - **M8** — Browser Push Notifications → ✅ shipped (`a2b3e99`). `src/lib/push-notify.ts` typed fan-out helpers (notifyDeploySuccess, notifyGateFailed, notifyPrMerged, notifyAiReview). `src/routes/push-notifications.tsx` — `GET /settings/notifications/push` opt-in UI + `/api/push/subscribe|unsubscribe|test`. VAPID implemented natively via Bun `crypto.subtle` (no npm dep). `drizzle/0076_push_subscriptions.sql` adds user notification prefs columns.
+- **M9** — Developer Velocity Dashboard → ✅ shipped (`534afdd`+). `src/routes/velocity.tsx` — `GET /:owner/:repo/insights/velocity?window=7|30|90`. Per-developer metrics: PRs opened/merged, avg time-to-merge, code review activity. 4 team summary cards + PR speed buckets (Fast/Normal/Slow). 3 parallel DB queries. Insights sub-nav links DORA ↔ Velocity. CSS under `.vel-*`. Zero new tables.
+- **M10** — Stale Branch Cleanup UI → ✅ shipped. `src/routes/stale-branches.tsx` — `GET /:owner/:repo/branches/stale` + `POST /:owner/:repo/branches/stale/delete`. Lists merged branches with PR links + age; checkbox select + one-click delete; never suggests deleting main/master/develop/staging/production. Owner-only delete, read-only view for others.
+- **M11** — Create Branch from Issue → ✅ shipped (`c922868`). POST `/:owner/:repo/issues/:number/branch` (write-access gated). Creates a branch from the default branch SHA using existing `updateRef` + `resolveRef` git plumbing. Zero new DB tables. "Create branch" details-dropdown appears on open issues for authenticated write-access users, pre-fills branch name as `issue-<N>-<title-slug>`.
 - **M3** — No-cache middleware → ✅ shipped (`f5b9ef5`). `src/middleware/no-cache.ts` stamps `Cache-Control: no-store, no-cache, must-revalidate` + `Pragma: no-cache` + `Vary: Cookie` on all `text/html` responses. Assets (CSS/JS/images) unaffected. Eliminates stale-page issues after login, deploy, or push.
 - **M4** — Wider platform layout → ✅ shipped (`f5b9ef5`). All `max-width: 1240px` → `1440px` in `src/views/layout.tsx` (nav, main content, footer). Modern wide-screen utilisation for developer dashboards.
 - **M5** — Clean user nav dropdown → ✅ shipped (`f5b9ef5`). Replaced 8+ top-level nav links with a polished user dropdown (avatar initials + caret trigger, Dashboard, PRs, Issues, Activity, Import, Profile, Settings, Tokens, Theme toggle, Sign out) + bell inbox icon with unread badge. Reduces cognitive load; keeps the nav scannable.

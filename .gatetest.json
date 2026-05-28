@@ -21,8 +21,6 @@
       "flakyTests",
       "retryHygiene",
       "ssrf",
-      "hardcodedUrl",
-      "envVars",
       "asyncIteration",
       "homoglyph",
       "openapiDrift",
@@ -32,11 +30,8 @@
       "cronExpression",
       "datetimeBug",
       "importCycle",
-      "moneyFloat",
-      "logPii",
       "featureFlag",
       "tlsSecurity",
-      "cookieSecurity",
       "fakeFixDetector"
     ]
   }

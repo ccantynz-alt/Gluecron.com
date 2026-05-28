@@ -399,6 +399,40 @@ const PRS_LIST_STYLES = `
     .prs-row { padding: 12px 14px; gap: 10px; }
     .prs-row-icon { width: 24px; height: 24px; }
   }
+
+  /* ─── Sort controls (PR list) ─── */
+  .prs-sort-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0 0 12px;
+    flex-wrap: wrap;
+  }
+  .prs-sort-label {
+    font-size: 12.5px;
+    color: var(--text-muted);
+    font-weight: 600;
+    margin-right: 2px;
+  }
+  .prs-sort-opt {
+    font-size: 12.5px;
+    color: var(--text-muted);
+    text-decoration: none;
+    padding: 3px 10px;
+    border-radius: 9999px;
+    border: 1px solid transparent;
+    transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+  }
+  .prs-sort-opt:hover {
+    background: var(--bg-hover);
+    color: var(--text);
+  }
+  .prs-sort-opt.is-active {
+    background: rgba(140,109,255,0.12);
+    color: var(--text-link);
+    border-color: rgba(140,109,255,0.35);
+    font-weight: 600;
+  }
 `;
 
 /* ──────────────────────────────────────────────────────────────────────
@@ -1860,6 +1894,7 @@ pulls.get("/:owner/:repo/pulls", softAuth, requireRepoAccess("read"), async (c) 
   const state = c.req.query("state") || "open";
   const searchQ = c.req.query("q")?.trim() || "";
   const authorFilter = c.req.query("author")?.trim() || "";
+  const sortPr = (c.req.query("sort") || "newest").trim();
 
   // ── Loading skeleton (flag-gated) ──
   // Renders an SSR'd PR-row skeleton when `?skeleton=1` is set. Lets
@@ -1925,7 +1960,11 @@ pulls.get("/:owner/:repo/pulls", softAuth, requireRepoAccess("read"), async (c) 
         authorFilter ? eq(users.username, authorFilter) : undefined,
       )
     )
-    .orderBy(desc(pullRequests.createdAt));
+    .orderBy(
+      sortPr === "oldest" ? asc(pullRequests.createdAt)
+        : sortPr === "updated" ? desc(pullRequests.updatedAt)
+        : desc(pullRequests.createdAt) // newest (default)
+    );
 
   // Batch-load review states + comment counts for all PRs in the list
   const reviewMap = new Map<string, { approved: boolean; changesRequested: boolean }>();
@@ -2081,6 +2120,19 @@ pulls.get("/:owner/:repo/pulls", softAuth, requireRepoAccess("read"), async (c) 
           </a>
         )}
       </form>
+
+      <div class="prs-sort-row">
+        <span class="prs-sort-label">Sort:</span>
+        {(["newest", "oldest", "updated"] as const).map((s) => (
+          <a
+            href={`/${ownerName}/${repoName}/pulls?state=${state}&sort=${s}${searchQ ? `&q=${encodeURIComponent(searchQ)}` : ""}${authorFilter ? `&author=${encodeURIComponent(authorFilter)}` : ""}`}
+            class={`prs-sort-opt${sortPr === s ? " is-active" : ""}`}
+          >
+            {s === "newest" ? "Newest" : s === "oldest" ? "Oldest" : "Recently updated"}
+          </a>
+        ))}
+      </div>
+
       {prList.length === 0 ? (
         <div class="prs-empty">
           <div class="prs-empty-inner">

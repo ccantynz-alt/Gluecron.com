@@ -650,6 +650,40 @@ const issuesStyles = `
   .iss-linked-pr-state.is-merged { color: #a78bfa; background: rgba(167,139,250,0.10); }
   .iss-linked-pr-state.is-closed { color: #8b949e; background: var(--bg-tertiary); }
   .iss-linked-pr-state.is-draft { color: #8b949e; background: var(--bg-tertiary); }
+
+  /* ─── Sort controls (issue list) ─── */
+  .issues-sort-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0 0 12px;
+    flex-wrap: wrap;
+  }
+  .issues-sort-label {
+    font-size: 12.5px;
+    color: var(--text-muted);
+    font-weight: 600;
+    margin-right: 2px;
+  }
+  .issues-sort-opt {
+    font-size: 12.5px;
+    color: var(--text-muted);
+    text-decoration: none;
+    padding: 3px 10px;
+    border-radius: 9999px;
+    border: 1px solid transparent;
+    transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+  }
+  .issues-sort-opt:hover {
+    background: var(--bg-hover);
+    color: var(--text);
+  }
+  .issues-sort-opt.is-active {
+    background: rgba(140,109,255,0.12);
+    color: var(--text-link);
+    border-color: rgba(140,109,255,0.35);
+    font-weight: 600;
+  }
 `;
 
 // Pre-rendered <style> tag (constant, reused per request).
@@ -712,6 +746,7 @@ issueRoutes.get("/:owner/:repo/issues", softAuth, requireRepoAccess("read"), asy
   const state = c.req.query("state") || "open";
   const searchQ = (c.req.query("q") || "").trim();
   const labelFilter = (c.req.query("label") || "").trim();
+  const sort = (c.req.query("sort") || "newest").trim();
   // Bounded pagination — unbounded selects ran a full table scan + O(n)
   // sort on every page load; with 10k+ issues the request would hang.
   const perPage = Math.min(100, Math.max(1, Number(c.req.query("per_page")) || 50));
@@ -805,7 +840,11 @@ issueRoutes.get("/:owner/:repo/issues", softAuth, requireRepoAccess("read"), asy
     .from(issues)
     .innerJoin(users, eq(issues.authorId, users.id))
     .where(baseWhere)
-    .orderBy(desc(issues.createdAt))
+    .orderBy(
+      sort === "oldest" ? asc(issues.createdAt)
+        : sort === "updated" ? desc(issues.updatedAt)
+        : desc(issues.createdAt) // newest (default)
+    )
     .limit(perPage)
     .offset(offset);
 
@@ -919,6 +958,18 @@ issueRoutes.get("/:owner/:repo/issues", softAuth, requireRepoAccess("read"), asy
           <a href={`/${ownerName}/${repoName}/issues?state=${state}`} class="issues-filter-clear">Clear filters</a>
         </div>
       )}
+
+      <div class="issues-sort-row">
+        <span class="issues-sort-label">Sort:</span>
+        {(["newest", "oldest", "updated"] as const).map((s) => (
+          <a
+            href={`/${ownerName}/${repoName}/issues?state=${state}&sort=${s}${searchQ ? `&q=${encodeURIComponent(searchQ)}` : ""}${labelFilter ? `&label=${encodeURIComponent(labelFilter)}` : ""}`}
+            class={`issues-sort-opt${sort === s ? " is-active" : ""}`}
+          >
+            {s === "newest" ? "Newest" : s === "oldest" ? "Oldest" : "Recently updated"}
+          </a>
+        ))}
+      </div>
 
       {issueList.length === 0 ? (
         <div class="issues-empty">

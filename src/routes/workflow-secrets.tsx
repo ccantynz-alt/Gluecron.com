@@ -32,6 +32,7 @@ import {
   deleteRepoSecret,
 } from "../lib/workflow-secrets";
 import { audit } from "../lib/notify";
+import { getDefaultBranch, getTree, getBlob } from "../git/repository";
 
 const workflowSecretsRoutes = new Hono<AuthEnv>();
 
@@ -40,6 +41,57 @@ workflowSecretsRoutes.use("*", softAuth);
 const SECRET_NAME_RE = /^[A-Z_][A-Z0-9_]*$/;
 const MAX_NAME_LEN = 100;
 const MAX_VALUE_LEN = 32768;
+
+/**
+ * Count how many `.gluecron/workflows/*.yml` files reference a given
+ * secret name via `${{ secrets.NAME }}`. Returns a map of secretName
+ * -> count (number of workflow files that contain at least one reference).
+ * Returns an empty map on any error so the UI degrades gracefully.
+ */
+async function countSecretUsagesInWorkflows(
+  ownerName: string,
+  repoName: string,
+  secretNames: string[]
+): Promise<Map<string, number>> {
+  const counts = new Map<string, number>(secretNames.map((n) => [n, 0]));
+  if (secretNames.length === 0) return counts;
+
+  try {
+    const branch = await getDefaultBranch(ownerName, repoName);
+    if (!branch) return counts;
+
+    // List .gluecron/workflows/ directory
+    const entries = await getTree(ownerName, repoName, branch, ".gluecron/workflows");
+    const ymlFiles = entries.filter(
+      (e) => e.type === "blob" && (e.name.endsWith(".yml") || e.name.endsWith(".yaml"))
+    );
+
+    for (const file of ymlFiles) {
+      const blob = await getBlob(
+        ownerName,
+        repoName,
+        branch,
+        `.gluecron/workflows/${file.name}`
+      );
+      if (!blob || blob.isBinary || !blob.content) continue;
+      const content = blob.content;
+      for (const name of secretNames) {
+        // Match ${{ secrets.NAME }} with optional whitespace
+        const pattern = new RegExp(
+          `\\$\\{\\{\\s*secrets\\.${name}\\s*\\}\\}`,
+          "g"
+        );
+        if (pattern.test(content)) {
+          counts.set(name, (counts.get(name) ?? 0) + 1);
+        }
+      }
+    }
+  } catch {
+    // Best-effort — return whatever we have
+  }
+
+  return counts;
+}
 
 /** Sub-nav shown under the main RepoNav for repo settings pages. */
 function SettingsSubNav({
@@ -94,6 +146,62 @@ function SettingsSubNav({
  */
 const MASKED_PLACEHOLDER = "••••••••••••";
 
+
+const wsecScript = `
+(function () {
+  var NAME_RE = /^[A-Z_][A-Z0-9_]*$/;
+
+  /**
+   * wsecTestName — called oninput on the name field and onclick on the
+   * Test button. Toggles .is-ok / .is-error CSS on the button and updates
+   * the hint text below the field.
+   *
+   * @param {HTMLInputElement} el  the name <input> element
+   */
+  window.wsecTestName = function wsecTestName(el) {
+    var val = (el.value || '').trim();
+    var btn = document.getElementById('wsec-test-btn');
+    var hint = document.getElementById('wsec-name-hint');
+    if (!btn || !hint) return;
+
+    // Reset
+    btn.classList.remove('is-ok', 'is-error');
+
+    if (!val) {
+      hint.innerHTML = 'Referenced in YAML as <code>\$\{{ secrets.YOUR_NAME }}</code>.';
+      hint.className = 'wsec-field-help';
+      return;
+    }
+
+    if (NAME_RE.test(val)) {
+      btn.classList.add('is-ok');
+      hint.innerHTML = '<span class="wsec-name-hint-ok">&#10003; Valid name.</span> Referenced as <code>\$\{{ secrets.' + val + ' }}</code>.';
+      hint.className = 'wsec-field-help';
+    } else {
+      btn.classList.add('is-error');
+      var msg = 'Invalid name.';
+      if (!/^[A-Z_]/.test(val)) {
+        msg = 'Must start with an uppercase letter or underscore (A-Z or _).';
+      } else if (/[a-z]/.test(val)) {
+        msg = 'Lowercase letters are not allowed — use uppercase only.';
+      } else if (/[^A-Z0-9_]/.test(val)) {
+        msg = 'Only uppercase letters, digits (0-9), and underscores are allowed.';
+      }
+      hint.innerHTML = '<span class="wsec-name-hint-err">&#10007; ' + msg + '</span>';
+      hint.className = 'wsec-field-help';
+    }
+  };
+
+  // Wire up on DOMContentLoaded so the element definitely exists.
+  document.addEventListener('DOMContentLoaded', function () {
+    var nameInput = document.getElementById('secret-name');
+    if (nameInput) {
+      nameInput.addEventListener('input', function () { window.wsecTestName(nameInput); });
+    }
+  });
+}());
+`;
+
 // ─── GET: List + add form ───────────────────────────────────────────────────
 
 workflowSecretsRoutes.get(
@@ -128,6 +236,13 @@ workflowSecretsRoutes.get(
           .where(inArray(users.id, creatorIds))
       : [];
     const creatorMap = new Map(creatorRows.map((r) => [r.id, r.username]));
+
+    // Count workflow usages per secret (best-effort, never throws).
+    const usageCounts = await countSecretUsagesInWorkflows(
+      ownerName,
+      repoName,
+      secrets.map((s) => s.name)
+    );
 
     return c.html(
       <Layout title={`Secrets — ${ownerName}/${repoName}`} user={user}>
@@ -214,12 +329,34 @@ workflowSecretsRoutes.get(
                 <div class="wsec-empty">
                   <div class="wsec-empty-orb" aria-hidden="true" />
                   <div class="wsec-empty-inner">
-                    <p class="wsec-empty-title">No secrets yet.</p>
+                    <div class="wsec-empty-icon" aria-hidden="true">
+                      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="3" y="11" width="18" height="11" rx="2" />
+                        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                      </svg>
+                    </div>
+                    <p class="wsec-empty-title">No secrets configured yet.</p>
                     <p class="wsec-empty-sub">
-                      Add an encrypted secret below — names like{" "}
-                      <code>DEPLOY_TOKEN</code> or <code>STRIPE_KEY</code>{" "}
-                      become available to every workflow step in this repo.
+                      Secrets let you store sensitive values — API keys, deploy tokens,
+                      and passwords — securely encrypted in the database. Reference them
+                      in any workflow file with{" "}
+                      <code>{"${{ secrets.YOUR_NAME }}"}</code>. They're never
+                      printed to logs and only visible to workflows at runtime.
                     </p>
+                    <div class="wsec-empty-steps">
+                      <div class="wsec-empty-step">
+                        <span class="wsec-empty-step-num">1</span>
+                        <span>Enter a name like <code>DEPLOY_TOKEN</code> in the form below (uppercase letters, digits, underscores).</span>
+                      </div>
+                      <div class="wsec-empty-step">
+                        <span class="wsec-empty-step-num">2</span>
+                        <span>Paste the secret value — it's encrypted with AES-256-GCM before touching the database.</span>
+                      </div>
+                      <div class="wsec-empty-step">
+                        <span class="wsec-empty-step-num">3</span>
+                        <span>Use <code>{"${{ secrets.DEPLOY_TOKEN }}"}</code> in your <code>.gluecron/workflows/*.yml</code> files.</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
               ) : (
@@ -231,6 +368,7 @@ workflowSecretsRoutes.get(
                     const created = s.createdAt
                       ? formatRelative(s.createdAt)
                       : "—";
+                    const wfCount = usageCounts.get(s.name) ?? 0;
                     return (
                       <li class="wsec-row">
                         <div class="wsec-row-main">
@@ -238,6 +376,19 @@ workflowSecretsRoutes.get(
                             <code class="wsec-row-name">{s.name}</code>
                             <span class="wsec-row-masked" aria-label="value hidden">
                               {MASKED_PLACEHOLDER}
+                            </span>
+                            <span
+                              class={`wsec-usage-badge${wfCount === 0 ? " is-unused" : ""}`}
+                              title={wfCount === 0
+                                ? "Not referenced in any workflow file"
+                                : `Referenced in ${wfCount} workflow file${wfCount === 1 ? "" : "s"}`}
+                            >
+                              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+                              </svg>
+                              {wfCount === 0
+                                ? "unused"
+                                : `${wfCount} workflow${wfCount === 1 ? "" : "s"}`}
                             </span>
                           </div>
                           <div class="wsec-row-meta">
@@ -306,19 +457,31 @@ workflowSecretsRoutes.get(
                   <label class="wsec-field-label" for="secret-name">
                     Name
                   </label>
-                  <input
-                    type="text"
-                    id="secret-name"
-                    name="name"
-                    required
-                    pattern="[A-Z_][A-Z0-9_]*"
-                    maxlength={MAX_NAME_LEN}
-                    placeholder="DEPLOY_TOKEN"
-                    autocomplete="off"
-                    class="wsec-input wsec-input-mono"
-                    title="Uppercase letters, digits, and underscores; cannot start with a digit"
-                  />
-                  <p class="wsec-field-help">
+                  <div class="wsec-input-row">
+                    <input
+                      type="text"
+                      id="secret-name"
+                      name="name"
+                      required
+                      pattern="[A-Z_][A-Z0-9_]*"
+                      maxlength={MAX_NAME_LEN}
+                      placeholder="DEPLOY_TOKEN"
+                      autocomplete="off"
+                      class="wsec-input wsec-input-mono"
+                      title="Uppercase letters, digits, and underscores; cannot start with a digit"
+                      oninput="wsecTestName(this)"
+                    />
+                    <button
+                      type="button"
+                      class="wsec-btn wsec-btn-test"
+                      id="wsec-test-btn"
+                      onclick="wsecTestName(document.getElementById('secret-name'))"
+                      title="Validate the name format"
+                    >
+                      Test
+                    </button>
+                  </div>
+                  <p class="wsec-field-help" id="wsec-name-hint">
                     Referenced in YAML as{" "}
                     <code>{"${{ secrets.YOUR_NAME }}"}</code>.
                   </p>
@@ -355,6 +518,7 @@ workflowSecretsRoutes.get(
             </div>
           </section>
         </div>
+        <script dangerouslySetInnerHTML={{ __html: wsecScript }} />
       </Layout>
     );
   }
@@ -779,9 +943,94 @@ const wsecStyles = `
     color: var(--text-strong);
   }
 
+  /* ─── Usage badge ─── */
+  .wsec-usage-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 9999px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    background: rgba(52,211,153,0.10);
+    color: #6ee7b7;
+    box-shadow: inset 0 0 0 1px rgba(52,211,153,0.25);
+    letter-spacing: 0.01em;
+    cursor: default;
+  }
+  .wsec-usage-badge.is-unused {
+    background: rgba(100,116,139,0.12);
+    color: var(--text-faint);
+    box-shadow: inset 0 0 0 1px rgba(100,116,139,0.25);
+  }
+
+  /* ─── Empty state steps ─── */
+  .wsec-empty-icon {
+    margin: 0 auto var(--space-3);
+    width: 48px; height: 48px;
+    border-radius: 14px;
+    background: rgba(140,109,255,0.10);
+    border: 1px solid rgba(140,109,255,0.20);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #b69dff;
+  }
+  .wsec-empty-steps {
+    margin-top: var(--space-4);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    text-align: left;
+    max-width: 480px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .wsec-empty-step {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    font-size: 12.5px;
+    color: var(--text-muted);
+    line-height: 1.5;
+  }
+  .wsec-empty-step code {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    background: var(--bg-tertiary);
+    padding: 1px 5px;
+    border-radius: 4px;
+    color: var(--text-strong);
+  }
+  .wsec-empty-step-num {
+    flex-shrink: 0;
+    width: 20px; height: 20px;
+    border-radius: 9999px;
+    background: rgba(140,109,255,0.15);
+    color: #c5b3ff;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: inset 0 0 0 1px rgba(140,109,255,0.25);
+    margin-top: 1px;
+  }
+
   /* ─── Form ─── */
   .wsec-form { padding: var(--space-5); display: flex; flex-direction: column; gap: var(--space-4); }
   .wsec-field { display: flex; flex-direction: column; gap: 6px; }
+  .wsec-input-row {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+  }
+  .wsec-input-row .wsec-input {
+    flex: 1;
+    min-width: 0;
+  }
   .wsec-field-label {
     font-family: var(--font-mono);
     font-size: 12.5px;
@@ -870,6 +1119,27 @@ const wsecStyles = `
     background: rgba(248,113,113,0.10);
     color: #fee2e2;
   }
+  .wsec-btn-test {
+    flex-shrink: 0;
+    border-color: rgba(140,109,255,0.30);
+    color: #c5b3ff;
+  }
+  .wsec-btn-test:hover {
+    border-color: rgba(140,109,255,0.55);
+    background: rgba(140,109,255,0.10);
+  }
+  .wsec-btn-test.is-ok {
+    border-color: rgba(52,211,153,0.45);
+    background: rgba(52,211,153,0.08);
+    color: #6ee7b7;
+  }
+  .wsec-btn-test.is-error {
+    border-color: rgba(248,113,113,0.45);
+    background: rgba(248,113,113,0.08);
+    color: #fca5a5;
+  }
+  .wsec-name-hint-ok { color: #6ee7b7; font-weight: 500; }
+  .wsec-name-hint-err { color: #fca5a5; font-weight: 500; }
 
   @media (max-width: 640px) {
     .wsec-row { flex-direction: column; align-items: flex-start; }
@@ -879,4 +1149,8 @@ const wsecStyles = `
   }
 `;
 
+/* ─────────────────────────────────────────────────────────────────────────
+ * Client-side script — validates the secret name field in real-time and
+ * drives the Test button feedback. No external dependencies.
+ * ───────────────────────────────────────────────────────────────────── */
 export default workflowSecretsRoutes;

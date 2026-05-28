@@ -557,7 +557,7 @@ export const DiffView: FC<DiffViewProps> = ({ raw, files, viewFileBase, inlineCo
                                     <div class="diff-suggestion-header">
                                       <span>Suggested change</span>
                                       {applySuggestionUrl && (
-                                        <form method="POST" action={`${applySuggestionUrl}/${c.id}`} style="margin:0;display:inline;">
+                                        <form method="post" action={`${applySuggestionUrl}/${c.id}`} style="margin:0;display:inline;">
                                           <button type="submit" class="diff-apply-btn">Apply suggestion</button>
                                         </form>
                                       )}

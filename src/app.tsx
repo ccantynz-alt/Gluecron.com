@@ -133,6 +133,8 @@ import installRoutes from "./routes/install";
 import dxtRoutes from "./routes/dxt";
 import connectClaudeRoutes from "./routes/connect-claude";
 import claudeDeployRoutes from "./routes/claude-deploy";
+import claudeIntegration from "./routes/claude-integration";
+import connectRoutes from "./routes/connect";
 import releasesRoutes from "./routes/releases";
 import requiredChecksRoutes from "./routes/required-checks";
 import rulesetsRoutes from "./routes/rulesets";
@@ -157,6 +159,7 @@ import voiceRoutes from "./routes/voice-to-pr";
 import playgroundRoutes from "./routes/playground";
 import { authRateLimit, gitRateLimit, searchRateLimit } from "./middleware/rate-limit";
 import { csrfToken, csrfProtect } from "./middleware/csrf";
+import { noCache } from "./middleware/no-cache";
 
 import type { AuthEnv } from "./middleware/auth";
 import { softAuth } from "./middleware/auth";
@@ -331,6 +334,11 @@ app.use("/:owner/:repo.git/*", gitRateLimit);
 // Rate limit search
 app.use("/:owner/:repo/search", searchRateLimit);
 app.use("/explore", searchRateLimit);
+
+// No-cache for HTML — ensures browsers and proxies never serve stale pages.
+// The middleware only stamps text/html responses so static assets keep
+// their own cache policies unchanged.
+app.use("*", noCache);
 
 // Git Smart HTTP protocol routes (must be before web routes)
 app.route("/", gitRoutes);
@@ -612,6 +620,10 @@ app.route("/", dxtRoutes);
 // Connect Claude — user-facing one-click MCP setup (/connect/claude). Mounted
 // next to the other one-click flows (install.sh + .dxt) for surface symmetry.
 app.route("/", connectClaudeRoutes);
+// Claude Code Integration Receiver — /api/claude/connect + /api/claude/session.
+app.route("/", claudeIntegration);
+// Connect guide — public onboarding page (/connect/claude-guide).
+app.route("/", connectRoutes);
 // Hosted Claude tool-use loops — paste loop, get endpoint, billing meter.
 // See src/routes/claude-deploy.tsx + src/lib/hosted-claude-loop.ts.
 app.route("/", claudeDeployRoutes);

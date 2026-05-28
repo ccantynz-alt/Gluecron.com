@@ -22,13 +22,13 @@ describe("editor module", () => {
     // Hono routers expose .routes and .fetch
     expect(typeof router).toBe("object");
     expect(router).not.toBeNull();
-    expect(typeof (router as Hono).fetch).toBe("function");
-    expect(Array.isArray((router as Hono).routes)).toBe(true);
+    expect(typeof (router as unknown as Hono).fetch).toBe("function");
+    expect(Array.isArray((router as unknown as Hono).routes)).toBe(true);
   });
 
   it("registers at least one route for /:owner/:repo/edit/:ref", async () => {
     const mod = await import("../routes/editor");
-    const router = mod.default as Hono;
+    const router = mod.default as unknown as Hono;
     const editRoutes = router.routes.filter(
       (r) => r.path.includes("/edit/") || r.path.includes("edit")
     );

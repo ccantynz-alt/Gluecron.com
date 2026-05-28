@@ -2728,13 +2728,20 @@ web.get("/:owner/:repo", async (c) => {
     }
   `;
   const cloneHttpsUrl = `${config.appBaseUrl}/${owner}/${repo}.git`;
-  // Best-effort SSH URL. If APP_BASE_URL is a hostname, this looks right; for
-  // localhost it'll still render and just be slightly silly (which is fine for dev).
+  // SSH URL — port-aware:
+  //   Standard port 22  → git@host:owner/repo.git
+  //   Non-standard port → ssh://git@host:PORT/owner/repo.git
   let cloneSshUrl = `git@gluecron.com:${owner}/${repo}.git`;
   try {
     const host = new URL(config.appBaseUrl).hostname;
-    if (host && host !== "localhost" && host !== "127.0.0.1") {
-      cloneSshUrl = `git@${host}:${owner}/${repo}.git`;
+    const sshHost = (host && host !== "localhost" && host !== "127.0.0.1")
+      ? host
+      : "localhost";
+    const sshPort = config.sshPort;
+    if (sshPort === 22) {
+      cloneSshUrl = `git@${sshHost}:${owner}/${repo}.git`;
+    } else {
+      cloneSshUrl = `ssh://git@${sshHost}:${sshPort}/${owner}/${repo}.git`;
     }
   } catch {
     // Fall through to default.

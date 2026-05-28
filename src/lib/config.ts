@@ -57,6 +57,24 @@ export const config = {
     return process.env.RESEND_API_KEY || "";
   },
   /** Canonical base URL for outbound links in emails + webhooks. */
+  /** SSH server port. 0 disables SSH (default 2222 in dev, 22 in prod via SSH_PORT). */
+  get sshPort() {
+    const v = process.env.SSH_PORT;
+    if (v === "0") return 0;
+    return Number(v || 2222);
+  },
+  /**
+   * PEM-encoded Ed25519 (or RSA) private key for the SSH host.
+   * If unset, an ephemeral key is generated on startup (fine for dev,
+   * but clients will see "host key changed" warnings on restart —
+   * set SSH_HOST_KEY in production).
+   *
+   * Multi-line keys in env vars: use literal newlines or \\n escapes,
+   * both are normalised in ssh-server.ts.
+   */
+  get sshHostKey() {
+    return process.env.SSH_HOST_KEY || "";
+  },
   get appBaseUrl() {
     return (process.env.APP_BASE_URL || "http://localhost:3000").replace(
       /\/+$/,

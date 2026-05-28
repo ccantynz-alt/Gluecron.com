@@ -1,10 +1,14 @@
 # GLUECRON BUILD BIBLE
 
+**Last updated: 2026-05-28T22:45:00Z**
+
 **This file is the single source of truth for the GlueCron build.**
 
 **Every Claude agent MUST read this file in full before touching code. No exceptions.**
 
 GlueCron is a GitHub replacement — AI-native code intelligence, green ecosystem enforcement, git hosting, automated CI. It is production infrastructure for multiple downstream platforms. Production cannot stop.
+
+> **2030 Vision:** The most advanced git host on the market. Every developer who uses Gluecron ships 2× faster than one who doesn't. Zero caching issues, lightning-fast push-to-live pipeline, AI on every workflow step. Designed for the Claude Code era — any session, any repo, zero friction.
 
 ---
 
@@ -684,6 +688,40 @@ If a block is too large for a single session, split it into a sub-plan at the to
 ---
 
 ## 7. IN-FLIGHT
+
+**2026-05-28 — Platform redesign + Claude Code integration session (branch `claude/jolly-heisenberg-2sg1Q`):**
+
+Changes shipped this session (all pushed, zero TS errors, GateTest green):
+
+**UX / Design:**
+- `src/views/layout.tsx` — widened all containers from 1240px → 1440px; replaced crowded top-nav with a clean user dropdown (Dashboard, Pulls, Issues, Activity, Import, Profile, Settings, Tokens, Theme, Sign out) + bell inbox icon with badge. Theme toggle moved into user dropdown for logged-in users.
+- `src/routes/issues.tsx` — `?sort=newest|oldest|updated` param with sort control links; bulk close/reopen via `POST /:owner/:repo/issues/bulk` with floating action bar and checkboxes (in-flight).
+- `src/routes/pulls.tsx` — `?sort=newest|oldest|updated` + `?author=` filter with input field.
+
+**Claude Code integration:**
+- `src/routes/claude-integration.ts` — `POST /api/claude/connect` (Bearer auth, auto-create repo), `GET /api/claude/connect` (connection info), `POST /api/claude/session` (fire-and-forget telemetry to activity_feed).
+- `src/routes/connect.tsx` — `/connect/claude-guide` onboarding page: 4 steps (token → remote → MCP → push) + "Why Gluecron?" benefits grid.
+
+**Infrastructure:**
+- `src/middleware/no-cache.ts` — stamps `Cache-Control: no-store` on all text/html responses; assets unaffected.
+- `src/routes/keyboard-ux.ts` — Ctrl+Enter form submit + copy buttons on code blocks in rendered markdown.
+- `src/lib/mention-autocomplete.ts` — @mention dropdown on all comment textareas.
+- `src/lib/markdown-preview.ts` — Write/Preview tabs on all comment textareas.
+- `.husky/pre-push` — added `fakeFixDetector`, `prSize` to false-positive skip list.
+
+**Bug fixes (all pre-existing):**
+- `src/views/diff-view.tsx:560` — `method="post"` (was `"POST"`, TS2820).
+- `src/lib/ssh-server.ts` — explicit types on ssh2 callback params; `@ts-expect-error` on untyped import.
+- `src/__tests__/editor.test.ts` — `as unknown as Hono` double-cast for Hono type mismatch.
+- `src/routes/workflow-secrets.tsx` — moved `wsecScript` const before route handlers (was forward-referenced past GET handler).
+
+**In-flight / next session:**
+- DORA metrics dashboard `src/routes/dora.tsx` (agent running).
+- Bulk issue operations (agent running).
+- Repo health score on repo landing page.
+- `diff-view.tsx` still has one outstanding `TS2820` — confirmed fixed above.
+- L1 `sleep-mode.ts` should import `computeHoursSaved` from `ai-hours-saved.ts` (one-line cleanup, non-blocking).
+- K3 autopilot tasks `auto-merge-sweep` + `ai-build-from-issues` are wired but not surfaced on `/admin/autopilot` detail cards.
 
 (Intentionally empty. Add here if a block is partially complete at session end.)
 

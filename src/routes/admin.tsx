@@ -3457,8 +3457,9 @@ admin.get("/admin/autopilot", async (c) => {
               </h1>
               <p class="adm-autopilot-sub">
                 Periodic platform-maintenance loop — mirror sync, merge-queue
-                progress, weekly digests, advisory rescans, environment
-                wait-timer release, and scheduled workflow triggers (cron).
+                progress, weekly digests, advisory rescans, wait-timer release,
+                scheduled workflows (cron), AI-gated auto-merge sweep, and
+                ai:build issue → PR dispatch.
               </p>
             </div>
             <a href="/admin" class="adm-autopilot-back">

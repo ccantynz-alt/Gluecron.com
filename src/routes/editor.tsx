@@ -26,6 +26,8 @@ import { isAiAvailable } from "../lib/ai-client";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
 import { requireRepoAccess } from "../middleware/repo-access";
+import { audit } from "../lib/notify";
+import { AI_AUDIT_ACTIONS } from "../lib/ai-hours-saved";
 
 const editor = new Hono<AuthEnv>();
 
@@ -1080,6 +1082,17 @@ editor.post(
     // Cap to one line + 100 chars (commit-message convention).
     const oneLine = message.split("\n")[0]!.trim();
     const capped = oneLine.length > 100 ? oneLine.slice(0, 97) + "..." : oneLine;
+    // Emit audit event so L9 ai-hours-saved counters stay accurate.
+    const user = c.get("user");
+    if (user) {
+      void audit({
+        userId: user.id,
+        action: AI_AUDIT_ACTIONS.AI_COMMIT_MESSAGE,
+        targetType: "repository",
+        targetId: `${owner}/${repo}`,
+        metadata: { filePath },
+      }).catch(() => {});
+    }
     return c.json({ ok: true, message: capped });
   }
 );

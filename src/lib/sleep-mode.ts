@@ -36,25 +36,9 @@ import { sendEmail, type EmailResult } from "./email";
 import { config } from "./config";
 import { __internal as digestInternals } from "./email-digest";
 import { AI_BUILD_MARKER } from "./ai-build-tasks";
+import { computeHoursSaved } from "./ai-hours-saved";
 
 const { escapeHtml } = digestInternals;
-
-/**
- * Heuristic constants for the `hoursSaved` metric. These are deliberately
- * conservative — better to under-promise than to publish absurd "Claude
- * saved you 40 hours this week" claims.
- *
- *   PR_AUTO_MERGE_HOURS   = 0.30 — minutes-of-merge-button-pressing
- *   AI_BUILT_ISSUE_HOURS  = 1.50 — design + plumbing for a small feature
- *   AI_REVIEW_HOURS       = 0.25 — one careful PR review
- *   AUTO_FIX_HOURS        = 0.50 — secret rotation / gate repair
- *
- * Documented in the L9 ticket for the eventual "savings model v2".
- */
-const PR_AUTO_MERGE_HOURS = 0.3;
-const AI_BUILT_ISSUE_HOURS = 1.5;
-const AI_REVIEW_HOURS = 0.25;
-const AUTO_FIX_HOURS = 0.5;
 
 /** Default look-back window. Sleep Mode is a daily digest. */
 const DEFAULT_WINDOW_HOURS = 24;
@@ -74,25 +58,6 @@ export type SleepModeReport = {
   hoursSaved: number;
 };
 
-/**
- * Pure helper — exported for tests. Given the four count inputs, returns
- * the hoursSaved value rounded to one decimal.
- */
-export function computeHoursSaved(input: {
-  prsAutoMerged: number;
-  issuesBuiltByAi: number;
-  aiReviewsPosted: number;
-  securityIssuesAutoFixed: number;
-  gateFailuresAutoRepaired: number;
-}): number {
-  const raw =
-    input.prsAutoMerged * PR_AUTO_MERGE_HOURS +
-    input.issuesBuiltByAi * AI_BUILT_ISSUE_HOURS +
-    input.aiReviewsPosted * AI_REVIEW_HOURS +
-    (input.securityIssuesAutoFixed + input.gateFailuresAutoRepaired) *
-      AUTO_FIX_HOURS;
-  return Math.round(raw * 10) / 10;
-}
 
 /**
  * Compose a Sleep Mode report for one user. Pulls from:
@@ -281,8 +246,10 @@ export async function composeSleepModeReport(
       prsAutoMerged: prsAutoMerged.length,
       issuesBuiltByAi: issuesBuiltByAi.length,
       aiReviewsPosted,
-      securityIssuesAutoFixed,
-      gateFailuresAutoRepaired,
+      aiTriagesPosted: 0,
+      aiCommitMsgs: 0,
+      secretsAutoRepaired: securityIssuesAutoFixed,
+      gateAutoRepairs: gateFailuresAutoRepaired,
     });
 
     return {
@@ -527,10 +494,6 @@ export async function sendSleepModeDigestForUser(
 
 /** Test-only surface. */
 export const __test = {
-  PR_AUTO_MERGE_HOURS,
-  AI_BUILT_ISSUE_HOURS,
-  AI_REVIEW_HOURS,
-  AUTO_FIX_HOURS,
   DEFAULT_WINDOW_HOURS,
   renderHtml,
 };

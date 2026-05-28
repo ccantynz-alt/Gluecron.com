@@ -14,8 +14,8 @@ import { Hono } from "hono";
 import { eq, and } from "drizzle-orm";
 import { createHash } from "crypto";
 import { db } from "../db";
-import { users, repositories, activityFeed, apiTokens } from "../db/schema";
-import { initBareRepo } from "../git/repository";
+import { users, repositories, activityFeed, apiTokens, pullRequests } from "../db/schema";
+import { initBareRepo, getDefaultBranch } from "../git/repository";
 import { config } from "../lib/config";
 import type { AuthEnv } from "../middleware/auth";
 
@@ -319,6 +319,144 @@ claudeIntegration.post("/api/claude/session", async (c) => {
   }
 
   return c.json({ ok: true });
+});
+
+// ─── POST /api/claude/push ────────────────────────────────────────────────────
+// Zero-config push-to-PR: after Claude pushes a branch, auto-create a draft PR.
+// If a PR already exists for this branch, returns its info without creating.
+
+claudeIntegration.post("/api/claude/push", async (c) => {
+  const auth = await authenticateBearer(c.req.header("Authorization"));
+  if (!auth.ok) {
+    return c.json({ ok: false, error: auth.error }, auth.status);
+  }
+
+  const { user } = auth;
+
+  let body: {
+    repoName?: string;
+    branch?: string;
+    title?: string;
+    description?: string;
+    baseBranch?: string;
+  };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ ok: false, error: "Invalid JSON body" }, 400);
+  }
+
+  const repoName = body.repoName?.trim();
+  const branch = body.branch?.trim();
+
+  if (!repoName || !branch) {
+    return c.json({ ok: false, error: "repoName and branch are required" }, 400);
+  }
+
+  try {
+    const [repo] = await db
+      .select()
+      .from(repositories)
+      .where(and(eq(repositories.ownerId, user.id), eq(repositories.name, repoName)))
+      .limit(1);
+
+    if (!repo) {
+      return c.json({ ok: false, error: `Repository '${repoName}' not found` }, 404);
+    }
+
+    // Determine base branch
+    let baseBranch: string = body.baseBranch?.trim() || "";
+    if (!baseBranch) {
+      try {
+        baseBranch = (await getDefaultBranch(user.username, repoName)) ?? "main";
+      } catch {
+        baseBranch = "main";
+      }
+    }
+
+    // If pushing to the base branch itself, no PR needed
+    if (branch === baseBranch) {
+      const baseUrl = config.appBaseUrl;
+      return c.json({
+        ok: true,
+        prCreated: false,
+        message: `Push to default branch '${baseBranch}' — no PR needed.`,
+        pushWatchUrl: `${baseUrl}/${user.username}/${repoName}/push/HEAD`,
+      });
+    }
+
+    // Check for existing open PR for this head branch
+    const [existingPr] = await db
+      .select({ id: pullRequests.id, number: pullRequests.number })
+      .from(pullRequests)
+      .where(
+        and(
+          eq(pullRequests.repositoryId, repo.id),
+          eq(pullRequests.headBranch, branch),
+          eq(pullRequests.state, "open")
+        )
+      )
+      .limit(1);
+
+    const baseUrl = config.appBaseUrl;
+
+    if (existingPr) {
+      return c.json({
+        ok: true,
+        prCreated: false,
+        prNumber: existingPr.number,
+        prUrl: `${baseUrl}/${user.username}/${repoName}/pulls/${existingPr.number}`,
+        message: `PR #${existingPr.number} already exists for branch '${branch}'.`,
+      });
+    }
+
+    // Auto-create a draft PR
+    const title = body.title?.trim() || `Claude: ${branch.replace(/[-_]/g, " ")}`;
+    const prBody = body.description?.trim() ||
+      `Auto-created draft PR from Claude Code session.\n\n` +
+      `Branch: \`${branch}\` → \`${baseBranch}\`\n\n` +
+      `Review and merge when ready, or push more commits to update.`;
+
+    const [newPr] = await db
+      .insert(pullRequests)
+      .values({
+        repositoryId: repo.id,
+        authorId: user.id,
+        title,
+        body: prBody,
+        state: "open",
+        baseBranch,
+        headBranch: branch,
+        isDraft: true,
+      })
+      .returning({ id: pullRequests.id, number: pullRequests.number });
+
+    if (!newPr) {
+      return c.json({ ok: false, error: "Failed to create PR record" }, 500);
+    }
+
+    // Log to activity feed (best effort)
+    await db.insert(activityFeed).values({
+      repositoryId: repo.id,
+      userId: user.id,
+      action: "pull_request.opened",
+      targetType: "pr",
+      targetId: String(newPr.number),
+      metadata: JSON.stringify({ source: "claude_push", branch, baseBranch, draft: true }),
+    }).catch(() => {});
+
+    return c.json({
+      ok: true,
+      prCreated: true,
+      prNumber: newPr.number,
+      prUrl: `${baseUrl}/${user.username}/${repoName}/pulls/${newPr.number}`,
+      pushWatchUrl: `${baseUrl}/${user.username}/${repoName}/push/${branch}`,
+      message: `Draft PR #${newPr.number} created: "${title}"`,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return c.json({ ok: false, error: `Server error: ${msg}` }, 500);
+  }
 });
 
 export default claudeIntegration;

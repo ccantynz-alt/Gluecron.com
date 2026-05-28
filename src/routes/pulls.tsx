@@ -14,7 +14,7 @@
  */
 
 import { Hono } from "hono";
-import { eq, and, desc, asc, sql, inArray } from "drizzle-orm";
+import { eq, and, desc, asc, sql, inArray, ilike, ne } from "drizzle-orm";
 import { db } from "../db";
 import {
   pullRequests,
@@ -1857,6 +1857,7 @@ pulls.get("/:owner/:repo/pulls", softAuth, requireRepoAccess("read"), async (c) 
   const { owner: ownerName, repo: repoName } = c.req.param();
   const user = c.get("user");
   const state = c.req.query("state") || "open";
+  const searchQ = c.req.query("q")?.trim() || "";
 
   // ── Loading skeleton (flag-gated) ──
   // Renders an SSR'd PR-row skeleton when `?skeleton=1` is set. Lets
@@ -1915,7 +1916,11 @@ pulls.get("/:owner/:repo/pulls", softAuth, requireRepoAccess("read"), async (c) 
     .from(pullRequests)
     .innerJoin(users, eq(pullRequests.authorId, users.id))
     .where(
-      and(eq(pullRequests.repositoryId, resolved.repo.id), stateFilter)
+      and(
+        eq(pullRequests.repositoryId, resolved.repo.id),
+        stateFilter,
+        searchQ ? ilike(pullRequests.title, `%${searchQ}%`) : undefined,
+      )
     )
     .orderBy(desc(pullRequests.createdAt));
 
@@ -2040,28 +2045,56 @@ pulls.get("/:owner/:repo/pulls", softAuth, requireRepoAccess("read"), async (c) 
         })}
       </nav>
 
+      <form
+        method="get"
+        action={`/${ownerName}/${repoName}/pulls`}
+        style="display:flex;gap:8px;align-items:center;margin-bottom:14px"
+      >
+        <input type="hidden" name="state" value={state} />
+        <input
+          type="search"
+          name="q"
+          value={searchQ}
+          placeholder="Search pull requests…"
+          class="issues-search-input"
+          style="flex:1;max-width:380px"
+        />
+        <button type="submit" class="issues-search-btn" aria-label="Search">{"🔍"}</button>
+        {searchQ && (
+          <a
+            href={`/${ownerName}/${repoName}/pulls?state=${state}`}
+            class="issues-filter-clear"
+          >
+            Clear
+          </a>
+        )}
+      </form>
       {prList.length === 0 ? (
         <div class="prs-empty">
           <div class="prs-empty-inner">
             <strong>
-              {isAllState
-                ? "Pick a filter above to browse PRs."
-                : `No ${state} pull requests.`}
+              {searchQ
+                ? `No pull requests match "${searchQ}"`
+                : isAllState
+                  ? "Pick a filter above to browse PRs."
+                  : `No ${state} pull requests.`}
             </strong>
             <p class="prs-empty-sub">
-              {state === "open"
-                ? "Pull requests propose changes from a branch into the base. Open one to kick off AI review, gate checks, and (if eligible) auto-merge."
-                : isAllState
-                  ? "The combined view is coming soon — Open, Merged, Closed, and Draft are all live above."
-                  : `No ${state} pull requests on ${ownerName}/${repoName} right now. Try a different filter.`}
+              {searchQ
+                ? `Try a different search term or clear the filter.`
+                : state === "open"
+                  ? "Pull requests propose changes from a branch into the base. Open one to kick off AI review, gate checks, and (if eligible) auto-merge."
+                  : isAllState
+                    ? "The combined view is coming soon — Open, Merged, Closed, and Draft are all live above."
+                    : `No ${state} pull requests on ${ownerName}/${repoName} right now. Try a different filter.`}
             </p>
             <div class="prs-empty-cta">
-              {user && state === "open" && (
+              {user && state === "open" && !searchQ && (
                 <a href={`/${ownerName}/${repoName}/pulls/new`} class="btn btn-primary">
                   + New pull request
                 </a>
               )}
-              {state !== "open" && (
+              {state !== "open" && !searchQ && (
                 <a href={`/${ownerName}/${repoName}/pulls?state=open`} class="btn">
                   View open PRs
                 </a>

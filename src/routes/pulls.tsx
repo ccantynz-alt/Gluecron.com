@@ -1804,13 +1804,20 @@ pulls.get("/:owner/:repo/pulls", softAuth, requireRepoAccess("read"), async (c) 
                 : `${openCount} open, ${mergedCount} merged, ${closedCount} closed${draftCount > 0 ? ` · ${draftCount} draft${draftCount === 1 ? "" : "s"}` : ""}. AI review, gate checks, and auto-resolve included.`}
             </p>
           </div>
-          {user && (
-            <div class="prs-hero-actions">
+          <div class="prs-hero-actions">
+            <a
+              href={`/${ownerName}/${repoName}/pulls/insights`}
+              class="prs-cta"
+              style="background:var(--bg-secondary);border-color:var(--border);color:var(--text);box-shadow:none"
+            >
+              Insights
+            </a>
+            {user && (
               <a href={`/${ownerName}/${repoName}/pulls/new`} class="prs-cta">
                 + New pull request
               </a>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </div>
 
@@ -1926,6 +1933,602 @@ pulls.get("/:owner/:repo/pulls", softAuth, requireRepoAccess("read"), async (c) 
           })}
         </div>
       )}
+    </Layout>
+  );
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * PR Insights — 90-day analytics for the pull request activity of a repo.
+ * Route: GET /:owner/:repo/pulls/insights
+ * MUST be registered BEFORE the /:owner/:repo/pulls/:number detail route so
+ * "insights" is not swallowed by the :number param.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+/** Format a millisecond duration as human-readable string. */
+function formatMsDuration(ms: number): string {
+  if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
+  if (ms < 3_600_000) return `${Math.round(ms / 60_000)}m`;
+  if (ms < 86_400_000) return `${Math.round(ms / 3_600_000)}h`;
+  return `${Math.round(ms / 86_400_000)}d`;
+}
+
+/** Format an ISO week string as "Jan 15". */
+function formatWeekLabel(isoWeek: string): string {
+  try {
+    const d = new Date(isoWeek);
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  } catch {
+    return isoWeek.slice(5, 10);
+  }
+}
+
+const PR_INSIGHTS_STYLES = `
+  .pri-page { padding-bottom: 48px; }
+  .pri-hero {
+    position: relative;
+    margin: 0 0 var(--space-5);
+    padding: 22px 26px 24px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+  .pri-hero::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent 0%, #8c6dff 30%, #36c5d6 70%, transparent 100%);
+    opacity: 0.7;
+    pointer-events: none;
+  }
+  .pri-hero-eyebrow {
+    font-size: 12px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
+  .pri-hero-title {
+    font-family: var(--font-display);
+    font-size: clamp(26px, 3.4vw, 34px);
+    font-weight: 800;
+    letter-spacing: -0.025em;
+    line-height: 1.06;
+    margin: 0 0 8px;
+    color: var(--text-strong);
+  }
+  .pri-hero-title .gradient-text {
+    background-image: linear-gradient(135deg, #a48bff 0%, #8c6dff 50%, #36c5d6 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+  }
+  .pri-hero-sub {
+    font-size: 14.5px;
+    color: var(--text-muted);
+    margin: 0;
+    line-height: 1.5;
+  }
+  .pri-section { margin-bottom: 32px; }
+  .pri-section-title {
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    margin: 0 0 14px;
+  }
+  .pri-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 12px;
+  }
+  .pri-card {
+    padding: 16px 18px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+  }
+  .pri-card-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 6px;
+  }
+  .pri-card-value {
+    font-size: 28px;
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    color: var(--text-strong);
+    line-height: 1;
+  }
+  .pri-card-sub {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 4px;
+  }
+  .pri-chart {
+    display: flex;
+    align-items: flex-end;
+    gap: 6px;
+    height: 120px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 16px 0;
+  }
+  .pri-bar-col {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+    height: 100%;
+    gap: 4px;
+  }
+  .pri-bar {
+    width: 100%;
+    min-height: 4px;
+    border-radius: 4px 4px 0 0;
+    background: linear-gradient(180deg, #a48bff 0%, #8c6dff 100%);
+    transition: opacity 140ms;
+  }
+  .pri-bar:hover { opacity: 0.8; }
+  .pri-bar-label {
+    font-size: 10px;
+    color: var(--text-muted);
+    text-align: center;
+    padding-bottom: 8px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+  }
+  .pri-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13.5px;
+  }
+  .pri-table th {
+    text-align: left;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .pri-table td {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+  }
+  .pri-table tr:last-child td { border-bottom: none; }
+  .pri-table-wrap {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .pri-age-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 13.5px;
+  }
+  .pri-age-row:last-child { border-bottom: none; }
+  .pri-age-label {
+    flex: 0 0 80px;
+    color: var(--text-muted);
+    font-size: 12.5px;
+    font-weight: 600;
+  }
+  .pri-age-bar-wrap {
+    flex: 1;
+    height: 8px;
+    background: var(--bg-secondary);
+    border-radius: 9999px;
+    overflow: hidden;
+  }
+  .pri-age-bar {
+    height: 100%;
+    border-radius: 9999px;
+    background: linear-gradient(90deg, #8c6dff 0%, #36c5d6 100%);
+    min-width: 4px;
+  }
+  .pri-age-count {
+    flex: 0 0 32px;
+    text-align: right;
+    font-weight: 600;
+    color: var(--text-strong);
+    font-size: 13px;
+  }
+  .pri-sparkline {
+    display: flex;
+    align-items: flex-end;
+    gap: 3px;
+    height: 40px;
+  }
+  .pri-spark-bar {
+    flex: 1;
+    min-height: 2px;
+    border-radius: 2px 2px 0 0;
+    background: var(--accent, #8c6dff);
+    opacity: 0.7;
+  }
+  .pri-empty {
+    color: var(--text-muted);
+    font-size: 14px;
+    padding: 24px 0;
+    text-align: center;
+  }
+  @media (max-width: 600px) {
+    .pri-cards { grid-template-columns: repeat(2, 1fr); }
+    .pri-hero { padding: 18px 18px 20px; }
+  }
+`;
+
+pulls.get("/:owner/:repo/pulls/insights", softAuth, requireRepoAccess("read"), async (c) => {
+  const { owner: ownerName, repo: repoName } = c.req.param();
+  const user = c.get("user");
+
+  const resolved = await resolveRepo(ownerName, repoName);
+  if (!resolved) return c.notFound();
+
+  const repoId = resolved.repo.id;
+  const now = Date.now();
+
+  // 1. Merged PRs in last 90 days (avg merge time)
+  const mergedPRs = await db
+    .select({ createdAt: pullRequests.createdAt, mergedAt: pullRequests.mergedAt })
+    .from(pullRequests)
+    .where(and(
+      eq(pullRequests.repositoryId, repoId),
+      eq(pullRequests.state, "merged"),
+      sql`${pullRequests.mergedAt} > now() - interval '90 days'`
+    ));
+
+  const avgMergeMs = mergedPRs.length > 0
+    ? mergedPRs.reduce((s, p) => s + (p.mergedAt!.getTime() - p.createdAt.getTime()), 0) / mergedPRs.length
+    : null;
+
+  // 2. PR throughput (last 8 weeks)
+  const weeklyPRs = await db
+    .select({
+      week: sql<string>`date_trunc('week', ${pullRequests.createdAt})::text`,
+      count: sql<number>`count(*)::int`,
+    })
+    .from(pullRequests)
+    .where(and(
+      eq(pullRequests.repositoryId, repoId),
+      sql`${pullRequests.createdAt} > now() - interval '56 days'`
+    ))
+    .groupBy(sql`date_trunc('week', ${pullRequests.createdAt})`)
+    .orderBy(sql`date_trunc('week', ${pullRequests.createdAt})`);
+
+  const maxWeekCount = weeklyPRs.length > 0 ? Math.max(...weeklyPRs.map((w) => w.count)) : 1;
+
+  // 3. PR merge rate (last 90 days)
+  const [rateCounts] = await db
+    .select({
+      merged: sql<number>`count(*) filter (where ${pullRequests.state} = 'merged')::int`,
+      closed: sql<number>`count(*) filter (where ${pullRequests.state} = 'closed')::int`,
+    })
+    .from(pullRequests)
+    .where(and(
+      eq(pullRequests.repositoryId, repoId),
+      sql`${pullRequests.createdAt} > now() - interval '90 days'`
+    ));
+
+  const totalResolved = (rateCounts?.merged ?? 0) + (rateCounts?.closed ?? 0);
+  const mergeRate = totalResolved > 0
+    ? Math.round(((rateCounts?.merged ?? 0) / totalResolved) * 100)
+    : null;
+
+  // 4. Top reviewers (last 90 days)
+  const reviewerCounts = await db
+    .select({
+      userId: prReviews.reviewerId,
+      username: users.username,
+      count: sql<number>`count(*)::int`,
+    })
+    .from(prReviews)
+    .innerJoin(users, eq(prReviews.reviewerId, users.id))
+    .innerJoin(pullRequests, eq(prReviews.pullRequestId, pullRequests.id))
+    .where(and(
+      eq(pullRequests.repositoryId, repoId),
+      sql`${prReviews.createdAt} > now() - interval '90 days'`
+    ))
+    .groupBy(prReviews.reviewerId, users.username)
+    .orderBy(desc(sql`count(*)`))
+    .limit(5);
+
+  // 5. Average reviews per merged PR
+  const [avgReviewRow] = await db
+    .select({
+      avgReviews: sql<number>`(count(${prReviews.id})::float / nullif(count(distinct ${pullRequests.id}), 0))`,
+    })
+    .from(pullRequests)
+    .leftJoin(prReviews, eq(prReviews.pullRequestId, pullRequests.id))
+    .where(and(
+      eq(pullRequests.repositoryId, repoId),
+      eq(pullRequests.state, "merged"),
+      sql`${pullRequests.mergedAt} > now() - interval '90 days'`
+    ));
+
+  const avgReviewsPerPr = avgReviewRow?.avgReviews != null
+    ? Math.round(avgReviewRow.avgReviews * 10) / 10
+    : null;
+
+  // 6. Review turnaround — avg time from PR open to first review
+  const prsWithReviews = await db
+    .select({
+      createdAt: pullRequests.createdAt,
+      firstReview: sql<string>`min(${prReviews.createdAt})::text`,
+    })
+    .from(pullRequests)
+    .innerJoin(prReviews, eq(prReviews.pullRequestId, pullRequests.id))
+    .where(and(
+      eq(pullRequests.repositoryId, repoId),
+      sql`${pullRequests.createdAt} > now() - interval '90 days'`
+    ))
+    .groupBy(pullRequests.id, pullRequests.createdAt);
+
+  const avgReviewTurnaroundMs = prsWithReviews.length > 0
+    ? prsWithReviews.reduce((s, row) => {
+        const firstMs = new Date(row.firstReview).getTime();
+        return s + Math.max(0, firstMs - row.createdAt.getTime());
+      }, 0) / prsWithReviews.length
+    : null;
+
+  // 7. Open PRs by age bucket
+  const openPRs = await db
+    .select({ createdAt: pullRequests.createdAt })
+    .from(pullRequests)
+    .where(and(
+      eq(pullRequests.repositoryId, repoId),
+      eq(pullRequests.state, "open")
+    ));
+
+  const ageBuckets = { lt1d: 0, d1to3: 0, d3to7: 0, d7to30: 0, gt30d: 0 };
+  for (const { createdAt } of openPRs) {
+    const ageDays = (now - createdAt.getTime()) / 86_400_000;
+    if (ageDays < 1)       ageBuckets.lt1d++;
+    else if (ageDays < 3)  ageBuckets.d1to3++;
+    else if (ageDays < 7)  ageBuckets.d3to7++;
+    else if (ageDays < 30) ageBuckets.d7to30++;
+    else                   ageBuckets.gt30d++;
+  }
+  const maxAgeBucket = Math.max(1, ...Object.values(ageBuckets));
+
+  // 8. 7-day merge sparkline
+  const sparklineRows = await db
+    .select({
+      day: sql<string>`date_trunc('day', ${pullRequests.mergedAt})::text`,
+      count: sql<number>`count(*)::int`,
+    })
+    .from(pullRequests)
+    .where(and(
+      eq(pullRequests.repositoryId, repoId),
+      eq(pullRequests.state, "merged"),
+      sql`${pullRequests.mergedAt} > now() - interval '7 days'`
+    ))
+    .groupBy(sql`date_trunc('day', ${pullRequests.mergedAt})`)
+    .orderBy(sql`date_trunc('day', ${pullRequests.mergedAt})`);
+
+  const sparkMap = new Map<string, number>();
+  for (const row of sparklineRows) {
+    sparkMap.set(row.day.slice(0, 10), row.count);
+  }
+  const sparkline: number[] = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(now - i * 86_400_000);
+    sparkline.push(sparkMap.get(d.toISOString().slice(0, 10)) ?? 0);
+  }
+  const maxSpark = Math.max(1, ...sparkline);
+
+  const ageBucketDefs: Array<{ label: string; key: keyof typeof ageBuckets }> = [
+    { label: "< 1 day",   key: "lt1d" },
+    { label: "1–3 days",  key: "d1to3" },
+    { label: "3–7 days",  key: "d3to7" },
+    { label: "7–30 days", key: "d7to30" },
+    { label: "> 30 days", key: "gt30d" },
+  ];
+
+  return c.html(
+    <Layout title={`PR Insights — ${ownerName}/${repoName}`} user={user}>
+      <RepoHeader owner={ownerName} repo={repoName} />
+      <PrNav owner={ownerName} repo={repoName} active="pulls" />
+      <style dangerouslySetInnerHTML={{ __html: PR_INSIGHTS_STYLES }} />
+
+      <div class="pri-page">
+        {/* Hero */}
+        <div class="pri-hero">
+          <div class="pri-hero-eyebrow">Pull requests</div>
+          <h1 class="pri-hero-title">
+            PR <span class="gradient-text">Insights</span>
+          </h1>
+          <p class="pri-hero-sub">90-day analytics for {ownerName}/{repoName}</p>
+        </div>
+
+        {/* Stat cards */}
+        <div class="pri-section">
+          <div class="pri-section-title">At a glance</div>
+          <div class="pri-cards">
+            <div class="pri-card">
+              <div class="pri-card-label">Avg merge time</div>
+              <div class="pri-card-value">
+                {avgMergeMs != null ? formatMsDuration(avgMergeMs) : "—"}
+              </div>
+              <div class="pri-card-sub">last 90 days</div>
+            </div>
+            <div class="pri-card">
+              <div class="pri-card-label">Total merged</div>
+              <div class="pri-card-value">{mergedPRs.length}</div>
+              <div class="pri-card-sub">last 90 days</div>
+            </div>
+            <div class="pri-card">
+              <div class="pri-card-label">Open PRs</div>
+              <div class="pri-card-value">{openPRs.length}</div>
+              <div class="pri-card-sub">right now</div>
+            </div>
+            <div class="pri-card">
+              <div class="pri-card-label">Merge rate</div>
+              <div class="pri-card-value">
+                {mergeRate != null ? `${mergeRate}%` : "—"}
+              </div>
+              <div class="pri-card-sub">merged vs closed</div>
+            </div>
+            <div class="pri-card">
+              <div class="pri-card-label">Avg reviews / PR</div>
+              <div class="pri-card-value">
+                {avgReviewsPerPr != null ? String(avgReviewsPerPr) : "—"}
+              </div>
+              <div class="pri-card-sub">merged PRs, 90d</div>
+            </div>
+            <div class="pri-card">
+              <div class="pri-card-label">Top reviewer</div>
+              <div class="pri-card-value" style="font-size:18px;word-break:break-all">
+                {reviewerCounts.length > 0 ? reviewerCounts[0].username : "—"}
+              </div>
+              <div class="pri-card-sub">
+                {reviewerCounts.length > 0
+                  ? `${reviewerCounts[0].count} review${reviewerCounts[0].count === 1 ? "" : "s"}`
+                  : "no reviews yet"}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Review turnaround */}
+        <div class="pri-section">
+          <div class="pri-section-title">Review turnaround</div>
+          <div class="pri-cards" style="grid-template-columns: repeat(auto-fill, minmax(220px, 1fr))">
+            <div class="pri-card">
+              <div class="pri-card-label">Avg time to first review</div>
+              <div class="pri-card-value">
+                {avgReviewTurnaroundMs != null ? formatMsDuration(avgReviewTurnaroundMs) : "—"}
+              </div>
+              <div class="pri-card-sub">
+                {prsWithReviews.length > 0
+                  ? `across ${prsWithReviews.length} PR${prsWithReviews.length === 1 ? "" : "s"} with reviews`
+                  : "no reviewed PRs in 90d"}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Weekly throughput bar chart */}
+        <div class="pri-section">
+          <div class="pri-section-title">Weekly throughput (last 8 weeks)</div>
+          {weeklyPRs.length === 0 ? (
+            <div class="pri-empty">No PR activity in the last 8 weeks.</div>
+          ) : (
+            <div class="pri-chart">
+              {weeklyPRs.map((w) => (
+                <div class="pri-bar-col">
+                  <div
+                    class="pri-bar"
+                    style={`height: ${Math.max(4, Math.round((w.count / maxWeekCount) * 88))}px`}
+                    title={`${w.count} PR${w.count === 1 ? "" : "s"} week of ${formatWeekLabel(w.week)}`}
+                  />
+                  <span class="pri-bar-label">{formatWeekLabel(w.week)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* 7-day merge sparkline */}
+        <div class="pri-section">
+          <div class="pri-section-title">Merges this week (daily)</div>
+          <div style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:12px;padding:16px">
+            <div class="pri-sparkline">
+              {sparkline.map((v) => (
+                <div
+                  class="pri-spark-bar"
+                  style={`height: ${Math.max(2, Math.round((v / maxSpark) * 36))}px`}
+                  title={`${v} merge${v === 1 ? "" : "s"}`}
+                />
+              ))}
+            </div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:6px;display:flex;justify-content:space-between">
+              <span>7 days ago</span>
+              <span>Today</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Top reviewers table */}
+        <div class="pri-section">
+          <div class="pri-section-title">Top reviewers (last 90 days)</div>
+          {reviewerCounts.length === 0 ? (
+            <div class="pri-empty">No reviews posted in the last 90 days.</div>
+          ) : (
+            <div class="pri-table-wrap">
+              <table class="pri-table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Reviewer</th>
+                    <th>Reviews</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {reviewerCounts.map((r, i) => (
+                    <tr>
+                      <td style="color:var(--text-muted)">{i + 1}</td>
+                      <td>
+                        <a href={`/${r.username}`} style="color:var(--text-link);text-decoration:none">
+                          {r.username}
+                        </a>
+                      </td>
+                      <td style="font-weight:600">{r.count}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        {/* Open PRs by age */}
+        <div class="pri-section">
+          <div class="pri-section-title">Open PRs by age</div>
+          {openPRs.length === 0 ? (
+            <div class="pri-empty">No open pull requests.</div>
+          ) : (
+            <div style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:12px;padding:16px 20px">
+              {ageBucketDefs.map(({ label, key }) => (
+                <div class="pri-age-row">
+                  <span class="pri-age-label">{label}</span>
+                  <div class="pri-age-bar-wrap">
+                    <div
+                      class="pri-age-bar"
+                      style={`width: ${ageBuckets[key] > 0 ? Math.max(4, Math.round((ageBuckets[key] / maxAgeBucket) * 100)) : 0}%`}
+                    />
+                  </div>
+                  <span class="pri-age-count">{ageBuckets[key]}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Back link */}
+        <div>
+          <a href={`/${ownerName}/${repoName}/pulls`} style="color:var(--text-muted);font-size:13px;text-decoration:none">
+            {"←"} Back to pull requests
+          </a>
+        </div>
+      </div>
     </Layout>
   );
 });

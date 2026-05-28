@@ -3,7 +3,7 @@
  */
 
 import { Hono } from "hono";
-import { eq, and, desc, asc, sql } from "drizzle-orm";
+import { eq, and, desc, asc, sql, ilike, inArray } from "drizzle-orm";
 import { db } from "../db";
 import {
   issues,
@@ -213,6 +213,66 @@ const issuesStyles = `
   .issues-filter.is-active .issues-filter-count {
     background: rgba(140,109,255,0.18);
     color: var(--text);
+  }
+
+  /* Issue search form */
+  .issues-search-form {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 9999px;
+    overflow: hidden;
+    flex: 1;
+    max-width: 280px;
+    transition: border-color 120ms ease;
+  }
+  .issues-search-form:focus-within { border-color: rgba(140,109,255,0.55); }
+  .issues-search-input {
+    flex: 1;
+    background: transparent;
+    color: var(--text);
+    border: none;
+    outline: none;
+    padding: 6px 14px;
+    font-size: 13px;
+    font-family: var(--font-sans, inherit);
+    min-width: 0;
+  }
+  .issues-search-input::placeholder { color: var(--text-muted); }
+  .issues-search-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    padding: 6px 12px 6px 8px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+  }
+  .issues-search-btn:hover { color: var(--text); }
+  .issues-filter-banner {
+    margin-bottom: 12px;
+    padding: 8px 14px;
+    background: rgba(140,109,255,0.06);
+    border: 1px solid rgba(140,109,255,0.2);
+    border-radius: 8px;
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+  .issues-filter-clear {
+    color: var(--accent, #8c6dff);
+    text-decoration: underline;
+    cursor: pointer;
+  }
+  .issues-label-badge {
+    display: inline-block;
+    background: rgba(140,109,255,0.15);
+    color: #a78bfa;
+    border-radius: 9999px;
+    padding: 1px 8px;
+    font-size: 11.5px;
+    font-weight: 600;
   }
 
   /* Issue list — modernised rows */
@@ -628,6 +688,8 @@ issueRoutes.get("/:owner/:repo/issues", softAuth, requireRepoAccess("read"), asy
   const { owner: ownerName, repo: repoName } = c.req.param();
   const user = c.get("user");
   const state = c.req.query("state") || "open";
+  const searchQ = (c.req.query("q") || "").trim();
+  const labelFilter = (c.req.query("label") || "").trim();
   // Bounded pagination — unbounded selects ran a full table scan + O(n)
   // sort on every page load; with 10k+ issues the request would hang.
   const perPage = Math.min(100, Math.max(1, Number(c.req.query("per_page")) || 50));
@@ -683,6 +745,36 @@ issueRoutes.get("/:owner/:repo/issues", softAuth, requireRepoAccess("read"), asy
 
   const { repo } = resolved;
 
+  // If label filter is set, find issue IDs that have that label
+  let labelFilteredIds: string[] | null = null;
+  if (labelFilter) {
+    const [matchedLabel] = await db
+      .select({ id: labels.id })
+      .from(labels)
+      .where(and(eq(labels.repositoryId, repo.id), ilike(labels.name, labelFilter)))
+      .limit(1);
+    if (matchedLabel) {
+      const rows = await db
+        .select({ issueId: issueLabels.issueId })
+        .from(issueLabels)
+        .where(eq(issueLabels.labelId, matchedLabel.id));
+      labelFilteredIds = rows.map((r) => r.issueId);
+    } else {
+      labelFilteredIds = []; // no matches
+    }
+  }
+
+  const baseWhere = and(
+    eq(issues.repositoryId, repo.id),
+    state === "open" || state === "closed" ? eq(issues.state, state) : undefined,
+    searchQ ? ilike(issues.title, `%${searchQ}%`) : undefined,
+    labelFilteredIds !== null && labelFilteredIds.length > 0
+      ? inArray(issues.id, labelFilteredIds)
+      : labelFilteredIds !== null && labelFilteredIds.length === 0
+        ? sql`false`
+        : undefined
+  );
+
   const issueList = await db
     .select({
       issue: issues,
@@ -690,9 +782,7 @@ issueRoutes.get("/:owner/:repo/issues", softAuth, requireRepoAccess("read"), asy
     })
     .from(issues)
     .innerJoin(users, eq(issues.authorId, users.id))
-    .where(
-      and(eq(issues.repositoryId, repo.id), eq(issues.state, state))
-    )
+    .where(baseWhere)
     .orderBy(desc(issues.createdAt))
     .limit(perPage)
     .offset(offset);
@@ -781,7 +871,32 @@ issueRoutes.get("/:owner/:repo/issues", softAuth, requireRepoAccess("read"), asy
             <span class="issues-filter-count">{Number(counts?.closed ?? 0)}</span>
           </a>
         </div>
+        <form method="get" action={`/${ownerName}/${repoName}/issues`} class="issues-search-form">
+          <input type="hidden" name="state" value={state} />
+          <input
+            type="search"
+            name="q"
+            value={searchQ}
+            placeholder="Search issues\u2026"
+            class="issues-search-input"
+            aria-label="Search issues by title"
+          />
+          {labelFilter && <input type="hidden" name="label" value={labelFilter} />}
+          <button type="submit" class="issues-search-btn" aria-label="Search">
+            <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true">
+              <path d="M10.68 11.74a6 6 0 0 1-7.922-8.982 6 6 0 0 1 8.982 7.922l3.04 3.04a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215ZM11.5 7a4.499 4.499 0 1 0-8.997 0A4.499 4.499 0 0 0 11.5 7Z" />
+            </svg>
+          </button>
+        </form>
       </div>
+      {(searchQ || labelFilter) && (
+        <div class="issues-filter-banner">
+          Filtering{searchQ ? <> by "<strong>{searchQ}</strong>"</> : null}
+          {labelFilter ? <> label: <span class="issues-label-badge">{labelFilter}</span></> : null}
+          {" \u00B7 "}
+          <a href={`/${ownerName}/${repoName}/issues?state=${state}`} class="issues-filter-clear">Clear filters</a>
+        </div>
+      )}
 
       {issueList.length === 0 ? (
         <div class="issues-empty">

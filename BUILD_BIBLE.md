@@ -1,6 +1,6 @@
 # GLUECRON BUILD BIBLE
 
-**Last updated: 2026-05-29T00:30:00Z**
+**Last updated: 2026-05-29T01:00:00Z**
 
 **This file is the single source of truth for the GlueCron build.**
 
@@ -367,6 +367,7 @@ The "lightning-fast push → live site + zero friction" package. Owner directive
 - **M9** — Developer Velocity Dashboard → ✅ shipped (`534afdd`+). `src/routes/velocity.tsx` — `GET /:owner/:repo/insights/velocity?window=7|30|90`. Per-developer metrics: PRs opened/merged, avg time-to-merge, code review activity. 4 team summary cards + PR speed buckets (Fast/Normal/Slow). 3 parallel DB queries. Insights sub-nav links DORA ↔ Velocity. CSS under `.vel-*`. Zero new tables.
 - **M10** — Stale Branch Cleanup UI → ✅ shipped. `src/routes/stale-branches.tsx` — `GET /:owner/:repo/branches/stale` + `POST /:owner/:repo/branches/stale/delete`. Lists merged branches with PR links + age; checkbox select + one-click delete; never suggests deleting main/master/develop/staging/production. Owner-only delete, read-only view for others.
 - **M11** — Create Branch from Issue → ✅ shipped (`c922868`). POST `/:owner/:repo/issues/:number/branch` (write-access gated). Creates a branch from the default branch SHA using existing `updateRef` + `resolveRef` git plumbing. Zero new DB tables. "Create branch" details-dropdown appears on open issues for authenticated write-access users, pre-fills branch name as `issue-<N>-<title-slug>`.
+- **M12** — Repository Pulse → ✅ shipped. `src/routes/pulse.tsx` — `GET /:owner/:repo/pulse?window=1|7|30`. GitHub Pulse equivalent: issues opened/closed, PRs opened/merged/closed, commit count, active contributors, gate pass rate, code review count, top contributors grid, recent activity feed. All queries parallel + best-effort commit walk from git log. Zero new DB tables.
 - **M3** — No-cache middleware → ✅ shipped (`f5b9ef5`). `src/middleware/no-cache.ts` stamps `Cache-Control: no-store, no-cache, must-revalidate` + `Pragma: no-cache` + `Vary: Cookie` on all `text/html` responses. Assets (CSS/JS/images) unaffected. Eliminates stale-page issues after login, deploy, or push.
 - **M4** — Wider platform layout → ✅ shipped (`f5b9ef5`). All `max-width: 1240px` → `1440px` in `src/views/layout.tsx` (nav, main content, footer). Modern wide-screen utilisation for developer dashboards.
 - **M5** — Clean user nav dropdown → ✅ shipped (`f5b9ef5`). Replaced 8+ top-level nav links with a polished user dropdown (avatar initials + caret trigger, Dashboard, PRs, Issues, Activity, Import, Profile, Settings, Tokens, Theme toggle, Sign out) + bell inbox icon with unread badge. Reduces cognitive load; keeps the nav scannable.

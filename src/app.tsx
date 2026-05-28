@@ -164,6 +164,7 @@ import crossRepoSearchRoutes from "./routes/cross-repo-search";
 import pushNotifRoutes from "./routes/push-notifications";
 import velocityRoutes from "./routes/velocity";
 import { staleBranchRoutes } from "./routes/stale-branches";
+import pulseRoutes from "./routes/pulse";
 import { authRateLimit, gitRateLimit, searchRateLimit } from "./middleware/rate-limit";
 import { csrfToken, csrfProtect } from "./middleware/csrf";
 import { noCache } from "./middleware/no-cache";
@@ -646,6 +647,8 @@ app.route("/", pushNotifRoutes);
 app.route("/", velocityRoutes);
 // Stale Branch Cleanup — BLOCK M10 — /:owner/:repo/branches/stale
 app.route("/", staleBranchRoutes);
+// Repository Pulse — BLOCK M12 — /:owner/:repo/pulse
+app.route("/", pulseRoutes);
 // Hosted Claude tool-use loops — paste loop, get endpoint, billing meter.
 // See src/routes/claude-deploy.tsx + src/lib/hosted-claude-loop.ts.
 app.route("/", claudeDeployRoutes);

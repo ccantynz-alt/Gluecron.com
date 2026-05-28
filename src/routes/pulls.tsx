@@ -85,6 +85,8 @@ import {
   commitsBetween,
 } from "../git/repository";
 import type { GitDiffFile, GitCommit } from "../git/repository";
+import { listStatuses } from "../lib/commit-statuses";
+import type { CommitStatus } from "../db/schema";
 import { html } from "hono/html";
 import {
   getPreviewForBranch,
@@ -1342,6 +1344,26 @@ const PRS_DETAIL_STYLES = `
   .prs-edit-actions { display: flex; gap: 8px; }
   .prs-edit-save-btn { padding: 7px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; background: var(--accent); color: #fff; border: none; cursor: pointer; }
   .prs-edit-cancel-btn { padding: 7px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; background: var(--bg-elevated); color: var(--text); border: 1px solid var(--border); cursor: pointer; }
+
+  /* ─── CI status checks ─── */
+  .prs-ci-card { margin-top: 14px; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .prs-ci-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; background: var(--bg-elevated); border-bottom: 1px solid var(--border); }
+  .prs-ci-head h3 { margin: 0; font-size: 14px; font-weight: 600; color: var(--text); }
+  .prs-ci-summary { font-size: 12px; color: var(--text-muted); }
+  .prs-ci-row { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--border); }
+  .prs-ci-row:last-child { border-bottom: none; }
+  .prs-ci-icon { flex: 0 0 auto; width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; font-size: 11px; font-weight: 700; }
+  .prs-ci-icon.is-success { background: rgba(52,211,153,0.20); color: #34d399; }
+  .prs-ci-icon.is-pending { background: rgba(251,191,36,0.20); color: #fbbf24; }
+  .prs-ci-icon.is-failure, .prs-ci-icon.is-error { background: rgba(248,113,113,0.20); color: #f87171; }
+  .prs-ci-context { flex: 1 1 auto; font-size: 13px; font-weight: 500; color: var(--text); }
+  .prs-ci-desc { font-size: 12px; color: var(--text-muted); }
+  .prs-ci-pill { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 9999px; }
+  .prs-ci-pill.is-success { color: #34d399; background: rgba(52,211,153,0.10); }
+  .prs-ci-pill.is-pending { color: #fbbf24; background: rgba(251,191,36,0.10); }
+  .prs-ci-pill.is-failure, .prs-ci-pill.is-error { color: #f87171; background: rgba(248,113,113,0.10); }
+  .prs-ci-link { font-size: 12px; color: var(--accent); text-decoration: none; }
+  .prs-ci-link:hover { text-decoration: underline; }
 `;
 
 /**
@@ -3090,6 +3112,7 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
 
   // Get gate check status for open PRs
   let gateChecks: GateCheckResult[] = [];
+  let ciStatuses: CommitStatus[] = [];
   if (pr.state === "open") {
     const headSha = await resolveRef(ownerName, repoName, pr.headBranch);
     if (headSha) {
@@ -3097,10 +3120,14 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
       const aiApproved = aiComments.length === 0 || aiComments.some(
         ({ comment }) => comment.body.includes("**Approved**")
       );
-      const gateResult = await runAllGateChecks(
-        ownerName, repoName, pr.baseBranch, pr.headBranch, headSha, aiApproved
-      );
+      const [gateResult, fetchedCiStatuses] = await Promise.all([
+        runAllGateChecks(
+          ownerName, repoName, pr.baseBranch, pr.headBranch, headSha, aiApproved
+        ),
+        listStatuses(resolved.repo.id, headSha).catch(() => [] as CommitStatus[]),
+      ]);
       gateChecks = gateResult.checks;
+      ciStatuses = fetchedCiStatuses;
     }
   }
 
@@ -3790,6 +3817,35 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
                   </>
                 )}
               </div>
+            </div>
+          )}
+
+          {pr.state === "open" && ciStatuses.length > 0 && (
+            <div class="prs-ci-card">
+              <div class="prs-ci-head">
+                <h3>CI checks</h3>
+                <span class="prs-ci-summary">
+                  {ciStatuses.filter(s => s.state === "success").length}/{ciStatuses.length} passing
+                </span>
+              </div>
+              {ciStatuses.map((status) => {
+                const iconGlyph = status.state === "success" ? "✓" : status.state === "pending" ? "…" : "✗";
+                return (
+                  <div class="prs-ci-row">
+                    <span class={`prs-ci-icon is-${status.state}`} aria-hidden="true">{iconGlyph}</span>
+                    <span class="prs-ci-context">{status.context}</span>
+                    {status.description && (
+                      <span class="prs-ci-desc">{status.description}</span>
+                    )}
+                    <span class={`prs-ci-pill is-${status.state}`}>
+                      {status.state}
+                    </span>
+                    {status.targetUrl && (
+                      <a href={status.targetUrl} class="prs-ci-link" target="_blank" rel="noopener noreferrer">Details</a>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
 

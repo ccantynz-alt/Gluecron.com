@@ -3,7 +3,7 @@
  */
 
 import { Hono } from "hono";
-import { eq, and, desc, asc, sql, ilike, inArray } from "drizzle-orm";
+import { eq, and, desc, asc, sql, ilike, inArray, or } from "drizzle-orm";
 import { db } from "../db";
 import {
   issues,
@@ -12,6 +12,7 @@ import {
   users,
   labels,
   issueLabels,
+  pullRequests,
 } from "../db/schema";
 import { Layout } from "../views/layout";
 import { RepoHeader, RepoNav } from "../views/components";
@@ -628,6 +629,24 @@ const issuesStyles = `
     color: var(--text);
     font-size: 13.5px;
   }
+
+  /* ─── Linked PRs ─── */
+  .iss-linked-prs { margin-top: 16px; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .iss-linked-prs-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; background: var(--bg-elevated); border-bottom: 1px solid var(--border); font-size: 13px; font-weight: 600; }
+  .iss-linked-pr-row { display: flex; align-items: center; gap: 10px; padding: 9px 16px; border-bottom: 1px solid var(--border); font-size: 13px; text-decoration: none; color: inherit; }
+  .iss-linked-pr-row:last-child { border-bottom: none; }
+  .iss-linked-pr-row:hover { background: var(--bg-hover); }
+  .iss-linked-pr-icon.is-open { color: #34d399; }
+  .iss-linked-pr-icon.is-merged { color: #a78bfa; }
+  .iss-linked-pr-icon.is-closed { color: #8b949e; }
+  .iss-linked-pr-icon.is-draft { color: #8b949e; }
+  .iss-linked-pr-title { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .iss-linked-pr-num { color: var(--text-muted); font-size: 12px; }
+  .iss-linked-pr-state { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 9999px; }
+  .iss-linked-pr-state.is-open { color: #34d399; background: rgba(52,211,153,0.10); }
+  .iss-linked-pr-state.is-merged { color: #a78bfa; background: rgba(167,139,250,0.10); }
+  .iss-linked-pr-state.is-closed { color: #8b949e; background: var(--bg-tertiary); }
+  .iss-linked-pr-state.is-draft { color: #8b949e; background: var(--bg-tertiary); }
 `;
 
 // Pre-rendered <style> tag (constant, reused per request).
@@ -1190,6 +1209,28 @@ issueRoutes.get("/:owner/:repo/issues/:number", softAuth, requireRepoAccess("rea
     (user.id === resolved.owner.id || user.id === issue.authorId);
   const info = c.req.query("info");
 
+  // Linked PRs — find PRs in this repo whose title or body reference this issue number.
+  const issueRefPattern = `%#${issue.number}%`;
+  const linkedPrs = await db
+    .select({
+      number: pullRequests.number,
+      title: pullRequests.title,
+      state: pullRequests.state,
+      isDraft: pullRequests.isDraft,
+    })
+    .from(pullRequests)
+    .where(
+      and(
+        eq(pullRequests.repositoryId, resolved.repo.id),
+        or(
+          ilike(pullRequests.title, issueRefPattern),
+          ilike(pullRequests.body, issueRefPattern),
+        )
+      )
+    )
+    .orderBy(desc(pullRequests.createdAt))
+    .limit(8);
+
   return c.html(
     <Layout
       title={`${issue.title} #${issue.number} — ${ownerName}/${repoName}`}
@@ -1309,6 +1350,30 @@ issueRoutes.get("/:owner/:repo/issues/:number", softAuth, requireRepoAccess("rea
             );
           })}
         </div>
+
+        {linkedPrs.length > 0 && (
+          <div class="iss-linked-prs">
+            <div class="iss-linked-prs-head">
+              <span>Linked pull requests</span>
+              <span>{linkedPrs.length}</span>
+            </div>
+            {linkedPrs.map((lpr) => {
+              const prState = lpr.isDraft ? "draft" : lpr.state;
+              const prIcon = prState === "merged" ? "⮬" : prState === "closed" ? "✕" : prState === "draft" ? "◌" : "○";
+              return (
+                <a
+                  href={`/${ownerName}/${repoName}/pulls/${lpr.number}`}
+                  class="iss-linked-pr-row"
+                >
+                  <span class={`iss-linked-pr-icon is-${prState}`} aria-hidden="true">{prIcon}</span>
+                  <span class="iss-linked-pr-title">{lpr.title}</span>
+                  <span class="iss-linked-pr-num">#{lpr.number}</span>
+                  <span class={`iss-linked-pr-state is-${prState}`}>{prState}</span>
+                </a>
+              );
+            })}
+          </div>
+        )}
 
         {user && (
           <form

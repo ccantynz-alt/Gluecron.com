@@ -42,6 +42,7 @@ import {
 import { liveCommentBannerScript } from "../lib/sse-client";
 import { mentionAutocompleteScript } from "../lib/mention-autocomplete";
 import { markdownPreviewScript } from "../lib/markdown-preview";
+import { ctrlEnterSubmitScript, codeBlockCopyScript } from "../lib/keyboard-ux";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
 import { requireRepoAccess } from "../middleware/repo-access";
@@ -1858,6 +1859,7 @@ pulls.get("/:owner/:repo/pulls", softAuth, requireRepoAccess("read"), async (c) 
   const user = c.get("user");
   const state = c.req.query("state") || "open";
   const searchQ = c.req.query("q")?.trim() || "";
+  const authorFilter = c.req.query("author")?.trim() || "";
 
   // ── Loading skeleton (flag-gated) ──
   // Renders an SSR'd PR-row skeleton when `?skeleton=1` is set. Lets
@@ -1920,6 +1922,7 @@ pulls.get("/:owner/:repo/pulls", softAuth, requireRepoAccess("read"), async (c) 
         eq(pullRequests.repositoryId, resolved.repo.id),
         stateFilter,
         searchQ ? ilike(pullRequests.title, `%${searchQ}%`) : undefined,
+        authorFilter ? eq(users.username, authorFilter) : undefined,
       )
     )
     .orderBy(desc(pullRequests.createdAt));
@@ -1973,12 +1976,13 @@ pulls.get("/:owner/:repo/pulls", softAuth, requireRepoAccess("read"), async (c) 
   // "All" is presentational only — the DB query for state='all' matches
   // nothing, so we render a friendlier empty state when picked. We do NOT
   // change the query logic to keep this commit purely visual.
+  const authorQs = authorFilter ? `&author=${encodeURIComponent(authorFilter)}` : "";
   const tabPills: Array<{ label: string; count: number; key: string; href: string }> = [
-    { label: "Open", count: openCount, key: "open", href: `/${ownerName}/${repoName}/pulls?state=open` },
-    { label: "Merged", count: mergedCount, key: "merged", href: `/${ownerName}/${repoName}/pulls?state=merged` },
-    { label: "Closed", count: closedCount, key: "closed", href: `/${ownerName}/${repoName}/pulls?state=closed` },
-    { label: "All", count: allCount, key: "all", href: `/${ownerName}/${repoName}/pulls?state=all` },
-    { label: "Draft", count: draftCount, key: "draft", href: `/${ownerName}/${repoName}/pulls?state=draft` },
+    { label: "Open", count: openCount, key: "open", href: `/${ownerName}/${repoName}/pulls?state=open${authorQs}` },
+    { label: "Merged", count: mergedCount, key: "merged", href: `/${ownerName}/${repoName}/pulls?state=merged${authorQs}` },
+    { label: "Closed", count: closedCount, key: "closed", href: `/${ownerName}/${repoName}/pulls?state=closed${authorQs}` },
+    { label: "All", count: allCount, key: "all", href: `/${ownerName}/${repoName}/pulls?state=all${authorQs}` },
+    { label: "Draft", count: draftCount, key: "draft", href: `/${ownerName}/${repoName}/pulls?state=draft${authorQs}` },
   ];
   const isAllState = state === "all";
   const viewerIsOwnerOnPrList = !!(user && user.id === resolved.owner.id);
@@ -2059,8 +2063,16 @@ pulls.get("/:owner/:repo/pulls", softAuth, requireRepoAccess("read"), async (c) 
           class="issues-search-input"
           style="flex:1;max-width:380px"
         />
+        <input
+          type="text"
+          name="author"
+          value={authorFilter}
+          placeholder="Filter by author…"
+          class="issues-search-input"
+          style="max-width:200px"
+        />
         <button type="submit" class="issues-search-btn" aria-label="Search">{"🔍"}</button>
-        {searchQ && (
+        {(searchQ || authorFilter) && (
           <a
             href={`/${ownerName}/${repoName}/pulls?state=${state}`}
             class="issues-filter-clear"
@@ -2073,15 +2085,15 @@ pulls.get("/:owner/:repo/pulls", softAuth, requireRepoAccess("read"), async (c) 
         <div class="prs-empty">
           <div class="prs-empty-inner">
             <strong>
-              {searchQ
-                ? `No pull requests match "${searchQ}"`
+              {searchQ || authorFilter
+                ? `No pull requests match${searchQ ? ` "${searchQ}"` : ""}${authorFilter ? ` by "${authorFilter}"` : ""}`
                 : isAllState
                   ? "Pick a filter above to browse PRs."
                   : `No ${state} pull requests.`}
             </strong>
             <p class="prs-empty-sub">
-              {searchQ
-                ? `Try a different search term or clear the filter.`
+              {searchQ || authorFilter
+                ? `Try a different search term or author, or clear the filter.`
                 : state === "open"
                   ? "Pull requests propose changes from a branch into the base. Open one to kick off AI review, gate checks, and (if eligible) auto-merge."
                   : isAllState
@@ -2089,12 +2101,12 @@ pulls.get("/:owner/:repo/pulls", softAuth, requireRepoAccess("read"), async (c) 
                     : `No ${state} pull requests on ${ownerName}/${repoName} right now. Try a different filter.`}
             </p>
             <div class="prs-empty-cta">
-              {user && state === "open" && !searchQ && (
+              {user && state === "open" && !searchQ && !authorFilter && (
                 <a href={`/${ownerName}/${repoName}/pulls/new`} class="btn btn-primary">
                   + New pull request
                 </a>
               )}
-              {state !== "open" && !searchQ && (
+              {state !== "open" && !searchQ && !authorFilter && (
                 <a href={`/${ownerName}/${repoName}/pulls?state=open`} class="btn">
                   View open PRs
                 </a>
@@ -3556,6 +3568,7 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
       />
       <script dangerouslySetInnerHTML={{ __html: mentionAutocompleteScript() }} />
       <script dangerouslySetInnerHTML={{ __html: markdownPreviewScript() }} />
+      <script dangerouslySetInnerHTML={{ __html: ctrlEnterSubmitScript() + codeBlockCopyScript() }} />
 
       <nav class="prs-detail-tabs" aria-label="Pull request sections">
         <a

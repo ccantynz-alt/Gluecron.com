@@ -24,6 +24,7 @@ import { renderMarkdown } from "../lib/markdown";
 import { liveCommentBannerScript } from "../lib/sse-client";
 import { mentionAutocompleteScript } from "../lib/mention-autocomplete";
 import { markdownPreviewScript } from "../lib/markdown-preview";
+import { ctrlEnterSubmitScript, codeBlockCopyScript } from "../lib/keyboard-ux";
 import { triggerIssueTriage, ISSUE_TRIAGE_MARKER } from "../lib/issue-triage";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
@@ -1266,6 +1267,7 @@ issueRoutes.get("/:owner/:repo/issues/:number", softAuth, requireRepoAccess("rea
       />
       <script dangerouslySetInnerHTML={{ __html: mentionAutocompleteScript() }} />
       <script dangerouslySetInnerHTML={{ __html: markdownPreviewScript() }} />
+      <script dangerouslySetInnerHTML={{ __html: ctrlEnterSubmitScript() + codeBlockCopyScript() }} />
       <div class="issue-detail">
         {info && (
           <div class="issues-info-banner">

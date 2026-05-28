@@ -22,6 +22,7 @@ import {
   branchRequiredChecks,
   gateRuns,
   prComments,
+  prReviews,
   workflowRuns,
   workflows,
 } from "../db/schema";
@@ -144,6 +145,28 @@ export function evaluateProtection(
  */
 export async function countHumanApprovals(pullRequestId: string): Promise<number> {
   try {
+    // Primary: count distinct reviewers with state='approved' in pr_reviews,
+    // using the most recent non-commented review per reviewer.
+    const rows = await db
+      .select({ reviewerId: prReviews.reviewerId, state: prReviews.state })
+      .from(prReviews)
+      .where(
+        and(
+          eq(prReviews.pullRequestId, pullRequestId),
+          eq(prReviews.isAi, false)
+        )
+      )
+      .orderBy(desc(prReviews.createdAt));
+    const latestByReviewer = new Map<string, string>();
+    for (const r of rows) {
+      if (r.state !== "commented" && !latestByReviewer.has(r.reviewerId)) {
+        latestByReviewer.set(r.reviewerId, r.state);
+      }
+    }
+    const formalApprovals = [...latestByReviewer.values()].filter(s => s === "approved").length;
+    if (formalApprovals > 0) return formalApprovals;
+
+    // Fallback: legacy LGTM-in-comment heuristic (for repos not yet using reviews)
     const comments = await db
       .select({ body: prComments.body, isAi: prComments.isAiReview })
       .from(prComments)

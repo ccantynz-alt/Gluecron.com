@@ -19,6 +19,7 @@ import { db } from "../db";
 import {
   pullRequests,
   prComments,
+  prReviews,
   repositories,
   users,
   issues,
@@ -740,6 +741,45 @@ const PRS_DETAIL_STYLES = `
     font-size: 13px; cursor: pointer;
   }
   .prs-merge-back-draft:hover { color: var(--text); background: var(--bg-hover); }
+
+  /* Review summary banner */
+  .prs-review-summary {
+    display: flex; flex-direction: column; gap: 6px;
+    padding: 12px 16px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md, 8px);
+    margin-bottom: 12px;
+  }
+  .prs-review-row {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 13px;
+  }
+  .prs-review-icon { font-size: 15px; font-weight: 700; flex-shrink: 0; }
+  .prs-review-approved .prs-review-icon { color: #34d399; }
+  .prs-review-changes .prs-review-icon { color: #f87171; }
+
+  /* Review action buttons */
+  .prs-review-approve-btn {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 8px 14px; border-radius: 8px; font-size: 13px;
+    font-weight: 600; cursor: pointer;
+    background: rgba(52,211,153,0.12);
+    color: #34d399;
+    border: 1px solid rgba(52,211,153,0.35);
+    transition: background 120ms;
+  }
+  .prs-review-approve-btn:hover { background: rgba(52,211,153,0.22); }
+  .prs-review-changes-btn {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 8px 14px; border-radius: 8px; font-size: 13px;
+    font-weight: 600; cursor: pointer;
+    background: rgba(248,113,113,0.10);
+    color: #f87171;
+    border: 1px solid rgba(248,113,113,0.30);
+    transition: background 120ms;
+  }
+  .prs-review-changes-btn:hover { background: rgba(248,113,113,0.20); }
 
   /* Inline form helpers */
   .prs-inline-form { display: inline-flex; }
@@ -2216,6 +2256,30 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
     ),
   ]);
 
+  // Formal reviews (Approve / Request Changes)
+  const reviewRows = await db
+    .select({
+      id: prReviews.id,
+      state: prReviews.state,
+      body: prReviews.body,
+      isAi: prReviews.isAi,
+      createdAt: prReviews.createdAt,
+      reviewerUsername: users.username,
+      reviewerId: prReviews.reviewerId,
+    })
+    .from(prReviews)
+    .innerJoin(users, eq(prReviews.reviewerId, users.id))
+    .where(eq(prReviews.pullRequestId, pr.id))
+    .orderBy(asc(prReviews.createdAt));
+  // Most recent review per reviewer determines the current state
+  const latestReviewByReviewer = new Map<string, typeof reviewRows[0]>();
+  for (const r of reviewRows) {
+    if (r.state !== "commented") latestReviewByReviewer.set(r.reviewerId, r);
+  }
+  const approvals = [...latestReviewByReviewer.values()].filter(r => r.state === "approved");
+  const changesRequested = [...latestReviewByReviewer.values()].filter(r => r.state === "changes_requested");
+  const viewerHasReviewed = user ? latestReviewByReviewer.has(user.id) : false;
+
   const canManage =
     user &&
     (user.id === resolved.owner.id || user.id === pr.authorId);
@@ -2627,6 +2691,30 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
             <PrRiskCard risk={prRisk} calculating={prRiskCalculating} />
           )}
 
+          {/* ─── Review summary ─────────────────────────────────── */}
+          {(approvals.length > 0 || changesRequested.length > 0) && (
+            <div class="prs-review-summary">
+              {approvals.length > 0 && (
+                <div class="prs-review-row prs-review-approved">
+                  <span class="prs-review-icon">✓</span>
+                  <span>
+                    <strong>{approvals.map(r => r.reviewerUsername).join(", ")}</strong>{" "}
+                    approved this pull request
+                  </span>
+                </div>
+              )}
+              {changesRequested.length > 0 && (
+                <div class="prs-review-row prs-review-changes">
+                  <span class="prs-review-icon">✗</span>
+                  <span>
+                    <strong>{changesRequested.map(r => r.reviewerUsername).join(", ")}</strong>{" "}
+                    requested changes
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+
           {pr.state === "open" && gateChecks.length > 0 && (
             <div class="prs-gate-card">
               <div class="prs-gate-head">
@@ -2752,6 +2840,30 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
                   <Button type="submit" variant="primary">
                     Comment
                   </Button>
+                  {user && user.id !== pr.authorId && pr.state === "open" && (
+                    <>
+                      <button
+                        type="submit"
+                        formaction={`/${ownerName}/${repoName}/pulls/${pr.number}/review`}
+                        name="review_state"
+                        value="approved"
+                        class="prs-review-approve-btn"
+                        title="Approve this pull request"
+                      >
+                        ✓ Approve
+                      </button>
+                      <button
+                        type="submit"
+                        formaction={`/${ownerName}/${repoName}/pulls/${pr.number}/review`}
+                        name="review_state"
+                        value="changes_requested"
+                        class="prs-review-changes-btn"
+                        title="Request changes before merging"
+                      >
+                        ✗ Request changes
+                      </button>
+                    </>
+                  )}
                   {canManage && (
                     <>
                       {pr.isDraft ? (
@@ -2989,6 +3101,65 @@ pulls.post(
     // Inline comments go back to the files tab; conversation comments to the conversation tab
     const redirectTab = inlineFilePath ? "?tab=files" : "";
     return c.redirect(`/${ownerName}/${repoName}/pulls/${prNum}${redirectTab}`);
+  }
+);
+
+// Formal review — Approve / Request Changes / Comment
+pulls.post(
+  "/:owner/:repo/pulls/:number/review",
+  softAuth,
+  requireAuth,
+  requireRepoAccess("read"),
+  async (c) => {
+    const { owner: ownerName, repo: repoName } = c.req.param();
+    const prNum = parseInt(c.req.param("number"), 10);
+    const user = c.get("user")!;
+    const body = await c.req.parseBody();
+    const reviewBody = String(body.body || "").trim();
+    const reviewState = String(body.review_state || "commented");
+
+    const validStates = ["approved", "changes_requested", "commented"];
+    if (!validStates.includes(reviewState)) {
+      return c.redirect(`/${ownerName}/${repoName}/pulls/${prNum}`);
+    }
+
+    const resolved = await resolveRepo(ownerName, repoName);
+    if (!resolved) return c.redirect(`/${ownerName}/${repoName}`);
+
+    const [pr] = await db
+      .select()
+      .from(pullRequests)
+      .where(
+        and(
+          eq(pullRequests.repositoryId, resolved.repo.id),
+          eq(pullRequests.number, prNum)
+        )
+      )
+      .limit(1);
+    if (!pr || pr.state !== "open") {
+      return c.redirect(`/${ownerName}/${repoName}/pulls/${prNum}`);
+    }
+    // Authors can't review their own PR
+    if (pr.authorId === user.id) {
+      return c.redirect(
+        `/${ownerName}/${repoName}/pulls/${prNum}?error=${encodeURIComponent("You cannot review your own pull request")}`
+      );
+    }
+
+    await db.insert(prReviews).values({
+      pullRequestId: pr.id,
+      reviewerId: user.id,
+      state: reviewState,
+      body: reviewBody || null,
+    });
+
+    const stateLabel =
+      reviewState === "approved" ? "Approved"
+      : reviewState === "changes_requested" ? "Changes requested"
+      : "Commented";
+    return c.redirect(
+      `/${ownerName}/${repoName}/pulls/${prNum}?info=${encodeURIComponent(stateLabel)}`
+    );
   }
 );
 

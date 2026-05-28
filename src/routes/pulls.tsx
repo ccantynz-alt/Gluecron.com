@@ -27,7 +27,7 @@ import {
 import { Layout } from "../views/layout";
 import { RepoHeader } from "../views/components";
 import { PendingCommentsBanner } from "../views/pending-comments-banner";
-import { DiffView } from "../views/diff-view";
+import { DiffView, type InlineDiffComment } from "../views/diff-view";
 import { ReactionsBar } from "../views/reactions";
 import { summariseReactions } from "../lib/reactions";
 import { loadPrTemplate } from "../lib/templates";
@@ -2272,9 +2272,10 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
     pr.headBranch
   );
 
-  // Get diff for "Files changed" tab
+  // Get diff for "Files changed" tab + load inline comments for that tab
   let diffRaw = "";
   let diffFiles: GitDiffFile[] = [];
+  let diffInlineComments: InlineDiffComment[] = [];
   if (tab === "files") {
     const repoDir = getRepoPath(ownerName, repoName);
     // Run the two git diffs in parallel — they're independent reads of
@@ -2319,6 +2320,39 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
           patch: "",
         };
       });
+
+    // Fetch inline comments (file+line anchored) for the files tab
+    const inlineRows = await db
+      .select({
+        id: prComments.id,
+        filePath: prComments.filePath,
+        lineNumber: prComments.lineNumber,
+        body: prComments.body,
+        isAiReview: prComments.isAiReview,
+        createdAt: prComments.createdAt,
+        authorUsername: users.username,
+      })
+      .from(prComments)
+      .innerJoin(users, eq(prComments.authorId, users.id))
+      .where(
+        and(
+          eq(prComments.pullRequestId, pr.id),
+          eq(prComments.moderationStatus, "approved"),
+        )
+      )
+      .orderBy(asc(prComments.createdAt));
+
+    diffInlineComments = inlineRows
+      .filter(r => r.filePath != null && r.lineNumber != null)
+      .map(r => ({
+        id: r.id,
+        filePath: r.filePath!,
+        lineNumber: r.lineNumber!,
+        authorUsername: r.authorUsername,
+        body: renderMarkdown(r.body),
+        isAiReview: r.isAiReview,
+        createdAt: r.createdAt.toISOString(),
+      }));
   }
 
   // ─── Derived visual state ───
@@ -2475,6 +2509,8 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
           raw={diffRaw}
           files={diffFiles}
           viewFileBase={`/${ownerName}/${repoName}/blob/${pr.headBranch}`}
+          inlineComments={diffInlineComments}
+          commentActionUrl={user ? `/${ownerName}/${repoName}/pulls/${pr.number}/comment` : undefined}
         />
       ) : (
         <>
@@ -2835,6 +2871,10 @@ pulls.post(
     const user = c.get("user")!;
     const body = await c.req.parseBody();
     const commentBody = String(body.body || "").trim();
+    const filePathRaw = String(body.file_path || "").trim();
+    const lineNumberRaw = parseInt(String(body.line_number || ""), 10);
+    const inlineFilePath = filePathRaw || undefined;
+    const inlineLineNumber = Number.isFinite(lineNumberRaw) && lineNumberRaw > 0 ? lineNumberRaw : undefined;
 
     if (!commentBody) {
       return c.redirect(`/${ownerName}/${repoName}/pulls/${prNum}`);
@@ -2870,6 +2910,8 @@ pulls.post(
         authorId: user.id,
         body: commentBody,
         moderationStatus: decision.status,
+        filePath: inlineFilePath,
+        lineNumber: inlineLineNumber,
       })
       .returning();
 
@@ -2944,7 +2986,9 @@ pulls.post(
       }
     }
 
-    return c.redirect(`/${ownerName}/${repoName}/pulls/${prNum}`);
+    // Inline comments go back to the files tab; conversation comments to the conversation tab
+    const redirectTab = inlineFilePath ? "?tab=files" : "";
+    return c.redirect(`/${ownerName}/${repoName}/pulls/${prNum}${redirectTab}`);
   }
 );
 

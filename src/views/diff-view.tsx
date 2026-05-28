@@ -308,15 +308,38 @@ const StatPills: FC<{ add: number; del: number }> = ({ add, del }) => (
 
 // ─── Public component ──────────────────────────────────────────────────
 
+export interface InlineDiffComment {
+  id: string;
+  filePath: string;
+  lineNumber: number;
+  authorUsername: string;
+  body: string;
+  createdAt: string;
+  isAiReview?: boolean;
+}
+
 export interface DiffViewProps {
   raw: string;
   files: GitDiffFile[];
   /** When set, file headers gain "View file" links to `${viewFileBase}/${path}`. */
   viewFileBase?: string;
+  /** Existing inline comments to render anchored to their file+line */
+  inlineComments?: InlineDiffComment[];
+  /** URL to POST a new inline comment to (shows gutter "+" buttons when set) */
+  commentActionUrl?: string;
 }
 
-export const DiffView: FC<DiffViewProps> = ({ raw, files, viewFileBase }) => {
+export const DiffView: FC<DiffViewProps> = ({ raw, files, viewFileBase, inlineComments, commentActionUrl }) => {
   const parsed = parseUnifiedDiff(raw);
+
+  // Build a lookup map: "filePath:lineNumber" → inline comments
+  const commentsByLine = new Map<string, InlineDiffComment[]>();
+  for (const c of inlineComments ?? []) {
+    const key = `${c.filePath}:${c.lineNumber}`;
+    const arr = commentsByLine.get(key) ?? [];
+    arr.push(c);
+    commentsByLine.set(key, arr);
+  }
 
   // Stat fallback: if --numstat gave us per-file counts they trump our
   // hunk-based count (only --numstat sees binary deltas accurately).
@@ -455,22 +478,45 @@ export const DiffView: FC<DiffViewProps> = ({ raw, files, viewFileBase }) => {
                       }
                       const marker =
                         ln.kind === "add" ? "+" : ln.kind === "del" ? "−" : " ";
+                      // Inline comments anchor to the new-file line number
+                      const commentKey = ln.newNum != null ? `${file.path}:${ln.newNum}` : null;
+                      const lineComments = commentKey ? (commentsByLine.get(commentKey) ?? []) : [];
+                      const canComment = commentActionUrl && ln.kind !== "del" && ln.newNum != null;
                       return (
-                        <div
-                          class={`diff-row diff-row-${ln.kind}`}
-                          data-line={key}
-                        >
-                          <span class="diff-gutter diff-gutter-old">
-                            {ln.oldNum ?? ""}
-                          </span>
-                          <span class="diff-gutter diff-gutter-new">
-                            {ln.newNum ?? ""}
-                          </span>
-                          <span class="diff-marker" aria-hidden="true">
-                            {marker}
-                          </span>
-                          <CodeSpan html={highlighted} text={ln.text} />
-                        </div>
+                        <>
+                          <div
+                            class={`diff-row diff-row-${ln.kind}`}
+                            data-line={key}
+                            data-file={canComment ? file.path : undefined}
+                            data-newline={canComment ? ln.newNum : undefined}
+                          >
+                            <span class="diff-gutter diff-gutter-old">
+                              {ln.oldNum ?? ""}
+                            </span>
+                            <span class="diff-gutter diff-gutter-new">
+                              {ln.newNum ?? ""}
+                              {canComment && (
+                                <button class="diff-comment-btn" title="Add comment" aria-label="Add inline comment">+</button>
+                              )}
+                            </span>
+                            <span class="diff-marker" aria-hidden="true">
+                              {marker}
+                            </span>
+                            <CodeSpan html={highlighted} text={ln.text} />
+                          </div>
+                          {lineComments.map(c => (
+                            <div class={`diff-inline-comment${c.isAiReview ? " diff-inline-comment-ai" : ""}`} data-comment-id={c.id}>
+                              <div class="diff-inline-comment-head">
+                                <strong>{c.authorUsername}</strong>
+                                <span class="diff-inline-comment-meta">
+                                  {c.isAiReview && <span class="diff-inline-ai-badge">AI</span>}
+                                  {new Date(c.createdAt).toLocaleDateString()}
+                                </span>
+                              </div>
+                              <div class="diff-inline-comment-body" dangerouslySetInnerHTML={{ __html: c.body }} />
+                            </div>
+                          ))}
+                        </>
                       );
                     })}
                   </>
@@ -481,6 +527,9 @@ export const DiffView: FC<DiffViewProps> = ({ raw, files, viewFileBase }) => {
         );
       })}
 
+      {commentActionUrl && (
+        <meta name="diff-comment-url" content={commentActionUrl} />
+      )}
       <script dangerouslySetInnerHTML={{ __html: DIFF_VIEW_JS }} />
     </div>
   );
@@ -490,18 +539,55 @@ export const DiffView: FC<DiffViewProps> = ({ raw, files, viewFileBase }) => {
 
 const DIFF_VIEW_JS = `
 (function () {
+  // Copy-path button
   document.addEventListener('click', function (e) {
     var t = e.target;
     if (!t) return;
-    var btn = t.closest && t.closest('.diff-file-copy');
-    if (!btn) return;
-    e.preventDefault();
-    var path = btn.getAttribute('data-copy') || '';
-    if (!navigator.clipboard) return;
-    navigator.clipboard.writeText(path).then(function () {
-      btn.classList.add('is-copied');
-      setTimeout(function () { btn.classList.remove('is-copied'); }, 1200);
-    }).catch(function () {});
+    // Copy path button
+    var copyBtn = t.closest && t.closest('.diff-file-copy');
+    if (copyBtn) {
+      e.preventDefault();
+      var path = copyBtn.getAttribute('data-copy') || '';
+      if (!navigator.clipboard) return;
+      navigator.clipboard.writeText(path).then(function () {
+        copyBtn.classList.add('is-copied');
+        setTimeout(function () { copyBtn.classList.remove('is-copied'); }, 1200);
+      }).catch(function () {});
+      return;
+    }
+    // Inline comment "+" button
+    var commentBtn = t.closest && t.closest('.diff-comment-btn');
+    if (commentBtn) {
+      e.preventDefault();
+      var row = commentBtn.closest('.diff-row');
+      if (!row) return;
+      var filePath = row.getAttribute('data-file');
+      var lineNum = row.getAttribute('data-newline');
+      var actionUrl = document.querySelector('meta[name="diff-comment-url"]');
+      if (!filePath || !lineNum || !actionUrl) return;
+      // Remove any existing open form
+      var existing = document.querySelector('.diff-inline-form-row');
+      if (existing) {
+        if (existing.previousSibling === row) { existing.remove(); return; }
+        existing.remove();
+      }
+      // Build a form row
+      var form = document.createElement('form');
+      form.method = 'POST';
+      form.action = actionUrl.getAttribute('content') || '';
+      form.className = 'diff-inline-form-row';
+      form.innerHTML =
+        '<input type="hidden" name="file_path" value="' + filePath.replace(/"/g,'&quot;') + '">' +
+        '<input type="hidden" name="line_number" value="' + lineNum + '">' +
+        '<textarea name="body" rows="3" placeholder="Leave a comment…" class="diff-inline-textarea" required></textarea>' +
+        '<div class="diff-inline-form-actions">' +
+          '<button type="submit" class="diff-inline-submit">Comment</button>' +
+          '<button type="button" class="diff-inline-cancel">Cancel</button>' +
+        '</div>';
+      form.querySelector('.diff-inline-cancel').addEventListener('click', function () { form.remove(); });
+      row.insertAdjacentElement('afterend', form);
+      form.querySelector('textarea').focus();
+    }
   });
 })();
 `;
@@ -791,6 +877,102 @@ const DIFF_VIEW_CSS = `
   .diff-row-del .diff-marker { color: #fca5a5; font-weight: 600; }
 
   .diff-row:hover .diff-gutter { opacity: 1; }
+
+  /* ─── Inline comment "+" button ─── */
+  .diff-comment-btn {
+    display: none;
+    position: absolute;
+    right: 2px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 16px; height: 16px;
+    padding: 0;
+    background: var(--accent, #8c6dff);
+    color: #fff;
+    border: none;
+    border-radius: 3px;
+    font-size: 12px;
+    line-height: 1;
+    cursor: pointer;
+    z-index: 2;
+  }
+  .diff-gutter-new { position: relative; }
+  .diff-row:hover .diff-comment-btn { display: flex; align-items: center; justify-content: center; }
+
+  /* ─── Inline comments anchored to diff lines ─── */
+  .diff-inline-comment {
+    grid-column: 1 / -1;
+    display: block;
+    margin: 4px 0;
+    padding: 10px 14px;
+    background: var(--bg-elevated);
+    border-left: 3px solid var(--border);
+    border-radius: 0 4px 4px 0;
+    font-family: var(--font-sans, inherit);
+    font-size: 13px;
+  }
+  .diff-inline-comment-ai { border-left-color: #8c6dff; }
+  .diff-inline-comment-head {
+    display: flex; gap: 8px; align-items: center;
+    margin-bottom: 6px;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+  .diff-inline-comment-head strong { color: var(--text-strong); }
+  .diff-inline-ai-badge {
+    background: rgba(140,109,255,0.2);
+    color: #a78bfa;
+    border-radius: 3px;
+    padding: 1px 5px;
+    font-size: 10px;
+    font-weight: 600;
+  }
+  .diff-inline-comment-body { color: var(--text); line-height: 1.6; }
+
+  /* ─── Inline comment form ─── */
+  .diff-inline-form-row {
+    grid-column: 1 / -1;
+    display: block;
+    padding: 10px 14px;
+    background: var(--bg-elevated);
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+  }
+  .diff-inline-textarea {
+    width: 100%;
+    min-height: 72px;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 8px;
+    font-size: 13px;
+    font-family: var(--font-sans, inherit);
+    resize: vertical;
+    box-sizing: border-box;
+  }
+  .diff-inline-textarea:focus { outline: none; border-color: var(--accent, #8c6dff); }
+  .diff-inline-form-actions {
+    display: flex; gap: 8px; margin-top: 8px;
+  }
+  .diff-inline-submit {
+    background: var(--accent, #8c6dff);
+    color: #fff;
+    border: none;
+    border-radius: 5px;
+    padding: 6px 14px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .diff-inline-cancel {
+    background: transparent;
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 6px 14px;
+    font-size: 13px;
+    cursor: pointer;
+  }
 
   /* Highlight.js theme overrides so colors layer correctly on tints */
   .diff-body.has-hljs .hljs-keyword { color: #ff7b72; }

@@ -14,7 +14,7 @@
  */
 
 import { Hono } from "hono";
-import { eq, and, desc, asc, sql } from "drizzle-orm";
+import { eq, and, desc, asc, sql, inArray } from "drizzle-orm";
 import { db } from "../db";
 import {
   pullRequests,
@@ -319,6 +319,16 @@ const PRS_LIST_STYLES = `
     color: var(--text-link);
     border-color: rgba(140,109,255,0.45);
     background: rgba(140,109,255,0.10);
+  }
+  .prs-tag.is-approved {
+    color: #34d399;
+    border-color: rgba(52,211,153,0.40);
+    background: rgba(52,211,153,0.08);
+  }
+  .prs-tag.is-changes {
+    color: #f87171;
+    border-color: rgba(248,113,113,0.40);
+    background: rgba(248,113,113,0.08);
   }
 
   .prs-empty {
@@ -1774,6 +1784,22 @@ pulls.get("/:owner/:repo/pulls", softAuth, requireRepoAccess("read"), async (c) 
     )
     .orderBy(desc(pullRequests.createdAt));
 
+  // Batch-load review states for all PRs in the list (approved / changes_requested badges)
+  const reviewMap = new Map<string, { approved: boolean; changesRequested: boolean }>();
+  if (prList.length > 0) {
+    const prIds = prList.map(({ pr }) => pr.id);
+    const reviewRows = await db
+      .select({ prId: prReviews.pullRequestId, state: prReviews.state })
+      .from(prReviews)
+      .where(inArray(prReviews.pullRequestId, prIds));
+    for (const r of reviewRows) {
+      const entry = reviewMap.get(r.prId) ?? { approved: false, changesRequested: false };
+      if (r.state === "approved") entry.approved = true;
+      if (r.state === "changes_requested") entry.changesRequested = true;
+      reviewMap.set(r.prId, entry);
+    }
+  }
+
   const [counts] = await db
     .select({
       open: sql<number>`count(*) filter (where ${pullRequests.state} = 'open')`,
@@ -1916,6 +1942,7 @@ pulls.get("/:owner/:repo/pulls", softAuth, requireRepoAccess("read"), async (c) 
                 : pr.state === "merged"
                   ? "⮌"
                   : "✓";
+            const rv = reviewMap.get(pr.id);
             return (
               <a
                 href={`/${ownerName}/${repoName}/pulls/${pr.number}`}
@@ -1950,6 +1977,12 @@ pulls.get("/:owner/:repo/pulls", softAuth, requireRepoAccess("read"), async (c) 
                       {pr.isDraft && <span class="prs-tag is-draft">Draft</span>}
                       {pr.state === "merged" && (
                         <span class="prs-tag is-merged">Merged</span>
+                      )}
+                      {rv?.approved && !rv.changesRequested && (
+                        <span class="prs-tag is-approved" title="Approved by reviewer">✓ Approved</span>
+                      )}
+                      {rv?.changesRequested && (
+                        <span class="prs-tag is-changes" title="Changes requested">✗ Changes</span>
                       )}
                     </span>
                   </div>

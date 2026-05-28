@@ -136,6 +136,8 @@ import connectClaudeRoutes from "./routes/connect-claude";
 import claudeDeployRoutes from "./routes/claude-deploy";
 import claudeIntegration from "./routes/claude-integration";
 import connectRoutes from "./routes/connect";
+import pushWatchRoutes from "./routes/push-watch";
+import orgSecretsRoutes from "./routes/org-secrets";
 import releasesRoutes from "./routes/releases";
 import requiredChecksRoutes from "./routes/required-checks";
 import rulesetsRoutes from "./routes/rulesets";
@@ -628,6 +630,10 @@ app.route("/", connectClaudeRoutes);
 app.route("/", claudeIntegration);
 // Connect guide — public onboarding page (/connect/claude-guide).
 app.route("/", connectRoutes);
+// Push Watch — per-commit live status (gates + deploy + latency) at /:owner/:repo/push/:sha
+app.route("/", pushWatchRoutes);
+// Org Secrets Manager — BLOCK M2 — /orgs/:slug/settings/secrets
+app.route("/", orgSecretsRoutes);
 // Hosted Claude tool-use loops — paste loop, get endpoint, billing meter.
 // See src/routes/claude-deploy.tsx + src/lib/hosted-claude-loop.ts.
 app.route("/", claudeDeployRoutes);

@@ -1,6 +1,6 @@
 # GLUECRON BUILD BIBLE
 
-**Last updated: 2026-05-28T22:45:00Z**
+**Last updated: 2026-05-28T23:02:50Z**
 
 **This file is the single source of truth for the GlueCron build.**
 
@@ -354,6 +354,18 @@ The marketing + acquisition + activation + retention package. Ten sub-blocks shi
 - **L8** — Free-tier UI polish → ✅ shipped. Pure UX over the existing F4 billing infrastructure; zero new billing logic. `src/routes/pricing.tsx` (641 lines) — public `GET /pricing`. Hero ("Free for the AI-curious. Pay only when you're ready to scale.") + four plan cards driven by `FALLBACK_PLANS` (Free/Pro/Team/Enterprise) with CTA to `/settings/billing?plan=` (or `/register?next=...` for anon). "What you get on the free tier" 13-feature 2-col block. Self-host vs Gluecron Cloud comparison. 5-question FAQ. `src/routes/billing.tsx` extended with a "this month" usage panel + "Upgrade to Pro" CTA for Free users + a "Detailed plan comparison" link to `/pricing`. Small "Free forever for the AI-curious" link added near the landing hero. Plan card text references K1/K2/K3/L1/L7/L9 features explicitly so visitors see what they get on Free.
 - **L9** — AI hours saved counter → ✅ shipped. Retention feature. `src/lib/ai-hours-saved.ts` (413 lines) exports `computeHoursSaved(breakdown)` (pure, deterministic, used by L1 and L4 too) + `computeAiSavingsForUser(userId, opts?)` + `computeLifetimeAiSavingsForUser(userId)`. Formula: `prsAutoMerged*0.30 + issuesBuiltByAi*1.50 + aiReviewsPosted*0.25 + aiTriagesPosted*0.10 + aiCommitMsgs*0.05 + secretsAutoRepaired*0.50 + gateAutoRepairs*0.40` — heuristic constants documented inline. Dashboard renders a large gradient hero widget with this-week / all-time tabs + breakdown pills + "How is this calculated?" disclosure. New endpoint `GET /api/v2/me/ai-savings` so VS Code + CLI consume the same metric. 17 tests.
 - **L10** — Marketing landing hero rewrite → ✅ shipped. `src/views/landing.tsx` — new gradient headline ("The git host built around Claude."), one-sentence subhead ("Label an issue. Walk away. Wake up to a merged PR."), one-line install snippet + copy button, three CTAs (`/register` / `/demo` / `/vs-github`), "what just happened" rail driven by L4's `publicStats`, "Three reasons to switch" 3-column section linking to Sleep Mode / `/import` / `/demo`, and a "How is this different from GitHub?" pull-quote linking to `/vs-github`. Preserves L4 counter tiles + L5 vs-github CTA + L7 git-remote caption + L8 free-tier link. `src/views/layout.tsx` extended additively with optional `description`/`ogTitle`/`ogDescription`/`ogType`/`twitterCard`/`fullTitle` props (render byte-identical when omitted, so the §4.7 locked contract holds). `src/routes/web.tsx` landing handler now passes SEO + OG props. 9 tests.
+
+### BLOCK M — 2030 vision: developer painkiller features (2026-05-28+)
+
+The "lightning-fast push → live site + zero friction" package. Owner directive: be the biggest painkiller for developers; lightning-fast push to bare metal to live site; never any caching issues; most advanced git host until 2030.
+
+- **M0** — DORA metrics dashboard → ✅ shipped (`8d1483c`). `src/routes/dora.tsx` — `GET /:owner/:repo/insights/dora`. Six parallel DB queries (deployment freq, lead time, change failure rate, MTTR, gate pass rate, workflow success rate). DORA level badges (Elite/High/Medium/Low) with colour coding. Last-10-deployments table. All queries wrapped in try/catch for graceful degradation.
+- **M1** — Push Watch page → 🟡 in-flight. `src/routes/push-watch.tsx` — `GET /:owner/:repo/push/:sha`. Per-commit live status: gate results, deploy status, push-to-live latency computation. JSON API at `/api/repos/:owner/:repo/push-status/:sha`. The "lightning-fast feedback" UX: one page that shows everything after a push.
+- **M2** — Org-level Secrets Manager → 🟡 in-flight. `drizzle/0075_org_secrets.sql` + `src/lib/org-secrets.ts` + `src/routes/org-secrets.tsx`. Org secrets apply to all repos in the org (overrideable per-repo). Settings UI at `/orgs/:slug/settings/secrets`. Extends the workflow runner's secrets resolution order: repo secrets > org secrets.
+- **M3** — No-cache middleware → ✅ shipped (`f5b9ef5`). `src/middleware/no-cache.ts` stamps `Cache-Control: no-store, no-cache, must-revalidate` + `Pragma: no-cache` + `Vary: Cookie` on all `text/html` responses. Assets (CSS/JS/images) unaffected. Eliminates stale-page issues after login, deploy, or push.
+- **M4** — Wider platform layout → ✅ shipped (`f5b9ef5`). All `max-width: 1240px` → `1440px` in `src/views/layout.tsx` (nav, main content, footer). Modern wide-screen utilisation for developer dashboards.
+- **M5** — Clean user nav dropdown → ✅ shipped (`f5b9ef5`). Replaced 8+ top-level nav links with a polished user dropdown (avatar initials + caret trigger, Dashboard, PRs, Issues, Activity, Import, Profile, Settings, Tokens, Theme toggle, Sign out) + bell inbox icon with unread badge. Reduces cognitive load; keeps the nav scannable.
+- **M6** — Zero-friction Claude Code integration → ✅ shipped (`f5b9ef5`). `src/routes/claude-integration.ts` — `POST /api/claude/connect` (Bearer PAT auth, auto-creates bare repo, returns gitRemote + mcpUrl), `GET /api/claude/connect`, `POST /api/claude/session` (telemetry). `src/routes/connect.tsx` — `/connect/claude-guide` public onboarding page.
 
 ---
 
@@ -715,15 +727,18 @@ Changes shipped this session (all pushed, zero TS errors, GateTest green):
 - `src/__tests__/editor.test.ts` — `as unknown as Hono` double-cast for Hono type mismatch.
 - `src/routes/workflow-secrets.tsx` — moved `wsecScript` const before route handlers (was forward-referenced past GET handler).
 
-**In-flight / next session:**
-- DORA metrics dashboard `src/routes/dora.tsx` (agent running).
-- Bulk issue operations (agent running).
-- Repo health score on repo landing page.
-- `diff-view.tsx` still has one outstanding `TS2820` — confirmed fixed above.
-- ~~L1 `sleep-mode.ts` should import `computeHoursSaved` from `ai-hours-saved.ts`~~ — already done (line 39).
-- ~~K3 autopilot tasks not surfaced on `/admin/autopilot`~~ — already listed (admin.tsx lines 3437-3438).
+**Additional shipped this session (2026-05-28 continued):**
+- ~~DORA metrics dashboard `src/routes/dora.tsx`~~ — shipped (`8d1483c`). `GET /:owner/:repo/insights/dora` with 6 parallel DB queries, DORA level badges, last-10-deployments table.
+- ~~Bulk issue operations~~ — shipped (`8d1483c`). POST /:owner/:repo/issues/bulk endpoint + floating sticky action bar.
+- `src/__tests__/layout-user-prop.test.ts` — updated nav-user assertion to match redesigned dropdown (`da16579`). Test suite: 2696/0/120.
+- ~~`diff-view.tsx` TS2820~~ — confirmed fixed.
+- ~~L1/K3 follow-ups~~ — confirmed already done.
 
-(Intentionally empty. Add here if a block is partially complete at session end.)
+**In-flight (agents running):**
+- **M1 Push Watch page** — `src/routes/push-watch.tsx` at `GET /:owner/:repo/push/:sha`. Per-push live status: commit info, gate results, deploy status, push-to-live latency. JSON API at `/api/repos/:owner/:repo/push-status/:sha`.
+- **M2 Org-level Secrets** — `drizzle/0075_org_secrets.sql` + `src/lib/org-secrets.ts` + `src/routes/org-secrets.tsx`. Org secrets auto-apply to all repos; settings UI at `/orgs/:slug/settings/secrets`.
+
+**Repo health score** — already exists at `src/routes/health.tsx` (uses `computeHealthScore` from `src/lib/intelligence.ts`). No new work needed.
 
 **2026-05-13 — BLOCK L (PR #62) follow-ups (all non-blocking; suite is 1491/0/2 green):**
 

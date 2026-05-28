@@ -3019,6 +3019,10 @@ web.get("/:owner/:repo", async (c) => {
           <span class="repo-ai-cta-icon" aria-hidden="true">{"\u{1F3F7}"}</span>
           AI release notes
         </a>
+        <a class="repo-ai-cta" href={`/${owner}/${repo}/dev`} title="Open a hosted VS Code dev environment in the browser">
+          <span class="repo-ai-cta-icon" aria-hidden="true">{"💻"}</span>
+          Dev environment
+        </a>
       </nav>
       <div class="repo-home-grid">
         <div class="repo-home-main">

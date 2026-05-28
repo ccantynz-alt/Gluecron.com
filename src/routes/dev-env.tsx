@@ -22,6 +22,10 @@ import { db } from "../db";
 import { repositories, users } from "../db/schema";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
+import {
+  resolveRepoAccess,
+  satisfiesAccess,
+} from "../middleware/repo-access";
 import { Layout } from "../views/layout";
 import {
   buildDevEnvUrl,
@@ -310,6 +314,7 @@ async function resolveRepoForUser(
   repoId: string;
   repoName: string;
   devEnabled: boolean;
+  isPrivate: boolean;
 } | null> {
   try {
     const [owner] = await db
@@ -335,6 +340,7 @@ async function resolveRepoForUser(
       repoId: repo.id,
       repoName: repo.name,
       devEnabled: !!(repo as { devEnvsEnabled?: boolean }).devEnvsEnabled,
+      isPrivate: !!(repo as { isPrivate?: boolean }).isPrivate,
     };
   } catch {
     return null;
@@ -408,6 +414,26 @@ devEnvRoutes.get("/:owner/:repo/dev", softAuth, async (c) => {
   const resolved = await resolveRepoForUser(ownerName, repoName);
   if (!resolved) return c.notFound();
 
+  // Gate: resolve the viewer's access level.
+  const access = await resolveRepoAccess({
+    repoId: resolved.repoId,
+    userId: user?.id ?? null,
+    isPublic: !resolved.isPrivate,
+  });
+
+  // Private repo with no access → 404 (don't leak the repo exists).
+  if (!satisfiesAccess(access, "read")) {
+    return c.notFound();
+  }
+
+  // Unauthenticated visitor on a public repo: redirect to login so they can
+  // get their own dev env session.
+  if (!user) {
+    return c.redirect(
+      `/login?next=${encodeURIComponent(`/${resolved.ownerName}/${resolved.repoName}/dev`)}`
+    );
+  }
+
   // Render a "disabled" notice if the repo hasn't opted in. Owners get a
   // direct link to flip the toggle.
   if (!resolved.devEnabled) {
@@ -459,13 +485,6 @@ devEnvRoutes.get("/:owner/:repo/dev", softAuth, async (c) => {
           </div>
         </div>
       </Layout>
-    );
-  }
-
-  // Login required to provision/use an env.
-  if (!user) {
-    return c.redirect(
-      `/login?next=${encodeURIComponent(`/${resolved.ownerName}/${resolved.repoName}/dev`)}`
     );
   }
 
@@ -692,6 +711,16 @@ devEnvRoutes.post(
     const resolved = await resolveRepoForUser(ownerName, repoName);
     if (!resolved) return c.json({ ok: false, error: "Repo not found" }, 404);
 
+    // Require at least write access to start a dev env.
+    const access = await resolveRepoAccess({
+      repoId: resolved.repoId,
+      userId: user.id,
+      isPublic: !resolved.isPrivate,
+    });
+    if (!satisfiesAccess(access, "write")) {
+      return c.json({ ok: false, error: "Insufficient access" }, 403);
+    }
+
     // Parse machine_size from either form body or JSON body, leniently.
     let machineSize: string | undefined;
     try {
@@ -763,6 +792,16 @@ devEnvRoutes.post(
     const user = c.get("user")!;
     const resolved = await resolveRepoForUser(ownerName, repoName);
     if (!resolved) return c.json({ ok: false, error: "Repo not found" }, 404);
+
+    // Require at least write access to stop a dev env.
+    const access = await resolveRepoAccess({
+      repoId: resolved.repoId,
+      userId: user.id,
+      isPublic: !resolved.isPrivate,
+    });
+    if (!satisfiesAccess(access, "write")) {
+      return c.json({ ok: false, error: "Insufficient access" }, 403);
+    }
 
     const env = await getDevEnvForOwner(resolved.repoId, user.id);
     if (!env) {

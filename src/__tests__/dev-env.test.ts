@@ -1,12 +1,16 @@
 /**
- * Tests for src/lib/dev-env.ts — cloud dev environments (migration 0072).
+ * Tests for src/lib/dev-env.ts and src/routes/dev-env.tsx — cloud dev
+ * environments (migration 0072).
  *
- * Two layers:
+ * Three layers:
  *
- *   1. Pure helpers — URL building, status label mapping, machine-size
+ *   1. Route smoke tests — module loads without error; unauthenticated
+ *      visitors on a public repo are redirected to login.
+ *
+ *   2. Pure helpers — URL building, status label mapping, machine-size
  *      validation. No DB, no network. Always run.
  *
- *   2. DB-backed pipeline — gated on HAS_DB so the suite stays green on
+ *   3. DB-backed pipeline — gated on HAS_DB so the suite stays green on
  *      machines without Postgres. Covers:
  *        - startDevEnv reads committed dev.yml when present
  *        - startDevEnv generates a default when no file is committed
@@ -17,6 +21,7 @@
 
 import { afterEach, describe, expect, it } from "bun:test";
 import { eq } from "drizzle-orm";
+import app from "../app";
 import {
   buildDevEnvUrl,
   DEFAULT_IDLE_MINUTES,
@@ -38,7 +43,91 @@ import { devEnvs, repositories, users } from "../db/schema";
 const HAS_DB = Boolean(process.env.DATABASE_URL);
 
 // ---------------------------------------------------------------------------
-// 1. Pure helpers
+// 1. Route smoke tests
+// ---------------------------------------------------------------------------
+
+describe("dev-env — route module", () => {
+  it("loads without error and exports a Hono app", async () => {
+    // Dynamic import to verify the module resolves cleanly at runtime.
+    const mod = await import("../routes/dev-env");
+    expect(mod.default).toBeDefined();
+    // Hono instances expose a `fetch` method.
+    expect(typeof mod.default.fetch).toBe("function");
+  });
+});
+
+describe("dev-env — unauthenticated redirect", () => {
+  it.skipIf(!HAS_DB)(
+    "GET /:owner/:repo/dev redirects unauthenticated visitor on a public repo to /login",
+    async () => {
+      // Seed a minimal public repo so resolveRepoForUser resolves.
+      const { db: database } = await import("../db");
+      const { repositories: repos, users: usersTable } = await import(
+        "../db/schema"
+      );
+      const username =
+        "devenvsmoke_" + Math.random().toString(36).slice(2, 10);
+      const [user] = await database
+        .insert(usersTable)
+        .values({
+          username,
+          email: `${username}@test.local`,
+          passwordHash: "$2b$10$" + "x".repeat(53),
+        })
+        .returning();
+      const repoName = "pub-" + Math.random().toString(36).slice(2, 8);
+      await database
+        .insert(repos)
+        .values({
+          name: repoName,
+          ownerId: user!.id,
+          diskPath: `/tmp/devenvsmoke-${repoName}`,
+          isPrivate: false,
+          devEnvsEnabled: true,
+        })
+        .returning();
+
+      try {
+        // No session cookie → softAuth sets user=null → redirect to /login.
+        const res = await app.request(
+          `/${username}/${repoName}/dev`,
+          { redirect: "manual" }
+        );
+        expect(res.status).toBe(302);
+        const location = res.headers.get("location") ?? "";
+        expect(location).toContain("/login");
+      } finally {
+        // Clean up seeded rows.
+        try {
+          const { eq: eqFn } = await import("drizzle-orm");
+          await database
+            .delete(repos)
+            .where(eqFn(repos.ownerId, user!.id));
+          await database
+            .delete(usersTable)
+            .where(eqFn(usersTable.id, user!.id));
+        } catch {
+          /* best effort */
+        }
+      }
+    }
+  );
+
+  it("GET /:owner/:repo/dev returns 404 for non-existent repo (no DB or absent repo)", async () => {
+    // Without a real repo row the route cannot resolve the repo and returns 404.
+    // This test always runs (no DB required) because resolveRepoForUser
+    // returns null when the DB is unreachable or the repo doesn't exist.
+    const res = await app.request(
+      "/no-such-owner-xyzzy/no-such-repo-xyzzy/dev",
+      { redirect: "manual" }
+    );
+    // 404 (repo not found) or 302 (redirect if somehow auth redirects first).
+    expect([404, 302].includes(res.status)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 2. Pure helpers
 // ---------------------------------------------------------------------------
 
 describe("dev-env — buildDevEnvUrl", () => {

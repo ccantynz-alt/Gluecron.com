@@ -1756,8 +1756,8 @@ pulls.get("/:owner/:repo/pulls", softAuth, requireRepoAccess("read"), async (c) 
         <style
           dangerouslySetInnerHTML={{
             __html: `
-              .prs-skel { background: linear-gradient(90deg, var(--bg-secondary) 0%, var(--bg-elevated) 50%, var(--bg-secondary) 100%); background-size: 200% 100%; animation: prsSkelShimmer 1.4s infinite; border-radius: 6px; display: block; }
-              @keyframes prsSkelShimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+              .prs-skel { background: linear-gradient(90deg, var(--bg-secondary) 0%, var(--bg-elevated) 50%, var(--bg-secondary) 100%); background-size: 200% 100%; animation: prs-skel-shimmer 1.4s infinite; border-radius: 6px; display: block; }
+              @keyframes prs-skel-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
               @media (prefers-reduced-motion: reduce) { .prs-skel { animation: none; } }
               .prs-skel-hero { height: 152px; border-radius: 16px; margin: 0 0 var(--space-5); }
               .prs-skel-tabs { height: 40px; width: 360px; border-radius: 9999px; margin: 0 0 16px; }

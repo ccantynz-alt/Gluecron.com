@@ -720,8 +720,8 @@ Changes shipped this session (all pushed, zero TS errors, GateTest green):
 - Bulk issue operations (agent running).
 - Repo health score on repo landing page.
 - `diff-view.tsx` still has one outstanding `TS2820` — confirmed fixed above.
-- L1 `sleep-mode.ts` should import `computeHoursSaved` from `ai-hours-saved.ts` (one-line cleanup, non-blocking).
-- K3 autopilot tasks `auto-merge-sweep` + `ai-build-from-issues` are wired but not surfaced on `/admin/autopilot` detail cards.
+- ~~L1 `sleep-mode.ts` should import `computeHoursSaved` from `ai-hours-saved.ts`~~ — already done (line 39).
+- ~~K3 autopilot tasks not surfaced on `/admin/autopilot`~~ — already listed (admin.tsx lines 3437-3438).
 
 (Intentionally empty. Add here if a block is partially complete at session end.)
 

@@ -651,6 +651,37 @@ const issuesStyles = `
   .iss-linked-pr-state.is-closed { color: #8b949e; background: var(--bg-tertiary); }
   .iss-linked-pr-state.is-draft { color: #8b949e; background: var(--bg-tertiary); }
 
+  /* ─── Bulk action UI ─── */
+  .bulk-cb { width:16px; height:16px; accent-color:var(--accent); cursor:pointer; flex-shrink:0; }
+  .bulk-bar {
+    display: none;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-md);
+    margin-bottom: 12px;
+    position: sticky;
+    top: calc(var(--header-h) + 8px);
+    z-index: 10;
+    box-shadow: 0 4px 16px -4px rgba(0,0,0,0.4);
+  }
+  .bulk-bar-count { font-size:13px; font-weight:600; color:var(--text-strong); flex:1; }
+  .bulk-bar-btn {
+    padding: 6px 12px;
+    border-radius: var(--r-sm);
+    border: 1px solid var(--border);
+    background: var(--bg-surface);
+    color: var(--text);
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 120ms;
+  }
+  .bulk-bar-btn:hover { background: var(--bg-hover); }
+  .bulk-bar-clear { background: none; border: none; color: var(--text-muted); font-size: 12px; cursor: pointer; padding: 4px 8px; }
+  .bulk-bar-clear:hover { color: var(--text); }
+
   /* ─── Sort controls (issue list) ─── */
   .issues-sort-row {
     display: flex;
@@ -738,6 +769,33 @@ async function resolveRepo(ownerName: string, repoName: string) {
 
   return { owner, repo };
 }
+
+// Bulk issue operations (close / reopen multiple issues at once)
+issueRoutes.post("/:owner/:repo/issues/bulk", requireAuth, requireRepoAccess("write"), async (c) => {
+  const { owner: ownerName, repo: repoName } = c.req.param();
+  const user = c.get("user")!;
+  const body = await c.req.parseBody();
+  const action = String(body.action || "");
+  const rawNumbers = body["numbers[]"];
+  const numbers = (Array.isArray(rawNumbers) ? rawNumbers : rawNumbers ? [rawNumbers] : [])
+    .map(n => parseInt(String(n), 10))
+    .filter(n => !isNaN(n) && n > 0);
+
+  if (!numbers.length || !["close","reopen"].includes(action)) {
+    return c.redirect(`/${ownerName}/${repoName}/issues?error=${encodeURIComponent("Invalid bulk action")}`);
+  }
+
+  const resolved = await resolveRepo(ownerName, repoName);
+  if (!resolved) return c.redirect(`/${ownerName}/${repoName}/issues`);
+
+  const newState = action === "close" ? "closed" : "open";
+  await db.update(issues)
+    .set({ state: newState, closedAt: action === "close" ? new Date() : null, updatedAt: new Date() })
+    .where(and(eq(issues.repositoryId, resolved.repo.id), inArray(issues.number, numbers)));
+
+  const stateParam = action === "close" ? "open" : "closed"; // stay on current view
+  return c.redirect(`/${ownerName}/${repoName}/issues?state=${stateParam === "closed" ? "closed" : "open"}&success=${encodeURIComponent(`${numbers.length} issue(s) ${action}d`)}`);
+});
 
 // Issue list
 issueRoutes.get("/:owner/:repo/issues", softAuth, requireRepoAccess("read"), async (c) => {
@@ -1008,31 +1066,59 @@ issueRoutes.get("/:owner/:repo/issues", softAuth, requireRepoAccess("read"), asy
           </div>
         </div>
       ) : (
-        <ul class="issues-list">
-          {issueList.map(({ issue, author }) => (
-            <li class="issues-row">
-              <div
-                class={`issues-row-icon ${issue.state === "open" ? "is-open" : "is-closed"}`}
-                aria-hidden="true"
-                title={issue.state === "open" ? "Open" : "Closed"}
-              >
-                {issue.state === "open" ? "\u25CB" : "\u2713"}
-              </div>
-              <div class="issues-row-main">
-                <h3 class="issues-row-title">
-                  <a href={`/${ownerName}/${repoName}/issues/${issue.number}`}>
-                    {issue.title}
-                  </a>
-                </h3>
-                <div class="issues-row-meta">
-                  #{issue.number} opened by{" "}
-                  <strong>{author.username}</strong>{" "}
-                  {formatRelative(issue.createdAt)}
+        <form id="bulk-form" method="post" action={`/${ownerName}/${repoName}/issues/bulk`}>
+          <input type="hidden" name="action" id="bulk-action" value="" />
+          <div class="bulk-bar" id="bulk-bar" aria-hidden="true">
+            <span class="bulk-bar-count" id="bulk-bar-count">0 selected</span>
+            <button type="button" class="bulk-bar-btn" onclick="bulkSubmit('close')">Close selected</button>
+            <button type="button" class="bulk-bar-btn" onclick="bulkSubmit('reopen')">Reopen selected</button>
+            <button type="button" class="bulk-bar-clear" onclick="bulkClear()">Clear</button>
+          </div>
+          <ul class="issues-list">
+            {issueList.map(({ issue, author }) => (
+              <li class="issues-row">
+                <input type="checkbox" name="numbers[]" value={String(issue.number)} class="bulk-cb" aria-label={`Select issue #${issue.number}`} />
+                <div
+                  class={`issues-row-icon ${issue.state === "open" ? "is-open" : "is-closed"}`}
+                  aria-hidden="true"
+                  title={issue.state === "open" ? "Open" : "Closed"}
+                >
+                  {issue.state === "open" ? "\u25CB" : "\u2713"}
                 </div>
-              </div>
-            </li>
-          ))}
-        </ul>
+                <div class="issues-row-main">
+                  <h3 class="issues-row-title">
+                    <a href={`/${ownerName}/${repoName}/issues/${issue.number}`}>
+                      {issue.title}
+                    </a>
+                  </h3>
+                  <div class="issues-row-meta">
+                    #{issue.number} opened by{" "}
+                    <strong>{author.username}</strong>{" "}
+                    {formatRelative(issue.createdAt)}
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+          <script dangerouslySetInnerHTML={{ __html: `
+function bulkSubmit(action){
+  document.getElementById('bulk-action').value=action;
+  document.getElementById('bulk-form').submit();
+}
+function bulkClear(){
+  document.querySelectorAll('.bulk-cb').forEach(function(cb){cb.checked=false;});
+  updateBulkBar();
+}
+function updateBulkBar(){
+  var checked=document.querySelectorAll('.bulk-cb:checked').length;
+  var bar=document.getElementById('bulk-bar');
+  var cnt=document.getElementById('bulk-bar-count');
+  if(bar){bar.style.display=checked>0?'flex':'none';}
+  if(cnt){cnt.textContent=checked+' selected';}
+}
+document.addEventListener('change',function(e){if(e.target&&e.target.classList.contains('bulk-cb'))updateBulkBar();});
+` }} />
+        </form>
       )}
     </Layout>
   );

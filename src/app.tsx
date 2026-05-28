@@ -58,6 +58,7 @@ import { platformStatus } from "./routes/platform-status";
 import publicStatsRoutes from "./routes/public-stats";
 import demoRoutes from "./routes/demo";
 import insightRoutes from "./routes/insights";
+import doraRoutes from "./routes/dora";
 import dashboardRoutes from "./routes/dashboard";
 import legalRoutes from "./routes/legal";
 import legalDmcaRoutes from "./routes/legal/dmca";
@@ -537,6 +538,9 @@ app.route("/", adminDiagnoseRoutes);
 
 // Insights (time-travel, dependencies, rollback)
 app.route("/", insightRoutes);
+
+// DORA metrics page (/:owner/:repo/insights/dora)
+app.route("/", doraRoutes);
 
 // Command center dashboard
 app.route("/", dashboardRoutes);

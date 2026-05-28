@@ -95,7 +95,7 @@ fi
 # ── 4. Sign in ──────────────────────────────────────────────────────────────
 say "[4/8] Signing in to $HOST"
 USERNAME="${GLUECRON_USERNAME:-}"
-PASSWORD="${GLUECRON_PASSWORD:-}"
+PASSWORD="${GLUECRON_PASSWORD:-}" # secrets-ok: read from env var, not a hardcoded credential
 if [ -z "$USERNAME" ]; then
   if [ ! -t 0 ]; then
     fail "GLUECRON_USERNAME is unset and stdin is not a TTY. Re-run as: GLUECRON_USERNAME=you GLUECRON_PASSWORD=*** curl -sSL $HOST/install | bash"

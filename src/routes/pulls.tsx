@@ -80,6 +80,8 @@ import {
   listBranches,
   getRepoPath,
   resolveRef,
+  getBlob,
+  createOrUpdateFileOnBranch,
 } from "../git/repository";
 import type { GitDiffFile } from "../git/repository";
 import { html } from "hono/html";
@@ -2575,6 +2577,7 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
           viewFileBase={`/${ownerName}/${repoName}/blob/${pr.headBranch}`}
           inlineComments={diffInlineComments}
           commentActionUrl={user ? `/${ownerName}/${repoName}/pulls/${pr.number}/comment` : undefined}
+          applySuggestionUrl={user ? `/${ownerName}/${repoName}/pulls/${pr.number}/apply-suggestion` : undefined}
         />
       ) : (
         <>
@@ -3101,6 +3104,125 @@ pulls.post(
     // Inline comments go back to the files tab; conversation comments to the conversation tab
     const redirectTab = inlineFilePath ? "?tab=files" : "";
     return c.redirect(`/${ownerName}/${repoName}/pulls/${prNum}${redirectTab}`);
+  }
+);
+
+// Apply a suggestion from a PR comment — commits the suggested code to the
+// head branch on behalf of the logged-in user.
+pulls.post(
+  "/:owner/:repo/pulls/:number/apply-suggestion/:commentId",
+  softAuth,
+  requireAuth,
+  requireRepoAccess("read"),
+  async (c) => {
+    const { owner: ownerName, repo: repoName } = c.req.param();
+    const prNum = parseInt(c.req.param("number"), 10);
+    const commentId = c.req.param("commentId"); // UUID
+    const user = c.get("user")!;
+
+    const backUrl = `/${ownerName}/${repoName}/pulls/${prNum}?tab=files`;
+
+    const resolved = await resolveRepo(ownerName, repoName);
+    if (!resolved) return c.redirect(`/${ownerName}/${repoName}`);
+
+    const [pr] = await db
+      .select()
+      .from(pullRequests)
+      .where(
+        and(
+          eq(pullRequests.repositoryId, resolved.repo.id),
+          eq(pullRequests.number, prNum)
+        )
+      )
+      .limit(1);
+
+    if (!pr || pr.state !== "open") {
+      return c.redirect(`${backUrl}&error=pr_not_open`);
+    }
+
+    // Only PR author or repo owner may apply suggestions.
+    if (user.id !== pr.authorId && user.id !== resolved.repo.ownerId) {
+      return c.redirect(`${backUrl}&error=forbidden`);
+    }
+
+    // Load the comment.
+    const [comment] = await db
+      .select()
+      .from(prComments)
+      .where(
+        and(
+          eq(prComments.id, commentId),
+          eq(prComments.pullRequestId, pr.id)
+        )
+      )
+      .limit(1);
+
+    if (!comment) {
+      return c.redirect(`${backUrl}&error=comment_not_found`);
+    }
+
+    // Parse suggestion block from comment body.
+    const m = comment.body.match(/```suggestion\n([\s\S]*?)\n```/);
+    if (!m) {
+      return c.redirect(`${backUrl}&error=no_suggestion`);
+    }
+    const suggestionCode = m[1];
+
+    // Get the commenter's details for the commit message co-author line.
+    const [commenter] = await db
+      .select()
+      .from(users)
+      .where(eq(users.id, comment.authorId))
+      .limit(1);
+
+    // Fetch current file content from head branch.
+    if (!comment.filePath) {
+      return c.redirect(`${backUrl}&error=file_not_found`);
+    }
+    const blob = await getBlob(ownerName, repoName, pr.headBranch, comment.filePath);
+    if (!blob) {
+      return c.redirect(`${backUrl}&error=file_not_found`);
+    }
+
+    // Apply the patch — replace the target line(s) with suggestion lines.
+    const lines = blob.content.split('\n');
+    const lineIdx = (comment.lineNumber ?? 1) - 1;
+    if (lineIdx < 0 || lineIdx >= lines.length) {
+      return c.redirect(`${backUrl}&error=line_out_of_range`);
+    }
+    const suggestionLines = suggestionCode.split('\n');
+    lines.splice(lineIdx, 1, ...suggestionLines);
+    const newContent = lines.join('\n');
+
+    // Commit the change.
+    const coAuthorLine = commenter
+      ? `Co-authored-by: ${commenter.username} <${commenter.username}@users.noreply.gluecron.com>`
+      : "";
+    const commitMessage = `Apply suggestion from PR #${pr.number}${coAuthorLine ? `\n\n${coAuthorLine}` : ""}`;
+
+    const result = await createOrUpdateFileOnBranch({
+      owner: ownerName,
+      name: repoName,
+      branch: pr.headBranch,
+      filePath: comment.filePath,
+      bytes: new TextEncoder().encode(newContent),
+      message: commitMessage,
+      authorName: user.username,
+      authorEmail: `${user.username}@users.noreply.gluecron.com`,
+    });
+
+    if ("error" in result) {
+      return c.redirect(`${backUrl}&error=apply_failed`);
+    }
+
+    // Post a follow-up comment noting the suggestion was applied.
+    await db.insert(prComments).values({
+      pullRequestId: pr.id,
+      authorId: user.id,
+      body: `✅ Suggestion applied in commit ${result.commitSha.slice(0, 7)}.`,
+    });
+
+    return c.redirect(`/${ownerName}/${repoName}/pulls/${prNum}?tab=files`);
   }
 );
 

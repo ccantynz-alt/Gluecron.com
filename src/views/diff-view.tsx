@@ -327,9 +327,11 @@ export interface DiffViewProps {
   inlineComments?: InlineDiffComment[];
   /** URL to POST a new inline comment to (shows gutter "+" buttons when set) */
   commentActionUrl?: string;
+  /** If set, shows "Apply suggestion" button on suggestion blocks; POSTs to `${applySuggestionUrl}/${commentId}` */
+  applySuggestionUrl?: string;
 }
 
-export const DiffView: FC<DiffViewProps> = ({ raw, files, viewFileBase, inlineComments, commentActionUrl }) => {
+export const DiffView: FC<DiffViewProps> = ({ raw, files, viewFileBase, inlineComments, commentActionUrl, applySuggestionUrl }) => {
   const parsed = parseUnifiedDiff(raw);
 
   // Build a lookup map: "filePath:lineNumber" → inline comments
@@ -489,6 +491,7 @@ export const DiffView: FC<DiffViewProps> = ({ raw, files, viewFileBase, inlineCo
                             data-line={key}
                             data-file={canComment ? file.path : undefined}
                             data-newline={canComment ? ln.newNum : undefined}
+                            data-linetext={canComment ? ln.text : undefined}
                           >
                             <span class="diff-gutter diff-gutter-old">
                               {ln.oldNum ?? ""}
@@ -504,18 +507,52 @@ export const DiffView: FC<DiffViewProps> = ({ raw, files, viewFileBase, inlineCo
                             </span>
                             <CodeSpan html={highlighted} text={ln.text} />
                           </div>
-                          {lineComments.map(c => (
-                            <div class={`diff-inline-comment${c.isAiReview ? " diff-inline-comment-ai" : ""}`} data-comment-id={c.id}>
-                              <div class="diff-inline-comment-head">
-                                <strong>{c.authorUsername}</strong>
-                                <span class="diff-inline-comment-meta">
-                                  {c.isAiReview && <span class="diff-inline-ai-badge">AI</span>}
-                                  {new Date(c.createdAt).toLocaleDateString()}
-                                </span>
+                          {lineComments.map(c => {
+                            // Detect suggestion block: ```suggestion\n...\n```
+                            const suggMatch = c.body.match(/^```suggestion\n([\s\S]*?)\n```/);
+                            if (suggMatch) {
+                              const suggCode = suggMatch[1];
+                              // Any text after the closing ``` fence is treated as the comment prose
+                              const afterFence = c.body.slice(suggMatch[0].length).trim();
+                              return (
+                                <div class={`diff-inline-comment${c.isAiReview ? " diff-inline-comment-ai" : ""}`} data-comment-id={c.id}>
+                                  <div class="diff-inline-comment-head">
+                                    <strong>{c.authorUsername}</strong>
+                                    <span class="diff-inline-comment-meta">
+                                      {c.isAiReview && <span class="diff-inline-ai-badge">AI</span>}
+                                      {new Date(c.createdAt).toLocaleDateString()}
+                                    </span>
+                                  </div>
+                                  <div class="diff-suggestion-block">
+                                    <div class="diff-suggestion-header">
+                                      <span>Suggested change</span>
+                                      {applySuggestionUrl && (
+                                        <form method="POST" action={`${applySuggestionUrl}/${c.id}`} style="margin:0;display:inline;">
+                                          <button type="submit" class="diff-apply-btn">Apply suggestion</button>
+                                        </form>
+                                      )}
+                                    </div>
+                                    <pre class="diff-suggestion-code">{suggCode}</pre>
+                                  </div>
+                                  {afterFence && (
+                                    <div class="diff-inline-comment-body" style="margin-top:6px;" dangerouslySetInnerHTML={{ __html: afterFence }} />
+                                  )}
+                                </div>
+                              );
+                            }
+                            return (
+                              <div class={`diff-inline-comment${c.isAiReview ? " diff-inline-comment-ai" : ""}`} data-comment-id={c.id}>
+                                <div class="diff-inline-comment-head">
+                                  <strong>{c.authorUsername}</strong>
+                                  <span class="diff-inline-comment-meta">
+                                    {c.isAiReview && <span class="diff-inline-ai-badge">AI</span>}
+                                    {new Date(c.createdAt).toLocaleDateString()}
+                                  </span>
+                                </div>
+                                <div class="diff-inline-comment-body" dangerouslySetInnerHTML={{ __html: c.body }} />
                               </div>
-                              <div class="diff-inline-comment-body" dangerouslySetInnerHTML={{ __html: c.body }} />
-                            </div>
-                          ))}
+                            );
+                          })}
                         </>
                       );
                     })}
@@ -529,6 +566,9 @@ export const DiffView: FC<DiffViewProps> = ({ raw, files, viewFileBase, inlineCo
 
       {commentActionUrl && (
         <meta name="diff-comment-url" content={commentActionUrl} />
+      )}
+      {applySuggestionUrl && (
+        <meta name="diff-apply-suggestion-url" content={applySuggestionUrl} />
       )}
       <script dangerouslySetInnerHTML={{ __html: DIFF_VIEW_JS }} />
     </div>
@@ -563,6 +603,7 @@ const DIFF_VIEW_JS = `
       if (!row) return;
       var filePath = row.getAttribute('data-file');
       var lineNum = row.getAttribute('data-newline');
+      var lineText = row.getAttribute('data-linetext') || '';
       var actionUrl = document.querySelector('meta[name="diff-comment-url"]');
       if (!filePath || !lineNum || !actionUrl) return;
       // Remove any existing open form
@@ -580,13 +621,47 @@ const DIFF_VIEW_JS = `
         '<input type="hidden" name="file_path" value="' + filePath.replace(/"/g,'&quot;') + '">' +
         '<input type="hidden" name="line_number" value="' + lineNum + '">' +
         '<textarea name="body" rows="3" placeholder="Leave a comment…" class="diff-inline-textarea" required></textarea>' +
+        '<button type="button" class="diff-suggestion-toggle" title="Toggle suggestion mode">Suggest a change</button>' +
+        '<textarea class="diff-suggestion-textarea" rows="3" placeholder="Enter suggested replacement…" aria-label="Suggested replacement code"></textarea>' +
         '<div class="diff-inline-form-actions">' +
           '<button type="submit" class="diff-inline-submit">Comment</button>' +
           '<button type="button" class="diff-inline-cancel">Cancel</button>' +
         '</div>';
+      var toggleBtn = form.querySelector('.diff-suggestion-toggle');
+      var suggTA = form.querySelector('.diff-suggestion-textarea');
+      var submitBtn = form.querySelector('.diff-inline-submit');
+      var bodyTA = form.querySelector('textarea[name="body"]');
+      var suggestionActive = false;
+      toggleBtn.addEventListener('click', function () {
+        suggestionActive = !suggestionActive;
+        if (suggestionActive) {
+          toggleBtn.classList.add('is-active');
+          suggTA.classList.add('is-visible');
+          suggTA.value = lineText;
+          submitBtn.textContent = 'Add suggestion & comment';
+        } else {
+          toggleBtn.classList.remove('is-active');
+          suggTA.classList.remove('is-visible');
+          submitBtn.textContent = 'Comment';
+        }
+      });
+      form.addEventListener('submit', function (ev) {
+        if (!suggestionActive) return;
+        ev.preventDefault();
+        var suggVal = suggTA.value;
+        var commentText = bodyTA.value;
+        var wrapped = "\`\`\`suggestion\n" + suggVal + "\n\`\`\`";
+        var fullBody = commentText ? (wrapped + '\n' + commentText) : wrapped;
+        // Replace the body textarea value with the combined body
+        bodyTA.value = fullBody;
+        bodyTA.removeAttribute('required');
+        // Re-submit without the suggestion logic
+        suggestionActive = false;
+        form.submit();
+      });
       form.querySelector('.diff-inline-cancel').addEventListener('click', function () { form.remove(); });
       row.insertAdjacentElement('afterend', form);
-      form.querySelector('textarea').focus();
+      bodyTA.focus();
     }
   });
 })();
@@ -991,6 +1066,77 @@ const DIFF_VIEW_CSS = `
   .diff-body.has-hljs .hljs-name { color: #7ee787; }
   .diff-body.has-hljs .hljs-variable,
   .diff-body.has-hljs .hljs-template-variable { color: #ffa657; }
+
+  /* ─── Suggestion blocks ─── */
+  .diff-suggestion-block {
+    margin: 8px 0;
+    border: 1px solid rgba(52,211,153,0.3);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .diff-suggestion-header {
+    padding: 6px 12px;
+    background: rgba(52,211,153,0.08);
+    border-bottom: 1px solid rgba(52,211,153,0.2);
+    font-size: 12px;
+    color: #6ee7b7;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .diff-suggestion-code {
+    padding: 8px 12px;
+    background: rgba(52,211,153,0.05);
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    white-space: pre;
+    color: var(--text);
+    margin: 0;
+  }
+  .diff-apply-btn {
+    background: rgba(52,211,153,0.15);
+    color: #6ee7b7;
+    border: 1px solid rgba(52,211,153,0.35);
+    border-radius: 5px;
+    padding: 4px 12px;
+    font-size: 12px;
+    cursor: pointer;
+    font-family: var(--font-sans, inherit);
+  }
+  .diff-apply-btn:hover {
+    background: rgba(52,211,153,0.25);
+  }
+  .diff-suggestion-toggle {
+    background: transparent;
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 4px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    font-family: var(--font-sans, inherit);
+    margin-top: 6px;
+  }
+  .diff-suggestion-toggle.is-active {
+    background: rgba(52,211,153,0.1);
+    color: #6ee7b7;
+    border-color: rgba(52,211,153,0.35);
+  }
+  .diff-suggestion-textarea {
+    width: 100%;
+    background: rgba(52,211,153,0.04);
+    color: var(--text);
+    border: 1px solid rgba(52,211,153,0.25);
+    border-radius: 4px;
+    padding: 8px;
+    font-size: 12.5px;
+    font-family: var(--font-mono);
+    resize: vertical;
+    box-sizing: border-box;
+    margin-top: 6px;
+    display: none;
+  }
+  .diff-suggestion-textarea.is-visible { display: block; }
 
   /* ─── Split-view scaffolding (phase 2 placeholder) ───
      The .diff-body element is grid-friendly; a future toggle can swap to

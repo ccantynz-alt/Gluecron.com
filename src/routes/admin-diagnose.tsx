@@ -223,7 +223,7 @@ function checkDatabase(): CheckResult {
       name: "Connection string",
       status: "red",
       detail: "DATABASE_URL is not a valid URL.",
-      fix: "Fix the URL format: postgres://user:pass@host:port/dbname",
+      fix: "Fix the URL format: postgres://user:pass@host:port/dbname", // secrets-ok: placeholder example URL, not a real credential
     };
   }
   return {

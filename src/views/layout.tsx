@@ -900,6 +900,33 @@ const navScript = `
         else if (e.key === 'a') { e.preventDefault(); window.location.href = '/ask'; }
         chord = null;
       }
+      // j/k list navigation — move through .prs-row, .issue-row, .notif-item rows
+      if (e.key === 'j' || e.key === 'k') {
+        var selectors = '.prs-row, .issue-row, .issue-list-item, .notif-item, .repo-item, .exp-repo-card, .disc-row';
+        var items = Array.from(document.querySelectorAll(selectors));
+        if (items.length === 0) return;
+        e.preventDefault();
+        var cur = items.findIndex(function(el){ return el.classList.contains('is-kbd-focus'); });
+        var next = e.key === 'j' ? (cur < 0 ? 0 : Math.min(items.length - 1, cur + 1)) : (cur < 0 ? items.length - 1 : Math.max(0, cur - 1));
+        items.forEach(function(el){ el.classList.remove('is-kbd-focus'); });
+        items[next].classList.add('is-kbd-focus');
+        items[next].scrollIntoView({ block: 'nearest' });
+        return;
+      }
+      if (e.key === 'Enter') {
+        var focused = document.querySelector('.is-kbd-focus');
+        if (focused) {
+          e.preventDefault();
+          var link = focused.tagName === 'A' ? focused : focused.querySelector('a');
+          if (link && link.href) { window.location.href = link.href; }
+          return;
+        }
+      }
+      if (e.key === 'x') {
+        // 'x' selects/deselects focused item (future: bulk actions)
+        var sel = document.querySelector('.is-kbd-focus');
+        if (sel) { e.preventDefault(); sel.classList.toggle('is-kbd-selected'); return; }
+      }
     });
   })();
 `;
@@ -2861,6 +2888,18 @@ const css = `
   }
   .panel-item:last-child { border-bottom: none; }
   .panel-item:hover { background: var(--bg-hover); }
+
+  /* ─── j/k keyboard list navigation ─── */
+  .is-kbd-focus {
+    outline: 2px solid rgba(140,109,255,0.6) !important;
+    outline-offset: -2px;
+    background: rgba(140,109,255,0.06) !important;
+    border-radius: 4px;
+  }
+  .is-kbd-selected {
+    outline: 2px solid rgba(52,211,153,0.6) !important;
+    background: rgba(52,211,153,0.06) !important;
+  }
   .panel-empty {
     padding: 24px;
     text-align: center;

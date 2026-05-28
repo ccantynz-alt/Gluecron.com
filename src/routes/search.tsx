@@ -941,31 +941,43 @@ search.get("/search", async (c) => {
 search.get("/shortcuts", async (c) => {
   const user = c.get("user");
   const unread = user ? await getUnreadCount(user.id) : 0;
-  const shortcuts: Array<{ keys: string; desc: string }> = [
-    { keys: "/", desc: "Focus global search" },
-    { keys: "Cmd/Ctrl + K", desc: "Open AI assistant" },
+  const shortcuts: Array<{ keys: string; desc: string; section?: string }> = [
+    { keys: "/", desc: "Focus global search", section: "Global" },
+    { keys: "Cmd/Ctrl + K", desc: "Open command palette / AI assistant" },
+    { keys: "?", desc: "Show keyboard shortcuts" },
+    { keys: "n", desc: "New repository" },
     { keys: "g d", desc: "Go to dashboard" },
     { keys: "g n", desc: "Go to notifications" },
     { keys: "g e", desc: "Go to explore" },
-    { keys: "n", desc: "New repository" },
-    { keys: "?", desc: "Show this help" },
+    { keys: "g a", desc: "Go to AI ask" },
+    { keys: "j", desc: "Move selection down on list pages", section: "Lists" },
+    { keys: "k", desc: "Move selection up on list pages" },
+    { keys: "Enter", desc: "Open selected item" },
+    { keys: "x", desc: "Toggle select on focused item" },
   ];
+
+  const sections = [...new Set(shortcuts.map((s) => s.section ?? "Global"))];
 
   return c.html(
     <Layout title="Keyboard shortcuts" user={user} notificationCount={unread}>
       <h2 style="margin-bottom: 16px">Keyboard shortcuts</h2>
-      <div class="panel">
-        {shortcuts.map((s) => (
-          <div class="panel-item" style="justify-content: space-between">
-            <span>{s.desc}</span>
-            <kbd
-              style="font-family: var(--font-mono); background: var(--bg-tertiary); padding: 2px 8px; border: 1px solid var(--border); border-radius: 4px; font-size: 12px"
-            >
-              {s.keys}
-            </kbd>
+      {sections.map((section) => (
+        <>
+          <h3 style="color: var(--text-muted); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; margin: 20px 0 8px">{section}</h3>
+          <div class="panel">
+            {shortcuts.filter((s) => (s.section ?? "Global") === section).map((s) => (
+              <div class="panel-item" style="justify-content: space-between">
+                <span>{s.desc}</span>
+                <kbd
+                  style="font-family: var(--font-mono); background: var(--bg-tertiary); padding: 2px 8px; border: 1px solid var(--border); border-radius: 4px; font-size: 12px"
+                >
+                  {s.keys}
+                </kbd>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+        </>
+      ))}
     </Layout>
   );
 });

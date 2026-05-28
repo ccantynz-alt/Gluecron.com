@@ -467,6 +467,26 @@ const PRS_DETAIL_STYLES = `
     font-size: 14px;
     font-weight: 700;
   }
+  .prs-branch-sync {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 11.5px; font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 9999px;
+    border: 1px solid var(--border);
+    background: var(--bg-secondary);
+    color: var(--text-muted);
+    cursor: default;
+  }
+  .prs-branch-sync.is-behind {
+    color: #f87171;
+    border-color: rgba(248,113,113,0.35);
+    background: rgba(248,113,113,0.07);
+  }
+  .prs-branch-sync.is-synced {
+    color: #34d399;
+    border-color: rgba(52,211,153,0.35);
+    background: rgba(52,211,153,0.07);
+  }
 
   .prs-detail-actions {
     display: inline-flex; gap: 8px; margin-left: auto;
@@ -1784,19 +1804,33 @@ pulls.get("/:owner/:repo/pulls", softAuth, requireRepoAccess("read"), async (c) 
     )
     .orderBy(desc(pullRequests.createdAt));
 
-  // Batch-load review states for all PRs in the list (approved / changes_requested badges)
+  // Batch-load review states + comment counts for all PRs in the list
   const reviewMap = new Map<string, { approved: boolean; changesRequested: boolean }>();
+  const commentCountMap = new Map<string, number>();
   if (prList.length > 0) {
     const prIds = prList.map(({ pr }) => pr.id);
-    const reviewRows = await db
-      .select({ prId: prReviews.pullRequestId, state: prReviews.state })
-      .from(prReviews)
-      .where(inArray(prReviews.pullRequestId, prIds));
+    const [reviewRows, commentRows] = await Promise.all([
+      db
+        .select({ prId: prReviews.pullRequestId, state: prReviews.state })
+        .from(prReviews)
+        .where(inArray(prReviews.pullRequestId, prIds)),
+      db
+        .select({
+          prId: prComments.pullRequestId,
+          cnt: sql<number>`count(*)::int`,
+        })
+        .from(prComments)
+        .where(and(inArray(prComments.pullRequestId, prIds), eq(prComments.isAiReview, false)))
+        .groupBy(prComments.pullRequestId),
+    ]);
     for (const r of reviewRows) {
       const entry = reviewMap.get(r.prId) ?? { approved: false, changesRequested: false };
       if (r.state === "approved") entry.approved = true;
       if (r.state === "changes_requested") entry.changesRequested = true;
       reviewMap.set(r.prId, entry);
+    }
+    for (const r of commentRows) {
+      commentCountMap.set(r.prId, Number(r.cnt));
     }
   }
 
@@ -1983,6 +2017,11 @@ pulls.get("/:owner/:repo/pulls", softAuth, requireRepoAccess("read"), async (c) 
                       )}
                       {rv?.changesRequested && (
                         <span class="prs-tag is-changes" title="Changes requested">✗ Changes</span>
+                      )}
+                      {(commentCountMap.get(pr.id) ?? 0) > 0 && (
+                        <span class="prs-tag" title={`${commentCountMap.get(pr.id)} comment${(commentCountMap.get(pr.id) ?? 0) === 1 ? "" : "s"}`}>
+                          💬 {commentCountMap.get(pr.id)}
+                        </span>
                       )}
                     </span>
                   </div>
@@ -3000,6 +3039,33 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
     pr.headBranch
   );
 
+  // Branch ahead/behind counts — how many commits head is ahead of base and
+  // how many commits base has advanced since head branched off.
+  let branchAhead = 0;
+  let branchBehind = 0;
+  if (pr.state === "open") {
+    try {
+      const repoDir = getRepoPath(ownerName, repoName);
+      const [aheadProc, behindProc] = [
+        Bun.spawn(
+          ["git", "rev-list", "--count", `${pr.baseBranch}..${pr.headBranch}`],
+          { cwd: repoDir, stdout: "pipe", stderr: "pipe" }
+        ),
+        Bun.spawn(
+          ["git", "rev-list", "--count", `${pr.headBranch}..${pr.baseBranch}`],
+          { cwd: repoDir, stdout: "pipe", stderr: "pipe" }
+        ),
+      ];
+      const [aheadTxt, behindTxt] = await Promise.all([
+        new Response(aheadProc.stdout).text(),
+        new Response(behindProc.stdout).text(),
+      ]);
+      await Promise.all([aheadProc.exited, behindProc.exited]);
+      branchAhead = parseInt(aheadTxt.trim(), 10) || 0;
+      branchBehind = parseInt(behindTxt.trim(), 10) || 0;
+    } catch { /* non-blocking */ }
+  }
+
   // Get diff for "Files changed" tab + load inline comments for that tab
   let diffRaw = "";
   let diffFiles: GitDiffFile[] = [];
@@ -3165,6 +3231,18 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
             <span class="prs-branch-arrow-lg">{"→"}</span>
             <span class="prs-branch-pill">{pr.baseBranch}</span>
           </span>
+          {pr.state === "open" && (branchAhead > 0 || branchBehind > 0) && (
+            <span
+              class={`prs-branch-sync${branchBehind > 0 ? " is-behind" : " is-synced"}`}
+              title={branchBehind > 0
+                ? `This branch is ${branchBehind} commit${branchBehind === 1 ? "" : "s"} behind ${pr.baseBranch} — consider rebasing`
+                : `This branch is ${branchAhead} commit${branchAhead === 1 ? "" : "s"} ahead of ${pr.baseBranch}`}
+            >
+              {branchAhead > 0 ? `↑${branchAhead}` : ""}
+              {branchAhead > 0 && branchBehind > 0 ? " " : ""}
+              {branchBehind > 0 ? `↓${branchBehind}` : ""}
+            </span>
+          )}
           <span>opened {formatRelative(pr.createdAt)}</span>
           <span
             id="live-pill"

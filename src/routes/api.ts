@@ -123,11 +123,15 @@ api.post("/repos", async (c) => {
 
     // Green-ecosystem bootstrap: settings, protection, labels, welcome issue
     if (repo) {
-      const { bootstrapRepository } = await import("../lib/repo-bootstrap");
+      const { bootstrapRepository, ensureAiBuildSeedIssue } = await import("../lib/repo-bootstrap");
       await bootstrapRepository({
         repositoryId: repo.id,
         ownerUserId: owner.id,
       });
+      // Fire-and-forget — never block the response
+      ensureAiBuildSeedIssue(repo.id, owner.id).catch(err =>
+        console.warn('[ai-build-seed]', err?.message)
+      );
     }
 
     return c.json(repo, 201);

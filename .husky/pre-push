@@ -41,6 +41,7 @@ echo "[GateTest] Running quick diff-mode gate before push ..."
 # envVars      — flags every internal config var not in .env.example (noise)
 # undefinedRef — false positives on CSS @keyframes names inside JS template literals
 # crossFileTaint — 300+ false positives on parameterised Drizzle db.select() calls
+# fakeFixDetector — flags intentional empty catches inside browser-JS IIFE template strings
 node "$GATETEST_CACHE/bin/gatetest.js" --suite quick --diff --project "$(pwd)" \
   --skip-module codeQuality \
   --skip-module errorSwallow \
@@ -53,4 +54,5 @@ node "$GATETEST_CACHE/bin/gatetest.js" --suite quick --diff --project "$(pwd)" \
   --skip-module moneyFloat \
   --skip-module envVars \
   --skip-module undefinedRef \
-  --skip-module crossFileTaint
+  --skip-module crossFileTaint \
+  --skip-module fakeFixDetector

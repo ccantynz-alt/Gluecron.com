@@ -15,7 +15,7 @@
  */
 
 import { Hono } from "hono";
-import { eq, desc, and } from "drizzle-orm";
+import { eq, desc, and, inArray, ne, sql } from "drizzle-orm";
 import { getCookie, setCookie } from "hono/cookie";
 import { db } from "../db";
 import {
@@ -168,6 +168,75 @@ dashboard.get("/dashboard", requireAuth, async (c) => {
   } catch {
     // DB not required for dashboard
   }
+
+  // Review queue — open non-draft PRs in user's repos, authored by others
+  let reviewQueuePrs: Array<{
+    prNumber: number;
+    prTitle: string;
+    repoName: string;
+    createdAt: Date;
+  }> = [];
+  // Open PRs the user authored that are still open (anywhere on the platform)
+  let myOpenPrs: Array<{
+    prNumber: number;
+    prTitle: string;
+    repoName: string;
+    ownerUsername: string;
+    createdAt: Date;
+  }> = [];
+  try {
+    const repoIds = repos.map((r) => r.id);
+    const prQueries: Promise<any>[] = [];
+    if (repoIds.length > 0) {
+      prQueries.push(
+        db
+          .select({
+            prNumber: pullRequests.number,
+            prTitle: pullRequests.title,
+            repoName: repositories.name,
+            createdAt: pullRequests.createdAt,
+          })
+          .from(pullRequests)
+          .innerJoin(repositories, eq(pullRequests.repositoryId, repositories.id))
+          .where(
+            and(
+              inArray(pullRequests.repositoryId, repoIds),
+              eq(pullRequests.state, "open"),
+              ne(pullRequests.authorId, user.id),
+              eq(pullRequests.isDraft, false),
+            )
+          )
+          .orderBy(desc(pullRequests.createdAt))
+          .limit(6)
+      );
+    } else {
+      prQueries.push(Promise.resolve([]));
+    }
+    prQueries.push(
+      db
+        .select({
+          prNumber: pullRequests.number,
+          prTitle: pullRequests.title,
+          repoName: repositories.name,
+          ownerUsername: users.username,
+          createdAt: pullRequests.createdAt,
+        })
+        .from(pullRequests)
+        .innerJoin(repositories, eq(pullRequests.repositoryId, repositories.id))
+        .innerJoin(users, eq(repositories.ownerId, users.id))
+        .where(
+          and(
+            eq(pullRequests.authorId, user.id),
+            eq(pullRequests.state, "open"),
+          )
+        )
+        .orderBy(desc(pullRequests.updatedAt))
+        .limit(6)
+    );
+    const [queueRows, myPrRows] = await Promise.all(prQueries);
+    reviewQueuePrs = queueRows;
+    myOpenPrs = myPrRows;
+  } catch { /* non-blocking */ }
 
   const gradeColor = (grade: string) =>
     grade === "A+" || grade === "A"
@@ -596,6 +665,66 @@ git push -u gluecron main</code></pre>
 
       {/* ─── Live Activity (SSE) ─── */}
       <LiveFeed topic={`user:${user.id}`} title="Live activity" />
+
+      {/* ─── Review queue + My open PRs ─── */}
+      {(reviewQueuePrs.length > 0 || myOpenPrs.length > 0) && (
+        <>
+          <style dangerouslySetInnerHTML={{ __html: `
+            .dash-rq { border:1px solid var(--border); border-radius:12px; overflow:hidden; }
+            .dash-rq-head { display:flex; align-items:center; justify-content:space-between; padding:11px 16px; background:var(--bg-elevated); border-bottom:1px solid var(--border); font-size:13px; font-weight:600; }
+            .dash-rq-head-count { font-size:11px; font-weight:700; padding:1px 7px; border-radius:9999px; background:var(--bg-tertiary); color:var(--text-muted); }
+            .dash-rq-row { display:flex; align-items:center; gap:10px; padding:9px 16px; border-bottom:1px solid var(--border); font-size:13px; text-decoration:none; color:inherit; }
+            .dash-rq-row:last-child { border-bottom:none; }
+            .dash-rq-row:hover { background:var(--bg-hover); }
+            .dash-rq-repo { font-size:11px; color:var(--text-muted); flex:0 0 auto; }
+            .dash-rq-title { flex:1 1 auto; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+            .dash-rq-age { font-size:11px; color:var(--text-muted); flex:0 0 auto; }
+            .dash-rq-empty { padding:24px; text-align:center; color:var(--text-muted); font-size:13px; }
+          ` }} />
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:var(--space-4);margin-top:var(--space-8)">
+          {reviewQueuePrs.length > 0 && (
+            <div class="dash-rq">
+              <div class="dash-rq-head">
+                <span>{"⏳"} Needs your review</span>
+                <span class="dash-rq-head-count">{reviewQueuePrs.length}</span>
+              </div>
+              {reviewQueuePrs.map((pr) => (
+                <a
+                  href={`/${user.username}/${pr.repoName}/pulls/${pr.prNumber}`}
+                  class="dash-rq-row"
+                >
+                  <span class="dash-rq-repo">{pr.repoName}</span>
+                  <span class="dash-rq-title" title={pr.prTitle}>{pr.prTitle}</span>
+                  <span class="dash-rq-age">
+                    {formatRelative(pr.createdAt)}
+                  </span>
+                </a>
+              ))}
+            </div>
+          )}
+          {myOpenPrs.length > 0 && (
+            <div class="dash-rq">
+              <div class="dash-rq-head">
+                <span>{"○"} Your open PRs</span>
+                <span class="dash-rq-head-count">{myOpenPrs.length}</span>
+              </div>
+              {myOpenPrs.map((pr) => (
+                <a
+                  href={`/${pr.ownerUsername}/${pr.repoName}/pulls/${pr.prNumber}`}
+                  class="dash-rq-row"
+                >
+                  <span class="dash-rq-repo">{pr.repoName}</span>
+                  <span class="dash-rq-title" title={pr.prTitle}>{pr.prTitle}</span>
+                  <span class="dash-rq-age">
+                    {formatRelative(pr.createdAt)}
+                  </span>
+                </a>
+              ))}
+            </div>
+          )}
+          </div>
+        </>
+      )}
 
       {/* ─── Quick Links ─── */}
       <div style="margin-top: var(--space-8); display: flex; gap: var(--space-4); flex-wrap: wrap">

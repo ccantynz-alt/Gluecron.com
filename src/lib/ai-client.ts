@@ -23,7 +23,7 @@ export function isAiAvailable(): boolean {
 }
 
 /** Default model for code understanding + review */
-export const MODEL_SONNET = "claude-sonnet-4-20250514";
+export const MODEL_SONNET = "claude-sonnet-4-6";
 /** Fast model for lightweight tasks (commit messages, titles) */
 export const MODEL_HAIKU = "claude-haiku-4-5-20251001";
 

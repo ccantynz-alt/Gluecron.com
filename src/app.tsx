@@ -165,6 +165,8 @@ import pushNotifRoutes from "./routes/push-notifications";
 import velocityRoutes from "./routes/velocity";
 import { staleBranchRoutes } from "./routes/stale-branches";
 import pulseRoutes from "./routes/pulse";
+import healthScoreRoutes from "./routes/health-score";
+import hotFilesRoutes from "./routes/hot-files";
 import { authRateLimit, gitRateLimit, searchRateLimit } from "./middleware/rate-limit";
 import { csrfToken, csrfProtect } from "./middleware/csrf";
 import { noCache } from "./middleware/no-cache";
@@ -649,6 +651,10 @@ app.route("/", velocityRoutes);
 app.route("/", staleBranchRoutes);
 // Repository Pulse — BLOCK M12 — /:owner/:repo/pulse
 app.route("/", pulseRoutes);
+// Repository Health Score — BLOCK M14 — /:owner/:repo/insights/health
+app.route("/", healthScoreRoutes);
+// Hot Files Heatmap — BLOCK M16 — /:owner/:repo/insights/hotfiles
+app.route("/", hotFilesRoutes);
 // Hosted Claude tool-use loops — paste loop, get endpoint, billing meter.
 // See src/routes/claude-deploy.tsx + src/lib/hosted-claude-loop.ts.
 app.route("/", claudeDeployRoutes);

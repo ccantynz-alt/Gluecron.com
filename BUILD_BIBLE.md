@@ -1,6 +1,6 @@
 # GLUECRON BUILD BIBLE
 
-**Last updated: 2026-05-29T01:00:00Z**
+**Last updated: 2026-05-29T03:00:00Z**
 
 **This file is the single source of truth for the GlueCron build.**
 
@@ -372,6 +372,10 @@ The "lightning-fast push → live site + zero friction" package. Owner directive
 - **M4** — Wider platform layout → ✅ shipped (`f5b9ef5`). All `max-width: 1240px` → `1440px` in `src/views/layout.tsx` (nav, main content, footer). Modern wide-screen utilisation for developer dashboards.
 - **M5** — Clean user nav dropdown → ✅ shipped (`f5b9ef5`). Replaced 8+ top-level nav links with a polished user dropdown (avatar initials + caret trigger, Dashboard, PRs, Issues, Activity, Import, Profile, Settings, Tokens, Theme toggle, Sign out) + bell inbox icon with unread badge. Reduces cognitive load; keeps the nav scannable.
 - **M6** — Zero-friction Claude Code integration → ✅ shipped (`f5b9ef5` + M6b). `src/routes/claude-integration.ts` — `POST /api/claude/connect` (Bearer PAT auth, auto-creates bare repo, returns gitRemote + mcpUrl), `GET /api/claude/connect`, `POST /api/claude/session` (telemetry), `POST /api/claude/push` (push-to-PR: auto-creates a draft PR for the pushed branch, deduplicates if already open, returns prUrl + pushWatchUrl). `src/routes/connect.tsx` — `/connect/claude-guide` public onboarding page.
+- **M13** — PR Review Assignment Automation → ✅ shipped (`ace34ef`). `src/lib/reviewer-suggest.ts` — `suggestReviewers(owner, repo, headBranch, baseBranch, authorId, repoId)` runs `git log --format=%ae base..head` over changed files, resolves emails→users, intersects with repo owner + accepted collaborators, excludes PR author, caps at 5. `requestReview(prId, repoId, reviewerId, requesterId)` sends notify() + activityFeed entry (does NOT insert into prReviews to avoid corrupting countHumanApprovals). PR detail view gains "Suggested reviewers" section with avatar initials + "Request" form buttons (write-access only). POST `/:owner/:repo/pulls/:number/request-review` validates reviewer is repo owner OR accepted collaborator. CSS under `.prs-reviewer-avatar`.
+- **M14** — Repository Health Score → ✅ shipped. `src/lib/health-score.ts` — `computeHealthScore(repoId)` runs 4 parallel DB queries (open advisories, gate pass rate 30d, avg PR TTM 90d, avg open issue age) and returns a 0-100 composite score with grade (Elite/Strong/Improving/Needs Attention). `src/routes/health-score.tsx` — `GET /:owner/:repo/insights/health`. CSS-only SVG circle gauge, grade badge, 4 component progress bars. Insights sub-nav: Insights / DORA / Velocity / Pulse / Health / Hot Files. Zero new DB tables. 9 tests.
+- **M15** — PR Size Auto-Labels → ✅ shipped. `src/lib/pr-size.ts` — `computePrSize(owner, repo, base, head)` runs `git diff --numstat base...head`, sums lines changed, maps to XS/S/M/L/XL label with colour. Badge rendered in PR detail meta row next to state pill, with tooltip showing +added/−deleted breakdown. Zero new DB tables. 10 tests.
+- **M16** — Hot Files Heatmap → ✅ shipped. `src/lib/hot-files.ts` — `getHotFiles(owner, repo, windowDays)` spawns `git log --numstat --since=N.days.ago --format=` and aggregates per-file churn (added+deleted). Risk tiers: high (auth/security/schema/db/middleware/crypto), medium (routes/api/lib/.sql), low (everything else). Top 50 files returned. `src/routes/hot-files.tsx` — `GET /:owner/:repo/insights/hotfiles?window=7|30|90`. Heat bar + risk pill per row. Insights sub-nav matches M14/M9. Zero new DB tables. 14 tests.
 
 ---
 

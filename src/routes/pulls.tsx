@@ -120,6 +120,7 @@ import {
 } from "../views/ui";
 
 import { suggestReviewers, type ReviewerCandidate } from "../lib/reviewer-suggest";
+import { computePrSize, type PrSizeInfo } from "../lib/pr-size";
 
 const pulls = new Hono<AuthEnv>();
 
@@ -485,6 +486,18 @@ const PRS_DETAIL_STYLES = `
   .prs-state-pill.state-merged  { color: #b69dff;       background: rgba(140,109,255,0.16); border-color: rgba(140,109,255,0.45); }
   .prs-state-pill.state-closed  { color: var(--red);    background: rgba(248,113,113,0.12); border-color: rgba(248,113,113,0.35); }
   .prs-state-pill.state-draft   { color: var(--text-muted); background: rgba(255,255,255,0.05); border-color: var(--border-strong); }
+
+  .prs-size-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    border: 1px solid currentColor;
+    opacity: 0.85;
+  }
 
   .prs-detail-meta {
     display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px;
@@ -3331,6 +3344,12 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
     }
   }
 
+  // M15 — PR size badge (best-effort, non-blocking)
+  let prSizeInfo: PrSizeInfo | null = null;
+  try {
+    prSizeInfo = await computePrSize(ownerName, repoName, pr.baseBranch, pr.headBranch);
+  } catch { /* swallow — purely cosmetic */ }
+
   // Get diff for "Files changed" tab + load inline comments for that tab
   let diffRaw = "";
   let diffFiles: GitDiffFile[] = [];
@@ -3544,6 +3563,15 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
             <span aria-hidden="true">{stateIcon}</span>
             <span>{stateLabel}</span>
           </span>
+          {prSizeInfo && (
+            <span
+              class="prs-size-badge"
+              style={`color:${prSizeInfo.color};background:${prSizeInfo.bgColor}`}
+              title={`${prSizeInfo.linesChanged} lines changed (+${prSizeInfo.added} −${prSizeInfo.deleted})`}
+            >
+              {prSizeInfo.label}
+            </span>
+          )}
           <span>
             <strong>{author?.username}</strong> wants to merge
           </span>

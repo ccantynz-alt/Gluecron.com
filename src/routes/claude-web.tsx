@@ -7,12 +7,14 @@
  *   GET  /:owner/:repo/claude/:sessionId/stream — SSE stream of a single turn
  *   POST /:owner/:repo/claude/:sessionId/delete — delete session
  *
- * v1 admin-only. The page renders server-side with a small inline
- * EventSource client that POSTs nothing — the SSE GET is parameterised
- * by `?prompt=...` so iPad keyboards (no JS fetch issues) just need to
- * follow a link the form submits to. The endpoint persists the user
- * message before opening the stream, so a flaky network mid-stream
- * still leaves the question in the transcript.
+ * Open to all authenticated users with at least READ access to the repo
+ * (owner, accepted collaborator, or any user for public repos). The page
+ * renders server-side with a small inline EventSource client that POSTs
+ * nothing — the SSE GET is parameterised by `?prompt=...` so iPad
+ * keyboards (no JS fetch issues) just need to follow a link the form
+ * submits to. The endpoint persists the user message before opening the
+ * stream, so a flaky network mid-stream still leaves the question in the
+ * transcript.
  */
 
 import { Hono } from "hono";
@@ -22,7 +24,7 @@ import { repositories, users } from "../db/schema";
 import { Layout } from "../views/layout";
 import { softAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
-import { isSiteAdmin } from "../lib/admin";
+import { resolveRepoAccess } from "../middleware/repo-access";
 import {
   appendMessage,
   createSession,
@@ -46,26 +48,21 @@ async function gate(
     const target = encodeURIComponent(c.req.url);
     return c.redirect(`/login?next=${target}`);
   }
-  if (!(await isSiteAdmin(user.id))) {
-    return c.html(
-      <Layout title="Forbidden" user={user}>
-        <main style="max-width:640px;margin:40px auto;padding:0 20px">
-          <h1>403 — site admin required</h1>
-          <p>Claude on the web is admin-only in v1.</p>
-        </main>
-      </Layout>,
-      403
-    );
-  }
   const ownerName = c.req.param("owner");
   const repoName = c.req.param("repo");
   const [row] = await db
-    .select({ id: repositories.id })
+    .select({ id: repositories.id, isPrivate: repositories.isPrivate })
     .from(repositories)
     .innerJoin(users, eq(repositories.ownerId, users.id))
     .where(and(eq(users.username, ownerName), eq(repositories.name, repoName)))
     .limit(1);
   if (!row) return c.notFound();
+  const access = await resolveRepoAccess({
+    repoId: row.id,
+    userId: user.id,
+    isPublic: !row.isPrivate,
+  });
+  if (access === "none") return c.notFound();
   return { userId: user.id, repoId: row.id, ownerName, repoName };
 }
 

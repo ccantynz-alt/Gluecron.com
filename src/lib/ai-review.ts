@@ -65,7 +65,7 @@ export async function reviewDiff(
 ): Promise<ReviewResult> {
   const client = getClient();
 
-  const REVIEW_MODEL = "claude-sonnet-4-20250514";
+  const REVIEW_MODEL = "claude-sonnet-4-6";
   const message = await client.messages.create({
     model: REVIEW_MODEL,
     max_tokens: 4096,

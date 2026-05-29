@@ -178,11 +178,7 @@ export const Layout: FC<
               </form>
             </div>
             <div class="nav-right">
-              {/* Block N3 — site-admin platform-deploy status pill. Hidden
-                  by default; revealed client-side once /admin/deploys/latest.json
-                  responds 200 (non-admins get 401/403 and the pill stays
-                  hidden). Subscribes to the `platform:deploys` SSE topic
-                  for live updates. See `deployPillScript` below. */}
+              {/* Block N3 — site-admin platform-deploy status pill */}
               {user && (
                 <a
                   id="deploy-pill"
@@ -196,46 +192,10 @@ export const Layout: FC<
                   <span class="deploy-pill-text">Deploys</span>
                 </a>
               )}
-              <a
-                href="/theme/toggle"
-                class="nav-link nav-theme"
-                title="Toggle theme"
-                aria-label="Toggle theme"
-              >
-                <span class="theme-icon-dark">{"\u263E"}</span>
-                <span class="theme-icon-light">{"\u2600"}</span>
-              </a>
-              <a href="/explore" class="nav-link">
-                Explore
-              </a>
+              <a href="/explore" class="nav-link">Explore</a>
               {user ? (
                 <>
-                  <a href="/dashboard" class="nav-link" style="font-weight: 600">
-                    Dashboard
-                  </a>
-                  <a href="/pulls" class="nav-link">
-                    Pulls
-                  </a>
-                  <a href="/issues" class="nav-link">
-                    Issues
-                  </a>
-                  <a href="/activity" class="nav-link">
-                    Activity
-                  </a>
-                  <a href="/inbox" class="nav-link" style="position:relative">
-                    Inbox
-                    {notificationCount && notificationCount > 0 ? (
-                      <span
-                        aria-label={`${notificationCount} unread`}
-                        style="display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 5px;margin-left:6px;font-size:10.5px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1;color:#fff;background:linear-gradient(135deg,#8c6dff 0%,#36c5d6 100%);border-radius:9999px;box-shadow:0 0 8px rgba(140,109,255,0.45)"
-                      >
-                        {notificationCount > 99 ? "99+" : notificationCount}
-                      </span>
-                    ) : null}
-                  </a>
-                  {/* AI dropdown — consolidates Standups, Voice, Refactors,
-                      Specs, Ask AI to keep the top-level nav lean. Hover-open
-                      with click+keyboard fallback via navAiDropdownScript. */}
+                  {/* AI dropdown */}
                   <div class="nav-ai-dropdown" data-nav-ai>
                     <button
                       type="button"
@@ -245,21 +205,11 @@ export const Layout: FC<
                       data-nav-ai-trigger
                     >
                       <span style="display:inline-flex;align-items:center;gap:5px">
-                        <svg
-                          width="13"
-                          height="13"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          stroke-width="2.2"
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          aria-hidden="true"
-                        >
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                           <path d="M12 2l2.39 5.95L20 9l-4.5 3.9L17 19l-5-3.2L7 19l1.5-6.1L4 9l5.61-1.05L12 2z" />
                         </svg>
                         AI
-                        <span aria-hidden="true" style="font-size:9px;opacity:0.7">▾</span>
+                        <span aria-hidden="true" style="font-size:9px;opacity:0.7">{String.fromCharCode(9660)}</span>
                       </span>
                     </button>
                     <div class="nav-ai-menu" role="menu" data-nav-ai-menu>
@@ -285,30 +235,71 @@ export const Layout: FC<
                       </a>
                     </div>
                   </div>
-                  <a href="/import" class="nav-link">
-                    Import
+                  {/* Inbox bell with unread badge */}
+                  <a
+                    href="/inbox"
+                    class="nav-inbox-btn"
+                    aria-label={notificationCount && notificationCount > 0 ? `Inbox — ${notificationCount} unread` : "Inbox"}
+                    title="Inbox"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+                      <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+                    </svg>
+                    {notificationCount && notificationCount > 0 ? (
+                      <span class="nav-inbox-badge" aria-hidden="true">
+                        {notificationCount > 99 ? "99+" : notificationCount}
+                      </span>
+                    ) : null}
                   </a>
-                  <a href="/new" class="btn btn-sm btn-primary">
-                    + New
-                  </a>
-                  <a href={`/${user.username}`} class="nav-user">
-                    {user.displayName || user.username}
-                  </a>
-                  <a href="/settings" class="nav-link">
-                    Settings
-                  </a>
-                  <a href="/logout" class="nav-link">
-                    Sign out
-                  </a>
+                  <a href="/new" class="btn btn-sm btn-primary">+ New</a>
+                  {/* User dropdown — consolidates profile + secondary nav */}
+                  <div class="nav-user-dropdown" data-nav-user>
+                    <button
+                      type="button"
+                      class="nav-user-trigger"
+                      aria-haspopup="true"
+                      aria-expanded="false"
+                      data-nav-user-trigger
+                    >
+                      <span class="nav-user-avatar" aria-hidden="true">
+                        {(user.displayName || user.username).charAt(0).toUpperCase()}
+                      </span>
+                      <span class="nav-user-name">{user.displayName || user.username}</span>
+                      <span class="nav-user-caret" aria-hidden="true">{"▾"}</span>
+                    </button>
+                    <div class="nav-user-menu" role="menu" data-nav-user-menu>
+                      <div class="nav-user-menu-header">
+                        <span class="nav-user-menu-name">{user.displayName || user.username}</span>
+                        <span class="nav-user-menu-handle">@{user.username}</span>
+                      </div>
+                      <div class="nav-user-menu-sep" />
+                      <a href="/dashboard" role="menuitem" class="nav-user-item">Dashboard</a>
+                      <a href="/pulls" role="menuitem" class="nav-user-item">Pull requests</a>
+                      <a href="/issues" role="menuitem" class="nav-user-item">Issues</a>
+                      <a href="/activity" role="menuitem" class="nav-user-item">Activity</a>
+                      <a href="/import" role="menuitem" class="nav-user-item">Import from GitHub</a>
+                      <div class="nav-user-menu-sep" />
+                      <a href={`/${user.username}`} role="menuitem" class="nav-user-item">Your profile</a>
+                      <a href="/settings" role="menuitem" class="nav-user-item">Settings</a>
+                      <a href="/settings/tokens" role="menuitem" class="nav-user-item">Access tokens</a>
+                      <div class="nav-user-menu-sep" />
+                      <a href="/theme/toggle" class="nav-user-item" role="menuitem">
+                        <span class="theme-icon-dark">{"☾"} Light mode</span>
+                        <span class="theme-icon-light">{"☀"} Dark mode</span>
+                      </a>
+                      <a href="/logout" role="menuitem" class="nav-user-item nav-user-item--danger">Sign out</a>
+                    </div>
+                  </div>
                 </>
               ) : (
                 <>
-                  <a href="/login" class="nav-link">
-                    Sign in
+                  <a href="/theme/toggle" class="nav-link nav-theme" title="Toggle theme" aria-label="Toggle theme">
+                    <span class="theme-icon-dark">{"☾"}</span>
+                    <span class="theme-icon-light">{"☀"}</span>
                   </a>
-                  <a href="/register" class="btn btn-sm btn-primary">
-                    Register
-                  </a>
+                  <a href="/login" class="nav-link">Sign in</a>
+                  <a href="/register" class="btn btn-sm btn-primary">Register</a>
                 </>
               )}
             </div>
@@ -900,6 +891,33 @@ const navScript = `
         else if (e.key === 'a') { e.preventDefault(); window.location.href = '/ask'; }
         chord = null;
       }
+      // j/k list navigation — move through .prs-row, .issue-row, .notif-item rows
+      if (e.key === 'j' || e.key === 'k') {
+        var selectors = '.prs-row, .issue-row, .issue-list-item, .notif-item, .repo-item, .exp-repo-card, .disc-row';
+        var items = Array.from(document.querySelectorAll(selectors));
+        if (items.length === 0) return;
+        e.preventDefault();
+        var cur = items.findIndex(function(el){ return el.classList.contains('is-kbd-focus'); });
+        var next = e.key === 'j' ? (cur < 0 ? 0 : Math.min(items.length - 1, cur + 1)) : (cur < 0 ? items.length - 1 : Math.max(0, cur - 1));
+        items.forEach(function(el){ el.classList.remove('is-kbd-focus'); });
+        items[next].classList.add('is-kbd-focus');
+        items[next].scrollIntoView({ block: 'nearest' });
+        return;
+      }
+      if (e.key === 'Enter') {
+        var focused = document.querySelector('.is-kbd-focus');
+        if (focused) {
+          e.preventDefault();
+          var link = focused.tagName === 'A' ? focused : focused.querySelector('a');
+          if (link && link.href) { window.location.href = link.href; }
+          return;
+        }
+      }
+      if (e.key === 'x') {
+        // 'x' selects/deselects focused item (future: bulk actions)
+        var sel = document.querySelector('.is-kbd-focus');
+        if (sel) { e.preventDefault(); sel.classList.toggle('is-kbd-selected'); return; }
+      }
     });
   })();
 `;
@@ -910,26 +928,31 @@ const navScript = `
 // to-close. Lives in its own IIFE so it never interferes with navScript.
 const navAiDropdownScript = `
   (function(){
-    var open = false;
-    var root = document.querySelector('[data-nav-ai]');
-    if (!root) return;
-    var trigger = root.querySelector('[data-nav-ai-trigger]');
-    var menu = root.querySelector('[data-nav-ai-menu]');
-    if (!trigger || !menu) return;
-    function setOpen(next){
-      open = !!next;
-      root.classList.toggle('is-open', open);
-      trigger.setAttribute('aria-expanded', open ? 'true' : 'false');
+    function makeDropdown(rootSel, triggerSel, menuSel) {
+      var open = false;
+      var root = document.querySelector(rootSel);
+      if (!root) return;
+      var trigger = root.querySelector(triggerSel);
+      var menu = root.querySelector(menuSel);
+      if (!trigger || !menu) return;
+      function setOpen(next){
+        open = !!next;
+        root.classList.toggle('is-open', open);
+        menu.classList.toggle('is-open', open);
+        trigger.setAttribute('aria-expanded', open ? 'true' : 'false');
+      }
+      trigger.addEventListener('click', function(e){ e.preventDefault(); setOpen(!open); });
+      document.addEventListener('click', function(e){
+        if (!open) return;
+        if (root.contains(e.target)) return;
+        setOpen(false);
+      });
+      document.addEventListener('keydown', function(e){
+        if (open && e.key === 'Escape') { e.preventDefault(); setOpen(false); trigger.focus(); }
+      });
     }
-    trigger.addEventListener('click', function(e){ e.preventDefault(); setOpen(!open); });
-    document.addEventListener('click', function(e){
-      if (!open) return;
-      if (root.contains(e.target)) return;
-      setOpen(false);
-    });
-    document.addEventListener('keydown', function(e){
-      if (open && e.key === 'Escape') { e.preventDefault(); setOpen(false); trigger.focus(); }
-    });
+    makeDropdown('[data-nav-ai]', '[data-nav-ai-trigger]', '[data-nav-ai-menu]');
+    makeDropdown('[data-nav-user]', '[data-nav-user-trigger]', '[data-nav-user-menu]');
   })();
 `;
 
@@ -1387,7 +1410,7 @@ const css = `
     display: flex;
     align-items: center;
     gap: 18px;
-    max-width: 1240px;
+    max-width: 1440px;
     margin: 0 auto;
     height: 100%;
   }
@@ -1617,8 +1640,113 @@ const css = `
   }
   .nav-user:hover { background: var(--bg-hover); text-decoration: none; }
 
+  /* ── Inbox bell button ── */
+  .nav-inbox-btn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    border-radius: var(--r-sm);
+    color: var(--text-muted);
+    transition: color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+    flex-shrink: 0;
+  }
+  .nav-inbox-btn:hover { color: var(--text); background: var(--bg-hover); text-decoration: none; }
+  .nav-inbox-badge {
+    position: absolute;
+    top: 3px; right: 3px;
+    min-width: 15px; height: 15px;
+    padding: 0 4px;
+    font-size: 9.5px;
+    font-weight: 700;
+    line-height: 15px;
+    color: #fff;
+    background: linear-gradient(135deg, #8c6dff 0%, #36c5d6 100%);
+    border-radius: 9999px;
+    text-align: center;
+    box-shadow: 0 0 6px rgba(140,109,255,0.45);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ── User dropdown ── */
+  .nav-user-dropdown { position: relative; }
+  .nav-user-trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 5px 9px 5px 5px;
+    border-radius: var(--r-sm);
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-size: var(--t-sm);
+    font-weight: 500;
+    cursor: pointer;
+    transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+  }
+  .nav-user-trigger:hover { background: var(--bg-hover); border-color: var(--border); }
+  .nav-user-avatar {
+    width: 24px; height: 24px;
+    border-radius: 50%;
+    background: var(--accent-gradient);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    box-shadow: 0 0 0 2px var(--border);
+  }
+  .nav-user-name { font-weight: 500; font-size: var(--t-sm); max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .nav-user-caret { font-size: 8px; opacity: 0.5; }
+  .nav-user-menu {
+    display: none;
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    min-width: 220px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-lg);
+    box-shadow: 0 16px 48px -8px rgba(0,0,0,0.55), 0 0 0 1px var(--border);
+    padding: 6px;
+    z-index: 200;
+    animation: navMenuIn 140ms var(--ease) both;
+  }
+  .nav-user-menu.is-open { display: block; }
+  .nav-user-menu-header {
+    padding: 8px 10px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .nav-user-menu-name { font-weight: 600; font-size: var(--t-sm); color: var(--text-strong); }
+  .nav-user-menu-handle { font-size: var(--t-xs); color: var(--text-muted); }
+  .nav-user-menu-sep { height: 1px; background: var(--border); margin: 4px -6px; }
+  .nav-user-item {
+    display: block;
+    padding: 7px 10px;
+    border-radius: 6px;
+    font-size: var(--t-sm);
+    color: var(--text);
+    transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+    white-space: nowrap;
+  }
+  .nav-user-item:hover { background: var(--bg-hover); color: var(--text-strong); text-decoration: none; }
+  .nav-user-item--danger { color: var(--red); }
+  .nav-user-item--danger:hover { background: rgba(248,113,113,0.08); color: var(--red); }
+
+  @keyframes navMenuIn {
+    from { opacity: 0; transform: translateY(-4px) scale(0.97); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+  }
+
   main {
-    max-width: 1240px;
+    max-width: 1440px;
     margin: 0 auto;
     padding: 36px 24px 80px;
     flex: 1;
@@ -1665,7 +1793,7 @@ const css = `
       var(--bg);
   }
   footer .footer-inner {
-    max-width: 1240px;
+    max-width: 1440px;
     margin: 0 auto;
     display: grid;
     grid-template-columns: 1fr auto;
@@ -1701,7 +1829,7 @@ const css = `
   }
   footer .footer-col a:hover { color: var(--text-strong); text-decoration: none; }
   footer .footer-bottom {
-    max-width: 1240px;
+    max-width: 1440px;
     margin: 40px auto 0;
     padding-top: 24px;
     border-top: 1px solid var(--border-subtle);
@@ -2861,6 +2989,18 @@ const css = `
   }
   .panel-item:last-child { border-bottom: none; }
   .panel-item:hover { background: var(--bg-hover); }
+
+  /* ─── j/k keyboard list navigation ─── */
+  .is-kbd-focus {
+    outline: 2px solid rgba(140,109,255,0.6) !important;
+    outline-offset: -2px;
+    background: rgba(140,109,255,0.06) !important;
+    border-radius: 4px;
+  }
+  .is-kbd-selected {
+    outline: 2px solid rgba(52,211,153,0.6) !important;
+    background: rgba(52,211,153,0.06) !important;
+  }
   .panel-empty {
     padding: 24px;
     text-align: center;

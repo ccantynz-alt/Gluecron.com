@@ -16,6 +16,8 @@ import {
   labels,
   issues,
   issueComments,
+  issueLabels,
+  repositories,
 } from "../db/schema";
 import { audit } from "./notify";
 
@@ -29,6 +31,7 @@ const DEFAULT_LABELS = [
   { name: "question", color: "#8b949e", description: "Further info requested" },
   { name: "good first issue", color: "#7ee787", description: "Suitable for new contributors" },
   { name: "ai-triaged", color: "#bc8cff", description: "Auto-triaged by GlueCron AI" },
+  { name: "ai:build", color: "#f0883e", description: "Autopilot will implement this and open a PR" },
 ];
 
 const WELCOME_BODY = `Welcome to your new GlueCron repository.
@@ -178,6 +181,80 @@ export async function bootstrapRepository(opts: {
     labelsCreated,
     welcomeIssueNumber,
   };
+}
+
+const AI_BUILD_SEED_TITLE = "Add a welcome README with project overview";
+
+const AI_BUILD_SEED_BODY = `## What to build
+
+Add a \`README.md\` to this repository with:
+- A one-paragraph description of what this project does
+- Quick start instructions (install + run)
+- A brief note about the tech stack
+
+## Why this issue exists
+
+This issue is labelled \`ai:build\`. Gluecron's autopilot will automatically:
+1. Read this spec
+2. Ask Claude to implement it
+3. Open a draft pull request with the code
+
+You don't need to do anything. Just watch the PR appear. ✨
+
+To build your own features this way, open an issue, describe what you want, and add the \`ai:build\` label.`;
+
+/**
+ * Seeds an `ai:build`-labelled issue on a user's FIRST repository so they
+ * immediately discover the autopilot feature.
+ *
+ * Silently skips if this is not the owner's first repo, or if anything fails.
+ * Must be called fire-and-forget — it never throws.
+ */
+export async function ensureAiBuildSeedIssue(
+  repositoryId: string,
+  ownerId: string
+): Promise<void> {
+  try {
+    const { eq, and, sql } = await import("drizzle-orm");
+
+    // 1. Only seed on the owner's first repo.
+    const [{ n }] = await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(repositories)
+      .where(eq(repositories.ownerId, ownerId));
+    if ((n ?? 0) > 1) return;
+
+    // 2. Find the ai:build label for this repo (seeded by bootstrapRepository).
+    const [label] = await db
+      .select({ id: labels.id })
+      .from(labels)
+      .where(and(eq(labels.repositoryId, repositoryId), eq(labels.name, "ai:build")))
+      .limit(1);
+
+    if (!label) {
+      console.warn("[ai-build-seed] ai:build label not found for repo", repositoryId);
+      return;
+    }
+
+    // 3. Create the seed issue.
+    const [issue] = await db
+      .insert(issues)
+      .values({
+        repositoryId,
+        authorId: ownerId,
+        title: AI_BUILD_SEED_TITLE,
+        body: AI_BUILD_SEED_BODY,
+        state: "open",
+      })
+      .returning();
+
+    if (!issue) return;
+
+    // 4. Attach the ai:build label.
+    await db.insert(issueLabels).values({ issueId: issue.id, labelId: label.id });
+  } catch (err) {
+    console.warn("[ai-build-seed] failed:", (err as Error)?.message);
+  }
 }
 
 /**

@@ -29,7 +29,11 @@
  *   fine for dev but triggers "host key changed" on restart in prod).
  */
 
+// ssh2 ships no TypeScript declarations; suppress until @types/ssh2 is available.
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-expect-error no types
 import { Server as SshServer, utils as sshUtils } from "ssh2";
+// @ts-expect-error no types
 import type { AuthContext, Connection, ServerChannel } from "ssh2";
 import { spawn } from "child_process";
 import { generateKeyPairSync } from "crypto";
@@ -458,10 +462,10 @@ export function createSshServer(): ReturnType<typeof SshServer> {
       });
 
       client.on("ready", () => {
-        client.on("session", (accept) => {
+        client.on("session", (accept: () => ServerChannel) => {
           const session = accept();
 
-          session.on("exec", async (accept, _reject, info) => {
+          session.on("exec", async (accept: () => ServerChannel, _reject: () => void, info: { command: string }) => {
             const parsed = parseGitCommand(info.command);
             const channel = accept();
 
@@ -487,7 +491,7 @@ export function createSshServer(): ReturnType<typeof SshServer> {
           });
 
           // Interactive shell — reject gracefully
-          session.on("shell", (accept) => {
+          session.on("shell", (accept: () => ServerChannel) => {
             const channel = accept();
             channel.write(
               "Hi there! Gluecron is a git-only service. Shell access is not available.\r\n"
@@ -501,7 +505,7 @@ export function createSshServer(): ReturnType<typeof SshServer> {
         });
       });
 
-      client.on("error", (err) => {
+      client.on("error", (err: Error) => {
         if (process.env.SSH_DEBUG) {
           console.debug("[ssh] client error:", err.message);
         }
@@ -509,7 +513,7 @@ export function createSshServer(): ReturnType<typeof SshServer> {
     }
   );
 
-  server.on("error", (err) => {
+  server.on("error", (err: Error) => {
     console.error("[ssh] server error:", err);
   });
 

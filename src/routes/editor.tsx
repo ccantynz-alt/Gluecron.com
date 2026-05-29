@@ -6,6 +6,11 @@
  * hairline, mono breadcrumb pill, commit-message input with focus ring,
  * primary commit + ghost cancel buttons, and an AI "Suggest" button that
  * sits inline. The git operations themselves are unchanged.
+ *
+ * CodeMirror 6 enhancement: The plain textarea is replaced with a
+ * CodeMirror 6 editor loaded from CDN (esm.sh). The textarea is kept
+ * hidden and synced on every change so the existing form POST works
+ * without server changes. Language is auto-detected from the file extension.
  */
 
 import { Hono } from "hono";
@@ -21,6 +26,8 @@ import { isAiAvailable } from "../lib/ai-client";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
 import { requireRepoAccess } from "../middleware/repo-access";
+import { audit } from "../lib/notify";
+import { AI_AUDIT_ACTIONS } from "../lib/ai-hours-saved";
 
 const editor = new Hono<AuthEnv>();
 
@@ -68,6 +75,284 @@ function AI_COMMIT_MSG_SCRIPT(args: {
     "});" +
     "}catch(e){}})();"
   );
+}
+
+/**
+ * Detect a language identifier from a file path/name for CodeMirror.
+ * Returns a string like "typescript", "python", "markdown", etc.
+ * Used server-side to embed a data-lang attribute.
+ */
+function detectEditorLang(filePath: string): string {
+  const lower = filePath.toLowerCase();
+  const ext = lower.split(".").pop() || "";
+  switch (ext) {
+    case "ts":
+    case "tsx":
+      return "typescript";
+    case "js":
+    case "jsx":
+    case "mjs":
+    case "cjs":
+      return "javascript";
+    case "py":
+      return "python";
+    case "md":
+    case "mdx":
+      return "markdown";
+    case "json":
+    case "jsonc":
+      return "json";
+    case "css":
+    case "scss":
+    case "sass":
+    case "less":
+      return "css";
+    case "html":
+    case "htm":
+      return "html";
+    case "sh":
+    case "bash":
+    case "zsh":
+      return "shell";
+    case "sql":
+      return "sql";
+    case "xml":
+      return "xml";
+    case "yaml":
+    case "yml":
+      return "yaml";
+    case "rs":
+      return "rust";
+    case "go":
+      return "go";
+    case "java":
+      return "java";
+    case "rb":
+      return "ruby";
+    case "php":
+      return "php";
+    case "c":
+    case "h":
+      return "c";
+    case "cpp":
+    case "cc":
+    case "cxx":
+    case "hh":
+    case "hpp":
+      return "cpp";
+    default:
+      return "plaintext";
+  }
+}
+
+/**
+ * CodeMirror 6 initialization script — loaded from esm.sh CDN.
+ * Mounts a CodeMirror editor in place of the hidden textarea.
+ * Syncs on every change so the form POST continues to work.
+ * The textareaId identifies the hidden textarea to sync to.
+ * The lang attribute controls language detection + dynamic import.
+ */
+function CODEMIRROR_INIT_SCRIPT(args: {
+  textareaId: string;
+  wrapperId: string;
+  lang: string;
+}): string {
+  const safe = (v: string) =>
+    JSON.stringify(v)
+      .split("<").join("\\u003C")
+      .split(">").join("\\u003E")
+      .split("&").join("\\u0026");
+  const textareaId = safe(args.textareaId);
+  const wrapperId = safe(args.wrapperId);
+  const lang = safe(args.lang);
+
+  return `
+(async function() {
+  try {
+    var ta = document.getElementById(${textareaId});
+    var wrapper = document.getElementById(${wrapperId});
+    if (!ta || !wrapper) return;
+
+    // Load CodeMirror 6 core from esm.sh
+    var [cmView, cmState, cmCommands, cmLanguage, cmTheme] = await Promise.all([
+      import('https://esm.sh/@codemirror/view@6'),
+      import('https://esm.sh/@codemirror/state@6'),
+      import('https://esm.sh/@codemirror/commands@6'),
+      import('https://esm.sh/@codemirror/language@6'),
+      import('https://esm.sh/@codemirror/theme-one-dark@6')
+    ]);
+
+    var { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter, drawSelection, dropCursor, rectangularSelection, crosshairCursor, highlightSpecialChars } = cmView;
+    var { EditorState, Compartment } = cmState;
+    var { defaultKeymap, indentWithTab, historyKeymap, history } = cmCommands;
+    var { indentOnInput, syntaxHighlighting, defaultHighlightStyle, bracketMatching, foldGutter } = cmLanguage;
+    var { oneDark } = cmTheme;
+
+    // Dynamically load language support
+    var langExtension = [];
+    try {
+      var langStr = ${lang};
+      if (langStr === 'typescript' || langStr === 'javascript') {
+        var jsLang = await import('https://esm.sh/@codemirror/lang-javascript@6');
+        langExtension = [jsLang.javascript({ typescript: langStr === 'typescript', jsx: true })];
+      } else if (langStr === 'python') {
+        var pyLang = await import('https://esm.sh/@codemirror/lang-python@6');
+        langExtension = [pyLang.python()];
+      } else if (langStr === 'markdown') {
+        var mdLang = await import('https://esm.sh/@codemirror/lang-markdown@6');
+        langExtension = [mdLang.markdown()];
+      } else if (langStr === 'json') {
+        var jsonLang = await import('https://esm.sh/@codemirror/lang-json@6');
+        langExtension = [jsonLang.json()];
+      } else if (langStr === 'css') {
+        var cssLang = await import('https://esm.sh/@codemirror/lang-css@6');
+        langExtension = [cssLang.css()];
+      } else if (langStr === 'html') {
+        var htmlLang = await import('https://esm.sh/@codemirror/lang-html@6');
+        langExtension = [htmlLang.html()];
+      } else if (langStr === 'shell') {
+        var { StreamLanguage } = cmLanguage;
+        var shellLang = await import('https://esm.sh/@codemirror/legacy-modes@6/src/shell');
+        langExtension = [StreamLanguage.define(shellLang.shell)];
+      } else if (langStr === 'sql') {
+        var sqlLang = await import('https://esm.sh/@codemirror/lang-sql@6');
+        langExtension = [sqlLang.sql()];
+      } else if (langStr === 'rust') {
+        var rsLang = await import('https://esm.sh/@codemirror/lang-rust@6');
+        langExtension = [rsLang.rust()];
+      } else if (langStr === 'cpp' || langStr === 'c') {
+        var cppLang = await import('https://esm.sh/@codemirror/lang-cpp@6');
+        langExtension = [cppLang.cpp()];
+      } else if (langStr === 'java') {
+        var javaLang = await import('https://esm.sh/@codemirror/lang-java@6');
+        langExtension = [javaLang.java()];
+      } else if (langStr === 'xml') {
+        var xmlLang = await import('https://esm.sh/@codemirror/lang-xml@6');
+        langExtension = [xmlLang.xml()];
+      } else if (langStr === 'yaml') {
+        var { StreamLanguage } = cmLanguage;
+        var yamlLang = await import('https://esm.sh/@codemirror/legacy-modes@6/src/yaml');
+        langExtension = [StreamLanguage.define(yamlLang.yaml)];
+      } else if (langStr === 'go') {
+        var { StreamLanguage } = cmLanguage;
+        var goLang = await import('https://esm.sh/@codemirror/legacy-modes@6/src/go');
+        langExtension = [StreamLanguage.define(goLang.go)];
+      } else if (langStr === 'ruby') {
+        var { StreamLanguage } = cmLanguage;
+        var rubyLang = await import('https://esm.sh/@codemirror/legacy-modes@6/src/ruby');
+        langExtension = [StreamLanguage.define(rubyLang.ruby)];
+      } else if (langStr === 'php') {
+        var phpLang = await import('https://esm.sh/@codemirror/lang-php@6');
+        langExtension = [phpLang.php()];
+      }
+    } catch(e) {
+      // language load failure is non-fatal — continue without highlighting
+      langExtension = [];
+    }
+
+    var initialContent = ta.value;
+
+    var updateListener = EditorView.updateListener.of(function(update) {
+      if (update.docChanged) {
+        ta.value = update.state.doc.toString();
+      }
+    });
+
+    var editorTheme = EditorView.theme({
+      '&': {
+        background: 'var(--bg)',
+        color: 'var(--text)',
+        border: '1px solid var(--border-strong)',
+        borderRadius: '10px',
+        minHeight: '280px',
+        fontSize: '13px',
+        lineHeight: '1.55',
+        fontFamily: 'var(--font-mono)',
+      },
+      '.cm-content': {
+        padding: '12px 14px',
+        caretColor: '#a48bff',
+      },
+      '.cm-focused': {
+        outline: 'none',
+      },
+      '&.cm-focused': {
+        borderColor: 'rgba(140,109,255,0.55)',
+        boxShadow: '0 0 0 3px rgba(140,109,255,0.18)',
+      },
+      '.cm-gutters': {
+        background: 'rgba(255,255,255,0.02)',
+        borderRight: '1px solid var(--border)',
+        color: 'var(--text-faint)',
+        paddingRight: '4px',
+      },
+      '.cm-activeLineGutter': {
+        background: 'rgba(140,109,255,0.08)',
+      },
+      '.cm-activeLine': {
+        background: 'rgba(140,109,255,0.06)',
+      },
+      '.cm-scroller': {
+        overflow: 'auto',
+        minHeight: '280px',
+        maxHeight: '70vh',
+      },
+      '.cm-cursor': {
+        borderLeftColor: '#a48bff',
+      },
+    });
+
+    var state = EditorState.create({
+      doc: initialContent,
+      extensions: [
+        history(),
+        lineNumbers(),
+        highlightActiveLine(),
+        highlightActiveLineGutter(),
+        drawSelection(),
+        dropCursor(),
+        rectangularSelection(),
+        crosshairCursor(),
+        highlightSpecialChars(),
+        indentOnInput(),
+        syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+        bracketMatching(),
+        foldGutter(),
+        keymap.of([indentWithTab, ...defaultKeymap, ...historyKeymap]),
+        oneDark,
+        editorTheme,
+        updateListener,
+        ...langExtension,
+        EditorView.lineWrapping,
+      ],
+    });
+
+    var view = new EditorView({
+      state: state,
+      parent: wrapper,
+    });
+
+    // Hide the textarea now that CM is mounted
+    ta.style.display = 'none';
+    wrapper.style.display = 'block';
+
+    // Sync on form submit (belt-and-suspenders)
+    var form = ta.closest('form');
+    if (form) {
+      form.addEventListener('submit', function() {
+        ta.value = view.state.doc.toString();
+      });
+    }
+
+  } catch(e) {
+    // If CodeMirror fails to load for any reason, fall back to the textarea
+    var ta2 = document.getElementById(${textareaId});
+    if (ta2) ta2.style.display = '';
+    var w2 = document.getElementById(${wrapperId});
+    if (w2) w2.style.display = 'none';
+  }
+})();
+`;
 }
 
 // ─── Scoped CSS (.editor-*) ─────────────────────────────────────────────────
@@ -320,6 +605,27 @@ const editorStyles = `
     font-size: 12.5px;
     margin-left: auto;
   }
+
+  /* ─── CodeMirror wrapper ─── */
+  .editor-cm-wrapper {
+    display: none; /* shown by JS after mount */
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  /* Ensure CM fills the field column */
+  .editor-field .cm-editor {
+    width: 100%;
+    box-sizing: border-box;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 1.55;
+    border-radius: 10px;
+    min-height: 280px;
+  }
+  /* Override oneDark background to match the app's dark bg variable */
+  .editor-field .cm-editor .cm-scroller {
+    font-family: var(--font-mono);
+  }
 `;
 
 function IconBranch() {
@@ -408,6 +714,8 @@ editor.get("/:owner/:repo/new/:ref{.+$}", requireAuth, requireRepoAccess("write"
             </div>
             <div class="editor-field">
               <label class="editor-label" for="editor-content-new">Content</label>
+              {/* CodeMirror mounts here; falls back to textarea if JS/CDN unavailable */}
+              <div id="editor-cm-new" class="editor-cm-wrapper" />
               <textarea
                 class="editor-textarea"
                 id="editor-content-new"
@@ -415,6 +723,7 @@ editor.get("/:owner/:repo/new/:ref{.+$}", requireAuth, requireRepoAccess("write"
                 rows={20}
                 placeholder="Enter file content…"
                 spellcheck={false}
+                data-lang="plaintext"
               />
             </div>
             <div class="editor-field" style="margin-bottom:0">
@@ -437,6 +746,16 @@ editor.get("/:owner/:repo/new/:ref{.+$}", requireAuth, requireRepoAccess("write"
               Cancel
             </a>
           </div>
+          <script
+            type="module"
+            dangerouslySetInnerHTML={{
+              __html: CODEMIRROR_INIT_SCRIPT({
+                textareaId: "editor-content-new",
+                wrapperId: "editor-cm-new",
+                lang: "plaintext",
+              }),
+            }}
+          />
         </form>
       </div>
       <style dangerouslySetInnerHTML={{ __html: editorStyles }} />
@@ -628,12 +947,15 @@ editor.get("/:owner/:repo/edit/:ref{.+$}", requireAuth, requireRepoAccess("write
           <div class="editor-body">
             <div class="editor-field">
               <label class="editor-label" for="editor-content-edit">Content</label>
+              {/* CodeMirror mounts here; falls back to textarea if JS/CDN unavailable */}
+              <div id="editor-cm-edit" class="editor-cm-wrapper" />
               <textarea
                 class="editor-textarea"
                 id="editor-content-edit"
                 name="content"
                 rows={25}
                 spellcheck={false}
+                data-lang={detectEditorLang(filePath)}
               >{blob.content}</textarea>
             </div>
             <div class="editor-field" style="margin-bottom:0">
@@ -674,6 +996,16 @@ editor.get("/:owner/:repo/edit/:ref{.+$}", requireAuth, requireRepoAccess("write
                 endpoint: `/${owner}/${repo}/ai/commit-message`,
                 ref,
                 filePath,
+              }),
+            }}
+          />
+          <script
+            type="module"
+            dangerouslySetInnerHTML={{
+              __html: CODEMIRROR_INIT_SCRIPT({
+                textareaId: "editor-content-edit",
+                wrapperId: "editor-cm-edit",
+                lang: detectEditorLang(filePath),
               }),
             }}
           />
@@ -750,6 +1082,17 @@ editor.post(
     // Cap to one line + 100 chars (commit-message convention).
     const oneLine = message.split("\n")[0]!.trim();
     const capped = oneLine.length > 100 ? oneLine.slice(0, 97) + "..." : oneLine;
+    // Emit audit event so L9 ai-hours-saved counters stay accurate.
+    const user = c.get("user");
+    if (user) {
+      void audit({
+        userId: user.id,
+        action: AI_AUDIT_ACTIONS.AI_COMMIT_MESSAGE,
+        targetType: "repository",
+        targetId: `${owner}/${repo}`,
+        metadata: { filePath },
+      }).catch(() => {});
+    }
     return c.json({ ok: true, message: capped });
   }
 );

@@ -58,6 +58,7 @@ import { platformStatus } from "./routes/platform-status";
 import publicStatsRoutes from "./routes/public-stats";
 import demoRoutes from "./routes/demo";
 import insightRoutes from "./routes/insights";
+import doraRoutes from "./routes/dora";
 import dashboardRoutes from "./routes/dashboard";
 import legalRoutes from "./routes/legal";
 import legalDmcaRoutes from "./routes/legal/dmca";
@@ -133,6 +134,10 @@ import installRoutes from "./routes/install";
 import dxtRoutes from "./routes/dxt";
 import connectClaudeRoutes from "./routes/connect-claude";
 import claudeDeployRoutes from "./routes/claude-deploy";
+import claudeIntegration from "./routes/claude-integration";
+import connectRoutes from "./routes/connect";
+import pushWatchRoutes from "./routes/push-watch";
+import orgSecretsRoutes from "./routes/org-secrets";
 import releasesRoutes from "./routes/releases";
 import requiredChecksRoutes from "./routes/required-checks";
 import rulesetsRoutes from "./routes/rulesets";
@@ -155,8 +160,14 @@ import standupRoutes from "./routes/standups";
 import vsGithubRoutes from "./routes/vs-github";
 import voiceRoutes from "./routes/voice-to-pr";
 import playgroundRoutes from "./routes/playground";
+import crossRepoSearchRoutes from "./routes/cross-repo-search";
+import pushNotifRoutes from "./routes/push-notifications";
+import velocityRoutes from "./routes/velocity";
+import { staleBranchRoutes } from "./routes/stale-branches";
+import pulseRoutes from "./routes/pulse";
 import { authRateLimit, gitRateLimit, searchRateLimit } from "./middleware/rate-limit";
 import { csrfToken, csrfProtect } from "./middleware/csrf";
+import { noCache } from "./middleware/no-cache";
 
 import type { AuthEnv } from "./middleware/auth";
 import { softAuth } from "./middleware/auth";
@@ -331,6 +342,11 @@ app.use("/:owner/:repo.git/*", gitRateLimit);
 // Rate limit search
 app.use("/:owner/:repo/search", searchRateLimit);
 app.use("/explore", searchRateLimit);
+
+// No-cache for HTML — ensures browsers and proxies never serve stale pages.
+// The middleware only stamps text/html responses so static assets keep
+// their own cache policies unchanged.
+app.use("*", noCache);
 
 // Git Smart HTTP protocol routes (must be before web routes)
 app.route("/", gitRoutes);
@@ -530,6 +546,9 @@ app.route("/", adminDiagnoseRoutes);
 // Insights (time-travel, dependencies, rollback)
 app.route("/", insightRoutes);
 
+// DORA metrics page (/:owner/:repo/insights/dora)
+app.route("/", doraRoutes);
+
 // Command center dashboard
 app.route("/", dashboardRoutes);
 
@@ -612,6 +631,24 @@ app.route("/", dxtRoutes);
 // Connect Claude — user-facing one-click MCP setup (/connect/claude). Mounted
 // next to the other one-click flows (install.sh + .dxt) for surface symmetry.
 app.route("/", connectClaudeRoutes);
+// Claude Code Integration Receiver — /api/claude/connect + /api/claude/session.
+app.route("/", claudeIntegration);
+// Connect guide — public onboarding page (/connect/claude-guide).
+app.route("/", connectRoutes);
+// Push Watch — per-commit live status (gates + deploy + latency) at /:owner/:repo/push/:sha
+app.route("/", pushWatchRoutes);
+// Org Secrets Manager — BLOCK M2 — /orgs/:slug/settings/secrets
+app.route("/", orgSecretsRoutes);
+// Cross-repo code search — BLOCK M3 — /search/code + /api/search/code
+app.route("/", crossRepoSearchRoutes);
+// Browser push notifications — BLOCK M4 — /settings/notifications/push + /api/push/*
+app.route("/", pushNotifRoutes);
+// Developer Velocity Dashboard — BLOCK M9 — /:owner/:repo/insights/velocity
+app.route("/", velocityRoutes);
+// Stale Branch Cleanup — BLOCK M10 — /:owner/:repo/branches/stale
+app.route("/", staleBranchRoutes);
+// Repository Pulse — BLOCK M12 — /:owner/:repo/pulse
+app.route("/", pulseRoutes);
 // Hosted Claude tool-use loops — paste loop, get endpoint, billing meter.
 // See src/routes/claude-deploy.tsx + src/lib/hosted-claude-loop.ts.
 app.route("/", claudeDeployRoutes);

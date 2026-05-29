@@ -308,15 +308,40 @@ const StatPills: FC<{ add: number; del: number }> = ({ add, del }) => (
 
 // ─── Public component ──────────────────────────────────────────────────
 
+export interface InlineDiffComment {
+  id: string;
+  filePath: string;
+  lineNumber: number;
+  authorUsername: string;
+  body: string;
+  createdAt: string;
+  isAiReview?: boolean;
+}
+
 export interface DiffViewProps {
   raw: string;
   files: GitDiffFile[];
   /** When set, file headers gain "View file" links to `${viewFileBase}/${path}`. */
   viewFileBase?: string;
+  /** Existing inline comments to render anchored to their file+line */
+  inlineComments?: InlineDiffComment[];
+  /** URL to POST a new inline comment to (shows gutter "+" buttons when set) */
+  commentActionUrl?: string;
+  /** If set, shows "Apply suggestion" button on suggestion blocks; POSTs to `${applySuggestionUrl}/${commentId}` */
+  applySuggestionUrl?: string;
 }
 
-export const DiffView: FC<DiffViewProps> = ({ raw, files, viewFileBase }) => {
+export const DiffView: FC<DiffViewProps> = ({ raw, files, viewFileBase, inlineComments, commentActionUrl, applySuggestionUrl }) => {
   const parsed = parseUnifiedDiff(raw);
+
+  // Build a lookup map: "filePath:lineNumber" → inline comments
+  const commentsByLine = new Map<string, InlineDiffComment[]>();
+  for (const c of inlineComments ?? []) {
+    const key = `${c.filePath}:${c.lineNumber}`;
+    const arr = commentsByLine.get(key) ?? [];
+    arr.push(c);
+    commentsByLine.set(key, arr);
+  }
 
   // Stat fallback: if --numstat gave us per-file counts they trump our
   // hunk-based count (only --numstat sees binary deltas accurately).
@@ -327,17 +352,47 @@ export const DiffView: FC<DiffViewProps> = ({ raw, files, viewFileBase }) => {
   const totalAdd = files.reduce((s, f) => s + f.additions, 0);
   const totalDel = files.reduce((s, f) => s + f.deletions, 0);
 
+  const fileCount = files.length || parsed.length;
+  const showJumpNav = fileCount > 3;
+
   return (
     <div class="diff-view">
       <style dangerouslySetInnerHTML={{ __html: DIFF_VIEW_CSS }} />
 
       <div class="diff-summary">
         <span class="diff-summary-count">
-          <strong>{files.length || parsed.length}</strong>{" "}
-          changed file{(files.length || parsed.length) !== 1 ? "s" : ""}
+          <strong>{fileCount}</strong>{" "}
+          changed file{fileCount !== 1 ? "s" : ""}
         </span>
         <StatPills add={totalAdd} del={totalDel} />
+        {showJumpNav && (
+          <button
+            type="button"
+            class="diff-jump-toggle"
+            aria-expanded="false"
+            aria-controls="diff-jump-nav"
+          >
+            Jump to file ▾
+          </button>
+        )}
       </div>
+
+      {showJumpNav && (
+        <div id="diff-jump-nav" class="diff-jump-nav" hidden>
+          {parsed.map((file, fIdx) => {
+            const counts = statByPath.get(file.path) ?? statByPath.get(file.oldPath ?? "") ?? countAddsDels(file);
+            return (
+              <a href={`#diff-file-${fIdx}`} class="diff-jump-item" onclick="document.getElementById('diff-jump-nav').hidden=true;document.querySelector('.diff-jump-toggle').setAttribute('aria-expanded','false')">
+                <span class="diff-jump-path">{file.path}</span>
+                <span class="diff-jump-pills">
+                  {counts.add > 0 && <span class="diff-jump-add">+{counts.add}</span>}
+                  {counts.del > 0 && <span class="diff-jump-del">-{counts.del}</span>}
+                </span>
+              </a>
+            );
+          })}
+        </div>
+      )}
 
       {parsed.map((file, fIdx) => {
         const counts =
@@ -455,22 +510,80 @@ export const DiffView: FC<DiffViewProps> = ({ raw, files, viewFileBase }) => {
                       }
                       const marker =
                         ln.kind === "add" ? "+" : ln.kind === "del" ? "−" : " ";
+                      // Inline comments anchor to the new-file line number
+                      const commentKey = ln.newNum != null ? `${file.path}:${ln.newNum}` : null;
+                      const lineComments = commentKey ? (commentsByLine.get(commentKey) ?? []) : [];
+                      const canComment = commentActionUrl && ln.kind !== "del" && ln.newNum != null;
                       return (
-                        <div
-                          class={`diff-row diff-row-${ln.kind}`}
-                          data-line={key}
-                        >
-                          <span class="diff-gutter diff-gutter-old">
-                            {ln.oldNum ?? ""}
-                          </span>
-                          <span class="diff-gutter diff-gutter-new">
-                            {ln.newNum ?? ""}
-                          </span>
-                          <span class="diff-marker" aria-hidden="true">
-                            {marker}
-                          </span>
-                          <CodeSpan html={highlighted} text={ln.text} />
-                        </div>
+                        <>
+                          <div
+                            class={`diff-row diff-row-${ln.kind}`}
+                            data-line={key}
+                            data-file={canComment ? file.path : undefined}
+                            data-newline={canComment ? ln.newNum : undefined}
+                            data-linetext={canComment ? ln.text : undefined}
+                          >
+                            <span class="diff-gutter diff-gutter-old">
+                              {ln.oldNum ?? ""}
+                            </span>
+                            <span class="diff-gutter diff-gutter-new">
+                              {ln.newNum ?? ""}
+                              {canComment && (
+                                <button class="diff-comment-btn" title="Add comment" aria-label="Add inline comment">+</button>
+                              )}
+                            </span>
+                            <span class="diff-marker" aria-hidden="true">
+                              {marker}
+                            </span>
+                            <CodeSpan html={highlighted} text={ln.text} />
+                          </div>
+                          {lineComments.map(c => {
+                            // Detect suggestion block: ```suggestion\n...\n```
+                            const suggMatch = c.body.match(/^```suggestion\n([\s\S]*?)\n```/);
+                            if (suggMatch) {
+                              const suggCode = suggMatch[1];
+                              // Any text after the closing ``` fence is treated as the comment prose
+                              const afterFence = c.body.slice(suggMatch[0].length).trim();
+                              return (
+                                <div class={`diff-inline-comment${c.isAiReview ? " diff-inline-comment-ai" : ""}`} data-comment-id={c.id}>
+                                  <div class="diff-inline-comment-head">
+                                    <strong>{c.authorUsername}</strong>
+                                    <span class="diff-inline-comment-meta">
+                                      {c.isAiReview && <span class="diff-inline-ai-badge">AI</span>}
+                                      {new Date(c.createdAt).toLocaleDateString()}
+                                    </span>
+                                  </div>
+                                  <div class="diff-suggestion-block">
+                                    <div class="diff-suggestion-header">
+                                      <span>Suggested change</span>
+                                      {applySuggestionUrl && (
+                                        <form method="post" action={`${applySuggestionUrl}/${c.id}`} style="margin:0;display:inline;">
+                                          <button type="submit" class="diff-apply-btn">Apply suggestion</button>
+                                        </form>
+                                      )}
+                                    </div>
+                                    <pre class="diff-suggestion-code">{suggCode}</pre>
+                                  </div>
+                                  {afterFence && (
+                                    <div class="diff-inline-comment-body" style="margin-top:6px;" dangerouslySetInnerHTML={{ __html: afterFence }} />
+                                  )}
+                                </div>
+                              );
+                            }
+                            return (
+                              <div class={`diff-inline-comment${c.isAiReview ? " diff-inline-comment-ai" : ""}`} data-comment-id={c.id}>
+                                <div class="diff-inline-comment-head">
+                                  <strong>{c.authorUsername}</strong>
+                                  <span class="diff-inline-comment-meta">
+                                    {c.isAiReview && <span class="diff-inline-ai-badge">AI</span>}
+                                    {new Date(c.createdAt).toLocaleDateString()}
+                                  </span>
+                                </div>
+                                <div class="diff-inline-comment-body" dangerouslySetInnerHTML={{ __html: c.body }} />
+                              </div>
+                            );
+                          })}
+                        </>
                       );
                     })}
                   </>
@@ -481,6 +594,12 @@ export const DiffView: FC<DiffViewProps> = ({ raw, files, viewFileBase }) => {
         );
       })}
 
+      {commentActionUrl && (
+        <meta name="diff-comment-url" content={commentActionUrl} />
+      )}
+      {applySuggestionUrl && (
+        <meta name="diff-apply-suggestion-url" content={applySuggestionUrl} />
+      )}
       <script dangerouslySetInnerHTML={{ __html: DIFF_VIEW_JS }} />
     </div>
   );
@@ -490,18 +609,114 @@ export const DiffView: FC<DiffViewProps> = ({ raw, files, viewFileBase }) => {
 
 const DIFF_VIEW_JS = `
 (function () {
+  // Jump-to-file nav toggle
+  var jumpToggle = document.querySelector('.diff-jump-toggle');
+  if (jumpToggle) {
+    jumpToggle.addEventListener('click', function () {
+      var nav = document.getElementById('diff-jump-nav');
+      if (!nav) return;
+      var open = nav.hidden;
+      nav.hidden = !open;
+      jumpToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+      if (open) jumpToggle.classList.add('is-open');
+      else jumpToggle.classList.remove('is-open');
+    });
+    // Close on outside click
+    document.addEventListener('click', function (ev) {
+      var nav = document.getElementById('diff-jump-nav');
+      if (!nav || nav.hidden) return;
+      if (!jumpToggle.contains(ev.target) && !nav.contains(ev.target)) {
+        nav.hidden = true;
+        jumpToggle.setAttribute('aria-expanded', 'false');
+        jumpToggle.classList.remove('is-open');
+      }
+    });
+  }
+
+  // Copy-path button
   document.addEventListener('click', function (e) {
     var t = e.target;
     if (!t) return;
-    var btn = t.closest && t.closest('.diff-file-copy');
-    if (!btn) return;
-    e.preventDefault();
-    var path = btn.getAttribute('data-copy') || '';
-    if (!navigator.clipboard) return;
-    navigator.clipboard.writeText(path).then(function () {
-      btn.classList.add('is-copied');
-      setTimeout(function () { btn.classList.remove('is-copied'); }, 1200);
-    }).catch(function () {});
+    // Copy path button
+    var copyBtn = t.closest && t.closest('.diff-file-copy');
+    if (copyBtn) {
+      e.preventDefault();
+      var path = copyBtn.getAttribute('data-copy') || '';
+      if (!navigator.clipboard) return;
+      navigator.clipboard.writeText(path).then(function () {
+        copyBtn.classList.add('is-copied');
+        setTimeout(function () { copyBtn.classList.remove('is-copied'); }, 1200);
+      }).catch(function () {});
+      return;
+    }
+    // Inline comment "+" button
+    var commentBtn = t.closest && t.closest('.diff-comment-btn');
+    if (commentBtn) {
+      e.preventDefault();
+      var row = commentBtn.closest('.diff-row');
+      if (!row) return;
+      var filePath = row.getAttribute('data-file');
+      var lineNum = row.getAttribute('data-newline');
+      var lineText = row.getAttribute('data-linetext') || '';
+      var actionUrl = document.querySelector('meta[name="diff-comment-url"]');
+      if (!filePath || !lineNum || !actionUrl) return;
+      // Remove any existing open form
+      var existing = document.querySelector('.diff-inline-form-row');
+      if (existing) {
+        if (existing.previousSibling === row) { existing.remove(); return; }
+        existing.remove();
+      }
+      // Build a form row
+      var form = document.createElement('form');
+      form.method = 'POST';
+      form.action = actionUrl.getAttribute('content') || '';
+      form.className = 'diff-inline-form-row';
+      form.innerHTML =
+        '<input type="hidden" name="file_path" value="' + filePath.replace(/"/g,'&quot;') + '">' +
+        '<input type="hidden" name="line_number" value="' + lineNum + '">' +
+        '<textarea name="body" rows="3" placeholder="Leave a comment…" class="diff-inline-textarea" required></textarea>' +
+        '<button type="button" class="diff-suggestion-toggle" title="Toggle suggestion mode">Suggest a change</button>' +
+        '<textarea class="diff-suggestion-textarea" rows="3" placeholder="Enter suggested replacement…" aria-label="Suggested replacement code"></textarea>' +
+        '<div class="diff-inline-form-actions">' +
+          '<button type="submit" class="diff-inline-submit">Comment</button>' +
+          '<button type="button" class="diff-inline-cancel">Cancel</button>' +
+        '</div>';
+      var toggleBtn = form.querySelector('.diff-suggestion-toggle');
+      var suggTA = form.querySelector('.diff-suggestion-textarea');
+      var submitBtn = form.querySelector('.diff-inline-submit');
+      var bodyTA = form.querySelector('textarea[name="body"]');
+      var suggestionActive = false;
+      toggleBtn.addEventListener('click', function () {
+        suggestionActive = !suggestionActive;
+        if (suggestionActive) {
+          toggleBtn.classList.add('is-active');
+          suggTA.classList.add('is-visible');
+          suggTA.value = lineText;
+          submitBtn.textContent = 'Add suggestion & comment';
+        } else {
+          toggleBtn.classList.remove('is-active');
+          suggTA.classList.remove('is-visible');
+          submitBtn.textContent = 'Comment';
+        }
+      });
+      form.addEventListener('submit', function (ev) {
+        if (!suggestionActive) return;
+        ev.preventDefault();
+        var suggVal = suggTA.value;
+        var commentText = bodyTA.value;
+        var wrapped = "\`\`\`suggestion\n" + suggVal + "\n\`\`\`";
+        var fullBody = commentText ? (wrapped + '\n' + commentText) : wrapped;
+        // Replace the body textarea value with the combined body
+        bodyTA.value = fullBody;
+        bodyTA.removeAttribute('required');
+        // Re-submit without the suggestion logic
+        suggestionActive = false;
+        form.submit();
+      });
+      form.querySelector('.diff-inline-cancel').addEventListener('click', function () { form.remove(); });
+      row.insertAdjacentElement('afterend', form);
+      bodyTA.focus();
+    }
   });
 })();
 `;
@@ -792,6 +1007,102 @@ const DIFF_VIEW_CSS = `
 
   .diff-row:hover .diff-gutter { opacity: 1; }
 
+  /* ─── Inline comment "+" button ─── */
+  .diff-comment-btn {
+    display: none;
+    position: absolute;
+    right: 2px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 16px; height: 16px;
+    padding: 0;
+    background: var(--accent, #8c6dff);
+    color: #fff;
+    border: none;
+    border-radius: 3px;
+    font-size: 12px;
+    line-height: 1;
+    cursor: pointer;
+    z-index: 2;
+  }
+  .diff-gutter-new { position: relative; }
+  .diff-row:hover .diff-comment-btn { display: flex; align-items: center; justify-content: center; }
+
+  /* ─── Inline comments anchored to diff lines ─── */
+  .diff-inline-comment {
+    grid-column: 1 / -1;
+    display: block;
+    margin: 4px 0;
+    padding: 10px 14px;
+    background: var(--bg-elevated);
+    border-left: 3px solid var(--border);
+    border-radius: 0 4px 4px 0;
+    font-family: var(--font-sans, inherit);
+    font-size: 13px;
+  }
+  .diff-inline-comment-ai { border-left-color: #8c6dff; }
+  .diff-inline-comment-head {
+    display: flex; gap: 8px; align-items: center;
+    margin-bottom: 6px;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+  .diff-inline-comment-head strong { color: var(--text-strong); }
+  .diff-inline-ai-badge {
+    background: rgba(140,109,255,0.2);
+    color: #a78bfa;
+    border-radius: 3px;
+    padding: 1px 5px;
+    font-size: 10px;
+    font-weight: 600;
+  }
+  .diff-inline-comment-body { color: var(--text); line-height: 1.6; }
+
+  /* ─── Inline comment form ─── */
+  .diff-inline-form-row {
+    grid-column: 1 / -1;
+    display: block;
+    padding: 10px 14px;
+    background: var(--bg-elevated);
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+  }
+  .diff-inline-textarea {
+    width: 100%;
+    min-height: 72px;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 8px;
+    font-size: 13px;
+    font-family: var(--font-sans, inherit);
+    resize: vertical;
+    box-sizing: border-box;
+  }
+  .diff-inline-textarea:focus { outline: none; border-color: var(--accent, #8c6dff); }
+  .diff-inline-form-actions {
+    display: flex; gap: 8px; margin-top: 8px;
+  }
+  .diff-inline-submit {
+    background: var(--accent, #8c6dff);
+    color: #fff;
+    border: none;
+    border-radius: 5px;
+    padding: 6px 14px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .diff-inline-cancel {
+    background: transparent;
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 6px 14px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+
   /* Highlight.js theme overrides so colors layer correctly on tints */
   .diff-body.has-hljs .hljs-keyword { color: #ff7b72; }
   .diff-body.has-hljs .hljs-built_in,
@@ -810,6 +1121,77 @@ const DIFF_VIEW_CSS = `
   .diff-body.has-hljs .hljs-variable,
   .diff-body.has-hljs .hljs-template-variable { color: #ffa657; }
 
+  /* ─── Suggestion blocks ─── */
+  .diff-suggestion-block {
+    margin: 8px 0;
+    border: 1px solid rgba(52,211,153,0.3);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .diff-suggestion-header {
+    padding: 6px 12px;
+    background: rgba(52,211,153,0.08);
+    border-bottom: 1px solid rgba(52,211,153,0.2);
+    font-size: 12px;
+    color: #6ee7b7;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .diff-suggestion-code {
+    padding: 8px 12px;
+    background: rgba(52,211,153,0.05);
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    white-space: pre;
+    color: var(--text);
+    margin: 0;
+  }
+  .diff-apply-btn {
+    background: rgba(52,211,153,0.15);
+    color: #6ee7b7;
+    border: 1px solid rgba(52,211,153,0.35);
+    border-radius: 5px;
+    padding: 4px 12px;
+    font-size: 12px;
+    cursor: pointer;
+    font-family: var(--font-sans, inherit);
+  }
+  .diff-apply-btn:hover {
+    background: rgba(52,211,153,0.25);
+  }
+  .diff-suggestion-toggle {
+    background: transparent;
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 4px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    font-family: var(--font-sans, inherit);
+    margin-top: 6px;
+  }
+  .diff-suggestion-toggle.is-active {
+    background: rgba(52,211,153,0.1);
+    color: #6ee7b7;
+    border-color: rgba(52,211,153,0.35);
+  }
+  .diff-suggestion-textarea {
+    width: 100%;
+    background: rgba(52,211,153,0.04);
+    color: var(--text);
+    border: 1px solid rgba(52,211,153,0.25);
+    border-radius: 4px;
+    padding: 8px;
+    font-size: 12.5px;
+    font-family: var(--font-mono);
+    resize: vertical;
+    box-sizing: border-box;
+    margin-top: 6px;
+    display: none;
+  }
+  .diff-suggestion-textarea.is-visible { display: block; }
+
   /* ─── Split-view scaffolding (phase 2 placeholder) ───
      The .diff-body element is grid-friendly; a future toggle can swap to
      'diff-body diff-split' and the per-row grid expands to two code panes. */
@@ -824,4 +1206,60 @@ const DIFF_VIEW_CSS = `
     .diff-hunk-header { padding-left: 64px; }
     .diff-file-blob-link { display: none; }
   }
+
+  /* ─── Jump-to-file nav ─── */
+  .diff-jump-toggle {
+    margin-left: auto;
+    background: var(--bg-elevated);
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 4px 12px;
+    font-size: 12px;
+    cursor: pointer;
+    font-family: var(--font-sans, inherit);
+    white-space: nowrap;
+    transition: all 120ms ease;
+  }
+  .diff-jump-toggle:hover,
+  .diff-jump-toggle.is-open {
+    color: var(--text);
+    border-color: rgba(140,109,255,0.45);
+    background: var(--accent-gradient-faint, var(--bg-elevated));
+  }
+
+  .diff-jump-nav {
+    position: relative;
+    margin-bottom: 12px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+    z-index: 20;
+    max-height: 320px;
+    overflow-y: auto;
+    padding: 6px 0;
+  }
+  .diff-jump-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 6px 14px;
+    text-decoration: none;
+    color: var(--text);
+    font-size: 12.5px;
+    font-family: var(--font-mono);
+    transition: background 80ms ease;
+  }
+  .diff-jump-item:hover { background: var(--bg-secondary); }
+  .diff-jump-path {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+  }
+  .diff-jump-pills { display: flex; gap: 4px; flex-shrink: 0; }
+  .diff-jump-add { color: #6ee7b7; font-size: 11px; }
+  .diff-jump-del { color: #fca5a5; font-size: 11px; }
 `;

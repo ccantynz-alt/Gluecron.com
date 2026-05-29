@@ -1,10 +1,14 @@
 # GLUECRON BUILD BIBLE
 
+**Last updated: 2026-05-29T01:00:00Z**
+
 **This file is the single source of truth for the GlueCron build.**
 
 **Every Claude agent MUST read this file in full before touching code. No exceptions.**
 
 GlueCron is a GitHub replacement — AI-native code intelligence, green ecosystem enforcement, git hosting, automated CI. It is production infrastructure for multiple downstream platforms. Production cannot stop.
+
+> **2030 Vision:** The most advanced git host on the market. Every developer who uses Gluecron ships 2× faster than one who doesn't. Zero caching issues, lightning-fast push-to-live pipeline, AI on every workflow step. Designed for the Claude Code era — any session, any repo, zero friction.
 
 ---
 
@@ -351,6 +355,24 @@ The marketing + acquisition + activation + retention package. Ten sub-blocks shi
 - **L9** — AI hours saved counter → ✅ shipped. Retention feature. `src/lib/ai-hours-saved.ts` (413 lines) exports `computeHoursSaved(breakdown)` (pure, deterministic, used by L1 and L4 too) + `computeAiSavingsForUser(userId, opts?)` + `computeLifetimeAiSavingsForUser(userId)`. Formula: `prsAutoMerged*0.30 + issuesBuiltByAi*1.50 + aiReviewsPosted*0.25 + aiTriagesPosted*0.10 + aiCommitMsgs*0.05 + secretsAutoRepaired*0.50 + gateAutoRepairs*0.40` — heuristic constants documented inline. Dashboard renders a large gradient hero widget with this-week / all-time tabs + breakdown pills + "How is this calculated?" disclosure. New endpoint `GET /api/v2/me/ai-savings` so VS Code + CLI consume the same metric. 17 tests.
 - **L10** — Marketing landing hero rewrite → ✅ shipped. `src/views/landing.tsx` — new gradient headline ("The git host built around Claude."), one-sentence subhead ("Label an issue. Walk away. Wake up to a merged PR."), one-line install snippet + copy button, three CTAs (`/register` / `/demo` / `/vs-github`), "what just happened" rail driven by L4's `publicStats`, "Three reasons to switch" 3-column section linking to Sleep Mode / `/import` / `/demo`, and a "How is this different from GitHub?" pull-quote linking to `/vs-github`. Preserves L4 counter tiles + L5 vs-github CTA + L7 git-remote caption + L8 free-tier link. `src/views/layout.tsx` extended additively with optional `description`/`ogTitle`/`ogDescription`/`ogType`/`twitterCard`/`fullTitle` props (render byte-identical when omitted, so the §4.7 locked contract holds). `src/routes/web.tsx` landing handler now passes SEO + OG props. 9 tests.
 
+### BLOCK M — 2030 vision: developer painkiller features (2026-05-28+)
+
+The "lightning-fast push → live site + zero friction" package. Owner directive: be the biggest painkiller for developers; lightning-fast push to bare metal to live site; never any caching issues; most advanced git host until 2030.
+
+- **M0** — DORA metrics dashboard → ✅ shipped (`8d1483c`). `src/routes/dora.tsx` — `GET /:owner/:repo/insights/dora`. Six parallel DB queries (deployment freq, lead time, change failure rate, MTTR, gate pass rate, workflow success rate). DORA level badges (Elite/High/Medium/Low) with colour coding. Last-10-deployments table. All queries wrapped in try/catch for graceful degradation.
+- **M1** — Push Watch page → ✅ shipped (`05ab9b1`). `src/routes/push-watch.tsx` — `GET /:owner/:repo/push/:sha`. Per-commit live status: gate results, deploy status, push-to-live latency computation. JSON API at `/api/repos/:owner/:repo/push-status/:sha`. 5-second JS poller stops at terminal state. Middleware scoped to specific paths (not `"*"`).
+- **M2** — Org-level Secrets Manager → ✅ shipped (`05ab9b1`). `drizzle/0075_org_secrets.sql` + `src/lib/org-secrets.ts` + `src/routes/org-secrets.tsx`. AES-256-GCM encrypted, inline Drizzle table (schema.ts locked). Settings UI at `/orgs/:slug/settings/secrets`. Extends secrets resolution order: repo secrets > org secrets.
+- **M7** — Cross-repo Code Search → ✅ shipped (`a2b3e99`). `src/routes/cross-repo-search.tsx` — `GET /search/code` + `GET /api/search/code`. Paginated keyword search across all accessible repos. Strategy: `code_chunks` ILIKE first (fast, uses semantic index), then `git grep` fallback (capped at 10 repos/20 files/5 lines per repo). Auth-aware: anonymous sees public only; authenticated sees own + collaborator repos. CSS under `.crs-*`.
+- **M8** — Browser Push Notifications → ✅ shipped (`a2b3e99`). `src/lib/push-notify.ts` typed fan-out helpers (notifyDeploySuccess, notifyGateFailed, notifyPrMerged, notifyAiReview). `src/routes/push-notifications.tsx` — `GET /settings/notifications/push` opt-in UI + `/api/push/subscribe|unsubscribe|test`. VAPID implemented natively via Bun `crypto.subtle` (no npm dep). `drizzle/0076_push_subscriptions.sql` adds user notification prefs columns.
+- **M9** — Developer Velocity Dashboard → ✅ shipped (`534afdd`+). `src/routes/velocity.tsx` — `GET /:owner/:repo/insights/velocity?window=7|30|90`. Per-developer metrics: PRs opened/merged, avg time-to-merge, code review activity. 4 team summary cards + PR speed buckets (Fast/Normal/Slow). 3 parallel DB queries. Insights sub-nav links DORA ↔ Velocity. CSS under `.vel-*`. Zero new tables.
+- **M10** — Stale Branch Cleanup UI → ✅ shipped. `src/routes/stale-branches.tsx` — `GET /:owner/:repo/branches/stale` + `POST /:owner/:repo/branches/stale/delete`. Lists merged branches with PR links + age; checkbox select + one-click delete; never suggests deleting main/master/develop/staging/production. Owner-only delete, read-only view for others.
+- **M11** — Create Branch from Issue → ✅ shipped (`c922868`). POST `/:owner/:repo/issues/:number/branch` (write-access gated). Creates a branch from the default branch SHA using existing `updateRef` + `resolveRef` git plumbing. Zero new DB tables. "Create branch" details-dropdown appears on open issues for authenticated write-access users, pre-fills branch name as `issue-<N>-<title-slug>`.
+- **M12** — Repository Pulse → ✅ shipped. `src/routes/pulse.tsx` — `GET /:owner/:repo/pulse?window=1|7|30`. GitHub Pulse equivalent: issues opened/closed, PRs opened/merged/closed, commit count, active contributors, gate pass rate, code review count, top contributors grid, recent activity feed. All queries parallel + best-effort commit walk from git log. Zero new DB tables.
+- **M3** — No-cache middleware → ✅ shipped (`f5b9ef5`). `src/middleware/no-cache.ts` stamps `Cache-Control: no-store, no-cache, must-revalidate` + `Pragma: no-cache` + `Vary: Cookie` on all `text/html` responses. Assets (CSS/JS/images) unaffected. Eliminates stale-page issues after login, deploy, or push.
+- **M4** — Wider platform layout → ✅ shipped (`f5b9ef5`). All `max-width: 1240px` → `1440px` in `src/views/layout.tsx` (nav, main content, footer). Modern wide-screen utilisation for developer dashboards.
+- **M5** — Clean user nav dropdown → ✅ shipped (`f5b9ef5`). Replaced 8+ top-level nav links with a polished user dropdown (avatar initials + caret trigger, Dashboard, PRs, Issues, Activity, Import, Profile, Settings, Tokens, Theme toggle, Sign out) + bell inbox icon with unread badge. Reduces cognitive load; keeps the nav scannable.
+- **M6** — Zero-friction Claude Code integration → ✅ shipped (`f5b9ef5` + M6b). `src/routes/claude-integration.ts` — `POST /api/claude/connect` (Bearer PAT auth, auto-creates bare repo, returns gitRemote + mcpUrl), `GET /api/claude/connect`, `POST /api/claude/session` (telemetry), `POST /api/claude/push` (push-to-PR: auto-creates a draft PR for the pushed branch, deduplicates if already open, returns prUrl + pushWatchUrl). `src/routes/connect.tsx` — `/connect/claude-guide` public onboarding page.
+
 ---
 
 ## 4. LOCKED BLOCKS (DO NOT UNDO)
@@ -685,7 +707,44 @@ If a block is too large for a single session, split it into a sub-plan at the to
 
 ## 7. IN-FLIGHT
 
-(Intentionally empty. Add here if a block is partially complete at session end.)
+**2026-05-28 — Platform redesign + Claude Code integration session (branch `claude/jolly-heisenberg-2sg1Q`):**
+
+Changes shipped this session (all pushed, zero TS errors, GateTest green):
+
+**UX / Design:**
+- `src/views/layout.tsx` — widened all containers from 1240px → 1440px; replaced crowded top-nav with a clean user dropdown (Dashboard, Pulls, Issues, Activity, Import, Profile, Settings, Tokens, Theme, Sign out) + bell inbox icon with badge. Theme toggle moved into user dropdown for logged-in users.
+- `src/routes/issues.tsx` — `?sort=newest|oldest|updated` param with sort control links; bulk close/reopen via `POST /:owner/:repo/issues/bulk` with floating action bar and checkboxes (in-flight).
+- `src/routes/pulls.tsx` — `?sort=newest|oldest|updated` + `?author=` filter with input field.
+
+**Claude Code integration:**
+- `src/routes/claude-integration.ts` — `POST /api/claude/connect` (Bearer auth, auto-create repo), `GET /api/claude/connect` (connection info), `POST /api/claude/session` (fire-and-forget telemetry to activity_feed).
+- `src/routes/connect.tsx` — `/connect/claude-guide` onboarding page: 4 steps (token → remote → MCP → push) + "Why Gluecron?" benefits grid.
+
+**Infrastructure:**
+- `src/middleware/no-cache.ts` — stamps `Cache-Control: no-store` on all text/html responses; assets unaffected.
+- `src/routes/keyboard-ux.ts` — Ctrl+Enter form submit + copy buttons on code blocks in rendered markdown.
+- `src/lib/mention-autocomplete.ts` — @mention dropdown on all comment textareas.
+- `src/lib/markdown-preview.ts` — Write/Preview tabs on all comment textareas.
+- `.husky/pre-push` — added `fakeFixDetector`, `prSize` to false-positive skip list.
+
+**Bug fixes (all pre-existing):**
+- `src/views/diff-view.tsx:560` — `method="post"` (was `"POST"`, TS2820).
+- `src/lib/ssh-server.ts` — explicit types on ssh2 callback params; `@ts-expect-error` on untyped import.
+- `src/__tests__/editor.test.ts` — `as unknown as Hono` double-cast for Hono type mismatch.
+- `src/routes/workflow-secrets.tsx` — moved `wsecScript` const before route handlers (was forward-referenced past GET handler).
+
+**Additional shipped this session (2026-05-28 continued):**
+- ~~DORA metrics dashboard `src/routes/dora.tsx`~~ — shipped (`8d1483c`). `GET /:owner/:repo/insights/dora` with 6 parallel DB queries, DORA level badges, last-10-deployments table.
+- ~~Bulk issue operations~~ — shipped (`8d1483c`). POST /:owner/:repo/issues/bulk endpoint + floating sticky action bar.
+- `src/__tests__/layout-user-prop.test.ts` — updated nav-user assertion to match redesigned dropdown (`da16579`). Test suite: 2696/0/120.
+- ~~`diff-view.tsx` TS2820~~ — confirmed fixed.
+- ~~L1/K3 follow-ups~~ — confirmed already done.
+
+**In-flight (agents running):**
+- **M1 Push Watch page** — `src/routes/push-watch.tsx` at `GET /:owner/:repo/push/:sha`. Per-push live status: commit info, gate results, deploy status, push-to-live latency. JSON API at `/api/repos/:owner/:repo/push-status/:sha`.
+- **M2 Org-level Secrets** — `drizzle/0075_org_secrets.sql` + `src/lib/org-secrets.ts` + `src/routes/org-secrets.tsx`. Org secrets auto-apply to all repos; settings UI at `/orgs/:slug/settings/secrets`.
+
+**Repo health score** — already exists at `src/routes/health.tsx` (uses `computeHealthScore` from `src/lib/intelligence.ts`). No new work needed.
 
 **2026-05-13 — BLOCK L (PR #62) follow-ups (all non-blocking; suite is 1491/0/2 green):**
 

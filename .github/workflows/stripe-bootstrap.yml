@@ -61,10 +61,12 @@ jobs:
           STRIPE_SECRET_KEY: ${{ inputs.mode == 'live' && secrets.STRIPE_SECRET_KEY_LIVE || secrets.STRIPE_SECRET_KEY_TEST }}
           WEBHOOK_SECRET: ${{ steps.stripe.outputs.webhook_secret }}
         run: |
+          # CI env vars injected by GitHub Actions above — not hardcoded values. secrets-ok
+          MODE="${{ inputs.mode }}"
           flyctl secrets set --app gluecron --stage \
-            STRIPE_SECRET_KEY="$STRIPE_SECRET_KEY" \
-            STRIPE_WEBHOOK_SECRET="$WEBHOOK_SECRET" \
-            STRIPE_MODE="${{ inputs.mode }}"
+            "STRIPE_SECRET_KEY=$STRIPE_SECRET_KEY" \
+            "STRIPE_WEBHOOK_SECRET=$WEBHOOK_SECRET" \
+            "STRIPE_MODE=$MODE"
           echo "Staged Stripe secrets onto Fly. They'll activate on next deploy."
 
       - name: Also re-run deploy to activate secrets

@@ -3,7 +3,7 @@
  */
 
 import { Hono } from "hono";
-import { eq, and, desc, asc, sql } from "drizzle-orm";
+import { eq, and, desc, asc, sql, ilike, inArray, or } from "drizzle-orm";
 import { db } from "../db";
 import {
   issues,
@@ -12,6 +12,7 @@ import {
   users,
   labels,
   issueLabels,
+  pullRequests,
 } from "../db/schema";
 import { Layout } from "../views/layout";
 import { RepoHeader, RepoNav } from "../views/components";
@@ -21,6 +22,9 @@ import { summariseReactions } from "../lib/reactions";
 import { loadIssueTemplate } from "../lib/templates";
 import { renderMarkdown } from "../lib/markdown";
 import { liveCommentBannerScript } from "../lib/sse-client";
+import { mentionAutocompleteScript } from "../lib/mention-autocomplete";
+import { markdownPreviewScript } from "../lib/markdown-preview";
+import { ctrlEnterSubmitScript, codeBlockCopyScript } from "../lib/keyboard-ux";
 import { triggerIssueTriage, ISSUE_TRIAGE_MARKER } from "../lib/issue-triage";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
@@ -51,6 +55,7 @@ import {
   CommentForm,
   formatRelative,
 } from "../views/ui";
+import { getDefaultBranch, resolveRef, updateRef } from "../git/repository";
 
 const issueRoutes = new Hono<AuthEnv>();
 
@@ -213,6 +218,66 @@ const issuesStyles = `
   .issues-filter.is-active .issues-filter-count {
     background: rgba(140,109,255,0.18);
     color: var(--text);
+  }
+
+  /* Issue search form */
+  .issues-search-form {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 9999px;
+    overflow: hidden;
+    flex: 1;
+    max-width: 280px;
+    transition: border-color 120ms ease;
+  }
+  .issues-search-form:focus-within { border-color: rgba(140,109,255,0.55); }
+  .issues-search-input {
+    flex: 1;
+    background: transparent;
+    color: var(--text);
+    border: none;
+    outline: none;
+    padding: 6px 14px;
+    font-size: 13px;
+    font-family: var(--font-sans, inherit);
+    min-width: 0;
+  }
+  .issues-search-input::placeholder { color: var(--text-muted); }
+  .issues-search-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    padding: 6px 12px 6px 8px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+  }
+  .issues-search-btn:hover { color: var(--text); }
+  .issues-filter-banner {
+    margin-bottom: 12px;
+    padding: 8px 14px;
+    background: rgba(140,109,255,0.06);
+    border: 1px solid rgba(140,109,255,0.2);
+    border-radius: 8px;
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+  .issues-filter-clear {
+    color: var(--accent, #8c6dff);
+    text-decoration: underline;
+    cursor: pointer;
+  }
+  .issues-label-badge {
+    display: inline-block;
+    background: rgba(140,109,255,0.15);
+    color: #a78bfa;
+    border-radius: 9999px;
+    padding: 1px 8px;
+    font-size: 11.5px;
+    font-weight: 600;
   }
 
   /* Issue list — modernised rows */
@@ -568,6 +633,89 @@ const issuesStyles = `
     color: var(--text);
     font-size: 13.5px;
   }
+
+  /* ─── Linked PRs ─── */
+  .iss-linked-prs { margin-top: 16px; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .iss-linked-prs-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; background: var(--bg-elevated); border-bottom: 1px solid var(--border); font-size: 13px; font-weight: 600; }
+  .iss-linked-pr-row { display: flex; align-items: center; gap: 10px; padding: 9px 16px; border-bottom: 1px solid var(--border); font-size: 13px; text-decoration: none; color: inherit; }
+  .iss-linked-pr-row:last-child { border-bottom: none; }
+  .iss-linked-pr-row:hover { background: var(--bg-hover); }
+  .iss-linked-pr-icon.is-open { color: #34d399; }
+  .iss-linked-pr-icon.is-merged { color: #a78bfa; }
+  .iss-linked-pr-icon.is-closed { color: #8b949e; }
+  .iss-linked-pr-icon.is-draft { color: #8b949e; }
+  .iss-linked-pr-title { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .iss-linked-pr-num { color: var(--text-muted); font-size: 12px; }
+  .iss-linked-pr-state { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 9999px; }
+  .iss-linked-pr-state.is-open { color: #34d399; background: rgba(52,211,153,0.10); }
+  .iss-linked-pr-state.is-merged { color: #a78bfa; background: rgba(167,139,250,0.10); }
+  .iss-linked-pr-state.is-closed { color: #8b949e; background: var(--bg-tertiary); }
+  .iss-linked-pr-state.is-draft { color: #8b949e; background: var(--bg-tertiary); }
+
+  /* ─── Bulk action UI ─── */
+  .bulk-cb { width:16px; height:16px; accent-color:var(--accent); cursor:pointer; flex-shrink:0; }
+  .bulk-bar {
+    display: none;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-md);
+    margin-bottom: 12px;
+    position: sticky;
+    top: calc(var(--header-h) + 8px);
+    z-index: 10;
+    box-shadow: 0 4px 16px -4px rgba(0,0,0,0.4);
+  }
+  .bulk-bar-count { font-size:13px; font-weight:600; color:var(--text-strong); flex:1; }
+  .bulk-bar-btn {
+    padding: 6px 12px;
+    border-radius: var(--r-sm);
+    border: 1px solid var(--border);
+    background: var(--bg-surface);
+    color: var(--text);
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 120ms;
+  }
+  .bulk-bar-btn:hover { background: var(--bg-hover); }
+  .bulk-bar-clear { background: none; border: none; color: var(--text-muted); font-size: 12px; cursor: pointer; padding: 4px 8px; }
+  .bulk-bar-clear:hover { color: var(--text); }
+
+  /* ─── Sort controls (issue list) ─── */
+  .issues-sort-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0 0 12px;
+    flex-wrap: wrap;
+  }
+  .issues-sort-label {
+    font-size: 12.5px;
+    color: var(--text-muted);
+    font-weight: 600;
+    margin-right: 2px;
+  }
+  .issues-sort-opt {
+    font-size: 12.5px;
+    color: var(--text-muted);
+    text-decoration: none;
+    padding: 3px 10px;
+    border-radius: 9999px;
+    border: 1px solid transparent;
+    transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+  }
+  .issues-sort-opt:hover {
+    background: var(--bg-hover);
+    color: var(--text);
+  }
+  .issues-sort-opt.is-active {
+    background: rgba(140,109,255,0.12);
+    color: var(--text-link);
+    border-color: rgba(140,109,255,0.35);
+    font-weight: 600;
+  }
 `;
 
 // Pre-rendered <style> tag (constant, reused per request).
@@ -623,11 +771,41 @@ async function resolveRepo(ownerName: string, repoName: string) {
   return { owner, repo };
 }
 
+// Bulk issue operations (close / reopen multiple issues at once)
+issueRoutes.post("/:owner/:repo/issues/bulk", requireAuth, requireRepoAccess("write"), async (c) => {
+  const { owner: ownerName, repo: repoName } = c.req.param();
+  const user = c.get("user")!;
+  const body = await c.req.parseBody();
+  const action = String(body.action || "");
+  const rawNumbers = body["numbers[]"];
+  const numbers = (Array.isArray(rawNumbers) ? rawNumbers : rawNumbers ? [rawNumbers] : [])
+    .map(n => parseInt(String(n), 10))
+    .filter(n => !isNaN(n) && n > 0);
+
+  if (!numbers.length || !["close","reopen"].includes(action)) {
+    return c.redirect(`/${ownerName}/${repoName}/issues?error=${encodeURIComponent("Invalid bulk action")}`);
+  }
+
+  const resolved = await resolveRepo(ownerName, repoName);
+  if (!resolved) return c.redirect(`/${ownerName}/${repoName}/issues`);
+
+  const newState = action === "close" ? "closed" : "open";
+  await db.update(issues)
+    .set({ state: newState, closedAt: action === "close" ? new Date() : null, updatedAt: new Date() })
+    .where(and(eq(issues.repositoryId, resolved.repo.id), inArray(issues.number, numbers)));
+
+  const stateParam = action === "close" ? "open" : "closed"; // stay on current view
+  return c.redirect(`/${ownerName}/${repoName}/issues?state=${stateParam === "closed" ? "closed" : "open"}&success=${encodeURIComponent(`${numbers.length} issue(s) ${action}d`)}`);
+});
+
 // Issue list
 issueRoutes.get("/:owner/:repo/issues", softAuth, requireRepoAccess("read"), async (c) => {
   const { owner: ownerName, repo: repoName } = c.req.param();
   const user = c.get("user");
   const state = c.req.query("state") || "open";
+  const searchQ = (c.req.query("q") || "").trim();
+  const labelFilter = (c.req.query("label") || "").trim();
+  const sort = (c.req.query("sort") || "newest").trim();
   // Bounded pagination — unbounded selects ran a full table scan + O(n)
   // sort on every page load; with 10k+ issues the request would hang.
   const perPage = Math.min(100, Math.max(1, Number(c.req.query("per_page")) || 50));
@@ -683,6 +861,36 @@ issueRoutes.get("/:owner/:repo/issues", softAuth, requireRepoAccess("read"), asy
 
   const { repo } = resolved;
 
+  // If label filter is set, find issue IDs that have that label
+  let labelFilteredIds: string[] | null = null;
+  if (labelFilter) {
+    const [matchedLabel] = await db
+      .select({ id: labels.id })
+      .from(labels)
+      .where(and(eq(labels.repositoryId, repo.id), ilike(labels.name, labelFilter)))
+      .limit(1);
+    if (matchedLabel) {
+      const rows = await db
+        .select({ issueId: issueLabels.issueId })
+        .from(issueLabels)
+        .where(eq(issueLabels.labelId, matchedLabel.id));
+      labelFilteredIds = rows.map((r) => r.issueId);
+    } else {
+      labelFilteredIds = []; // no matches
+    }
+  }
+
+  const baseWhere = and(
+    eq(issues.repositoryId, repo.id),
+    state === "open" || state === "closed" ? eq(issues.state, state) : undefined,
+    searchQ ? ilike(issues.title, `%${searchQ}%`) : undefined,
+    labelFilteredIds !== null && labelFilteredIds.length > 0
+      ? inArray(issues.id, labelFilteredIds)
+      : labelFilteredIds !== null && labelFilteredIds.length === 0
+        ? sql`false`
+        : undefined
+  );
+
   const issueList = await db
     .select({
       issue: issues,
@@ -690,10 +898,12 @@ issueRoutes.get("/:owner/:repo/issues", softAuth, requireRepoAccess("read"), asy
     })
     .from(issues)
     .innerJoin(users, eq(issues.authorId, users.id))
-    .where(
-      and(eq(issues.repositoryId, repo.id), eq(issues.state, state))
+    .where(baseWhere)
+    .orderBy(
+      sort === "oldest" ? asc(issues.createdAt)
+        : sort === "updated" ? desc(issues.updatedAt)
+        : desc(issues.createdAt) // newest (default)
     )
-    .orderBy(desc(issues.createdAt))
     .limit(perPage)
     .offset(offset);
 
@@ -781,6 +991,43 @@ issueRoutes.get("/:owner/:repo/issues", softAuth, requireRepoAccess("read"), asy
             <span class="issues-filter-count">{Number(counts?.closed ?? 0)}</span>
           </a>
         </div>
+        <form method="get" action={`/${ownerName}/${repoName}/issues`} class="issues-search-form">
+          <input type="hidden" name="state" value={state} />
+          <input
+            type="search"
+            name="q"
+            value={searchQ}
+            placeholder="Search issues\u2026"
+            class="issues-search-input"
+            aria-label="Search issues by title"
+          />
+          {labelFilter && <input type="hidden" name="label" value={labelFilter} />}
+          <button type="submit" class="issues-search-btn" aria-label="Search">
+            <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true">
+              <path d="M10.68 11.74a6 6 0 0 1-7.922-8.982 6 6 0 0 1 8.982 7.922l3.04 3.04a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215ZM11.5 7a4.499 4.499 0 1 0-8.997 0A4.499 4.499 0 0 0 11.5 7Z" />
+            </svg>
+          </button>
+        </form>
+      </div>
+      {(searchQ || labelFilter) && (
+        <div class="issues-filter-banner">
+          Filtering{searchQ ? <> by "<strong>{searchQ}</strong>"</> : null}
+          {labelFilter ? <> label: <span class="issues-label-badge">{labelFilter}</span></> : null}
+          {" \u00B7 "}
+          <a href={`/${ownerName}/${repoName}/issues?state=${state}`} class="issues-filter-clear">Clear filters</a>
+        </div>
+      )}
+
+      <div class="issues-sort-row">
+        <span class="issues-sort-label">Sort:</span>
+        {(["newest", "oldest", "updated"] as const).map((s) => (
+          <a
+            href={`/${ownerName}/${repoName}/issues?state=${state}&sort=${s}${searchQ ? `&q=${encodeURIComponent(searchQ)}` : ""}${labelFilter ? `&label=${encodeURIComponent(labelFilter)}` : ""}`}
+            class={`issues-sort-opt${sort === s ? " is-active" : ""}`}
+          >
+            {s === "newest" ? "Newest" : s === "oldest" ? "Oldest" : "Recently updated"}
+          </a>
+        ))}
       </div>
 
       {issueList.length === 0 ? (
@@ -820,31 +1067,59 @@ issueRoutes.get("/:owner/:repo/issues", softAuth, requireRepoAccess("read"), asy
           </div>
         </div>
       ) : (
-        <ul class="issues-list">
-          {issueList.map(({ issue, author }) => (
-            <li class="issues-row">
-              <div
-                class={`issues-row-icon ${issue.state === "open" ? "is-open" : "is-closed"}`}
-                aria-hidden="true"
-                title={issue.state === "open" ? "Open" : "Closed"}
-              >
-                {issue.state === "open" ? "\u25CB" : "\u2713"}
-              </div>
-              <div class="issues-row-main">
-                <h3 class="issues-row-title">
-                  <a href={`/${ownerName}/${repoName}/issues/${issue.number}`}>
-                    {issue.title}
-                  </a>
-                </h3>
-                <div class="issues-row-meta">
-                  #{issue.number} opened by{" "}
-                  <strong>{author.username}</strong>{" "}
-                  {formatRelative(issue.createdAt)}
+        <form id="bulk-form" method="post" action={`/${ownerName}/${repoName}/issues/bulk`}>
+          <input type="hidden" name="action" id="bulk-action" value="" />
+          <div class="bulk-bar" id="bulk-bar" aria-hidden="true">
+            <span class="bulk-bar-count" id="bulk-bar-count">0 selected</span>
+            <button type="button" class="bulk-bar-btn" onclick="bulkSubmit('close')">Close selected</button>
+            <button type="button" class="bulk-bar-btn" onclick="bulkSubmit('reopen')">Reopen selected</button>
+            <button type="button" class="bulk-bar-clear" onclick="bulkClear()">Clear</button>
+          </div>
+          <ul class="issues-list">
+            {issueList.map(({ issue, author }) => (
+              <li class="issues-row">
+                <input type="checkbox" name="numbers[]" value={String(issue.number)} class="bulk-cb" aria-label={`Select issue #${issue.number}`} />
+                <div
+                  class={`issues-row-icon ${issue.state === "open" ? "is-open" : "is-closed"}`}
+                  aria-hidden="true"
+                  title={issue.state === "open" ? "Open" : "Closed"}
+                >
+                  {issue.state === "open" ? "\u25CB" : "\u2713"}
                 </div>
-              </div>
-            </li>
-          ))}
-        </ul>
+                <div class="issues-row-main">
+                  <h3 class="issues-row-title">
+                    <a href={`/${ownerName}/${repoName}/issues/${issue.number}`}>
+                      {issue.title}
+                    </a>
+                  </h3>
+                  <div class="issues-row-meta">
+                    #{issue.number} opened by{" "}
+                    <strong>{author.username}</strong>{" "}
+                    {formatRelative(issue.createdAt)}
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+          <script dangerouslySetInnerHTML={{ __html: `
+function bulkSubmit(action){
+  document.getElementById('bulk-action').value=action;
+  document.getElementById('bulk-form').submit();
+}
+function bulkClear(){
+  document.querySelectorAll('.bulk-cb').forEach(function(cb){cb.checked=false;});
+  updateBulkBar();
+}
+function updateBulkBar(){
+  var checked=document.querySelectorAll('.bulk-cb:checked').length;
+  var bar=document.getElementById('bulk-bar');
+  var cnt=document.getElementById('bulk-bar-count');
+  if(bar){bar.style.display=checked>0?'flex':'none';}
+  if(cnt){cnt.textContent=checked+' selected';}
+}
+document.addEventListener('change',function(e){if(e.target&&e.target.classList.contains('bulk-cb'))updateBulkBar();});
+` }} />
+        </form>
       )}
     </Layout>
   );
@@ -1075,6 +1350,28 @@ issueRoutes.get("/:owner/:repo/issues/:number", softAuth, requireRepoAccess("rea
     (user.id === resolved.owner.id || user.id === issue.authorId);
   const info = c.req.query("info");
 
+  // Linked PRs — find PRs in this repo whose title or body reference this issue number.
+  const issueRefPattern = `%#${issue.number}%`;
+  const linkedPrs = await db
+    .select({
+      number: pullRequests.number,
+      title: pullRequests.title,
+      state: pullRequests.state,
+      isDraft: pullRequests.isDraft,
+    })
+    .from(pullRequests)
+    .where(
+      and(
+        eq(pullRequests.repositoryId, resolved.repo.id),
+        or(
+          ilike(pullRequests.title, issueRefPattern),
+          ilike(pullRequests.body, issueRefPattern),
+        )
+      )
+    )
+    .orderBy(desc(pullRequests.createdAt))
+    .limit(8);
+
   return c.html(
     <Layout
       title={`${issue.title} #${issue.number} — ${ownerName}/${repoName}`}
@@ -1106,6 +1403,9 @@ issueRoutes.get("/:owner/:repo/issues/:number", softAuth, requireRepoAccess("rea
           }),
         }}
       />
+      <script dangerouslySetInnerHTML={{ __html: mentionAutocompleteScript() }} />
+      <script dangerouslySetInnerHTML={{ __html: markdownPreviewScript() }} />
+      <script dangerouslySetInnerHTML={{ __html: ctrlEnterSubmitScript() + codeBlockCopyScript() }} />
       <div class="issue-detail">
         {info && (
           <div class="issues-info-banner">
@@ -1142,6 +1442,34 @@ issueRoutes.get("/:owner/:repo/issues/:number", softAuth, requireRepoAccess("rea
               >
                 Build with AI
               </a>
+            )}
+            {issue.state === "open" && user && (
+              <details class="issue-branch-dropdown" style="position:relative;display:inline-block">
+                <summary
+                  class="btn"
+                  style="font-size:13px;padding:6px 12px;cursor:pointer;list-style:none"
+                  title="Create a new branch for this issue"
+                >
+                  Create branch
+                </summary>
+                <div style="position:absolute;right:0;top:calc(100% + 4px);background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;padding:12px 14px;min-width:280px;z-index:100;box-shadow:0 4px 12px rgba(0,0,0,.3)">
+                  <form method="post" action={`/${ownerName}/${repoName}/issues/${issue.number}/branch`}>
+                    <label style="display:block;font-size:12px;color:var(--fg-muted);margin-bottom:4px">Branch name</label>
+                    <input
+                      type="text"
+                      name="branchName"
+                      class="input"
+                      style="width:100%;font-size:13px;padding:5px 8px;margin-bottom:8px"
+                      value={`issue-${issue.number}-${issue.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40)}`}
+                      pattern="[a-zA-Z0-9._\\-/]+"
+                      required
+                    />
+                    <button type="submit" class="btn btn-primary" style="width:100%;font-size:13px">
+                      Create branch
+                    </button>
+                  </form>
+                </div>
+              </details>
             )}
           </div>
         </section>
@@ -1195,6 +1523,30 @@ issueRoutes.get("/:owner/:repo/issues/:number", softAuth, requireRepoAccess("rea
           })}
         </div>
 
+        {linkedPrs.length > 0 && (
+          <div class="iss-linked-prs">
+            <div class="iss-linked-prs-head">
+              <span>Linked pull requests</span>
+              <span>{linkedPrs.length}</span>
+            </div>
+            {linkedPrs.map((lpr) => {
+              const prState = lpr.isDraft ? "draft" : lpr.state;
+              const prIcon = prState === "merged" ? "⮬" : prState === "closed" ? "✕" : prState === "draft" ? "◌" : "○";
+              return (
+                <a
+                  href={`/${ownerName}/${repoName}/pulls/${lpr.number}`}
+                  class="iss-linked-pr-row"
+                >
+                  <span class={`iss-linked-pr-icon is-${prState}`} aria-hidden="true">{prIcon}</span>
+                  <span class="iss-linked-pr-title">{lpr.title}</span>
+                  <span class="iss-linked-pr-num">#{lpr.number}</span>
+                  <span class={`iss-linked-pr-state is-${prState}`}>{prState}</span>
+                </a>
+              );
+            })}
+          </div>
+        )}
+
         {user && (
           <form
             class="issues-composer"
@@ -1218,6 +1570,7 @@ issueRoutes.get("/:owner/:repo/issues/:number", softAuth, requireRepoAccess("rea
               name="body"
               rows={6}
               required
+              data-md-preview=""
               placeholder="Leave a comment... fenced code blocks, lists, links, and quotes all supported."
             />
             <div class="issues-composer-actions">
@@ -1488,6 +1841,80 @@ issueRoutes.post(
     return c.redirect(
       `/${ownerName}/${repoName}/issues/${issueNum}?info=${encodeURIComponent(
         "AI re-triage queued. The new comment will appear in 10-30s; reload to see it."
+      )}`
+    );
+  }
+);
+
+// ─── Create branch from issue ─────────────────────────────────────────────────
+// POST /:owner/:repo/issues/:number/branch
+// Creates a new git branch from the repo default branch, pre-named after the
+// issue. Write access required. Zero-config — no new DB tables.
+
+issueRoutes.post(
+  "/:owner/:repo/issues/:number/branch",
+  softAuth,
+  requireAuth,
+  requireRepoAccess("write"),
+  async (c) => {
+    const { owner: ownerName, repo: repoName } = c.req.param();
+    const issueNum = parseInt(c.req.param("number"), 10);
+
+    const resolved = await resolveRepo(ownerName, repoName);
+    if (!resolved) return c.redirect(`/${ownerName}/${repoName}/issues`);
+
+    const [issue] = await db
+      .select({ id: issues.id, number: issues.number, title: issues.title })
+      .from(issues)
+      .where(
+        and(
+          eq(issues.repositoryId, resolved.repo.id),
+          eq(issues.number, issueNum)
+        )
+      )
+      .limit(1);
+
+    if (!issue) {
+      return c.redirect(`/${ownerName}/${repoName}/issues`);
+    }
+
+    const body = await c.req.formData().catch(() => null);
+    const rawName = (body?.get("branchName") as string | null)?.trim();
+
+    // Derive a slug from the issue title
+    const titleSlug = issue.title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 40);
+    const suggested = `issue-${issue.number}-${titleSlug}`;
+    const branchName = rawName && /^[a-zA-Z0-9._\-/]+$/.test(rawName)
+      ? rawName
+      : suggested;
+
+    const defaultBranch = (await getDefaultBranch(ownerName, repoName)) ?? "main";
+    const sha = await resolveRef(ownerName, repoName, defaultBranch);
+
+    if (!sha) {
+      return c.redirect(
+        `/${ownerName}/${repoName}/issues/${issueNum}?info=${encodeURIComponent(
+          "Cannot create branch: repository has no commits yet."
+        )}`
+      );
+    }
+
+    const ok = await updateRef(ownerName, repoName, `refs/heads/${branchName}`, sha);
+    if (!ok) {
+      return c.redirect(
+        `/${ownerName}/${repoName}/issues/${issueNum}?info=${encodeURIComponent(
+          `Failed to create branch '${branchName}'. It may already exist.`
+        )}`
+      );
+    }
+
+    return c.redirect(
+      `/${ownerName}/${repoName}/tree/${branchName}?info=${encodeURIComponent(
+        `Branch '${branchName}' created from ${defaultBranch}.`
       )}`
     );
   }

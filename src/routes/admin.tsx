@@ -3427,6 +3427,18 @@ admin.post("/admin/digests/preview", async (c) => {
   );
 });
 
+const AUTOPILOT_TASK_CATALOG = [
+  { name: "mirror-sync",          desc: "Pull-sync all overdue repo mirrors" },
+  { name: "merge-queue",          desc: "Advance serialised merge queues" },
+  { name: "weekly-digest",        desc: "Send opt-in activity email digests" },
+  { name: "advisory-rescan",      desc: "Re-evaluate security advisories against deps" },
+  { name: "wait-timer-release",   desc: "Release expired deployment wait-timers" },
+  { name: "scheduled-workflows",  desc: "Fire cron-triggered workflow runs" },
+  { name: "auto-merge-sweep",     desc: "AI-gated auto-merge: close eligible PRs" },
+  { name: "ai-build-from-issues", desc: "Dispatch ai:build issues → draft PRs" },
+  { name: "sleep-mode-digest",    desc: "Send AI-hours-saved digest emails" },
+] as const;
+
 admin.get("/admin/autopilot", async (c) => {
   const g = await gate(c);
   if (g instanceof Response) return g;
@@ -3457,8 +3469,9 @@ admin.get("/admin/autopilot", async (c) => {
               </h1>
               <p class="adm-autopilot-sub">
                 Periodic platform-maintenance loop — mirror sync, merge-queue
-                progress, weekly digests, advisory rescans, environment
-                wait-timer release, and scheduled workflow triggers (cron).
+                progress, weekly digests, advisory rescans, wait-timer release,
+                scheduled workflows (cron), AI-gated auto-merge sweep, and
+                ai:build issue → PR dispatch.
               </p>
             </div>
             <a href="/admin" class="adm-autopilot-back">
@@ -3570,6 +3583,36 @@ admin.get("/admin/autopilot", async (c) => {
             </div>
           </div>
         )}
+        <div class="adm-autopilot-h3" style="margin-top:28px">
+          <h3>Configured tasks</h3>
+          <span class="adm-autopilot-h3-meta">9 tasks · runs every tick</span>
+        </div>
+        <div class="adm-autopilot-tasks">
+          {AUTOPILOT_TASK_CATALOG.map((t) => {
+            const last = tick?.tasks.find((r) => r.name === t.name);
+            return (
+              <div class={"adm-autopilot-task " + (last ? (last.ok ? "is-ok" : "is-fail") : "")}>
+                <div class="adm-autopilot-task-head">
+                  <span
+                    class={"adm-autopilot-task-light " + (last ? (last.ok ? "is-ok" : "is-fail") : "")}
+                    aria-label={last ? (last.ok ? "ok" : "failed") : "not yet run"}
+                  />
+                  <span class="adm-autopilot-task-name">{t.name}</span>
+                  {last && (
+                    <span class={"adm-autopilot-task-status " + (last.ok ? "is-ok" : "is-fail")}>
+                      {last.ok ? `ok · ${last.durationMs}ms` : "failed"}
+                    </span>
+                  )}
+                </div>
+                <div class="adm-autopilot-task-meta">
+                  <span>{t.desc}</span>
+                </div>
+                {last?.error && <div class="adm-autopilot-task-err">{last.error}</div>}
+              </div>
+            );
+          })}
+        </div>
+
         <p class="adm-autopilot-foot">
           Opt out with env <code>AUTOPILOT_DISABLED=1</code>. Adjust cadence
           with <code>AUTOPILOT_INTERVAL_MS</code> (milliseconds).

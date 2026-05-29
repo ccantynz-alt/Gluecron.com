@@ -141,10 +141,9 @@ afterAll(() => {
 const LOGGED_OUT_NAV_MARKER = `href="/login" class="nav-link"`;
 
 function assertAuthedNav(html: string) {
-  // The Layout nav renders `<a href={`/${user.username}`} class="nav-user">`
-  // with the user's display name when `user` is present. If the prop is
-  // missing the literal "Sign in" link shows up instead.
-  expect(html).toContain('class="nav-user"');
+  // The Layout nav renders a user dropdown with class "nav-user-trigger"
+  // when `user` is present. If the prop is missing the "Sign in" link shows.
+  expect(html).toContain('class="nav-user-trigger"');
   expect(html).toContain(TEST_USER.displayName);
   expect(html).not.toContain(LOGGED_OUT_NAV_MARKER);
 }

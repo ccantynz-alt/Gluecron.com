@@ -3,12 +3,13 @@
  */
 
 import { Hono } from "hono";
-import { eq, and, isNull } from "drizzle-orm";
+import { eq, and, isNull, ilike, sql } from "drizzle-orm";
 import { db } from "../db";
 import { users, repositories, organizations, orgMembers } from "../db/schema";
 import { initBareRepo, repoExists } from "../git/repository";
 import { hashPassword } from "../lib/auth";
 import { orgRoleAtLeast } from "../lib/orgs";
+import { renderMarkdown } from "../lib/markdown";
 
 const api = new Hono().basePath("/api");
 
@@ -123,11 +124,15 @@ api.post("/repos", async (c) => {
 
     // Green-ecosystem bootstrap: settings, protection, labels, welcome issue
     if (repo) {
-      const { bootstrapRepository } = await import("../lib/repo-bootstrap");
+      const { bootstrapRepository, ensureAiBuildSeedIssue } = await import("../lib/repo-bootstrap");
       await bootstrapRepository({
         repositoryId: repo.id,
         ownerUserId: owner.id,
       });
+      // Fire-and-forget — never block the response
+      ensureAiBuildSeedIssue(repo.id, owner.id).catch(err =>
+        console.warn('[ai-build-seed]', err?.message)
+      );
     }
 
     return c.json(repo, 201);
@@ -240,6 +245,39 @@ api.post("/setup", async (c) => {
   } catch (err) {
     console.error("[api] POST /setup:", err);
     return c.json({ error: "Service unavailable" }, 503);
+  }
+});
+
+// Markdown preview — render markdown to HTML for the live preview tab.
+// Body: { text: string }. Returns { html: string }.
+// Rate-limited by the global limiter in middleware. No auth required.
+api.post("/markdown/preview", async (c) => {
+  let text = "";
+  try {
+    const body = await c.req.json();
+    text = String(body.text || "").slice(0, 64_000);
+  } catch {
+    return c.json({ html: "" }, 400);
+  }
+  const html = renderMarkdown(text);
+  return c.json({ html });
+});
+
+// User mention autocomplete — returns up to 8 matching usernames for `@` suggestions.
+// Public endpoint (no auth required) since usernames are public.
+api.get("/users/suggest", async (c) => {
+  const q = String(c.req.query("q") || "").trim().replace(/^@/, "").slice(0, 39);
+  if (!q) return c.json({ users: [] });
+  try {
+    const rows = await db
+      .select({ username: users.username, displayName: users.displayName })
+      .from(users)
+      .where(ilike(users.username, `${q}%`))
+      .orderBy(sql`lower(${users.username})`)
+      .limit(8);
+    return c.json({ users: rows });
+  } catch {
+    return c.json({ users: [] });
   }
 });
 

@@ -118,6 +118,8 @@ import {
   formatRelative,
 } from "../views/ui";
 
+import { suggestReviewers, type ReviewerCandidate } from "../lib/reviewer-suggest";
+
 const pulls = new Hono<AuthEnv>();
 
 /* ──────────────────────────────────────────────────────────────────────
@@ -856,6 +858,12 @@ const PRS_DETAIL_STYLES = `
   .prs-review-icon { font-size: 15px; font-weight: 700; flex-shrink: 0; }
   .prs-review-approved .prs-review-icon { color: #34d399; }
   .prs-review-changes .prs-review-icon { color: #f87171; }
+  .prs-reviewer-avatar {
+    width: 24px; height: 24px; border-radius: 50%;
+    background: var(--accent); color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 700; flex-shrink: 0;
+  }
 
   /* Review action buttons */
   .prs-review-approve-btn {
@@ -3195,6 +3203,19 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
   const changesRequested = [...latestReviewByReviewer.values()].filter(r => r.state === "changes_requested");
   const viewerHasReviewed = user ? latestReviewByReviewer.has(user.id) : false;
 
+  // Suggested reviewers — best-effort, never throws
+  let reviewerSuggestions: ReviewerCandidate[] = [];
+  try {
+    if (user) {
+      reviewerSuggestions = await suggestReviewers(
+        ownerName, repoName, pr.headBranch, pr.baseBranch,
+        pr.authorId, resolved.repo.id
+      );
+    }
+  } catch {
+    // silent degradation
+  }
+
   const canManage =
     user &&
     (user.id === resolved.owner.id || user.id === pr.authorId);
@@ -3845,6 +3866,33 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
                   </span>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Suggested reviewers */}
+          {reviewerSuggestions.length > 0 && user && user.id !== pr.authorId && (
+            <div class="prs-review-summary" style="margin-top:12px">
+              <div class="prs-review-row" style="flex-direction:column;align-items:flex-start;gap:8px">
+                <span style="font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--fg-muted);font-weight:700">
+                  Suggested reviewers
+                </span>
+                {reviewerSuggestions.map((r) => (
+                  <form method="post" action={`/${ownerName}/${repoName}/pulls/${pr.number}/request-review`}
+                        style="display:flex;align-items:center;gap:8px;width:100%">
+                    <input type="hidden" name="reviewerId" value={r.userId} />
+                    <span class="prs-reviewer-avatar">
+                      {r.username.slice(0, 1).toUpperCase()}
+                    </span>
+                    <a href={`/${r.username}`} style="flex:1;font-size:13px;color:var(--fg);font-weight:600;text-decoration:none">
+                      {r.username}
+                    </a>
+                    <span style="font-size:11px;color:var(--fg-muted)">{r.commitCount}c</span>
+                    <button type="submit" class="btn" style="font-size:12px;padding:3px 9px">
+                      Request
+                    </button>
+                  </form>
+                ))}
+              </div>
             </div>
           )}
 
@@ -5139,6 +5187,50 @@ pulls.post(
       `/${ownerName}/${repoName}/pulls/${prNum}?info=${encodeURIComponent(
         "Generating tests with AI. The follow-up PR will appear in 20-60s; reload to see it."
       )}`
+    );
+  }
+);
+
+// ─── Request review ───────────────────────────────────────────────────────────
+pulls.post(
+  "/:owner/:repo/pulls/:number/request-review",
+  softAuth,
+  requireAuth,
+  requireRepoAccess("write"),
+  async (c) => {
+    const { owner: ownerName, repo: repoName } = c.req.param();
+    const prNum = parseInt(c.req.param("number"), 10);
+    const user = c.get("user")!;
+
+    const resolved = await resolveRepo(ownerName, repoName);
+    if (!resolved) return c.redirect(`/${ownerName}/${repoName}/pulls`);
+
+    const [pr] = await db
+      .select({ id: pullRequests.id, number: pullRequests.number, authorId: pullRequests.authorId })
+      .from(pullRequests)
+      .where(and(eq(pullRequests.repositoryId, resolved.repo.id), eq(pullRequests.number, prNum)))
+      .limit(1);
+
+    if (!pr) return c.redirect(`/${ownerName}/${repoName}/pulls`);
+
+    const body = await c.req.formData().catch(() => null);
+    const reviewerId = (body?.get("reviewerId") as string | null)?.trim();
+
+    if (!reviewerId || reviewerId === pr.authorId || reviewerId === user.id) {
+      return c.redirect(
+        `/${ownerName}/${repoName}/pulls/${prNum}?info=${encodeURIComponent("Invalid reviewer selection.")}`
+      );
+    }
+
+    const { requestReview } = await import("../lib/reviewer-suggest");
+    const result = await requestReview(pr.id, resolved.repo.id, reviewerId, user.id);
+
+    const msg = result.ok
+      ? "Review requested successfully."
+      : `Failed to request review: ${result.error ?? "unknown error"}`;
+
+    return c.redirect(
+      `/${ownerName}/${repoName}/pulls/${prNum}?info=${encodeURIComponent(msg)}`
     );
   }
 );

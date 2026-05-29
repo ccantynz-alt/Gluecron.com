@@ -14,7 +14,7 @@
  */
 
 import { Hono } from "hono";
-import { eq, and, desc, asc, sql, inArray, ilike, ne } from "drizzle-orm";
+import { eq, and, desc, asc, sql, inArray, ilike, ne, isNotNull } from "drizzle-orm";
 import { db } from "../db";
 import {
   pullRequests,
@@ -24,6 +24,7 @@ import {
   users,
   issues,
   issueComments,
+  repoCollaborators,
 } from "../db/schema";
 import { Layout } from "../views/layout";
 import { RepoHeader } from "../views/components";
@@ -5220,6 +5221,28 @@ pulls.post(
       return c.redirect(
         `/${ownerName}/${repoName}/pulls/${prNum}?info=${encodeURIComponent("Invalid reviewer selection.")}`
       );
+    }
+
+    // Verify the reviewer is the repo owner or an accepted collaborator — prevents
+    // requesting reviews from arbitrary user IDs outside this repository.
+    const isOwner = reviewerId === resolved.owner.id;
+    if (!isOwner) {
+      const [collab] = await db
+        .select({ id: repoCollaborators.id })
+        .from(repoCollaborators)
+        .where(
+          and(
+            eq(repoCollaborators.repositoryId, resolved.repo.id),
+            eq(repoCollaborators.userId, reviewerId),
+            isNotNull(repoCollaborators.acceptedAt)
+          )
+        )
+        .limit(1);
+      if (!collab) {
+        return c.redirect(
+          `/${ownerName}/${repoName}/pulls/${prNum}?info=${encodeURIComponent("Reviewer must be a repository collaborator.")}`
+        );
+      }
     }
 
     const { requestReview } = await import("../lib/reviewer-suggest");

@@ -88,6 +88,7 @@ export async function suggestReviewers(
     }
 
     const uniqueEmails = Array.from(emailCounts.keys());
+    if (uniqueEmails.length === 0) return [];
 
     // Step 3 — look up users by email
     const emailUsers = await db

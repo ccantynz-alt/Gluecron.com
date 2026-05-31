@@ -13,6 +13,7 @@
 set -euo pipefail
 
 REPO_URL="https://github.com/ccantynz-alt/Gluecron.com.git"
+REPO_BRANCH="claude/site-migration-vercel-XstpK"
 REPO_DIR="/opt/gluecron"
 COMPOSE="docker compose -f docker-compose.standalone.yml"
 
@@ -24,13 +25,15 @@ if ! command -v docker >/dev/null 2>&1; then
   curl -fsSL https://get.docker.com | sh
 fi
 
-# 2. Code
+# 2. Code (the standalone compose file lives on $REPO_BRANCH)
 if [ ! -d "$REPO_DIR/.git" ]; then
-  echo "-- cloning $REPO_URL"
-  git clone "$REPO_URL" "$REPO_DIR"
+  echo "-- cloning $REPO_URL ($REPO_BRANCH)"
+  git clone -b "$REPO_BRANCH" "$REPO_URL" "$REPO_DIR"
 fi
 cd "$REPO_DIR"
-git pull --ff-only 2>/dev/null || true
+git fetch origin "$REPO_BRANCH" 2>/dev/null || true
+git checkout "$REPO_BRANCH" 2>/dev/null || true
+git pull --ff-only origin "$REPO_BRANCH" 2>/dev/null || true
 
 # 3. Env (random Postgres password on first run)
 if [ ! -f .env ]; then

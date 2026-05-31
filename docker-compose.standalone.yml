@@ -1,4 +1,5 @@
-# Standalone single-box deploy: Gluecron + Postgres(pgvector) + Caddy(auto-HTTPS).
+# Standalone single-box deploy: Gluecron + Postgres(pgvector) + Caddy(auto-HTTPS)
+# plus self-healing (autoheal), log rotation, daily backups, and fast auto-deploy.
 #
 # For a DEDICATED VPS where Gluecron owns ports 80/443 (no co-tenant). One
 # command brings up the whole stack with automatic Let's Encrypt certs:
@@ -6,8 +7,15 @@
 #   docker compose -f docker-compose.standalone.yml up -d --build
 #
 # Variables come from a local .env (POSTGRES_PASSWORD, optional ANTHROPIC_API_KEY)
-# — see scripts/standalone-deploy.sh which generates it. The Caddyfile in the
-# repo already serves gluecron.com + www.gluecron.com -> gluecron:3000.
+# — see scripts/standalone-deploy.sh which generates it and installs the backup
+# + auto-deploy systemd timers. The Caddyfile already serves gluecron.com + www.
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   postgres:
     # pgvector image is required: migration 0057 does CREATE EXTENSION vector.
@@ -19,6 +27,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     restart: unless-stopped
+    logging: *default-logging
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U gluecron -d gluecron"]
       interval: 10s
@@ -43,15 +52,19 @@ services:
       postgres:
         condition: service_healthy
     restart: unless-stopped
+    logging: *default-logging
     healthcheck:
+      # Liveness — autoheal restarts the container if this fails repeatedly.
       test: ["CMD", "wget", "-qO-", "http://localhost:3000/healthz"]
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 60s
 
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - "80:80"
       - "443:443"
@@ -61,6 +74,19 @@ services:
       - caddy-config:/config
     depends_on:
       - gluecron
+
+  # Self-healing: watches every container that declares a healthcheck and
+  # restarts any that goes unhealthy (a hung process that didn't crash).
+  autoheal:
+    image: willfarrell/autoheal:latest
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      - AUTOHEAL_CONTAINER_LABEL=all
+      - AUTOHEAL_INTERVAL=15
+      - AUTOHEAL_START_PERIOD=60
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
 
 volumes:
   pgdata:

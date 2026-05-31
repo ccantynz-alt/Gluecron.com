@@ -19,3 +19,6 @@ drizzle/meta/
 # kept (it's the protected-platform pointer); the .gatetest/ directory
 # is scanner state (memory + reports) that should not be committed.
 .gatetest/
+
+# standalone box local DB backups
+backups/

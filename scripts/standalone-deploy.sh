@@ -75,9 +75,77 @@ echo "-- applying migrations"
 sleep 5
 $COMPOSE exec -T gluecron bun run db:migrate || true
 
+# 9. Swap (protects a small box from OOM kills)
+if [ "$(swapon --show --noheadings | wc -l)" -eq 0 ]; then
+  echo "-- creating 1G swap file"
+  fallocate -l 1G /swapfile && chmod 600 /swapfile && mkswap /swapfile >/dev/null && swapon /swapfile
+  grep -q '/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+fi
+
+# 10. Unattended security updates
+echo "-- enabling unattended-upgrades"
+DEBIAN_FRONTEND=noninteractive apt-get install -y unattended-upgrades >/dev/null 2>&1 || true
+dpkg-reconfigure -f noninteractive unattended-upgrades >/dev/null 2>&1 || true
+
+# 11. Self-managing systemd timers: fast auto-deploy (~60s) + daily backup
+chmod +x scripts/auto-update.sh scripts/backup.sh
+
+cat > /etc/systemd/system/gluecron-update.service <<EOF
+[Unit]
+Description=Gluecron auto-deploy (pull + rebuild on new commits)
+After=docker.service
+Requires=docker.service
+[Service]
+Type=oneshot
+WorkingDirectory=$REPO_DIR
+EnvironmentFile=-$REPO_DIR/.env
+ExecStart=$REPO_DIR/scripts/auto-update.sh
+EOF
+
+cat > /etc/systemd/system/gluecron-update.timer <<EOF
+[Unit]
+Description=Run Gluecron auto-deploy every minute
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=60s
+[Install]
+WantedBy=timers.target
+EOF
+
+cat > /etc/systemd/system/gluecron-backup.service <<EOF
+[Unit]
+Description=Gluecron daily Postgres backup
+After=docker.service
+Requires=docker.service
+[Service]
+Type=oneshot
+WorkingDirectory=$REPO_DIR
+EnvironmentFile=-$REPO_DIR/.env
+ExecStart=$REPO_DIR/scripts/backup.sh
+EOF
+
+cat > /etc/systemd/system/gluecron-backup.timer <<EOF
+[Unit]
+Description=Run Gluecron backup daily
+[Timer]
+OnCalendar=daily
+Persistent=true
+[Install]
+WantedBy=timers.target
+EOF
+
+systemctl daemon-reload
+systemctl enable --now gluecron-update.timer gluecron-backup.timer >/dev/null 2>&1 || true
+
 echo
 echo "== status =="
 $COMPOSE ps
+echo "-- timers --"
+systemctl list-timers 'gluecron-*' --no-pager 2>/dev/null || true
+echo
+echo "Self-healing active: container auto-restart, autoheal, log rotation,"
+echo "1G swap, unattended security updates, daily DB backups (backups/), and"
+echo "auto-deploy (~60s) from the deploy branch."
 echo
 echo "Done. Now point gluecron.com + www.gluecron.com DNS at THIS box's IP"
 echo "(Cloudflare, DNS-only / grey cloud). Caddy issues the cert automatically"

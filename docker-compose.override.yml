@@ -1,0 +1,20 @@
+# App-only deploy override.
+#
+# For hosts that already run their own reverse proxy / TLS terminator and
+# therefore must NOT have Gluecron's bundled Caddy grab ports 80/443.
+# Current home: the Vultr box at 149.28.119.158, fronted by a custom Bun
+# service on :443 that proxies gluecron.com -> 127.0.0.1:3000.
+#
+# Usage (brings up ONLY the app, skips the caddy service):
+#   docker compose up -d --build gluecron
+#
+# This file is auto-loaded by `docker compose`. It publishes the app on the
+# loopback interface only, so the external proxy can reach it but the
+# container is never exposed directly to the internet. SSH_PORT=0 disables
+# the git-over-SSH listener (HTTPS git clone/push is unaffected).
+services:
+  gluecron:
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      - SSH_PORT=0

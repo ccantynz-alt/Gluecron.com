@@ -51,6 +51,7 @@ import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
 import { trackByName } from "../lib/traffic";
 import { LandingPage, type LandingLiveFeed } from "../views/landing";
+import { Landing2030Page } from "../views/landing-2030";
 import { computePublicStats, type PublicStats } from "../lib/public-stats";
 import {
   listQueuedAiBuildIssues,
@@ -1716,20 +1717,15 @@ web.get("/", async (c) => {
     liveFeed = null;
   }
 
-  return c.html(
-    <Layout
-      user={null}
-      // Block L10 — SEO + Open Graph for the public landing.
-      fullTitle="Gluecron — The git host built around Claude"
-      description="Label an issue. Walk away. Wake up to a merged PR. Gluecron is the AI-native git host with built-in code review, auto-merge, and a Claude-first toolchain."
-      ogTitle="Gluecron — The git host built around Claude"
-      ogDescription="Label an issue. Walk away. Wake up to a merged PR. Gluecron is the AI-native git host with built-in code review, auto-merge, and a Claude-first toolchain."
-      ogType="website"
-      twitterCard="summary_large_image"
-    >
-      <LandingPage stats={stats} publicStats={publicStats} liveFeed={liveFeed} />
-    </Layout>
-  );
+  // 2030 reboot — the public landing is a self-contained light marketing
+  // document (its own shell + design system), rendered directly so it never
+  // inherits the dark app Layout. `publicStats` / `liveFeed` remain computed
+  // above for the legacy LandingPage and other surfaces; the new page uses the
+  // headline counters from `stats`.
+  void publicStats;
+  void liveFeed;
+  void LandingPage;
+  return c.html("<!DOCTYPE html>" + String(<Landing2030Page stats={stats} />));
 });
 
 // New repository form

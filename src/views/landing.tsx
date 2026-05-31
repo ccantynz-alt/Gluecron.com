@@ -1612,13 +1612,11 @@ const Land2030: FC = () => (
 );
 
 // Backwards-compatible default — web.tsx imports `LandingPage`.
-// The 2030 prelude is rendered above the existing LandingHero so every
-// existing L10/U1/Q1/M1 regression assertion keeps passing untouched.
+// Single landing surface. The bolted-on <Land2030 /> prelude was rendering a
+// SECOND full page above LandingHero — two stacked <h1> documents as you
+// scrolled. Render exactly one page; the 2030 reboot replaces this wholesale.
 export const LandingPage: FC<LandingPageProps> = (props) => (
-  <>
-    <Land2030 />
-    <LandingHero {...props} />
-  </>
+  <LandingHero {...props} />
 );
 
 export default LandingPage;

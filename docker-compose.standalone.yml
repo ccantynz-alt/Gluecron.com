@@ -1,0 +1,69 @@
+# Standalone single-box deploy: Gluecron + Postgres(pgvector) + Caddy(auto-HTTPS).
+#
+# For a DEDICATED VPS where Gluecron owns ports 80/443 (no co-tenant). One
+# command brings up the whole stack with automatic Let's Encrypt certs:
+#
+#   docker compose -f docker-compose.standalone.yml up -d --build
+#
+# Variables come from a local .env (POSTGRES_PASSWORD, optional ANTHROPIC_API_KEY)
+# — see scripts/standalone-deploy.sh which generates it. The Caddyfile in the
+# repo already serves gluecron.com + www.gluecron.com -> gluecron:3000.
+services:
+  postgres:
+    # pgvector image is required: migration 0057 does CREATE EXTENSION vector.
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: gluecron
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: gluecron
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gluecron -d gluecron"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  gluecron:
+    build: .
+    environment:
+      - DATABASE_URL=postgres://gluecron:${POSTGRES_PASSWORD}@postgres:5432/gluecron
+      - GIT_REPOS_PATH=/data/repos
+      - PORT=3000
+      - NODE_ENV=production
+      - APP_BASE_URL=https://gluecron.com
+      - SSH_PORT=0
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+    expose:
+      - "3000"
+    volumes:
+      - git-repos:/data/repos
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - gluecron
+
+volumes:
+  pgdata:
+  git-repos:
+  caddy-data:
+  caddy-config:

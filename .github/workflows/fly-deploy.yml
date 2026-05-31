@@ -5,13 +5,9 @@ name: Fly Deploy
 permissions: read-all
 
 on:
-  # Auto-deploy on every push to main. Re-enabled 2026-05-15 after the
-  # GitHub→Gluecron mirror sync silently broke and stranded 3 commits.
-  # Until we build GitHub→Gluecron sync into the platform itself,
-  # this GitHub Action is the trustworthy deploy path.
-  push:
-    branches:
-      - main
+  # SUPERSEDED 2026-05-31 — gluecron.com migrated off Fly.io to a dedicated
+  # Vultr box that self-deploys by pulling from GitHub (see
+  # scripts/standalone-deploy.sh). Manual dispatch only; no longer auto-fires.
   workflow_dispatch: {}
 
 concurrency:

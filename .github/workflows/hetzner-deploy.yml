@@ -29,8 +29,11 @@ permissions: read-all
 #   APP_BASE_URL           — base URL of the running site (default https://gluecron.com).
 
 on:
-  push:
-    branches: [main]
+  # SUPERSEDED 2026-05-31 — gluecron.com now runs on a dedicated Vultr box that
+  # deploys itself by PULLING from GitHub (systemd git-poll timer installed by
+  # scripts/standalone-deploy.sh -> scripts/auto-update.sh). This SSH-push
+  # pipeline targeted the old systemd/localhost:3010 host and was failing with
+  # "dial tcp :22 i/o timeout". Manual dispatch only; no longer auto-fires.
   workflow_dispatch: {}
 
 concurrency:

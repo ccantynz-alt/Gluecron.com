@@ -8,7 +8,7 @@
 set -euo pipefail
 
 REPO_DIR="/opt/gluecron"
-BRANCH="claude/site-migration-vercel-XstpK"
+BRANCH="main"
 COMPOSE="docker compose -f docker-compose.standalone.yml"
 
 cd "$REPO_DIR"

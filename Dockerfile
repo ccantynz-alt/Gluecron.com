@@ -2,10 +2,11 @@ FROM oven/bun:1.3 AS base
 WORKDIR /app
 
 # Install git (required for ALL git operations — clone, push, branch/tree
-# listing, diffs). Verify it landed: a missing binary here must fail the
-# build loudly rather than ship an image that 500s on every repo page.
+# listing, diffs) and zip (used to package the Claude Desktop .dxt bundle at
+# build time). Verify git landed: a missing binary here must fail the build
+# loudly rather than ship an image that 500s on every repo page.
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends git ca-certificates \
+  && apt-get install -y --no-install-recommends git ca-certificates zip \
   && rm -rf /var/lib/apt/lists/* \
   && git --version
 
@@ -17,9 +18,18 @@ RUN bun install --frozen-lockfile --production
 COPY src/ ./src/
 COPY drizzle/ ./drizzle/
 COPY scripts/ ./scripts/
+COPY extension/ ./extension/
+COPY public/ ./public/
 COPY tsconfig.json drizzle.config.ts ./
 COPY legal/ ./legal/
 COPY CLAUDE.md LICENSE ./
+
+# Refresh the Claude Desktop (.dxt) bundle from source into public/ so GET
+# /gluecron.dxt serves a real file instead of 404ing (which also kept tripping
+# the synthetic uptime monitor). The committed public/gluecron.dxt is the
+# fallback; this rebuild keeps it in sync with the manifest. Best-effort — a
+# glitch here must not fail the whole image.
+RUN bash scripts/build-dxt.sh || echo "WARN: .dxt bundle build skipped"
 
 # Create repos directory
 RUN mkdir -p /data/repos

@@ -4,7 +4,7 @@
 # Brings up Gluecron + Postgres(pgvector) + Caddy(auto-HTTPS) with one command.
 #
 # Usage (as root on a fresh Ubuntu box):
-#   curl -fsSL https://raw.githubusercontent.com/ccantynz-alt/Gluecron.com/claude/site-migration-vercel-XstpK/scripts/standalone-deploy.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/ccantynz-alt/Gluecron.com/main/scripts/standalone-deploy.sh | bash
 # or, after cloning:
 #   bash scripts/standalone-deploy.sh
 #
@@ -13,7 +13,7 @@
 set -euo pipefail
 
 REPO_URL="https://github.com/ccantynz-alt/Gluecron.com.git"
-REPO_BRANCH="claude/site-migration-vercel-XstpK"
+REPO_BRANCH="main"
 REPO_DIR="/opt/gluecron"
 COMPOSE="docker compose -f docker-compose.standalone.yml"
 

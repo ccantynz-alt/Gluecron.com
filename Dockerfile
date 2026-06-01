@@ -1,8 +1,13 @@
 FROM oven/bun:1.3 AS base
 WORKDIR /app
 
-# Install git (required for git operations)
-RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
+# Install git (required for ALL git operations — clone, push, branch/tree
+# listing, diffs). Verify it landed: a missing binary here must fail the
+# build loudly rather than ship an image that 500s on every repo page.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends git ca-certificates \
+  && rm -rf /var/lib/apt/lists/* \
+  && git --version
 
 # Install dependencies
 COPY package.json bun.lock ./

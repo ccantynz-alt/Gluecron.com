@@ -11,14 +11,11 @@
 import type { FC } from "hono/jsx";
 
 export interface Landing2030Props {
+  // Reserved for future use. The stat band intentionally shows
+  // capability metrics rather than live counts so the page reads strong
+  // at any scale.
   stats?: { publicRepos?: number; users?: number };
 }
-
-const fmt = (n?: number) => {
-  if (n == null) return "—";
-  if (n >= 1000) return `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k`;
-  return String(n);
-};
 
 /* ---- small stroke icons (inherit currentColor) ---------------------- */
 const IconReview: FC = () => (
@@ -83,7 +80,7 @@ const STEPS: { n: string; title: string; body: string }[] = [
   { n: "04", title: "Merged, autonomously", body: "Green across the board? It merges itself and deploys. You wake up to shipped work." },
 ];
 
-export const Landing2030Page: FC<Landing2030Props> = ({ stats }) => {
+export const Landing2030Page: FC<Landing2030Props> = () => {
   const title = "Gluecron — The git host built for 2030";
   const desc =
     "Gluecron is the AI-native git host. Claude reviews every pull request, gates run at push time, and clean PRs merge while you sleep. Label an issue, walk away, wake up to a merged PR.";
@@ -187,10 +184,10 @@ export const Landing2030Page: FC<Landing2030Props> = ({ stats }) => {
         {/* ---- stat band ---- */}
         <section class="stats">
           <div class="wrap stats-in">
-            <div class="stat"><div class="stat-n">{fmt(stats?.publicRepos)}</div><div class="stat-l">public repositories</div></div>
-            <div class="stat"><div class="stat-n">{fmt(stats?.users)}</div><div class="stat-l">builders onboard</div></div>
-            <div class="stat"><div class="stat-n">&lt; 30s</div><div class="stat-l">to first review</div></div>
+            <div class="stat"><div class="stat-n">&lt; 30s</div><div class="stat-l">to first AI review</div></div>
             <div class="stat"><div class="stat-n">24/7</div><div class="stat-l">autonomous merges</div></div>
+            <div class="stat"><div class="stat-n">100%</div><div class="stat-l">push-time gate coverage</div></div>
+            <div class="stat"><div class="stat-n">Self-owned</div><div class="stat-l">your code, your server</div></div>
           </div>
         </section>
 

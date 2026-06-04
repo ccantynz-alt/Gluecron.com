@@ -32,7 +32,7 @@ r.use("/settings/integrations*", softAuth, requireAuth);
 // Scoped CSS (.chati-*). Mirrors the tokens / webhooks polish.
 // ---------------------------------------------------------------------------
 const chatiStyles = `
-  .chati-wrap { max-width: 1120px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
+  .chati-wrap { max-width: 1320px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
 
   /* ─── Hero ─── */
   .chati-hero {

@@ -82,7 +82,7 @@ const BUDGET_PLANS: Array<{
 // CSS — scoped under .cldploy- prefix.
 // ---------------------------------------------------------------------------
 const styles = `
-  .cldploy-container { max-width: 1320px; margin: 0 auto; padding: 0 0 var(--space-6); }
+  .cldploy-container { max-width: 1680px; margin: 0 auto; padding: 0 0 var(--space-6); }
 
   /* ─── Hero ─── */
   .cldploy-hero {

@@ -633,7 +633,7 @@ workflowSecretsRoutes.post(
  * into other settings pages.
  * ───────────────────────────────────────────────────────────────────── */
 const wsecStyles = `
-  .wsec-wrap { max-width: 1040px; margin: 0 auto; padding: var(--space-5) var(--space-4); }
+  .wsec-wrap { max-width: 1200px; margin: 0 auto; padding: var(--space-5) var(--space-4); }
 
   /* ─── Sub-nav ─── */
   .wsec-subnav {

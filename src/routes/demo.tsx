@@ -528,7 +528,7 @@ app.get("/demo", softAuth, async (c) => {
 // bleed into other views. Drop-in replacement for the legacy `.demo-*`
 // classes; the new prefix is wider so we can polish without collisions.
 const DEMO_CSS = `
-  .demo-page { max-width: 1320px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
+  .demo-page { max-width: 1680px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
 
   /* ─── Hero ─── */
   .demo-page-hero {

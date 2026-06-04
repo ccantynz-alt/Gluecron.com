@@ -53,7 +53,7 @@ refactors.use("/api/v2/refactors/*", softAuth, requireAuth);
 // Scoped CSS — every class is `.refac-*`.
 // ---------------------------------------------------------------------------
 const refacStyles = `
-  .refac-wrap { max-width: 1320px; margin: 0 auto; padding: var(--space-5) var(--space-4); }
+  .refac-wrap { max-width: 1680px; margin: 0 auto; padding: var(--space-5) var(--space-4); }
 
   .refac-hero {
     position: relative;

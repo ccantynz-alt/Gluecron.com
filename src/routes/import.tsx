@@ -43,7 +43,7 @@ interface GitHubRepo {
 // All classes prefixed with .import- so the block cannot bleed into
 // neighbouring routes. Mirrors the dashboard-hero + settings polish.
 const importStyles = `
-  .import-container { max-width: 1040px; margin: 0 auto; }
+  .import-container { max-width: 1200px; margin: 0 auto; }
 
   /* ─── Hero ─── */
   .import-hero {

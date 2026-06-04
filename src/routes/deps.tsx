@@ -38,7 +38,7 @@ deps.use("*", softAuth);
 // the gradient-hairline + card patterns used in admin-integrations and
 // collaborators.
 const depsStyles = `
-  .deps-wrap { max-width: 1320px; margin: 0 auto; padding: var(--space-5) var(--space-4) var(--space-8); }
+  .deps-wrap { max-width: 1680px; margin: 0 auto; padding: var(--space-5) var(--space-4) var(--space-8); }
 
   /* ─── Header strip (sits below RepoHeader + RepoNav) ─── */
   .deps-head { margin-bottom: var(--space-5); display: flex; align-items: flex-end; justify-content: space-between; gap: var(--space-4); flex-wrap: wrap; }

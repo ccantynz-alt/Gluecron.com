@@ -41,7 +41,7 @@ webhookRoutes.use("*", softAuth);
  * patterns from admin-integrations.tsx and admin-ops.tsx.
  * ───────────────────────────────────────────────────────────────────── */
 const webhookStyles = `
-  .wh-wrap { max-width: 1120px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
+  .wh-wrap { max-width: 1320px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
 
   /* ─── Page heading (no hero — settings sidebar already supplies it) ─── */
   .wh-head { margin-bottom: var(--space-5); }

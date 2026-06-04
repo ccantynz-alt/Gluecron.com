@@ -47,7 +47,7 @@ usage.use("*", softAuth);
 
 // ─── Scoped CSS (all `.cost-*`) ───────────────────────────────────────────
 const styles = `
-  .cost-wrap { max-width: 1320px; margin: 0 auto; padding: var(--space-6, 32px) var(--space-4, 24px); }
+  .cost-wrap { max-width: 1680px; margin: 0 auto; padding: var(--space-6, 32px) var(--space-4, 24px); }
 
   .cost-hero {
     position: relative;

@@ -340,7 +340,7 @@ sleepMode.get("/sleep-mode", (c) => {
 });
 
 const pageCss = `
-  .sleep-wrap { max-width: 1320px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
+  .sleep-wrap { max-width: 1680px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
 
   /* ─── Hero ─── */
   .sleep-hero {

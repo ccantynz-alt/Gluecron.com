@@ -111,7 +111,7 @@ function describeScope(s: string): { label: string; explain: string } {
 // can't bleed into the wider app polish. Mirrors the gradient-hairline hero +
 // orb pattern from admin-integrations.tsx and error-page.tsx.
 const oauthStyles = `
-  .oauth-wrap { max-width: 1120px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
+  .oauth-wrap { max-width: 1320px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
 
   /* ─── Hero ─── */
   .oauth-hero {

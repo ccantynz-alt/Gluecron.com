@@ -1410,7 +1410,7 @@ const css = `
     display: flex;
     align-items: center;
     gap: 18px;
-    max-width: 1600px;
+    max-width: 1920px;
     margin: 0 auto;
     height: 100%;
   }
@@ -1746,7 +1746,7 @@ const css = `
   }
 
   main {
-    max-width: 1600px;
+    max-width: 1920px;
     margin: 0 auto;
     padding: 36px 24px 80px;
     flex: 1;
@@ -1793,7 +1793,7 @@ const css = `
       var(--bg);
   }
   footer .footer-inner {
-    max-width: 1600px;
+    max-width: 1920px;
     margin: 0 auto;
     display: grid;
     grid-template-columns: 1fr auto;
@@ -1829,7 +1829,7 @@ const css = `
   }
   footer .footer-col a:hover { color: var(--text-strong); text-decoration: none; }
   footer .footer-bottom {
-    max-width: 1600px;
+    max-width: 1920px;
     margin: 40px auto 0;
     padding-top: 24px;
     border-top: 1px solid var(--border-subtle);

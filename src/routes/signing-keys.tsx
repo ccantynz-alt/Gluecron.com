@@ -42,7 +42,7 @@ signingKeysRoutes.use("/settings/signing-keys/*", requireAuth);
  * admin-integrations.tsx and admin-ops.tsx.
  * ───────────────────────────────────────────────────────────────────── */
 const signingKeyStyles = `
-  .sk-wrap { max-width: 1120px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
+  .sk-wrap { max-width: 1320px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
 
   /* ─── Page heading (no hero block — settings sidebar supplies framing) ─── */
   .sk-head { margin-bottom: var(--space-5); }

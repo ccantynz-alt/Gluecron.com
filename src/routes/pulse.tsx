@@ -461,7 +461,7 @@ function activityLabel(action: string, targetType: string | null, targetId: stri
 function PulseStyle() {
   return (
     <style>{`
-      .pulse-page { max-width: 1120px; margin: 0 auto; padding: 0 16px 48px; }
+      .pulse-page { max-width: 1320px; margin: 0 auto; padding: 0 16px 48px; }
       .pulse-header { margin: 24px 0 20px; }
       .pulse-title { font-size: 22px; font-weight: 700; margin: 0 0 8px; }
       .pulse-subtitle { font-size: 14px; color: var(--fg-muted); margin: 8px 0 0; }

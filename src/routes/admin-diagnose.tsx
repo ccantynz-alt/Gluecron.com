@@ -715,7 +715,7 @@ function fixHrefForCheck(r: CheckResult): { href: string; label: string } | null
  * `error-page` (the just-shipped 2026 visual recipe).
  * ───────────────────────────────────────────────────────────────────── */
 const healthStyles = `
-  .health-wrap { max-width: 1320px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
+  .health-wrap { max-width: 1680px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
 
   .health-hero {
     position: relative;

@@ -54,7 +54,7 @@ admin.use("*", softAuth);
  * repo-home (commit 544d842), and settings polish (commit 98eb360).
  * ───────────────────────────────────────────────────────────────────── */
 const adminStyles = `
-  .admin-wrap { max-width: 1320px; margin: 0 auto; }
+  .admin-wrap { max-width: 1680px; margin: 0 auto; }
 
   /* ─── Hero (main dashboard) ─── */
   .admin-hero {
@@ -699,7 +699,7 @@ const adminStyles = `
  *   - empty state with orb
  * ───────────────────────────────────────────────────────────────────── */
 const admUsersStyles = `
-  .adm-users-wrap { max-width: 1320px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
+  .adm-users-wrap { max-width: 1680px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
 
   /* Hero */
   .adm-users-hero {
@@ -1080,7 +1080,7 @@ const admUsersStyles = `
 `;
 
 const admReposStyles = `
-  .adm-repos-wrap { max-width: 1320px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
+  .adm-repos-wrap { max-width: 1680px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
 
   .adm-repos-hero {
     position: relative;
@@ -1384,7 +1384,7 @@ const admReposStyles = `
 `;
 
 const admFlagsStyles = `
-  .adm-flags-wrap { max-width: 1040px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
+  .adm-flags-wrap { max-width: 1200px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
 
   .adm-flags-hero {
     position: relative;
@@ -1618,7 +1618,7 @@ const admFlagsStyles = `
 `;
 
 const admDigestsStyles = `
-  .adm-digests-wrap { max-width: 1320px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
+  .adm-digests-wrap { max-width: 1680px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
 
   .adm-digests-hero {
     position: relative;
@@ -1988,7 +1988,7 @@ const admDigestsStyles = `
 `;
 
 const admAutopilotStyles = `
-  .adm-autopilot-wrap { max-width: 1320px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
+  .adm-autopilot-wrap { max-width: 1680px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
 
   .adm-autopilot-hero {
     position: relative;

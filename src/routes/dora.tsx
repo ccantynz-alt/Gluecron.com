@@ -90,7 +90,7 @@ function formatHours(h: number): string {
 // ─── Scoped CSS ───────────────────────────────────────────────────────────────
 
 const styles = `
-  .dora-wrap { max-width: 1320px; margin: 0 auto; padding: var(--space-5) var(--space-4); }
+  .dora-wrap { max-width: 1680px; margin: 0 auto; padding: var(--space-5) var(--space-4); }
 
   .dora-hero {
     position: relative;

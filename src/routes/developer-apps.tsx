@@ -43,7 +43,7 @@ apps.use("/settings/applications/*", requireAuth);
 // into other settings pages.
 // ----------------------------------------------------------------------------
 const devStyles = `
-  .dev-wrap { max-width: 1120px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
+  .dev-wrap { max-width: 1320px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
 
   /* ─── Breadcrumb ─── */
   .dev-breadcrumb {

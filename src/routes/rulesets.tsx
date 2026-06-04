@@ -85,7 +85,7 @@ function ruleDescription(type: string, params: Record<string, unknown>): string 
  * Scoped CSS — every selector under `.rs-` so this surface can't leak.
  * ───────────────────────────────────────────────────────────────────── */
 const rsStyles = `
-  .rs-wrap { max-width: 1120px; margin: 0 auto; padding: var(--space-4) 0; }
+  .rs-wrap { max-width: 1320px; margin: 0 auto; padding: var(--space-4) 0; }
 
   .rs-hero {
     position: relative;

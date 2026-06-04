@@ -296,7 +296,7 @@ function buildPersonalizedManifest(opts: {
 
 // ─── CSS ───────────────────────────────────────────────────────────────────
 const styles = `
-  .connect-claude-container { max-width: 1120px; margin: 0 auto; padding: 0 0 var(--space-6); }
+  .connect-claude-container { max-width: 1320px; margin: 0 auto; padding: 0 0 var(--space-6); }
 
   /* ─── Hero ─── */
   .connect-claude-hero {

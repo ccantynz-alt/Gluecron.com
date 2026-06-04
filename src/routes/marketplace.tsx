@@ -51,7 +51,7 @@ marketplace.use("*", softAuth);
  * from admin-integrations.tsx, admin-ops.tsx, error-page.tsx.
  * ───────────────────────────────────────────────────────────────────── */
 const styles = `
-  .mkt-wrap { max-width: 1320px; margin: 0 auto; padding: var(--space-6, 32px) var(--space-4, 24px); }
+  .mkt-wrap { max-width: 1680px; margin: 0 auto; padding: var(--space-6, 32px) var(--space-4, 24px); }
 
   /* ─── Hero ─── */
   .mkt-hero {

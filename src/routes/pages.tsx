@@ -97,7 +97,7 @@ async function getEffectiveSettings(repositoryId: string) {
 
 // ─── Scoped CSS (.pages-*) ──────────────────────────────────────────────────
 const pagesStyles = `
-  .pages-wrap { max-width: 1320px; margin: 0 auto; padding: var(--space-5) var(--space-4) var(--space-8); }
+  .pages-wrap { max-width: 1680px; margin: 0 auto; padding: var(--space-5) var(--space-4) var(--space-8); }
 
   .pages-head {
     display: flex;

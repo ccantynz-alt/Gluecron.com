@@ -44,7 +44,7 @@ type Row = typeof deployments.$inferSelect & { triggeredByName: string | null };
  * admin-integrations.tsx and admin-ops.tsx.
  * ───────────────────────────────────────────────────────────────────── */
 const deployStyles = `
-  .dk-wrap { max-width: 1120px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
+  .dk-wrap { max-width: 1320px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
 
   /* ─── Page heading (no hero block — RepoHeader supplies framing) ─── */
   .dk-head { margin-bottom: var(--space-5); }
@@ -305,7 +305,7 @@ const deployStyles = `
   }
 
   /* ─── Detail page ─── */
-  .dk-detail-wrap { max-width: 760px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
+  .dk-detail-wrap { max-width: 900px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
   .dk-bread {
     display: flex;
     align-items: center;

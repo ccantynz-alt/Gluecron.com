@@ -459,7 +459,7 @@ a{color:inherit;text-decoration:none}
 .vstat span{color:rgba(255,255,255,.6);font-size:13.5px}
 
 /* quote */
-.quote-wrap{max-width:860px;margin:0 auto;text-align:center}
+.quote-wrap{max-width:1040px;margin:0 auto;text-align:center}
 .quote{font-family:'Inter Tight',sans-serif;font-weight:600;font-size:clamp(24px,3.6vw,38px);
   line-height:1.25;letter-spacing:-.02em;margin:0}
 .quote em{font-style:normal;background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}

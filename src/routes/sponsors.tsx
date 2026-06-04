@@ -39,7 +39,7 @@ function formatCents(cents: number): string {
  * Scoped CSS — every selector prefixed `.spons-` so this surface can't leak.
  * ───────────────────────────────────────────────────────────────────── */
 const sponsStyles = `
-  .spons-wrap { max-width: 980px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
+  .spons-wrap { max-width: 1120px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
 
   .spons-hero {
     position: relative;

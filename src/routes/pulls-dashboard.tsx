@@ -35,7 +35,7 @@ const pullsDashboard = new Hono<AuthEnv>();
 pullsDashboard.use("*", softAuth);
 
 const styles = `
-  .pdash-wrap { max-width: 1100px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
+  .pdash-wrap { max-width: 1320px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
 
   .pdash-hero {
     position: relative;

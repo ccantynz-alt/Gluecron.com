@@ -3593,7 +3593,7 @@ web.get("/:owner/:repo/branches", async (c) => {
       <RepoNav owner={owner} repo={repo} active="code" />
       <div
         class="branches-wrap"
-        style="max-width:1100px;margin:0 auto;padding:var(--space-5) var(--space-4) var(--space-8)"
+        style="max-width:1320px;margin:0 auto;padding:var(--space-5) var(--space-4) var(--space-8)"
       >
         <header class="branches-head" style="margin-bottom:var(--space-5)">
           <div
@@ -3898,7 +3898,7 @@ web.get("/:owner/:repo/tags", async (c) => {
       <RepoNav owner={owner} repo={repo} active="code" />
       <div
         class="tags-wrap"
-        style="max-width:1100px;margin:0 auto;padding:var(--space-5) var(--space-4) var(--space-8)"
+        style="max-width:1320px;margin:0 auto;padding:var(--space-5) var(--space-4) var(--space-8)"
       >
         <header class="tags-head" style="margin-bottom:var(--space-5)">
           <div

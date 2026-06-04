@@ -25,7 +25,7 @@ const onboardingRoutes = new Hono<AuthEnv>();
  * patterns from admin-integrations.tsx, admin-ops.tsx, error-page.tsx.
  * ───────────────────────────────────────────────────────────────────── */
 const styles = `
-  .onb-wrap { max-width: 1000px; margin: 0 auto; padding: var(--space-6, 32px) var(--space-4, 24px); }
+  .onb-wrap { max-width: 1320px; margin: 0 auto; padding: var(--space-6, 32px) var(--space-4, 24px); }
 
   /* ─── Hero ─── */
   .onb-hero {

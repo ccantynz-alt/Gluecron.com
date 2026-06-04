@@ -72,7 +72,7 @@ function relTime(d: Date | string): string {
  * settings-2fa.tsx.
  * ───────────────────────────────────────────────────────────────────── */
 const gatesStyles = `
-  .gates-wrap { max-width: 980px; margin: 0 auto; padding: var(--space-4) 0; }
+  .gates-wrap { max-width: 1120px; margin: 0 auto; padding: var(--space-4) 0; }
 
   .gates-hero {
     position: relative;

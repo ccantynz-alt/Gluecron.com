@@ -45,7 +45,7 @@ const gistRoutes = new Hono<AuthEnv>();
 
 // ─── Scoped CSS (.gists-*) ──────────────────────────────────────────────────
 const gistsStyles = `
-  .gists-wrap { max-width: 1100px; margin: 0 auto; padding: var(--space-5) var(--space-4) var(--space-8); }
+  .gists-wrap { max-width: 1320px; margin: 0 auto; padding: var(--space-5) var(--space-4) var(--space-8); }
 
   .gists-head {
     display: flex;

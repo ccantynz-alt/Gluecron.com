@@ -281,7 +281,7 @@ async function isOrgMember(orgId: string, userId: string): Promise<boolean> {
  * stat-card grid + leaderboard pattern from `insights.tsx`.
  * ───────────────────────────────────────────────────────────────────── */
 const styles = `
-  .org-ins-wrap { max-width: 1100px; margin: 0 auto; padding: var(--space-5) var(--space-4); }
+  .org-ins-wrap { max-width: 1320px; margin: 0 auto; padding: var(--space-5) var(--space-4); }
 
   .org-ins-hero {
     position: relative;

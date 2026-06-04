@@ -57,7 +57,7 @@ marketplaceAgents.use("*", softAuth);
  * pre-existing `.mkt-*` marketplace surface. Pattern mirrors that file.
  * ───────────────────────────────────────────────────────────────────── */
 const styles = `
-  .amkt-wrap { max-width: 1100px; margin: 0 auto; padding: var(--space-6, 32px) var(--space-4, 24px); }
+  .amkt-wrap { max-width: 1320px; margin: 0 auto; padding: var(--space-6, 32px) var(--space-4, 24px); }
 
   /* ─── Hero ─── */
   .amkt-hero {

@@ -55,7 +55,7 @@ const DISABLE_ON_SUBMIT_JS = `
 
 // ─── Scoped CSS (.specs-*) ─────────────────────────────────────────────────
 const specsStyles = `
-  .specs-wrap { max-width: 1100px; margin: 0 auto; padding: var(--space-5) var(--space-4) var(--space-8); }
+  .specs-wrap { max-width: 1320px; margin: 0 auto; padding: var(--space-5) var(--space-4) var(--space-8); }
 
   /* ─── Header ─── */
   .specs-head { margin-bottom: var(--space-5); }

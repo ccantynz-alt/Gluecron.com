@@ -301,7 +301,7 @@ verify.post("/verify-email/resend", requireAuth, async (c) => {
 // page. Mirrors the gradient-hairline hero + card pattern from
 // settings-2fa.tsx and admin-integrations.tsx.
 const evStyles = `
-  .ev-wrap { max-width: 920px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
+  .ev-wrap { max-width: 1120px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
 
   .ev-hero {
     position: relative;

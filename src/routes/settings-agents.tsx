@@ -24,7 +24,7 @@ const settingsAgents = new Hono<AuthEnv>();
 settingsAgents.use("/settings/agents*", requireAuth);
 
 const styles = `
-  .sa-wrap { max-width: 920px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
+  .sa-wrap { max-width: 1120px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
   .sa-hero {
     border: 1px solid var(--border);
     border-radius: 14px;

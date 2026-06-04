@@ -361,7 +361,7 @@ function CODEMIRROR_INIT_SCRIPT(args: {
 // --border, --text-strong, --accent, --space-*, --font-*).
 
 const editorStyles = `
-  .editor-wrap { max-width: 1100px; margin: 0 auto; padding: var(--space-5) var(--space-4) var(--space-8); }
+  .editor-wrap { max-width: 1320px; margin: 0 auto; padding: var(--space-5) var(--space-4) var(--space-8); }
 
   /* ─── Header strip (sits below RepoHeader + RepoNav) ─── */
   .editor-head { margin-bottom: var(--space-5); }

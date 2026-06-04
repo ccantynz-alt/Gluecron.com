@@ -21,7 +21,7 @@ help.use("*", softAuth);
 // surfaces. Mirrors the 2026 hero polish in admin, dashboard, import,
 // settings, and repo-settings.
 const helpStyles = `
-  .help-wrap { max-width: 920px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
+  .help-wrap { max-width: 1120px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
 
   /* ─── Hero ─── */
   .help-hero {

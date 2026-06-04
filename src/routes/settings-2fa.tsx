@@ -49,7 +49,7 @@ function errorRedirect(path: string, msg: string) {
  * admin-integrations.tsx and admin-ops.tsx.
  * ───────────────────────────────────────────────────────────────────── */
 const tfaStyles = `
-  .tfa-wrap { max-width: 920px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
+  .tfa-wrap { max-width: 1120px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
 
   /* ─── Hero ─── */
   .tfa-hero {

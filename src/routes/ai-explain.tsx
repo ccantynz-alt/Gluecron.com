@@ -48,7 +48,7 @@ const aiExplainRoutes = new Hono<AuthEnv>();
  * admin-integrations.tsx / build-agent-spec.tsx.
  * ───────────────────────────────────────────────────────────────────── */
 const styles = `
-  .ai-explain-wrap { max-width: 980px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
+  .ai-explain-wrap { max-width: 1120px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
 
   .ai-explain-hero {
     position: relative;

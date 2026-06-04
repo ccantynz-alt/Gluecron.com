@@ -32,7 +32,7 @@ symbols.use("*", softAuth);
 
 // ─── Scoped CSS (.sym-*) ─────────────────────────────────────────────────
 const symStyles = `
-  .sym-wrap { max-width: 1100px; margin: 0 auto; padding: var(--space-5) var(--space-4) var(--space-8); }
+  .sym-wrap { max-width: 1320px; margin: 0 auto; padding: var(--space-5) var(--space-4) var(--space-8); }
 
   .sym-head {
     margin-bottom: var(--space-5);

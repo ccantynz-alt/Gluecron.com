@@ -140,7 +140,7 @@ function lightClass(status: string | null): "is-pass" | "is-fail" | "is-warn" | 
  * Scoped CSS — every selector prefixed `.rc-` so this surface can't leak.
  * ───────────────────────────────────────────────────────────────────── */
 const rcStyles = `
-  .rc-wrap { max-width: 980px; margin: 0 auto; padding: var(--space-4) 0; }
+  .rc-wrap { max-width: 1120px; margin: 0 auto; padding: var(--space-4) 0; }
 
   .rc-hero {
     position: relative;

@@ -439,7 +439,7 @@ status.get("/status.svg", async (c) => {
  * bleed into the admin status page or any other route.
  * ───────────────────────────────────────────────────────────────────── */
 const statusStyles = `
-  .status-wrap { max-width: 960px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
+  .status-wrap { max-width: 1120px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
 
   /* ─── Hero ─── */
   .status-hero {

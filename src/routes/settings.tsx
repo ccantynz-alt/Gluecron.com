@@ -34,7 +34,7 @@ settings.use("/api/user/*", requireAuth);
 // cannot bleed into other surfaces. Pattern mirrors the dashboard-hero polish
 // (commit a004c46) and auth-container gradient hairline (commit 98f45b4).
 const settingsStyles = `
-  .settings-container { max-width: 880px; margin: 0 auto; }
+  .settings-container { max-width: 1040px; margin: 0 auto; }
 
   /* ─── Hero ─── */
   .settings-hero {
@@ -1274,7 +1274,7 @@ settings.get("/settings/digest/preview", async (c) => {
 // it can be linked to directly from /notifications and the main /settings
 // page.
 const notifsetStyles = `
-  .notifset-wrap { max-width: 920px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
+  .notifset-wrap { max-width: 1120px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
 
   .notifset-hero {
     position: relative;

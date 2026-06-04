@@ -20,7 +20,7 @@ const buildAgentSpec = new Hono<AuthEnv>();
 buildAgentSpec.use("*", softAuth);
 
 const styles = `
-  .ba-spec-wrap { max-width: 980px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
+  .ba-spec-wrap { max-width: 1120px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
 
   .ba-spec-hero {
     position: relative;

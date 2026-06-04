@@ -38,7 +38,7 @@ integrations.use("*", softAuth);
  * card patterns from commits 07f4b70 and 98eb360.
  * ───────────────────────────────────────────────────────────────────── */
 const styles = `
-  .admin-int-wrap { max-width: 920px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
+  .admin-int-wrap { max-width: 1120px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
 
   .admin-int-hero {
     position: relative;

@@ -30,7 +30,7 @@ codeScanning.use("*", softAuth);
  * orb + per-card pattern from `admin-integrations` and `admin-diagnose`.
  * ───────────────────────────────────────────────────────────────────── */
 const styles = `
-  .sec-wrap { max-width: 1100px; margin: 0 auto; padding: var(--space-5) var(--space-4); }
+  .sec-wrap { max-width: 1320px; margin: 0 auto; padding: var(--space-5) var(--space-4); }
 
   .sec-hero {
     position: relative;

@@ -48,7 +48,7 @@ const discussionRoutes = new Hono<AuthEnv>();
  * orb + card patterns from `insights.tsx` and `error-page.tsx`.
  * ───────────────────────────────────────────────────────────────────── */
 const styles = `
-  .disc-wrap { max-width: 1100px; margin: 0 auto; padding: var(--space-5) var(--space-4); }
+  .disc-wrap { max-width: 1320px; margin: 0 auto; padding: var(--space-5) var(--space-4); }
 
   .disc-hero {
     position: relative;

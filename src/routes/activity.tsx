@@ -30,7 +30,7 @@ const activity = new Hono<AuthEnv>();
 activity.use("*", softAuth);
 
 const styles = `
-  .act-wrap { max-width: 1100px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
+  .act-wrap { max-width: 1320px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
 
   .act-hero {
     position: relative;

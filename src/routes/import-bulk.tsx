@@ -47,7 +47,7 @@ type Visibility = "public" | "private" | "both";
 // All classes prefixed with .import-bulk- so the block cannot bleed
 // into neighbouring routes. Mirrors the /import polish.
 const importBulkStyles = `
-  .import-bulk-container { max-width: 880px; margin: 0 auto; }
+  .import-bulk-container { max-width: 1040px; margin: 0 auto; }
 
   /* ─── Hero ─── */
   .import-bulk-hero {

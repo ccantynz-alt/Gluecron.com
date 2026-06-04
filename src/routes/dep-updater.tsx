@@ -34,7 +34,7 @@ depUpdater.use("*", softAuth);
  * orb, run cards with status pill / tabular-nums timing, mono version cells.
  * ───────────────────────────────────────────────────────────────────── */
 const depStyles = `
-  .dep-wrap { max-width: 1100px; margin: 0 auto; padding: var(--space-5) var(--space-4) var(--space-8); }
+  .dep-wrap { max-width: 1320px; margin: 0 auto; padding: var(--space-5) var(--space-4) var(--space-8); }
 
   /* ─── Hero ─── */
   .dep-hero {

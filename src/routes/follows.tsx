@@ -65,7 +65,7 @@ function profileUrl(username: string): string {
 // continuity (--bg-elevated, --border, --text-strong, --accent, --space-*).
 
 const followStyles = `
-  .follows-wrap { max-width: 1100px; margin: 0 auto; padding: var(--space-5) var(--space-4) var(--space-8); }
+  .follows-wrap { max-width: 1320px; margin: 0 auto; padding: var(--space-5) var(--space-4) var(--space-8); }
 
   /* ─── Header ─── */
   .follows-head { margin-bottom: var(--space-5); }

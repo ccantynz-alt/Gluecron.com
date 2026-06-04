@@ -74,7 +74,7 @@ function severityClass(sev: string): string {
  *   critical → red,  high → amber,  medium/moderate → yellow,  low → blue
  * ───────────────────────────────────────────────────────────────────── */
 const styles = `
-  .adv-wrap { max-width: 1100px; margin: 0 auto; padding: var(--space-5) var(--space-4); }
+  .adv-wrap { max-width: 1320px; margin: 0 auto; padding: var(--space-5) var(--space-4); }
 
   .adv-hero {
     position: relative;

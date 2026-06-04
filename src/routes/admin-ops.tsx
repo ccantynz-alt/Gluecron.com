@@ -241,7 +241,7 @@ async function readReadinessChecks(): Promise<CheckResult[]> {
  * patterns from admin-integrations.tsx and error-page.tsx.
  * ───────────────────────────────────────────────────────────────────── */
 const opsStyles = `
-  .ops-wrap { max-width: 1120px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
+  .ops-wrap { max-width: 1320px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
 
   /* ─── Hero ─── */
   .ops-hero {

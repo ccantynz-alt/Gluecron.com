@@ -62,7 +62,7 @@ function ssoStateCookieOpts(): {
 // into other admin pages.
 // ----------------------------------------------------------------------------
 const ssoStyles = `
-  .sso-wrap { max-width: 1120px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
+  .sso-wrap { max-width: 1320px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
 
   /* ─── Hero ─── */
   .sso-hero {

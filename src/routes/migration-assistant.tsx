@@ -35,7 +35,7 @@ migrationAssistant.use("*", softAuth);
  * form, result panel. Never overrides layout primitives.
  * ────────────────────────────────────────────────────────────────── */
 const migpropStyles = `
-  .migprop-wrap { max-width: 1120px; margin: 0 auto; padding: var(--space-5) var(--space-4) var(--space-8); }
+  .migprop-wrap { max-width: 1320px; margin: 0 auto; padding: var(--space-5) var(--space-4) var(--space-8); }
 
   .migprop-hero {
     position: relative;

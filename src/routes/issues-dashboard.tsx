@@ -53,7 +53,7 @@ const issuesDashboard = new Hono<AuthEnv>();
 issuesDashboard.use("*", softAuth);
 
 const styles = `
-  .idash-wrap { max-width: 1320px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
+  .idash-wrap { max-width: 1680px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
 
   .idash-hero {
     position: relative;

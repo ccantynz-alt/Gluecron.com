@@ -57,7 +57,7 @@ const aiTestsRoutes = new Hono<AuthEnv>();
  * inputs via the :root --border-focus token.
  * ───────────────────────────────────────────────────────────────────── */
 const styles = `
-  .ai-tests-wrap { max-width: 1120px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
+  .ai-tests-wrap { max-width: 1320px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
 
   .ai-tests-hero {
     position: relative;

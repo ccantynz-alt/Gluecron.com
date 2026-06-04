@@ -32,7 +32,7 @@ fork.use("*", softAuth);
 
 // ─── Scoped CSS — `.fork-*` ────────────────────────────────────────────────
 const forkStyles = `
-  .fork-wrap { max-width: 760px; margin: 0 auto; padding: var(--space-6, 32px) var(--space-4, 24px); }
+  .fork-wrap { max-width: 900px; margin: 0 auto; padding: var(--space-6, 32px) var(--space-4, 24px); }
 
   /* ─── Hero ─── */
   .fork-hero {

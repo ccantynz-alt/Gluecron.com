@@ -42,7 +42,7 @@ const playgroundCreateRateLimit = rateLimit(3, 60_000, "playground-create");
 
 // ─── Scoped CSS — all classes prefixed `.play-*` ───────────────────────────
 const playStyles = `
-  .play-wrap { max-width: 1120px; margin: 0 auto; padding: var(--space-6, 32px) var(--space-4, 24px); }
+  .play-wrap { max-width: 1320px; margin: 0 auto; padding: var(--space-6, 32px) var(--space-4, 24px); }
 
   /* ─── Hero ─── */
   .play-hero {

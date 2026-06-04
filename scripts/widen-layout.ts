@@ -14,11 +14,12 @@
  * media-query widths never match (no `margin: 0 auto`), so prose measure and
  * narrow confirm dialogs are left intact.
  *
- * Tiers (old -> new):
- *   >= 1000px  -> 1320  (dashboards, lists, tables, admin, explore, insights)
- *   900..999   -> 1120  (medium / form-heavy pages)
- *   820..899   -> 1040  (settings, repo-settings, import)
- *   <  820     -> unchanged (intentionally small confirm / detail / claim views)
+ * Tiers (pass 2 — "do it all", near-full-bleed):
+ *   >= 1300px  -> 1680  (dashboards, lists, tables, admin, explore, insights)
+ *   1080..1299 -> 1320  (medium pages)
+ *   1000..1079 -> 1200  (settings, repo-settings, import, forms)
+ *   740..819   -> 900   (small confirm/detail cards, gentle nudge)
+ *   else       -> unchanged (tiny claim/dialog views < 740px stay compact)
  *
  * Run once: `bun scripts/widen-layout.ts`
  */
@@ -28,10 +29,11 @@ import { Glob } from "bun";
 const ROOT = new URL("..", import.meta.url).pathname;
 
 function widen(old: number): number | null {
-  if (old >= 1000) return 1320;
-  if (old >= 900) return 1120;
-  if (old >= 820) return 1040;
-  return null; // leave small intentional widths alone
+  if (old >= 1300) return 1680;
+  if (old >= 1080) return 1320;
+  if (old >= 1000) return 1200;
+  if (old >= 740 && old < 820) return 900;
+  return null; // leave tiny intentional widths alone
 }
 
 // Matches a single-line page-container declaration, capturing the px width.

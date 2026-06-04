@@ -34,7 +34,7 @@ const orgRoutes = new Hono<AuthEnv>();
 // repo header / nav / page chrome. Mirrors the gradient-hairline hero +
 // card patterns from settings-2fa.tsx + admin-integrations.tsx.
 const orgsStyles = `
-  .orgs-wrap { max-width: 1320px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
+  .orgs-wrap { max-width: 1680px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
 
   .orgs-hero {
     position: relative;

@@ -44,7 +44,7 @@ insights.use("*", softAuth);
  * `font-variant-numeric: tabular-nums` so columns of numbers line up.
  * ───────────────────────────────────────────────────────────────────── */
 const styles = `
-  .insights-wrap { max-width: 1320px; margin: 0 auto; padding: var(--space-5) var(--space-4); }
+  .insights-wrap { max-width: 1680px; margin: 0 auto; padding: var(--space-5) var(--space-4); }
 
   .insights-hero {
     position: relative;

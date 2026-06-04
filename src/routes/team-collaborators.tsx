@@ -42,7 +42,7 @@ teamCollaboratorRoutes.use("*", softAuth);
 
 // ─── Scoped CSS — all classes prefixed `.tc-*` ─────────────────────────────
 const tcStyles = `
-  .tc-wrap { max-width: 1040px; margin: 0 auto; padding: var(--space-5, 24px) var(--space-4, 24px); }
+  .tc-wrap { max-width: 1200px; margin: 0 auto; padding: var(--space-5, 24px) var(--space-4, 24px); }
 
   /* ─── Back link ─── */
   .tc-back {

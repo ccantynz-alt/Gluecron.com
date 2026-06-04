@@ -30,7 +30,7 @@ traffic.use("*", softAuth);
  * stat-card grid pattern from `insights.tsx` + `admin-integrations`.
  * ───────────────────────────────────────────────────────────────────── */
 const styles = `
-  .traffic-wrap { max-width: 1320px; margin: 0 auto; padding: var(--space-5) var(--space-4); }
+  .traffic-wrap { max-width: 1680px; margin: 0 auto; padding: var(--space-5) var(--space-4); }
 
   .traffic-hero {
     position: relative;

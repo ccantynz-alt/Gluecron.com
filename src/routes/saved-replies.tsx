@@ -52,7 +52,7 @@ async function listForUser(userId: string) {
 // other page. Mirrors the gradient-hairline hero + card patterns from
 // admin-integrations.tsx and settings-2fa.tsx.
 const srStyles = `
-  .sr-wrap { max-width: 1120px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
+  .sr-wrap { max-width: 1320px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
 
   /* ─── Hero ─── */
   .sr-hero {

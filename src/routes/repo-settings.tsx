@@ -24,7 +24,7 @@ repoSettings.use("*", softAuth);
 // bleed into other surfaces. Pattern mirrors the user-settings polish
 // (commit 98eb360) and the admin-panel polish (commit 07f4b70).
 const repoSettingsStyles = `
-  .repo-settings-container { max-width: 1040px; margin: 0 auto; padding: 0 var(--space-3); }
+  .repo-settings-container { max-width: 1200px; margin: 0 auto; padding: 0 var(--space-3); }
 
   /* ─── Hero ─── */
   .repo-settings-hero {

@@ -51,7 +51,7 @@ async function loadRepo(ownerName: string, repoName: string) {
  * Scoped CSS — every selector under `.pt-` so this surface can't leak.
  * ───────────────────────────────────────────────────────────────────── */
 const ptStyles = `
-  .pt-wrap { max-width: 1120px; margin: 0 auto; padding: var(--space-4) 0; }
+  .pt-wrap { max-width: 1320px; margin: 0 auto; padding: var(--space-4) 0; }
 
   .pt-hero {
     position: relative;

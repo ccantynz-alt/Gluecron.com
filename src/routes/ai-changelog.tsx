@@ -44,7 +44,7 @@ aiChangelog.use("*", softAuth);
  * panel + copy-to-clipboard pattern from admin-integrations.tsx.
  * ───────────────────────────────────────────────────────────────────── */
 const styles = `
-  .ai-changelog-wrap { max-width: 1120px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
+  .ai-changelog-wrap { max-width: 1320px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
 
   .ai-changelog-hero {
     position: relative;

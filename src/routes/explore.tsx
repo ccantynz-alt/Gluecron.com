@@ -30,7 +30,7 @@ const ExploreStyle = () => (
   <style
     dangerouslySetInnerHTML={{
       __html: `
-  .explore-wrap { max-width: 1320px; margin: 0 auto; }
+  .explore-wrap { max-width: 1680px; margin: 0 auto; }
 
   /* ─── Hero ─── */
   .explore-hero {

@@ -263,9 +263,38 @@ const previewStyles = `
     box-shadow: inset 0 0 0 1px rgba(248,113,113,0.35);
   }
   .preview-pill.is-expired {
-    background: rgba(148,163,184,0.10);
-    color: #cbd5e1;
-    box-shadow: inset 0 0 0 1px rgba(148,163,184,0.30);
+    background: rgba(100,116,139,0.10);
+    color: #94a3b8;
+    box-shadow: inset 0 0 0 1px rgba(100,116,139,0.28);
+  }
+
+  /* ─── expired card treatment ─── */
+  .preview-card.is-expired .preview-card-branch { color: var(--text-muted); }
+  .preview-card.is-expired .preview-card-url-expired {
+    color: var(--text-muted);
+    text-decoration: line-through;
+    text-decoration-color: rgba(148,163,184,0.45);
+  }
+  .preview-rebuild-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin-top: var(--space-2);
+    padding: 4px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    font-family: var(--font-mono);
+    color: #a48bff;
+    background: rgba(140,109,255,0.08);
+    border: 1px solid rgba(140,109,255,0.22);
+    cursor: pointer;
+    text-decoration: none;
+    transition: background 120ms ease, border-color 120ms ease;
+  }
+  .preview-rebuild-btn:hover {
+    background: rgba(140,109,255,0.15);
+    border-color: rgba(140,109,255,0.40);
   }
   .preview-pill-dot {
     width: 6px; height: 6px;
@@ -454,14 +483,20 @@ r.get("/:owner/:repo/previews", async (c) => {
             {previews.map((p) => {
               const shortSha = (p.commitSha || "").slice(0, 7);
               const expiresLabel = formatExpiresIn(p.expiresAt, now);
+              const isExpired = p.status === "expired";
               const statusKey = p.status as
                 | "building"
                 | "ready"
                 | "failed"
                 | "expired";
               const pillClass = `preview-pill is-${statusKey}`;
+              const cardClass = isExpired
+                ? "preview-card is-expired"
+                : "preview-card";
+              // Rebuild pushes a branch-preview re-enqueue via the API.
+              const rebuildHref = `/${owner}/${repo}/previews/rebuild?branch=${encodeURIComponent(p.branchName)}`;
               return (
-                <div class="preview-card">
+                <div class={cardClass}>
                   <div class="preview-card-head">
                     <div class="preview-card-titles">
                       <h3 class="preview-card-branch">{p.branchName}</h3>
@@ -470,6 +505,10 @@ r.get("/:owner/:repo/previews", async (c) => {
                           <a href={p.previewUrl} target="_blank" rel="noopener noreferrer">
                             {p.previewUrl}
                           </a>
+                        ) : isExpired ? (
+                          <span class="preview-card-url-expired">
+                            {p.previewUrl}
+                          </span>
                         ) : (
                           <span style="color: var(--text-muted)">
                             {p.previewUrl}
@@ -481,11 +520,20 @@ r.get("/:owner/:repo/previews", async (c) => {
                           commit <code>{shortSha}</code>
                         </span>
                         <span>
-                          {p.status === "expired"
-                            ? "expired"
+                          {isExpired
+                            ? "preview expired · push to branch to rebuild"
                             : `expires in ${expiresLabel}`}
                         </span>
                       </div>
+                      {isExpired && (
+                        <a
+                          href={rebuildHref}
+                          class="preview-rebuild-btn"
+                          title="Re-enqueue a preview build for this branch"
+                        >
+                          ↺ Rebuild
+                        </a>
+                      )}
                     </div>
                     <div>
                       <span class={pillClass}>

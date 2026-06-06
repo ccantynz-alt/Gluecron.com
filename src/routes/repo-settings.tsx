@@ -693,6 +693,25 @@ repoSettings.get("/:owner/:repo/settings", requireAuth, requireRepoAccess("admin
                   </label>
                 </div>
               </div>
+              <div class="repo-settings-field">
+                <label class="repo-settings-field-label">Data region</label>
+                <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                  <span
+                    style={`display:inline-flex; align-items:center; gap:6px; padding:4px 12px; border-radius:9999px; font-size:12px; font-weight:600; font-family:var(--font-mono); ${
+                      repo.dataRegion === "eu"
+                        ? "background:rgba(54,197,214,0.10); color:#67e8f9; border:1px solid rgba(54,197,214,0.28);"
+                        : "background:rgba(140,109,255,0.10); color:#c4b5fd; border:1px solid rgba(140,109,255,0.28);"
+                    }`}
+                  >
+                    {repo.dataRegion === "eu" ? "EU · Frankfurt" : "US · Default"}
+                  </span>
+                  <span class="repo-settings-field-hint" style="margin:0;">
+                    Data region is set at creation and cannot be changed. EU data
+                    residency requires a{" "}
+                    <a href="/pricing" style="color:var(--accent);text-decoration:none;">Pro plan or higher</a>.
+                  </span>
+                </div>
+              </div>
             </div>
             <div class="repo-settings-section-foot">
               <button type="submit" class="repo-settings-cta">

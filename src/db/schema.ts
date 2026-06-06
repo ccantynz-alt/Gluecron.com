@@ -204,6 +204,11 @@ export const repositories = pgTable(
     // env burns a container until the idle sweep tears it down; owners
     // must explicitly enable per-repo via repo-settings.
     devEnvsEnabled: boolean("dev_envs_enabled").default(false).notNull(),
+    // Migration 0077 — data residency region. 'us' = US East (default),
+    // 'eu' = Frankfurt (EU). EU data residency requires a Pro plan or
+    // higher. Future values (e.g. 'apac') are additive — no constraint
+    // at the DB level so we can extend without a new migration.
+    dataRegion: text("data_region").default("us").notNull(),
   },
   (table) => [
     // Partial: uniqueness only in the user namespace (org-owned rows exempt).

@@ -2002,6 +2002,27 @@ web.get("/new", requireAuth, (c) => {
               Just a UI hint — push your own commits to fill the repo.
             </p>
           </div>
+          <div class="new-repo-row">
+            <label class="new-repo-label" for="data_region">
+              Data region
+            </label>
+            <select
+              id="data_region"
+              name="data_region"
+              class="new-repo-input"
+              style="cursor: pointer;"
+            >
+              <option value="us" selected>US (default)</option>
+              <option value="eu">EU (Frankfurt)</option>
+            </select>
+            <p class="new-repo-hint">
+              EU data residency requires a{" "}
+              <a href="/pricing" style="color: var(--accent); text-decoration: none;">
+                Pro plan or higher
+              </a>
+              . Repositories cannot be moved between regions after creation.
+            </p>
+          </div>
           <div class="new-repo-callout">
             <div class="new-repo-callout-eyebrow">AI-native by default</div>
             <p class="new-repo-callout-body">
@@ -2030,6 +2051,7 @@ web.post("/new", requireAuth, async (c) => {
   const name = String(body.name || "").trim();
   const description = String(body.description || "").trim();
   const isPrivate = body.visibility === "private";
+  const dataRegion = body.data_region === "eu" ? "eu" : "us";
 
   if (!name) {
     return c.redirect("/new?error=Repository+name+is+required");
@@ -2061,6 +2083,7 @@ web.post("/new", requireAuth, async (c) => {
       description: description || null,
       isPrivate,
       diskPath,
+      dataRegion,
     })
     .returning();
 

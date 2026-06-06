@@ -154,10 +154,21 @@ export const LandingHero: FC<LandingPageProps> = ({
               Spec to PR in 90 seconds. Push to live in 25. AI review, auto-merge, deploy — automatic.
             </p>
 
-            {/* U1 — primary CTA row, demoted to 2 buttons. */}
+            {/* U1 — primary CTA row. "Migrate from GitHub" added as a
+                secondary CTA alongside sign-up to capture visitors who
+                already have GitHub repos and want a one-click move. */}
             <div class="landing-hero-ctas" data-testid="hero-primary-ctas">
               <a href="/register" class="btn btn-primary btn-xl landing-cta-primary">
                 Sign up free
+                <span class="landing-cta-arrow" aria-hidden="true">{"→"}</span>
+              </a>
+              {/* Migrate from GitHub — prominent secondary CTA */}
+              <a
+                href="/import"
+                class="btn btn-xl landing-cta-migrate"
+                data-testid="cta-migrate"
+              >
+                Migrate from GitHub
                 <span class="landing-cta-arrow" aria-hidden="true">{"→"}</span>
               </a>
               {/* BLOCK Q1 — one-click Claude Desktop install. */}
@@ -2150,6 +2161,33 @@ const landingCss = `
   @media (prefers-reduced-motion: reduce) {
     .landing-cta-dxt,
     .landing-cta-dxt:hover {
+      transform: none;
+      transition: none;
+    }
+  }
+
+  /* "Migrate from GitHub" CTA — secondary, but strong enough to stand
+     alongside the primary. Uses a subtle amber/violet mix so it reads as
+     action-oriented without competing with the green primary CTA. */
+  .landing-cta-migrate {
+    position: relative;
+    background: var(--bg-elevated);
+    color: var(--text-strong);
+    border: 1px solid var(--border-strong);
+    transition: border-color var(--t-base, 180ms) var(--ease, ease),
+                transform var(--t-base, 180ms) var(--ease-spring, ease),
+                box-shadow var(--t-base, 180ms) var(--ease, ease);
+  }
+  .landing-cta-migrate:hover {
+    border-color: rgba(140,109,255,0.55);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 22px -8px rgba(140,109,255,0.30);
+    text-decoration: none;
+    color: var(--text-strong);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .landing-cta-migrate,
+    .landing-cta-migrate:hover {
       transform: none;
       transition: none;
     }

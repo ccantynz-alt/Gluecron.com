@@ -567,16 +567,17 @@ importBulkRoutes.get("/import/bulk", requireAuth, async (c) => {
           <div class="import-bulk-hero-inner">
             <div class="import-bulk-hero-eyebrow">
               <span class="import-bulk-hero-eyebrow-dot" aria-hidden="true" />
-              Bulk migration
+              GitHub migration
             </div>
             <h1 class="import-bulk-hero-title">
-              Import{" "}
-              <span class="gradient-text">many at once</span>.
+              Migrate your GitHub org{" "}
+              <span class="gradient-text">in 60 seconds</span>.
             </h1>
             <p class="import-bulk-hero-sub">
-              Paste a GitHub org + personal access token. Gluecron clones every
-              repo into your namespace as a mirror — sequentially, with per-repo
-              status so one failure can't abort the batch.
+              All repos, issues, and history — paste a GitHub org + personal access
+              token and Gluecron imports everything into your namespace
+              sequentially, with per-repo status so one failure can't abort the
+              batch.
             </p>
           </div>
         </div>

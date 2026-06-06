@@ -298,6 +298,9 @@ export const Layout: FC<
                     <span class="theme-icon-dark">{"☾"}</span>
                     <span class="theme-icon-light">{"☀"}</span>
                   </a>
+                  <a href="/import" class="nav-link nav-migrate" title="Migrate your GitHub repos to Gluecron">
+                    Migrate from GitHub
+                  </a>
                   <a href="/login" class="nav-link">Sign in</a>
                   <a href="/register" class="btn btn-sm btn-primary">Register</a>
                 </>
@@ -332,6 +335,7 @@ export const Layout: FC<
                 <a href="/changelog">Changelog</a>
                 <a href="/explore">Explore</a>
                 <a href="/marketplace">Marketplace</a>
+                <a href="/developer-program">Developer Program</a>
               </div>
               <div class="footer-col">
                 <div class="footer-col-title">Platform</div>
@@ -1620,6 +1624,21 @@ const css = `
     background: var(--accent-gradient);
     border-radius: 2px;
   }
+  /* "Migrate from GitHub" nav link — logged-out only, slightly accented
+     so it reads as an action affordance rather than a passive link. */
+  .nav-migrate {
+    color: var(--accent);
+    font-weight: 600;
+    border: 1px solid rgba(140,109,255,0.22);
+    background: rgba(140,109,255,0.07);
+  }
+  .nav-migrate:hover {
+    color: var(--accent-hover);
+    background: rgba(140,109,255,0.13);
+    border-color: rgba(140,109,255,0.40);
+  }
+  @media (max-width: 780px) { .nav-migrate { display: none; } }
+
   .nav-user {
     color: var(--text-strong);
     font-weight: 600;

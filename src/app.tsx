@@ -169,6 +169,7 @@ import { staleBranchRoutes } from "./routes/stale-branches";
 import pulseRoutes from "./routes/pulse";
 import healthScoreRoutes from "./routes/health-score";
 import hotFilesRoutes from "./routes/hot-files";
+import developerProgramRoutes from "./routes/developer-program";
 import { authRateLimit, gitRateLimit, searchRateLimit } from "./middleware/rate-limit";
 import { csrfToken, csrfProtect } from "./middleware/csrf";
 import { noCache } from "./middleware/no-cache";
@@ -530,6 +531,9 @@ app.route("/", changelogRoutes);
 
 // /pricing, /features, /about — marketing surface
 app.route("/", marketingRoutes);
+
+// /developer-program — partner + marketplace revenue-share page
+app.route("/", developerProgramRoutes);
 
 // SEO: robots.txt + sitemap.xml
 app.route("/", seoRoutes);

@@ -57,7 +57,7 @@ These are confirmed missing by direct code inspection.
 - [ ] **Onboarding email sequence** — T+0 welcome, T+1 day "try spec-to-PR", T+3 days "here's what AI did for similar repos". Resend sequences.
 - [x] 2026-06-06 **Dashboard "AI just did this" widget** — `AiActivityWidget` added to `src/routes/dashboard.tsx`. Queries `audit_log` (auto_merge.merged, ai_build.dispatched) and `gate_runs` (status=repaired) for last 60 minutes. Shows per-category counts, item list with links, "All quiet — AI is watching." empty state.
 - [x] 2026-06-06 **Push Watch → make it discoverable** — Pulsing "● Live" badge in `RepoHeader` (red + `pushWatchPulse` animation when &lt;5min, muted "○ Watch" when &lt;24hr). Query on `activity_feed` WHERE action='push'. Eye-icon watch link on every commit row. `src/views/components.tsx`, `src/views/layout.tsx`, `src/routes/web.tsx`.
-- [ ] **Repo overview AI stats strip** — Below the file tree: "AI merged 3 PRs this week · Saved ~4.5 hrs · 0 open security alerts." Makes AI value visible at a glance.
+- [x] 2026-06-06 **Repo overview AI stats strip** — `getRepoAiStats(repoId)` in `src/routes/web.tsx`. Shows "⚡ AI merged N PRs this week · Saved ~X hrs · N open security alerts" below file tree. Queries `activity_feed` (auto_merge), `pr_comments` (is_ai_review), `gate_runs` (security). Hidden when all zeros.
 
 ### Admin
 - [x] 2026-06-06 **Admin > AI cost breakdown** — `/admin/ai-costs`: monthly total, breakdown by `category`, top 10 spenders with CSS bar chart. `ai_cost_events` JOIN `users`. Added to admin dashboard nav.

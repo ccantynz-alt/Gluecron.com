@@ -60,10 +60,10 @@ These are confirmed missing by direct code inspection.
 - [ ] **Repo overview AI stats strip** — Below the file tree: "AI merged 3 PRs this week · Saved ~4.5 hrs · 0 open security alerts." Makes AI value visible at a glance.
 
 ### Admin
-- [ ] **Admin > AI cost breakdown** — Total AI spend this month, per feature (review/triage/CI healer/spec-to-PR/chat), top spenders. `aiCostEvents` table has everything needed. Unit economics.
+- [x] 2026-06-06 **Admin > AI cost breakdown** — `/admin/ai-costs`: monthly total, breakdown by `category`, top 10 spenders with CSS bar chart. `ai_cost_events` JOIN `users`. Added to admin dashboard nav.
 - [ ] **Admin > Stripe sync** — Stripe subscription status per user vs local plan. Flag mismatches. Link to Stripe dashboard.
-- [ ] **Admin > Autopilot health** — Last tick time, per-task success/error counts, average tick duration. Expose the CI healer, proactive monitor, stale sweep, and preview expiry tasks alongside existing tasks.
-- [ ] **Admin > User growth chart** — Signups over time, activation rate (created a repo), conversion rate (free→paid).
+- [x] 2026-06-06 **Admin > Autopilot health** — `/admin/autopilot/health`: 10 tasks with last-tick status, duration, 24h success/error counts from `audit_log`. In-process `getLastTick()`/`getTickCount()` from autopilot.ts.
+- [x] 2026-06-06 **Admin > User growth chart** — `/admin/growth`: daily signups last 30 days (`date_trunc('day', created_at)`), activation rate (users with ≥1 repo), CSS bar chart table.
 - [x] 2026-06-06 commit:44ed968 **K3 tasks on `/admin/autopilot`** — `auto-merge-sweep` and `ai-build-from-issues` were already present; `preview-expiry` added. Badge updated to "10 tasks".
 
 ### Developer Experience

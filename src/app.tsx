@@ -133,6 +133,7 @@ import mirrorsRoutes from "./routes/mirrors";
 import orgInsightsRoutes from "./routes/org-insights";
 import packagesRoutes from "./routes/packages";
 import packagesApiRoutes from "./routes/packages-api";
+import ociRegistryRoutes from "./routes/oci-registry";
 import pagesRoutes from "./routes/pages";
 import projectsRoutes from "./routes/projects";
 import protectedTagsRoutes from "./routes/protected-tags";
@@ -653,6 +654,8 @@ app.route("/", mirrorsRoutes);
 app.route("/", orgInsightsRoutes);
 app.route("/", packagesRoutes);
 app.route("/", packagesApiRoutes);
+// OCI / Docker container registry — /v2/* (OCI Distribution Spec v1.0)
+app.route("/", ociRegistryRoutes);
 app.route("/", pagesRoutes);
 app.route("/", projectsRoutes);
 app.route("/", protectedTagsRoutes);

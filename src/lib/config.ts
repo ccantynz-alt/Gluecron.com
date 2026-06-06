@@ -82,6 +82,16 @@ export const config = {
     );
   },
   /**
+   * Root directory for OCI container registry blob + manifest storage.
+   * Layout:
+   *   ${ociStorePath}/blobs/sha256/<hex64>   — finished layer/config blobs
+   *   ${ociStorePath}/manifests/<name>/<ref> — image manifests by tag or digest
+   *   ${ociStorePath}/uploads/<uuid>         — in-progress chunked uploads
+   */
+  get ociStorePath() {
+    return process.env.OCI_STORE_PATH || join(process.cwd(), "oci-store");
+  },
+  /**
    * WebAuthn relying-party ID (domain only, no scheme/port). Derived from
    * appBaseUrl unless overridden. Passkeys issued for one RP ID can't be
    * replayed against another, so this must be stable.

@@ -867,6 +867,51 @@ export const sshKeys = pgTable("ssh_keys", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// OCI Container Registry — migration 0083_oci_registry.sql
+// oci_repositories tracks image namespaces (e.g. "alice/myapp").
+// oci_tags maps mutable tag names to a manifest digest for a repository.
+
+export const ociRepositories = pgTable(
+  "oci_repositories",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ownerId: uuid("owner_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** Full image name in "<owner>/<image>" format. */
+    name: text("name").notNull(),
+    visibility: text("visibility").notNull().default("private"), // "public" | "private"
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("oci_repositories_owner_name").on(table.ownerId, table.name),
+    index("idx_oci_repositories_owner").on(table.ownerId),
+  ]
+);
+
+export const ociTags = pgTable(
+  "oci_tags",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => ociRepositories.id, { onDelete: "cascade" }),
+    tag: text("tag").notNull(),
+    manifestDigest: text("manifest_digest").notNull(), // "sha256:<hex64>"
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("oci_tags_repo_tag").on(table.repositoryId, table.tag),
+    index("idx_oci_tags_repo").on(table.repositoryId),
+  ]
+);
+
+export type OciRepository = typeof ociRepositories.$inferSelect;
+export type NewOciRepository = typeof ociRepositories.$inferInsert;
+export type OciTag = typeof ociTags.$inferSelect;
+export type NewOciTag = typeof ociTags.$inferInsert;
+
 // Block M2 — Web Push subscriptions. One row per (user, endpoint).
 // Endpoint is the browser-issued push URL; p256dh + auth are the W3C
 // payload-encryption keys (base64url). Stale endpoints (HTTP 410) are

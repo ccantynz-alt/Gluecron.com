@@ -4084,3 +4084,29 @@ export const statusSubscribers = pgTable(
 export type StatusSubscriber = typeof statusSubscribers.$inferSelect;
 export type NewStatusSubscriber = typeof statusSubscribers.$inferInsert;
 export type NewClaudeWebMessage = typeof claudeWebMessages.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Migration 0077 — Enterprise leads (contact form submissions from /enterprise)
+// ---------------------------------------------------------------------------
+
+/**
+ * Enterprise leads — one row per /enterprise contact form submission.
+ * Sales team reads these directly or via a future CRM sync.
+ */
+export const enterpriseLeads = pgTable(
+  "enterprise_leads",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    company: text("company").notNull(),
+    email: text("email").notNull(),
+    teamSize: text("team_size").notNull(),
+    message: text("message"),
+    ip: text("ip"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [index("enterprise_leads_created").on(table.createdAt)]
+);
+
+export type EnterpriseLead = typeof enterpriseLeads.$inferSelect;
+export type NewEnterpriseLead = typeof enterpriseLeads.$inferInsert;

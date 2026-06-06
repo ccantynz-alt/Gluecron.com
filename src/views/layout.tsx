@@ -332,6 +332,7 @@ export const Layout: FC<
                 <div class="footer-col-title">Product</div>
                 <a href="/features">Features</a>
                 <a href="/pricing">Pricing</a>
+                <a href="/enterprise">Enterprise</a>
                 <a href="/changelog">Changelog</a>
                 <a href="/explore">Explore</a>
                 <a href="/marketplace">Marketplace</a>

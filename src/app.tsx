@@ -54,6 +54,7 @@ import changelogRoutes from "./routes/changelog";
 import docsRoutes from "./routes/docs";
 import marketingRoutes from "./routes/marketing";
 import pricingRoutes from "./routes/pricing";
+import enterpriseRoutes from "./routes/enterprise";
 import seoRoutes from "./routes/seo";
 import versionRoutes from "./routes/version";
 import { platformStatus } from "./routes/platform-status";
@@ -250,6 +251,7 @@ app.use("*", async (c, next) => {
     p === "/explore" ||
     p === "/help" ||
     p === "/changelog" ||
+    p === "/enterprise" ||
     p.startsWith("/legal/") ||
     p === "/terms" ||
     p === "/privacy" ||
@@ -535,6 +537,9 @@ app.route("/", pricingRoutes);
 
 // /changelog — manually curated platform release history
 app.route("/", changelogRoutes);
+
+// Enterprise sales page + contact form lead capture.
+app.route("/", enterpriseRoutes);
 
 // /pricing, /features, /about — marketing surface
 app.route("/", marketingRoutes);

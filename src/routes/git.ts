@@ -16,6 +16,7 @@ import { trackByName } from "../lib/traffic";
 import {
   evaluatePushPolicy,
   formatPolicyError,
+  installPackInspectionHookForRepo,
 } from "../lib/push-policy";
 import { resolvePusher } from "../lib/git-push-auth";
 import { audit } from "../lib/notify";
@@ -94,10 +95,13 @@ git.post("/:owner/:repo.git/git-receive-pack", async (c) => {
 
   // Pre-receive policy: protected tags + ruleset name patterns. Fail-open
   // on any DB hiccup (the helper returns {allowed:true} in that case).
+  // We also retain the repoRow so the pack-inspection hook below can reuse it.
+  let cachedRepoId: string | null = null;
   if (refs.length > 0) {
     try {
       const repoRow = await loadRepoRow(owner, repo);
       if (repoRow) {
+        cachedRepoId = repoRow.id;
         const pusher = await resolvePusher(c.req.header("authorization"));
         const decision = await evaluatePushPolicy({
           repositoryId: repoRow.id,
@@ -141,12 +145,37 @@ git.post("/:owner/:repo.git/git-receive-pack", async (c) => {
     }
   }
 
-  const response = await serviceRpc(
-    owner,
-    repoRaw,
-    "git-receive-pack",
-    bodyBuffer
-  );
+  // Pack-content inspection: install a pre-receive hook that enforces
+  // commit_message_pattern, blocked_file_paths, and max_file_size rules.
+  // git-receive-pack runs the hook before promoting quarantined objects, so
+  // a hook exit-1 leaves the repo unchanged.  We clean up the temp dir
+  // unconditionally after serviceRpc returns.
+  let hookEnv: Record<string, string> | undefined;
+  let hookCleanup: (() => Promise<void>) | undefined;
+  if (refs.length > 0 && cachedRepoId) {
+    try {
+      const hook = await installPackInspectionHookForRepo(cachedRepoId);
+      if (hook) {
+        hookEnv = hook.env;
+        hookCleanup = hook.cleanup;
+      }
+    } catch {
+      // fail-open
+    }
+  }
+
+  let response: Response;
+  try {
+    response = await serviceRpc(
+      owner,
+      repoRaw,
+      "git-receive-pack",
+      bodyBuffer,
+      hookEnv
+    );
+  } finally {
+    hookCleanup?.().catch(() => {});
+  }
 
   // Invalidate cached git data for this repo immediately
   invalidateRepoCache(owner, repo);

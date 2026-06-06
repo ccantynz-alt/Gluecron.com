@@ -54,7 +54,8 @@ export async function serviceRpc(
   owner: string,
   repo: string,
   service: string,
-  body: ReadableStream<Uint8Array> | ArrayBuffer | null
+  body: ReadableStream<Uint8Array> | ArrayBuffer | null,
+  extraEnv?: Record<string, string>
 ): Promise<Response> {
   const repoDir = getRepoPath(owner, repo);
   const inputBytes = body
@@ -67,6 +68,7 @@ export async function serviceRpc(
     stdin: "pipe",
     stdout: "pipe",
     stderr: "pipe",
+    env: extraEnv ? { ...process.env, ...extraEnv } : process.env,
   });
 
   proc.stdin.write(inputBytes);

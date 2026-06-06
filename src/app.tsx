@@ -27,6 +27,7 @@ import settingsAgentsRoutes from "./routes/settings-agents";
 import settingsIntegrationsRoutes from "./routes/settings-integrations";
 import integrationsChatRoutes from "./routes/integrations-chat";
 import agentsRoutes from "./routes/agents";
+import agentPipelinesRoutes from "./routes/agent-pipelines";
 import issueRoutes from "./routes/issues";
 import commentModerationRoutes from "./routes/comment-moderation";
 import repoSettings from "./routes/repo-settings";
@@ -377,6 +378,11 @@ app.route("/", apiV2Routes);
 // Agent multiplayer v1 — /api/v2/agents/* (sessions, leases, usage).
 // Mounted alongside apiV2Routes (its own basePath, no path conflict).
 app.route("/", agentsRoutes);
+
+// Multi-agent pipeline UI — /:owner/:repo/agents (list, new, live view).
+// Must be before webRoutes (the catch-all) so the /agents sub-paths are
+// resolved before the generic tree/blob route takes over.
+app.route("/", agentPipelinesRoutes);
 
 // Inbound API hooks (GateTest callback + backup PAT-authed /api/v1/gate-runs)
 app.route("/", hookRoutes);

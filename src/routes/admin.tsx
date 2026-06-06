@@ -3615,6 +3615,7 @@ const AUTOPILOT_TASK_CATALOG = [
   { name: "ai-build-from-issues", desc: "Dispatch ai:build issues → draft PRs" },
   { name: "sleep-mode-digest",    desc: "Send AI-hours-saved digest emails" },
   { name: "preview-expiry",       desc: "Expire stale branch-preview rows past their TTL" },
+  { name: "onboarding-drip",      desc: "Send T+1d and T+3d onboarding drip emails to new users" },
 ] as const;
 
 admin.get("/admin/autopilot", async (c) => {

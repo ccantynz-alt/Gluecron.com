@@ -125,6 +125,12 @@ export const users = pgTable("users", {
   personalSemanticIndexEnabled: boolean("personal_semantic_index_enabled")
     .default(false)
     .notNull(),
+  // Onboarding drip sequence (migration 0080). Stores a JSON array of string
+  // keys for emails already delivered, e.g. ["welcome","day1","day3"].
+  // The autopilot `onboarding-drip` task compares this against the canonical
+  // drip schedule and sends any outstanding emails. Never null — defaults to
+  // an empty array at insert time.
+  onboardingEmailsSent: jsonb("onboarding_emails_sent").$type<string[]>().default([]).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

@@ -304,6 +304,17 @@ auth.post("/register", async (c) => {
       });
   }
 
+  // Onboarding drip — T+0 "welcome" email. Fire-and-forget; never blocks
+  // the redirect. Silently skips when email is not configured.
+  import("../lib/onboarding-drip")
+    .then((m) => m.sendWelcomeEmail(user.id))
+    .catch((err) => {
+      console.error(
+        `[auth] onboarding welcome email failed for ${user.id}:`,
+        err instanceof Error ? err.message : err
+      );
+    });
+
   // P3 — default landing is /onboarding (the guided first-five-minutes
   // flow). The `redirect=` query is still honoured for OAuth-style flows.
   const redirect = c.req.query("redirect") || "/onboarding?welcome=1";

@@ -70,6 +70,7 @@ import { expireOldSandboxes } from "./pr-sandbox";
 import { expireIdleEnvs } from "./dev-env";
 import { expireOldPreviews } from "./branch-previews";
 import { getBotUserIdOrFallback } from "./bot-user";
+import { runOnboardingDripTaskOnce } from "./onboarding-drip";
 
 export interface AutopilotTaskResult {
   name: string;
@@ -638,6 +639,26 @@ export function defaultTasks(): AutopilotTask[] {
           }
         } catch (err) {
           console.error("[autopilot] preview-expiry: threw:", err);
+        }
+      },
+    },
+    {
+      // Onboarding drip — sends pending T+1d and T+3d drip emails to new
+      // users. The T+0 "welcome" email is sent immediately at registration
+      // via src/routes/auth.tsx. This task handles the delayed emails.
+      // Idempotent via the per-user `onboarding_emails_sent` jsonb column
+      // (migration 0080). Silently skips when email is not configured.
+      name: "onboarding-drip",
+      run: async () => {
+        try {
+          const summary = await runOnboardingDripTaskOnce();
+          if (summary.sent > 0 || summary.errors > 0) {
+            console.log(
+              `[autopilot] onboarding-drip: sent=${summary.sent} skipped=${summary.skipped} errors=${summary.errors}`
+            );
+          }
+        } catch (err) {
+          console.error("[autopilot] onboarding-drip: threw:", err);
         }
       },
     },

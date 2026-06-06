@@ -61,7 +61,7 @@ These are confirmed missing by direct code inspection.
 
 ### Admin
 - [x] 2026-06-06 **Admin > AI cost breakdown** — `/admin/ai-costs`: monthly total, breakdown by `category`, top 10 spenders with CSS bar chart. `ai_cost_events` JOIN `users`. Added to admin dashboard nav.
-- [ ] **Admin > Stripe sync** — Stripe subscription status per user vs local plan. Flag mismatches. Link to Stripe dashboard.
+- [x] 2026-06-06 **Admin > Stripe sync** — `src/routes/admin-stripe.tsx` at `/admin/stripe`. Fetches non-free users from `user_quotas`, calls live Stripe API per user, flags plan mismatches. `POST /admin/stripe/:userId/sync` corrects local plan to match Stripe. Degrades gracefully without STRIPE_SECRET_KEY.
 - [x] 2026-06-06 **Admin > Autopilot health** — `/admin/autopilot/health`: 10 tasks with last-tick status, duration, 24h success/error counts from `audit_log`. In-process `getLastTick()`/`getTickCount()` from autopilot.ts.
 - [x] 2026-06-06 **Admin > User growth chart** — `/admin/growth`: daily signups last 30 days (`date_trunc('day', created_at)`), activation rate (users with ≥1 repo), CSS bar chart table.
 - [x] 2026-06-06 commit:44ed968 **K3 tasks on `/admin/autopilot`** — `auto-merge-sweep` and `ai-build-from-issues` were already present; `preview-expiry` added. Badge updated to "10 tasks".
@@ -101,7 +101,7 @@ These are confirmed missing by direct code inspection.
 
 - [ ] **SOC 2 Type II** — Engage auditor, scope controls. 6–9 months. No enterprise deals without it.
 - [ ] **EU data residency** — Neon postgres EU region + Fly.io EU region. "Data region" selector at org creation.
-- [ ] **GDPR account deletion verification** — Migration `0049_account_deletion.sql` adds `deleted_at` and `deletion_scheduled_for`. Verify the full cascade is implemented: bare git repo deletion, related rows purged, audit log anonymised.
+- [x] 2026-06-06 **GDPR account deletion verification** — Two gaps fixed in `src/lib/account-deletion.ts`: disk repo cleanup (rm each `repositories.diskPath` + user dir) and Stripe subscription cancellation. DB CASCADE already handled sessions/ssh_keys/api_tokens etc. `audit_log.user_id` ON DELETE SET NULL anonymises rows. New `/admin/deletions` page + force-purge button.
 - [ ] **Audit log SIEM export** — `GET /api/v2/audit?since=&format=json`. Required by enterprise security teams (Splunk, Datadog, Elastic).
 - [ ] **Enterprise sales page** — `/enterprise`: custom pricing, SSO, dedicated support SLA, data residency. Contact form → Calendly.
 - [ ] **Native iOS app** — Minimum viable: repo browser, notifications, PR approve/reject, AI chat. React Native.

@@ -102,8 +102,8 @@ These are confirmed missing by direct code inspection.
 - [ ] **SOC 2 Type II** — Engage auditor, scope controls. 6–9 months. No enterprise deals without it.
 - [ ] **EU data residency** — Neon postgres EU region + Fly.io EU region. "Data region" selector at org creation.
 - [x] 2026-06-06 **GDPR account deletion verification** — Two gaps fixed in `src/lib/account-deletion.ts`: disk repo cleanup (rm each `repositories.diskPath` + user dir) and Stripe subscription cancellation. DB CASCADE already handled sessions/ssh_keys/api_tokens etc. `audit_log.user_id` ON DELETE SET NULL anonymises rows. New `/admin/deletions` page + force-purge button.
-- [ ] **Audit log SIEM export** — `GET /api/v2/audit?since=&format=json`. Required by enterprise security teams (Splunk, Datadog, Elastic).
-- [ ] **Enterprise sales page** — `/enterprise`: custom pricing, SSO, dedicated support SLA, data residency. Contact form → Calendly.
+- [x] 2026-06-06 **Audit log SIEM export** — `GET /api/v2/audit` in `src/routes/api-v2.ts`. Admin Bearer auth, params: since/until/limit/cursor/actor/action/resource_type. Returns `{events, nextCursor, hasMore}` + `X-Total-Count` header. Each event: id, action, actor_username, resource_type, metadata, created_at, ip_address.
+- [x] 2026-06-06 **Enterprise sales page** — `src/routes/enterprise.tsx` at `/enterprise`. Sections: custom pricing, SSO (SAML/OIDC), SLA, data residency, SOC 2, SIEM. Contact form `POST /enterprise/contact` → `enterprise_leads` table (migration 0082). Footer "Enterprise" link added.
 - [ ] **Native iOS app** — Minimum viable: repo browser, notifications, PR approve/reject, AI chat. React Native.
 - [ ] **Native Android app** — Share React Native codebase with iOS.
 - [ ] **Multi-agent pipeline UI** — `agent-multiplayer.ts` and `agent_sessions`/`agent_leases` tables are complete. Wire a UI to define pipelines: Agent A writes, Agent B reviews, Agent C deploys.

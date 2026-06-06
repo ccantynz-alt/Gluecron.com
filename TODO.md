@@ -106,7 +106,7 @@ These are confirmed missing by direct code inspection.
 - [x] 2026-06-06 **Enterprise sales page** — `src/routes/enterprise.tsx` at `/enterprise`. Sections: custom pricing, SSO (SAML/OIDC), SLA, data residency, SOC 2, SIEM. Contact form `POST /enterprise/contact` → `enterprise_leads` table (migration 0082). Footer "Enterprise" link added.
 - [ ] **Native iOS app** — Minimum viable: repo browser, notifications, PR approve/reject, AI chat. React Native.
 - [ ] **Native Android app** — Share React Native codebase with iOS.
-- [ ] **Multi-agent pipeline UI** — `agent-multiplayer.ts` and `agent_sessions`/`agent_leases` tables are complete. Wire a UI to define pipelines: Agent A writes, Agent B reviews, Agent C deploys.
+- [x] 2026-06-06 **Multi-agent pipeline UI** — `src/routes/agent-pipelines.tsx` (1100 lines). Routes: `/:owner/:repo/agents` (list), `/agents/new` (builder, JS-free ?stages=N pattern), `POST /agents` (creates session + lease rows), `/:sessionId` (live view, 5s meta-refresh), `/:sessionId/cancel`. "Agents" tab added to RepoNav.
 - [x] 2026-06-06 **AI pair programmer (browser)** — Covered by "Claude Web Sessions → customer-facing" above. `/:owner/:repo/claude` open to all authenticated users. SSE streaming via `claude --print --output-format stream-json`. "✨ Claude AI" sidebar card on repo home.
 - [ ] **End-to-end test suite** — Playwright covering register → push → PR → AI review → merge. Catches flow regressions that unit tests miss.
 - [ ] **Load testing** — k6 or Artillery before any growth push. What happens at 1000 concurrent git pushes?

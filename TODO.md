@@ -89,7 +89,7 @@ These are confirmed missing by direct code inspection.
 - [ ] **VS Code extension → publish** — `vscode-extension/` is built. Run `vsce package`, publish to VS Code Marketplace. Free discovery.
 - [ ] **CLI → publish to npm** — `cli/gluecron.ts` is built. Publish as `gluecron` npm package. `npx gluecron login` as zero-install entry.
 - [ ] **CLI → Homebrew formula** — `brew install gluecron`. Mac developer standard.
-- [ ] **JetBrains plugin** — Same four commands as VS Code. Kotlin plugin. Covers IntelliJ, WebStorm, GoLand.
+- [x] 2026-06-06 **JetBrains plugin** — `jetbrains-plugin/` skeleton (14 files). Gradle + IntelliJ Platform Plugin 1.16.1, targets 2023.1+. 4 actions: Open PRs, Create Issue, Merge PR (API call), View Health. `GluecronUtil.kt` detects owner/repo from git remote. `./gradlew buildPlugin` → zip. Publish to JetBrains Marketplace manually.
 - [x] 2026-06-06 **GitHub migration as primary CTA** — "Migrate from GitHub →" button added to landing hero and logged-out nav (accent pill). "Coming from GitHub?" callout card on explore page. Import page headline: "Migrate your GitHub org in 60 seconds."
 - [x] 2026-06-06 **Developer program page** — `src/routes/developer-program.tsx` at `/developer-program`. Hero: "Build on Gluecron. Earn revenue." Publish agent / 70% revenue share / partner badge sections. Partner application form (POST logs + redirects). Footer link added.
 - [x] 2026-06-06 **Shareable AI hours saved card** — `src/routes/share.tsx`: SVG OG image at `/share/hours-saved?user=:username` (1200×630, dark bg, green glow number). HTML share page at `/share/:username` with og:image, Twitter pre-fill, copy-link button. "Share your AI stats" link added to billing usage page. Hours: PRs×1.5 + reviews×0.5 + heals×0.3.

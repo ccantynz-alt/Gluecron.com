@@ -5,7 +5,7 @@
 
 import { Hono } from "hono";
 import { html } from "hono/html";
-import { eq, and, desc, inArray, sql } from "drizzle-orm";
+import { eq, and, desc, inArray, sql, gte, count } from "drizzle-orm";
 import { db } from "../db";
 import { config } from "../lib/config";
 import {
@@ -14,6 +14,11 @@ import {
   stars,
   commitVerifications,
   activityFeed,
+  pullRequests,
+  prComments,
+  issues,
+  labels,
+  issueLabels,
 } from "../db/schema";
 import { Layout } from "../views/layout";
 import { PendingCommentsBanner as RepoHomePendingBanner } from "../views/pending-comments-banner";
@@ -64,12 +69,79 @@ import {
   countAiReviewsSince,
   listDemoActivityFeed,
 } from "../lib/demo-activity";
-import { computeHealthScore, type HealthScore } from "../lib/health-score";
 
 const web = new Hono<AuthEnv>();
 
 // Soft auth on all web routes — c.get("user") available but may be null
 web.use("*", softAuth);
+
+// ---------------------------------------------------------------------------
+// Repo AI stats — computed once per repo home page load, best-effort.
+// Fast because every WHERE clause is bounded to a 7-day window.
+// ---------------------------------------------------------------------------
+interface RepoAiStats {
+  mergedCount: number;
+  reviewCount: number;
+  securityAlertCount: number;
+  hoursSaved: string;
+}
+
+async function getRepoAiStats(repoId: string): Promise<RepoAiStats> {
+  const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+  // 1. AI-merged PRs this week: activity_feed entries with action =
+  //    'auto_merge.merged' in the last 7 days for this repo.
+  //    This is cheaper than a JOIN on pull_requests and covers both the
+  //    `mergedBy = botUser` pattern and the autopilot auto-merge path.
+  const [mergedRow] = await db
+    .select({ n: count() })
+    .from(activityFeed)
+    .where(
+      and(
+        eq(activityFeed.repositoryId, repoId),
+        eq(activityFeed.action, "auto_merge.merged"),
+        gte(activityFeed.createdAt, since)
+      )
+    );
+  const mergedCount = Number(mergedRow?.n ?? 0);
+
+  // 2. AI reviews this week: pr_comments where is_ai_review = true in
+  //    the last 7 days, joined through pull_requests to scope to this repo.
+  const [reviewRow] = await db
+    .select({ n: count() })
+    .from(prComments)
+    .innerJoin(pullRequests, eq(prComments.pullRequestId, pullRequests.id))
+    .where(
+      and(
+        eq(pullRequests.repositoryId, repoId),
+        eq(prComments.isAiReview, true),
+        gte(prComments.createdAt, since)
+      )
+    );
+  const reviewCount = Number(reviewRow?.n ?? 0);
+
+  // 3. Open security alerts: open issues that carry a label whose name
+  //    contains 'security' (case-insensitive) for this repo.
+  const [secRow] = await db
+    .select({ n: count() })
+    .from(issues)
+    .innerJoin(issueLabels, eq(issueLabels.issueId, issues.id))
+    .innerJoin(labels, eq(issueLabels.labelId, labels.id))
+    .where(
+      and(
+        eq(issues.repositoryId, repoId),
+        eq(issues.state, "open"),
+        sql`lower(${labels.name}) like '%security%'`
+      )
+    );
+  const securityAlertCount = Number(secRow?.n ?? 0);
+
+  // Hours saved: each AI-merged PR ~ 1.5 h, each AI review ~ 0.5 h.
+  const hours = mergedCount * 1.5 + reviewCount * 0.5;
+  const hoursSaved = hours.toFixed(1);
+
+  return { mergedCount, reviewCount, securityAlertCount, hoursSaved };
+}
 
 /**
  * Query the most recent push to a repo from the activity_feed table.
@@ -2474,6 +2546,21 @@ web.get("/:owner/:repo", async (c) => {
     ? await getRecentPush(repoId)
     : null;
 
+  // AI stats strip — best-effort, fail-open to zero values.
+  let aiStats: RepoAiStats = {
+    mergedCount: 0,
+    reviewCount: 0,
+    securityAlertCount: 0,
+    hoursSaved: "0.0",
+  };
+  if (repoId) {
+    try {
+      aiStats = await getRepoAiStats(repoId);
+    } catch {
+      /* swallow — show zero values */
+    }
+  }
+
   // Repo-home polish — shared style block (Block 2.A — parallel session 2.A).
   // Scoped via .repo-home-* class prefix to prevent bleed into other surfaces.
   const repoHomeCss = `
@@ -2926,6 +3013,32 @@ web.get("/:owner/:repo", async (c) => {
       .repo-home-clone-tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; }
       .repo-home-clone-tab { min-height: 44px; padding: 11px 14px; }
       .repo-home-side-card { padding: var(--space-3); }
+    }
+
+    /* AI stats strip */
+    .repo-ai-stats-strip {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 12px;
+      margin-bottom: 4px;
+      font-size: 12px;
+      color: var(--text-muted);
+      flex-wrap: wrap;
+    }
+    .repo-ai-stats-strip a {
+      color: var(--text-muted);
+      text-decoration: underline;
+      text-decoration-color: transparent;
+      transition: color 120ms ease, text-decoration-color 120ms ease;
+    }
+    .repo-ai-stats-strip a:hover {
+      color: var(--accent);
+      text-decoration-color: currentColor;
+    }
+    .repo-ai-stats-sep {
+      opacity: 0.4;
+      user-select: none;
     }
   `;
   const cloneHttpsUrl = `${config.appBaseUrl}/${owner}/${repo}.git`;
@@ -3427,6 +3540,34 @@ web.get("/:owner/:repo", async (c) => {
             ref={defaultBranch}
             path=""
           />
+          {/* AI stats strip — one-line summary of AI value for this repo */}
+          {(aiStats.mergedCount > 0 || aiStats.reviewCount > 0 || aiStats.securityAlertCount > 0) ? (
+            <div class="repo-ai-stats-strip" aria-label="AI activity summary for this week">
+              <span>{"⚡"}</span>
+              {aiStats.mergedCount > 0 ? (
+                <a href={`/${owner}/${repo}/pulls?state=merged`}>
+                  AI merged {aiStats.mergedCount} PR{aiStats.mergedCount === 1 ? "" : "s"} this week
+                </a>
+              ) : (
+                <span>0 AI merges this week</span>
+              )}
+              <span class="repo-ai-stats-sep">{"·"}</span>
+              <span>Saved ~{aiStats.hoursSaved} hrs</span>
+              <span class="repo-ai-stats-sep">{"·"}</span>
+              {aiStats.securityAlertCount > 0 ? (
+                <a href={`/${owner}/${repo}/issues?label=security`}>
+                  {aiStats.securityAlertCount} open security alert{aiStats.securityAlertCount === 1 ? "" : "s"}
+                </a>
+              ) : (
+                <span>0 open security alerts</span>
+              )}
+            </div>
+          ) : (
+            <div class="repo-ai-stats-strip" aria-label="AI activity summary for this week">
+              <span>{"⚡"}</span>
+              <span>AI is watching — no activity this week</span>
+            </div>
+          )}
           {readme && (() => {
             const readmeHtml = renderMarkdown(readme);
             return (

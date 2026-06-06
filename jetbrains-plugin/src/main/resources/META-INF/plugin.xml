@@ -1,0 +1,110 @@
+<idea-plugin>
+    <id>com.gluecron.jetbrains</id>
+    <name>Gluecron</name>
+    <version>0.1.0</version>
+
+    <vendor email="support@gluecron.com" url="https://gluecron.com">Gluecron</vendor>
+
+    <description><![CDATA[
+        <p>Gluecron integration for JetBrains IDEs (IntelliJ IDEA, WebStorm, GoLand, PyCharm, and more).</p>
+        <p>AI-native code intelligence platform — git hosting, automated CI, and push-time gate enforcement.</p>
+        <br/>
+        <p><b>Features:</b></p>
+        <ul>
+            <li><b>Open PR List</b> — browse open pull requests for the current repository in your browser</li>
+            <li><b>Create Issue</b> — open the new issue form for the current repository in your browser</li>
+            <li><b>Merge PR</b> — merge the open pull request for the current branch via the Gluecron API</li>
+            <li><b>View Health</b> — open the repository health/CI dashboard in your browser</li>
+        </ul>
+        <br/>
+        <p>Configure your Gluecron host URL and personal access token via
+           <b>Settings → Tools → Gluecron</b>.</p>
+    ]]></description>
+
+    <change-notes><![CDATA[
+        <ul>
+            <li>0.1.0: Initial release — Open PR, Create Issue, Merge PR, View Health</li>
+        </ul>
+    ]]></change-notes>
+
+    <!-- Minimum/maximum IDE versions (2023.1+) -->
+    <idea-version since-build="231" until-build="251.*"/>
+
+    <!-- Depends on the bundled Git4Idea plugin for VCS root detection -->
+    <depends>com.intellij.modules.platform</depends>
+    <depends>Git4Idea</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <!-- Startup activity: loads settings and validates connectivity -->
+        <postStartupActivity
+            implementation="com.gluecron.GluecronPlugin"/>
+
+        <!-- Persistent settings storage -->
+        <applicationService
+            serviceImplementation="com.gluecron.settings.GluecronSettingsState"/>
+
+        <!-- Settings UI page under Tools -->
+        <applicationConfigurable
+            parentId="tools"
+            instance="com.gluecron.settings.GluecronSettingsConfigurable"
+            id="com.gluecron.settings"
+            displayName="Gluecron"/>
+    </extensions>
+
+    <actions>
+        <!-- Top-level Gluecron menu in the main menu bar -->
+        <group id="GluecronMenuGroup" text="Gluecron" description="Gluecron actions" popup="true">
+            <add-to-group group-id="MainMenu" anchor="last"/>
+
+            <action
+                id="com.gluecron.actions.OpenPrAction"
+                class="com.gluecron.actions.OpenPrAction"
+                text="Open PR List"
+                description="Open the pull request list for this repository in a browser tab"
+                icon="AllIcons.Vcs.Branch">
+            </action>
+
+            <action
+                id="com.gluecron.actions.CreateIssueAction"
+                class="com.gluecron.actions.CreateIssueAction"
+                text="Create Issue"
+                description="Open the new issue form for this repository in a browser tab"
+                icon="AllIcons.General.Add">
+            </action>
+
+            <action
+                id="com.gluecron.actions.MergePrAction"
+                class="com.gluecron.actions.MergePrAction"
+                text="Merge PR for Current Branch"
+                description="Merge the open pull request for the current branch via the Gluecron API"
+                icon="AllIcons.Vcs.Merge">
+            </action>
+
+            <action
+                id="com.gluecron.actions.ViewHealthAction"
+                class="com.gluecron.actions.ViewHealthAction"
+                text="View Repo Health"
+                description="Open the repository health and CI dashboard in a browser tab"
+                icon="AllIcons.Debugger.ThreadStates.Idle">
+            </action>
+
+            <separator/>
+
+            <action
+                id="com.gluecron.actions.OpenSettingsAction"
+                class="com.intellij.openapi.options.ShowSettingsUtil"
+                text="Gluecron Settings..."
+                description="Open Gluecron plugin settings">
+            </action>
+        </group>
+
+        <!-- Also surface actions in the VCS Operations popup -->
+        <group id="GluecronVcsGroup" text="Gluecron" description="Gluecron actions" popup="true">
+            <add-to-group group-id="VcsGroups" anchor="last"/>
+            <reference ref="com.gluecron.actions.OpenPrAction"/>
+            <reference ref="com.gluecron.actions.CreateIssueAction"/>
+            <reference ref="com.gluecron.actions.MergePrAction"/>
+            <reference ref="com.gluecron.actions.ViewHealthAction"/>
+        </group>
+    </actions>
+</idea-plugin>

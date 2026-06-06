@@ -29,7 +29,7 @@ These are confirmed missing by direct code inspection.
 - [ ] **Redis SSE fan-out** — `src/lib/sse.ts` is a single-process in-memory broadcaster. The TODO(scale) is right in the code. Multi-instance deploys mean live comment updates, PR live view, and push watch only reach subscribers on the same process. Replace the internal broadcaster with Redis pub/sub behind the same interface.
 - [ ] **Workflow cache SAVE** — `src/lib/actions/cache-action.ts` has an explicit TODO(v2) for the SAVE half. Only LOAD is implemented. Every CI run after the first runs cold. Wire save-on-job-success.
 - [ ] **Pack-content ruleset enforcement** — `commit_message_pattern`, `blocked_file_paths`, `max_file_size` in `src/lib/rulesets.ts` need actual git pack inspection to enforce at push time. Currently those rule types are advisory only. Implement in `src/lib/push-policy.ts`.
-- [ ] **Branch preview expiry cleanup** — `src/lib/branch-previews.ts` exports `expireOldPreviews()` but it's never called anywhere (not wired into autopilot). Branch preview rows have a 24h TTL in the DB schema (`expires_at`) but nothing enforces it. Add as an autopilot task.
+- [x] 2026-06-06 commit:44ed968 **Branch preview expiry cleanup** — `expireOldPreviews()` wired as `preview-expiry` autopilot task in `src/lib/autopilot.ts`. Admin UI updated to show 10 tasks including `auto-merge-sweep`, `ai-build-from-issues`, and `preview-expiry`.
 - [ ] **Server targets → customer-facing** — `src/routes/admin-server-targets.tsx` and migration `0073_server_targets.sql` exist but the routes are under `/admin/servers` — site-admin only. Build a customer-facing `/settings/deploy-targets` that lets any user add SSH deploy targets for their own repos. This is the push-to-your-own-server story.
 - [ ] **Claude Web Sessions → customer-facing** — Migration `0074_claude_web_sessions.sql` exists with `claude_web_sessions` + `claude_web_messages` tables. Admin-only in v1 per migration notes. Build the customer UI at `/:owner/:repo/claude` — browser-based Claude Code sessions with persistent transcript. This is a massive differentiator.
 - [ ] **AI budget hard enforcement** — `src/routes/billing-usage.tsx` confirms: the budget cap is advisory only ("Advisory cap; we warn when projected EOM exceeds it"). When a user's projected AI spend exceeds their cap, features should degrade gracefully. Wire `checkQuota()` from `src/lib/billing.ts` as a hard gate before AI feature calls.
@@ -64,7 +64,7 @@ These are confirmed missing by direct code inspection.
 - [ ] **Admin > Stripe sync** — Stripe subscription status per user vs local plan. Flag mismatches. Link to Stripe dashboard.
 - [ ] **Admin > Autopilot health** — Last tick time, per-task success/error counts, average tick duration. Expose the CI healer, proactive monitor, stale sweep, and preview expiry tasks alongside existing tasks.
 - [ ] **Admin > User growth chart** — Signups over time, activation rate (created a repo), conversion rate (free→paid).
-- [ ] **K3 tasks on `/admin/autopilot`** — `auto-merge-sweep` and `ai-build-from-issues` run every tick but aren't listed in the admin UI. Add them with stats.
+- [x] 2026-06-06 commit:44ed968 **K3 tasks on `/admin/autopilot`** — `auto-merge-sweep` and `ai-build-from-issues` were already present; `preview-expiry` added. Badge updated to "10 tasks".
 
 ### Developer Experience
 - [ ] **System/autopilot user** — K3 posts marker comments credited to the PR/issue author. Create `gluecron[bot]` synthetic user row. Autopilot actions should show a bot avatar.

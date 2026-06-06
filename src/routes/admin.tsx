@@ -3437,6 +3437,7 @@ const AUTOPILOT_TASK_CATALOG = [
   { name: "auto-merge-sweep",     desc: "AI-gated auto-merge: close eligible PRs" },
   { name: "ai-build-from-issues", desc: "Dispatch ai:build issues → draft PRs" },
   { name: "sleep-mode-digest",    desc: "Send AI-hours-saved digest emails" },
+  { name: "preview-expiry",       desc: "Expire stale branch-preview rows past their TTL" },
 ] as const;
 
 admin.get("/admin/autopilot", async (c) => {
@@ -3585,7 +3586,7 @@ admin.get("/admin/autopilot", async (c) => {
         )}
         <div class="adm-autopilot-h3" style="margin-top:28px">
           <h3>Configured tasks</h3>
-          <span class="adm-autopilot-h3-meta">9 tasks · runs every tick</span>
+          <span class="adm-autopilot-h3-meta">10 tasks · runs every tick</span>
         </div>
         <div class="adm-autopilot-tasks">
           {AUTOPILOT_TASK_CATALOG.map((t) => {

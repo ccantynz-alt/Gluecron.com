@@ -68,6 +68,7 @@ import { runPrTestGeneratorTaskOnce } from "./autopilot-pr-test-generator";
 import { runAdvancementScan } from "./advancement-scanner";
 import { expireOldSandboxes } from "./pr-sandbox";
 import { expireIdleEnvs } from "./dev-env";
+import { expireOldPreviews } from "./branch-previews";
 
 export interface AutopilotTaskResult {
   name: string;
@@ -618,6 +619,24 @@ export function defaultTasks(): AutopilotTask[] {
           }
         } catch (err) {
           console.error("[autopilot] dev-env-idle-sweep: threw:", err);
+        }
+      },
+    },
+    {
+      // Preview expiry — migration 0062. Flips every branch-preview row
+      // whose `expires_at` is in the past to status='expired'. Runs on
+      // every tick; the lib itself is a cheap SQL UPDATE and is a no-op
+      // when there's nothing to expire, so this never adds meaningful
+      // overhead.
+      name: "preview-expiry",
+      run: async () => {
+        try {
+          const expired = await expireOldPreviews();
+          if (expired > 0) {
+            console.log(`[autopilot] preview-expiry: expired=${expired}`);
+          }
+        } catch (err) {
+          console.error("[autopilot] preview-expiry: threw:", err);
         }
       },
     },

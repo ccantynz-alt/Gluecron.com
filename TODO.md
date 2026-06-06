@@ -46,7 +46,7 @@ These are confirmed missing by direct code inspection.
 - [x] 2026-06-06 **Demo page** (`src/routes/demo.tsx`) — Tile headings: "being built right now" / "merged the instant gates passed". Steps updated with real-time language. Live feed subtitle: "Happening right now". Empty states rewritten.
 - [x] 2026-06-06 **Sleep Mode demoted** — Demoted across landing (one closing clause) and vs-github (async opt-in framing). Never leads anywhere.
 - [x] 2026-06-06 **OG/meta descriptions** — All pages audited. Landing title/desc: "AI-native git host. Spec to PR in 90 seconds." Pricing, vs-github, demo, explore, help: descriptions added. Per-repo pages: dynamic description. "wake up to", "overnight", "while you sleep" stripped everywhere including landing-2030.tsx body copy. Tests updated.
-- [ ] **Pricing page** (`src/routes/pricing.tsx`) — CTAs currently link to `/settings/billing?plan=X` not directly to checkout. Fine functionally but lead copy needs to hit the speed angle. Add the "spec to PR in 90 seconds" stat to the hero.
+- [x] 2026-06-06 **Pricing page** — Speed-first hero: monospace "Spec to PR in 90 seconds." accent stat, sub-copy with timing numbers. "Included in every plan" pill strip. All 4 plan card taglines mention AI review + auto-merge. OG/meta description added.
 
 ---
 

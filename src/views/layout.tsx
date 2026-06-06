@@ -349,6 +349,7 @@ export const Layout: FC<
               <div class="footer-col">
                 <div class="footer-col-title">Company</div>
                 <a href="/about">About</a>
+                <a href="/blog">Blog</a>
                 <a href="/terms">Terms</a>
                 <a href="/privacy">Privacy</a>
                 <a href="/acceptable-use">Acceptable use</a>

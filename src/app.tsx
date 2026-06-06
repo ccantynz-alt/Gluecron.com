@@ -167,6 +167,7 @@ import sleepModeRoutes from "./routes/sleep-mode";
 import standupRoutes from "./routes/standups";
 import vsGithubRoutes from "./routes/vs-github";
 import voiceRoutes from "./routes/voice-to-pr";
+import blogRoutes from "./routes/blog";
 import playgroundRoutes from "./routes/playground";
 import crossRepoSearchRoutes from "./routes/cross-repo-search";
 import pushNotifRoutes from "./routes/push-notifications";
@@ -713,6 +714,9 @@ app.route("/", vsGithubRoutes);
 
 // Voice-to-PR — phone-first dictation → spec or issue
 app.route("/", voiceRoutes);
+
+// Blog / Devlog — public posts, no DB
+app.route("/", blogRoutes);
 
 // Block Q3 — Anonymous playground (`/play`, `/play/claim`). Mounted
 // before the web catch-all so the bare `/play` literal wins over the

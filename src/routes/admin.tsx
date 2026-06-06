@@ -21,9 +21,9 @@
  */
 
 import { Hono } from "hono";
-import { and, desc, eq, ilike, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, ilike, or, sql } from "drizzle-orm";
 import { db } from "../db";
-import { repositories, users } from "../db/schema";
+import { aiCostEvents, auditLog, repositories, users } from "../db/schema";
 import { Layout } from "../views/layout";
 import { softAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
@@ -2420,6 +2420,163 @@ const admAutopilotStyles = `
   }
 `;
 
+const admAnalyticsStyles = `
+  .adm-analytics-wrap { max-width: 1400px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
+
+  .adm-analytics-hero {
+    position: relative;
+    margin-bottom: var(--space-5);
+    padding: var(--space-5) var(--space-6);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+  .adm-analytics-hero::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent 0%, #8c6dff 30%, #36c5d6 70%, transparent 100%);
+    opacity: 0.7;
+    pointer-events: none;
+  }
+  .adm-analytics-hero-orb {
+    position: absolute;
+    inset: -20% -10% auto auto;
+    width: 380px; height: 380px;
+    background: radial-gradient(circle, rgba(140,109,255,0.20), rgba(54,197,214,0.10) 45%, transparent 70%);
+    filter: blur(80px);
+    opacity: 0.7;
+    pointer-events: none;
+    z-index: 0;
+    animation: admAnalyticsOrb 14s ease-in-out infinite;
+  }
+  @keyframes admAnalyticsOrb {
+    0%, 100% { transform: scale(1) translate(0, 0); opacity: 0.6; }
+    50%      { transform: scale(1.1) translate(-10px, 8px); opacity: 0.85; }
+  }
+  @media (prefers-reduced-motion: reduce) { .adm-analytics-hero-orb { animation: none; } }
+  .adm-analytics-hero-inner {
+    position: relative; z-index: 1;
+    display: flex; align-items: flex-end; justify-content: space-between;
+    gap: var(--space-4); flex-wrap: wrap;
+  }
+  .adm-analytics-hero-text { max-width: 720px; flex: 1; min-width: 240px; }
+  .adm-analytics-eyebrow {
+    font-size: 12px; color: var(--text-muted); margin-bottom: var(--space-2);
+    letter-spacing: 0.02em; display: inline-flex; align-items: center; gap: 8px;
+  }
+  .adm-analytics-eyebrow-pill {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 22px; height: 22px; border-radius: 6px;
+    background: rgba(140,109,255,0.14); color: #b69dff;
+    box-shadow: inset 0 0 0 1px rgba(140,109,255,0.35);
+  }
+  .adm-analytics-title {
+    font-size: clamp(28px, 4vw, 36px); font-family: var(--font-display);
+    font-weight: 800; letter-spacing: -0.028em; line-height: 1.05;
+    margin: 0 0 var(--space-2); color: var(--text-strong);
+  }
+  .adm-analytics-title-grad {
+    background-image: linear-gradient(135deg, #a48bff 0%, #8c6dff 50%, #36c5d6 100%);
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent; color: transparent;
+  }
+  .adm-analytics-sub { font-size: 14px; color: var(--text-muted); margin: 0; line-height: 1.5; }
+  .adm-analytics-back {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 7px 12px; font-size: 12.5px; color: var(--text-muted);
+    background: rgba(255,255,255,0.02); border: 1px solid var(--border);
+    border-radius: 8px; text-decoration: none; font-weight: 500;
+    transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+  }
+  .adm-analytics-back:hover { border-color: var(--border-strong); color: var(--text-strong); background: rgba(255,255,255,0.04); }
+
+  .adm-analytics-statgrid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: var(--space-3); margin-bottom: var(--space-5);
+  }
+  .adm-analytics-stat {
+    padding: var(--space-4); background: var(--bg-elevated);
+    border: 1px solid var(--border); border-radius: 14px; overflow: hidden;
+  }
+  .adm-analytics-stat-label {
+    font-size: 11px; font-weight: 600; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--text-muted); margin-bottom: 8px;
+  }
+  .adm-analytics-stat-value {
+    font-family: var(--font-display); font-size: 28px; font-weight: 800;
+    letter-spacing: -0.024em; line-height: 1; color: var(--text-strong);
+  }
+  .adm-analytics-stat-hint { margin-top: 6px; font-size: 12px; color: var(--text-faint); }
+
+  .adm-analytics-h3 {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: var(--space-3); margin: var(--space-5) 0 var(--space-3);
+  }
+  .adm-analytics-h3 h3 {
+    font-family: var(--font-display); font-size: 16px; font-weight: 700;
+    letter-spacing: -0.014em; margin: 0; color: var(--text-strong);
+  }
+  .adm-analytics-h3-meta { font-size: 12px; color: var(--text-muted); }
+
+  .adm-analytics-table {
+    width: 100%; border-collapse: collapse;
+    background: var(--bg-elevated); border: 1px solid var(--border);
+    border-radius: 14px; overflow: hidden;
+  }
+  .adm-analytics-table thead th {
+    text-align: left; font-size: 11px; font-weight: 600;
+    letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted);
+    padding: 10px 16px; background: rgba(255,255,255,0.015);
+    border-bottom: 1px solid var(--border);
+  }
+  .adm-analytics-table thead th:not(:first-child) { text-align: right; }
+  .adm-analytics-table tbody td {
+    padding: 10px 16px; border-bottom: 1px solid var(--border-subtle);
+    font-size: 13px; color: var(--text); vertical-align: middle;
+  }
+  .adm-analytics-table tbody td:not(:first-child) { text-align: right; font-family: var(--font-mono); font-size: 12px; }
+  .adm-analytics-table tbody tr:last-child td { border-bottom: none; }
+  .adm-analytics-table tbody tr:hover td { background: rgba(255,255,255,0.018); }
+  .adm-analytics-table code { font-family: var(--font-mono); font-size: 12px; color: var(--text-strong); }
+  .adm-analytics-empty {
+    padding: var(--space-6); text-align: center; color: var(--text-muted);
+    font-size: 13.5px; background: var(--bg-elevated);
+    border: 1px dashed var(--border); border-radius: 14px;
+  }
+
+  /* bar chart cells */
+  .adm-analytics-bar-cell { display: flex; align-items: center; gap: 8px; }
+  .adm-analytics-bar-track {
+    flex: 1; height: 6px; background: var(--bg-tertiary);
+    border-radius: 9999px; overflow: hidden; min-width: 60px;
+  }
+  .adm-analytics-bar-fill {
+    height: 100%; border-radius: 9999px;
+    background: linear-gradient(90deg, #8c6dff, #36c5d6);
+  }
+  .adm-analytics-bar-label { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); flex-shrink: 0; }
+
+  .adm-analytics-pill {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 8px; border-radius: 9999px; font-size: 10.5px;
+    font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+    background: rgba(140,109,255,0.12); color: #c5b3ff;
+    box-shadow: inset 0 0 0 1px rgba(140,109,255,0.28);
+  }
+  .adm-analytics-pill.is-ok { background: rgba(52,211,153,0.12); color: #6ee7b7; box-shadow: inset 0 0 0 1px rgba(52,211,153,0.28); }
+  .adm-analytics-pill.is-err { background: rgba(248,113,113,0.12); color: #fecaca; box-shadow: inset 0 0 0 1px rgba(248,113,113,0.28); }
+
+  @media (max-width: 720px) {
+    .adm-analytics-wrap { padding: var(--space-4) var(--space-3); }
+    .adm-analytics-hero { padding: var(--space-4); }
+    .adm-analytics-statgrid { grid-template-columns: 1fr 1fr; }
+    .adm-analytics-table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  }
+`;
+
 /** Inline-SVG icons (no external deps). Stroke-based, currentColor. */
 const Icons = {
   shield: (
@@ -2507,6 +2664,18 @@ const Icons = {
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <line x1="19" y1="12" x2="5" y2="12" />
       <polyline points="12 19 5 12 12 5" />
+    </svg>
+  ),
+  dollarSign: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <line x1="12" y1="1" x2="12" y2="23" />
+      <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+    </svg>
+  ),
+  trendingUp: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <polyline points="23 6 13.5 15.5 8.5 10.5 1 18" />
+      <polyline points="17 6 23 6 23 12" />
     </svg>
   ),
   key: (
@@ -2682,6 +2851,14 @@ admin.get("/admin", async (c) => {
           <a href="/admin/sso" class="admin-action">
             <span class="admin-action-icon">{Icons.sso}</span>
             Enterprise SSO
+          </a>
+          <a href="/admin/ai-costs" class="admin-action is-primary">
+            <span class="admin-action-icon">{Icons.dollarSign}</span>
+            AI cost breakdown
+          </a>
+          <a href="/admin/growth" class="admin-action is-primary">
+            <span class="admin-action-icon">{Icons.trendingUp}</span>
+            User growth
           </a>
           <a href="/admin/autopilot" class="admin-action" title="CI healer, patch generator, proactive monitor, AI build tasks">
             <span class="admin-action-icon">{Icons.bot}</span>
@@ -3685,6 +3862,567 @@ admin.post("/admin/autopilot/run", async (c) => {
       `/admin/autopilot?error=${encodeURIComponent("Tick failed: " + message)}`
     );
   }
+});
+
+// ─── AI Cost Breakdown (/admin/ai-costs) ─────────────────────────────────────
+
+admin.get("/admin/ai-costs", async (c) => {
+  const g = await gate(c);
+  if (g instanceof Response) return g;
+  const { user } = g;
+
+  // Start of current month (UTC)
+  const now = new Date();
+  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+
+  // Total spend this month
+  const [totalRow] = await db
+    .select({ total: sql<number>`coalesce(sum(cents_estimate), 0)::int` })
+    .from(aiCostEvents)
+    .where(gte(aiCostEvents.occurredAt, monthStart));
+  const totalCents = Number(totalRow?.total ?? 0);
+
+  // Breakdown by category
+  const byCategory = await db
+    .select({
+      category: aiCostEvents.category,
+      cents: sql<number>`sum(cents_estimate)::int`,
+      calls: sql<number>`count(*)::int`,
+    })
+    .from(aiCostEvents)
+    .where(gte(aiCostEvents.occurredAt, monthStart))
+    .groupBy(aiCostEvents.category)
+    .orderBy(sql`sum(cents_estimate) desc`);
+
+  // Top 10 spenders (join users)
+  const topSpenders = await db
+    .select({
+      username: users.username,
+      cents: sql<number>`sum(${aiCostEvents.centsEstimate})::int`,
+      calls: sql<number>`count(*)::int`,
+    })
+    .from(aiCostEvents)
+    .innerJoin(users, eq(aiCostEvents.ownerUserId, users.id))
+    .where(gte(aiCostEvents.occurredAt, monthStart))
+    .groupBy(users.username)
+    .orderBy(sql`sum(${aiCostEvents.centsEstimate}) desc`)
+    .limit(10);
+
+  const maxCents = Math.max(1, ...byCategory.map((r) => Number(r.cents)));
+  const maxSpenderCents = Math.max(1, ...topSpenders.map((r) => Number(r.cents)));
+
+  function fmtCents(c: number): string {
+    if (c >= 100) return `$${(c / 100).toFixed(2)}`;
+    return `${c}¢`;
+  }
+
+  const monthName = now.toLocaleString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
+
+  return c.html(
+    <Layout title="Admin — AI Costs" user={user}>
+      <div class="adm-analytics-wrap">
+        <section class="adm-analytics-hero">
+          <div class="adm-analytics-hero-orb" aria-hidden="true" />
+          <div class="adm-analytics-hero-inner">
+            <div class="adm-analytics-hero-text">
+              <div class="adm-analytics-eyebrow">
+                <span class="adm-analytics-eyebrow-pill" aria-hidden="true">{Icons.dollarSign}</span>
+                Site admin · Analytics
+              </div>
+              <h1 class="adm-analytics-title">
+                <span class="adm-analytics-title-grad">AI cost breakdown</span>.
+              </h1>
+              <p class="adm-analytics-sub">
+                Per-call AI spend for {monthName} — by feature category and top spenders.
+              </p>
+            </div>
+            <a href="/admin" class="adm-analytics-back">{Icons.arrowLeft} Back</a>
+          </div>
+        </section>
+
+        <div class="adm-analytics-statgrid">
+          <div class="adm-analytics-stat">
+            <div class="adm-analytics-stat-label">Total spend this month</div>
+            <div class="adm-analytics-stat-value">{fmtCents(totalCents)}</div>
+            <div class="adm-analytics-stat-hint">{monthName}</div>
+          </div>
+          <div class="adm-analytics-stat">
+            <div class="adm-analytics-stat-label">Categories active</div>
+            <div class="adm-analytics-stat-value">{byCategory.length}</div>
+            <div class="adm-analytics-stat-hint">feature buckets with spend</div>
+          </div>
+          <div class="adm-analytics-stat">
+            <div class="adm-analytics-stat-label">Total AI calls</div>
+            <div class="adm-analytics-stat-value">
+              {byCategory.reduce((s, r) => s + Number(r.calls), 0)}
+            </div>
+            <div class="adm-analytics-stat-hint">recorded events</div>
+          </div>
+        </div>
+
+        <div class="adm-analytics-h3">
+          <h3>By category</h3>
+          <span class="adm-analytics-h3-meta">{monthName}</span>
+        </div>
+        {byCategory.length === 0 ? (
+          <div class="adm-analytics-empty">No AI cost events recorded this month.</div>
+        ) : (
+          <table class="adm-analytics-table">
+            <thead>
+              <tr>
+                <th>Category</th>
+                <th>Spend</th>
+                <th>Calls</th>
+                <th style="width:200px">Distribution</th>
+              </tr>
+            </thead>
+            <tbody>
+              {byCategory.map((row) => {
+                const pct = Math.round((Number(row.cents) / maxCents) * 100);
+                return (
+                  <tr>
+                    <td><code>{row.category ?? "other"}</code></td>
+                    <td>{fmtCents(Number(row.cents))}</td>
+                    <td>{Number(row.calls).toLocaleString()}</td>
+                    <td>
+                      <div class="adm-analytics-bar-cell">
+                        <div class="adm-analytics-bar-track">
+                          <div class="adm-analytics-bar-fill" style={`width:${pct}%`} />
+                        </div>
+                        <span class="adm-analytics-bar-label">{pct}%</span>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+
+        <div class="adm-analytics-h3">
+          <h3>Top 10 spenders</h3>
+          <span class="adm-analytics-h3-meta">{monthName}</span>
+        </div>
+        {topSpenders.length === 0 ? (
+          <div class="adm-analytics-empty">No per-user spend recorded this month.</div>
+        ) : (
+          <table class="adm-analytics-table">
+            <thead>
+              <tr>
+                <th>User</th>
+                <th>Spend</th>
+                <th>Calls</th>
+                <th style="width:200px">Share</th>
+              </tr>
+            </thead>
+            <tbody>
+              {topSpenders.map((row, i) => {
+                const pct = Math.round((Number(row.cents) / maxSpenderCents) * 100);
+                return (
+                  <tr>
+                    <td>
+                      <a href={`/${row.username}`} style="color:var(--accent);text-decoration:none;font-weight:600">
+                        #{i + 1} {row.username}
+                      </a>
+                    </td>
+                    <td>{fmtCents(Number(row.cents))}</td>
+                    <td>{Number(row.calls).toLocaleString()}</td>
+                    <td>
+                      <div class="adm-analytics-bar-cell">
+                        <div class="adm-analytics-bar-track">
+                          <div class="adm-analytics-bar-fill" style={`width:${pct}%`} />
+                        </div>
+                        <span class="adm-analytics-bar-label">{pct}%</span>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+      <style dangerouslySetInnerHTML={{ __html: adminStyles }} />
+      <style dangerouslySetInnerHTML={{ __html: admAnalyticsStyles }} />
+    </Layout>
+  );
+});
+
+// ─── Autopilot Health (/admin/autopilot/health) ──────────────────────────────
+
+const ALL_AUTOPILOT_TASKS = [
+  "mirror-sync",
+  "merge-queue",
+  "weekly-digest",
+  "advisory-rescan",
+  "wait-timer-release",
+  "scheduled-workflows",
+  "auto-merge-sweep",
+  "ai-build-from-issues",
+  "sleep-mode-digest",
+  "stale-pr-sweep",
+] as const;
+
+admin.get("/admin/autopilot/health", async (c) => {
+  const g = await gate(c);
+  if (g instanceof Response) return g;
+  const { user } = g;
+
+  const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+  // Pull the last 200 audit log rows that match autopilot task patterns
+  const logRows = await db
+    .select({
+      action: auditLog.action,
+      createdAt: auditLog.createdAt,
+      metadata: auditLog.metadata,
+    })
+    .from(auditLog)
+    .where(gte(auditLog.createdAt, since24h))
+    .orderBy(desc(auditLog.createdAt))
+    .limit(500);
+
+  // Build per-task health from the last autopilot tick (in-memory)
+  const tick = getLastTick();
+
+  type TaskHealth = {
+    name: string;
+    lastRun: string | null;
+    lastDurationMs: number | null;
+    lastOk: boolean | null;
+    lastError: string | null;
+    successCount24h: number;
+    errorCount24h: number;
+  };
+
+  const health: TaskHealth[] = ALL_AUTOPILOT_TASKS.map((taskName) => {
+    // Count audit events in last 24h that look like this task
+    const successCount24h = logRows.filter(
+      (r) => r.action === `autopilot.task.ok.${taskName}`
+    ).length;
+    const errorCount24h = logRows.filter(
+      (r) => r.action === `autopilot.task.error.${taskName}`
+    ).length;
+
+    // Get last tick result for this task (in-memory)
+    const last = tick?.tasks.find((t) => t.name === taskName);
+
+    return {
+      name: taskName,
+      lastRun: tick?.finishedAt ?? null,
+      lastDurationMs: last?.durationMs ?? null,
+      lastOk: last?.ok ?? null,
+      lastError: last?.error ?? null,
+      successCount24h,
+      errorCount24h,
+    };
+  });
+
+  const total = getTickCount();
+  const disabled = process.env.AUTOPILOT_DISABLED === "1";
+
+  return c.html(
+    <Layout title="Autopilot Health — admin" user={user}>
+      <div class="adm-analytics-wrap">
+        <section class="adm-analytics-hero">
+          <div class="adm-analytics-hero-orb" aria-hidden="true" />
+          <div class="adm-analytics-hero-inner">
+            <div class="adm-analytics-hero-text">
+              <div class="adm-analytics-eyebrow">
+                <span class="adm-analytics-eyebrow-pill" aria-hidden="true">{Icons.bot}</span>
+                Site admin · Autopilot
+              </div>
+              <h1 class="adm-analytics-title">
+                <span class="adm-analytics-title-grad">Autopilot health</span>.
+              </h1>
+              <p class="adm-analytics-sub">
+                Last-tick status, duration, and 24h success/error counts for each autopilot task.
+              </p>
+            </div>
+            <a href="/admin/autopilot" class="adm-analytics-back">{Icons.arrowLeft} Back</a>
+          </div>
+        </section>
+
+        <div class="adm-analytics-statgrid">
+          <div class="adm-analytics-stat">
+            <div class="adm-analytics-stat-label">Status</div>
+            <div class="adm-analytics-stat-value" style="font-size:22px">{disabled ? "disabled" : "running"}</div>
+            <div class="adm-analytics-stat-hint">{disabled ? "AUTOPILOT_DISABLED=1" : "loop active"}</div>
+          </div>
+          <div class="adm-analytics-stat">
+            <div class="adm-analytics-stat-label">Ticks (this process)</div>
+            <div class="adm-analytics-stat-value">{total}</div>
+            <div class="adm-analytics-stat-hint">since boot</div>
+          </div>
+          <div class="adm-analytics-stat">
+            <div class="adm-analytics-stat-label">Last tick</div>
+            <div class="adm-analytics-stat-value" style="font-size:14px;font-family:var(--font-mono);line-height:1.3">
+              {tick?.finishedAt ?? "—"}
+            </div>
+          </div>
+          <div class="adm-analytics-stat">
+            <div class="adm-analytics-stat-label">Tasks OK (last tick)</div>
+            <div class="adm-analytics-stat-value">
+              {tick ? `${tick.tasks.filter((t) => t.ok).length}/${tick.tasks.length}` : "—"}
+            </div>
+          </div>
+        </div>
+
+        <div class="adm-analytics-h3">
+          <h3>Per-task health</h3>
+          <span class="adm-analytics-h3-meta">last tick + 24h audit window</span>
+        </div>
+        <table class="adm-analytics-table">
+          <thead>
+            <tr>
+              <th>Task</th>
+              <th>Last status</th>
+              <th>Duration (last)</th>
+              <th>OK (24h)</th>
+              <th>Errors (24h)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {health.map((t) => (
+              <tr>
+                <td><code>{t.name}</code></td>
+                <td>
+                  {t.lastOk === null ? (
+                    <span style="color:var(--text-muted)">—</span>
+                  ) : t.lastOk ? (
+                    <span class="adm-analytics-pill is-ok">ok</span>
+                  ) : (
+                    <span class="adm-analytics-pill is-err" title={t.lastError ?? ""}>failed</span>
+                  )}
+                </td>
+                <td>{t.lastDurationMs !== null ? `${t.lastDurationMs}ms` : "—"}</td>
+                <td>
+                  {t.successCount24h > 0 ? (
+                    <span class="adm-analytics-pill is-ok">{t.successCount24h}</span>
+                  ) : (
+                    <span style="color:var(--text-muted)">—</span>
+                  )}
+                </td>
+                <td>
+                  {t.errorCount24h > 0 ? (
+                    <span class="adm-analytics-pill is-err">{t.errorCount24h}</span>
+                  ) : (
+                    <span style="color:var(--text-muted)">0</span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+
+        {tick?.tasks.some((t) => !t.ok && t.error) && (
+          <>
+            <div class="adm-analytics-h3" style="margin-top:28px">
+              <h3>Last-tick errors</h3>
+            </div>
+            {tick.tasks.filter((t) => !t.ok && t.error).map((t) => (
+              <div style="margin-bottom:12px;padding:12px 14px;background:rgba(248,113,113,0.06);border:1px solid rgba(248,113,113,0.20);border-radius:10px;font-size:12.5px">
+                <code style="color:#fecaca;font-weight:600">{t.name}</code>
+                <div style="margin-top:6px;color:#fecaca;line-height:1.5;word-break:break-word">{t.error}</div>
+              </div>
+            ))}
+          </>
+        )}
+
+        <p style="margin-top:24px;font-size:12.5px;color:var(--text-muted)">
+          The 24h OK/error counts reflect <code style="font-family:var(--font-mono);font-size:11.5px;background:var(--bg-tertiary);padding:1px 5px;border-radius:4px">audit_log</code> rows written by autopilot task wrappers. If those rows are absent, counts will show — (not yet instrumented).
+        </p>
+      </div>
+      <style dangerouslySetInnerHTML={{ __html: adminStyles }} />
+      <style dangerouslySetInnerHTML={{ __html: admAnalyticsStyles }} />
+    </Layout>
+  );
+});
+
+// ─── User Growth Chart (/admin/growth) ───────────────────────────────────────
+
+admin.get("/admin/growth", async (c) => {
+  const g = await gate(c);
+  if (g instanceof Response) return g;
+  const { user } = g;
+
+  const since30d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+  // Daily signups last 30 days
+  const dailySignups = await db
+    .select({
+      day: sql<string>`date_trunc('day', created_at)::date::text`,
+      count: sql<number>`count(*)::int`,
+    })
+    .from(users)
+    .where(gte(users.createdAt, since30d))
+    .groupBy(sql`date_trunc('day', created_at)`)
+    .orderBy(sql`date_trunc('day', created_at)`);
+
+  // Activation rate: users who created at least 1 repo (last 30d signups)
+  const activatedRows = await db
+    .select({
+      userId: users.id,
+    })
+    .from(users)
+    .innerJoin(repositories, eq(repositories.ownerId, users.id))
+    .where(gte(users.createdAt, since30d))
+    .groupBy(users.id);
+
+  // Total signups in window
+  const totalSignups = dailySignups.reduce((s, r) => s + Number(r.count), 0);
+  const activated = activatedRows.length;
+  const activationRate = totalSignups > 0 ? Math.round((activated / totalSignups) * 100) : 0;
+
+  // All-time user count
+  const [allTimeRow] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(users);
+  const allTime = Number(allTimeRow?.n ?? 0);
+
+  // Build a 30-slot array (fill missing days with 0)
+  const dayMap = new Map<string, number>();
+  dailySignups.forEach((r) => dayMap.set(r.day, Number(r.count)));
+
+  const slots: { label: string; count: number }[] = [];
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date(Date.now() - i * 24 * 60 * 60 * 1000);
+    const key = d.toISOString().slice(0, 10);
+    const label = d.toLocaleString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+    slots.push({ label, count: dayMap.get(key) ?? 0 });
+  }
+
+  const maxCount = Math.max(1, ...slots.map((s) => s.count));
+
+  return c.html(
+    <Layout title="Admin — User Growth" user={user}>
+      <div class="adm-analytics-wrap">
+        <section class="adm-analytics-hero">
+          <div class="adm-analytics-hero-orb" aria-hidden="true" />
+          <div class="adm-analytics-hero-inner">
+            <div class="adm-analytics-hero-text">
+              <div class="adm-analytics-eyebrow">
+                <span class="adm-analytics-eyebrow-pill" aria-hidden="true">{Icons.trendingUp}</span>
+                Site admin · Analytics
+              </div>
+              <h1 class="adm-analytics-title">
+                <span class="adm-analytics-title-grad">User growth</span>.
+              </h1>
+              <p class="adm-analytics-sub">
+                Daily signups and activation rate over the last 30 days.
+              </p>
+            </div>
+            <a href="/admin" class="adm-analytics-back">{Icons.arrowLeft} Back</a>
+          </div>
+        </section>
+
+        <div class="adm-analytics-statgrid">
+          <div class="adm-analytics-stat">
+            <div class="adm-analytics-stat-label">Total users</div>
+            <div class="adm-analytics-stat-value">{allTime}</div>
+            <div class="adm-analytics-stat-hint">all time</div>
+          </div>
+          <div class="adm-analytics-stat">
+            <div class="adm-analytics-stat-label">New signups (30d)</div>
+            <div class="adm-analytics-stat-value">{totalSignups}</div>
+            <div class="adm-analytics-stat-hint">last 30 days</div>
+          </div>
+          <div class="adm-analytics-stat">
+            <div class="adm-analytics-stat-label">Activation rate (30d)</div>
+            <div class="adm-analytics-stat-value">{activationRate}%</div>
+            <div class="adm-analytics-stat-hint">created ≥1 repo</div>
+          </div>
+          <div class="adm-analytics-stat">
+            <div class="adm-analytics-stat-label">Activated users (30d)</div>
+            <div class="adm-analytics-stat-value">{activated}</div>
+            <div class="adm-analytics-stat-hint">out of {totalSignups} new</div>
+          </div>
+        </div>
+
+        <div class="adm-analytics-h3">
+          <h3>Daily signups — last 30 days</h3>
+          <span class="adm-analytics-h3-meta">peak: {maxCount}</span>
+        </div>
+
+        {totalSignups === 0 ? (
+          <div class="adm-analytics-empty">No signups in the last 30 days.</div>
+        ) : (
+          <table class="adm-analytics-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Signups</th>
+                <th style="width:280px">Bar</th>
+              </tr>
+            </thead>
+            <tbody>
+              {slots.filter((s) => s.count > 0 || true).map((s) => {
+                const pct = Math.round((s.count / maxCount) * 100);
+                return (
+                  <tr>
+                    <td style="font-family:var(--font-mono);font-size:12px;color:var(--text)">{s.label}</td>
+                    <td>{s.count}</td>
+                    <td>
+                      {s.count > 0 ? (
+                        <div class="adm-analytics-bar-cell">
+                          <div class="adm-analytics-bar-track">
+                            <div class="adm-analytics-bar-fill" style={`width:${pct}%`} />
+                          </div>
+                          <span class="adm-analytics-bar-label">{s.count}</span>
+                        </div>
+                      ) : (
+                        <span style="color:var(--text-faint);font-size:11px">—</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+
+        <div class="adm-analytics-h3" style="margin-top:28px">
+          <h3>Activation breakdown</h3>
+          <span class="adm-analytics-h3-meta">30d cohort</span>
+        </div>
+        <table class="adm-analytics-table" style="max-width:500px">
+          <thead>
+            <tr>
+              <th>Segment</th>
+              <th>Count</th>
+              <th style="width:200px">Rate</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>New signups (30d)</td>
+              <td>{totalSignups}</td>
+              <td>100%</td>
+            </tr>
+            <tr>
+              <td>Activated (created ≥1 repo)</td>
+              <td>{activated}</td>
+              <td>
+                <div class="adm-analytics-bar-cell">
+                  <div class="adm-analytics-bar-track">
+                    <div class="adm-analytics-bar-fill" style={`width:${activationRate}%`} />
+                  </div>
+                  <span class="adm-analytics-bar-label">{activationRate}%</span>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td>Not activated</td>
+              <td>{totalSignups - activated}</td>
+              <td>{100 - activationRate}%</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <style dangerouslySetInnerHTML={{ __html: adminStyles }} />
+      <style dangerouslySetInnerHTML={{ __html: admAnalyticsStyles }} />
+    </Layout>
+  );
 });
 
 export default admin;

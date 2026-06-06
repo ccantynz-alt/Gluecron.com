@@ -108,7 +108,7 @@ These are confirmed missing by direct code inspection.
 - [ ] **Native Android app** — Share React Native codebase with iOS.
 - [x] 2026-06-06 **Multi-agent pipeline UI** — `src/routes/agent-pipelines.tsx` (1100 lines). Routes: `/:owner/:repo/agents` (list), `/agents/new` (builder, JS-free ?stages=N pattern), `POST /agents` (creates session + lease rows), `/:sessionId` (live view, 5s meta-refresh), `/:sessionId/cancel`. "Agents" tab added to RepoNav.
 - [x] 2026-06-06 **AI pair programmer (browser)** — Covered by "Claude Web Sessions → customer-facing" above. `/:owner/:repo/claude` open to all authenticated users. SSE streaming via `claude --print --output-format stream-json`. "✨ Claude AI" sidebar card on repo home.
-- [ ] **End-to-end test suite** — Playwright covering register → push → PR → AI review → merge. Catches flow regressions that unit tests miss.
+- [x] 2026-06-06 **End-to-end test suite** — 38 Playwright tests across `e2e/`: auth (7), repo (9), pulls (6), issues (8), settings (8). `e2e/fixtures.ts` shared helpers with real git push via `Bun.spawn`. `bun run e2e` script added. `@playwright/test ^1.49.0` in devDependencies.
 - [ ] **Load testing** — k6 or Artillery before any growth push. What happens at 1000 concurrent git pushes?
 - [ ] **Database connection pooling verification** — Confirm PgBouncer or Neon pooling is correctly configured for multi-instance load.
 

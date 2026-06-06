@@ -2347,6 +2347,44 @@ const css = `
   }
   .repo-header-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
 
+  /* Push Watch discoverability — live/recent indicator in the repo header */
+  @keyframes pushWatchPulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.3; }
+  }
+  .repo-header-live-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 9px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-decoration: none !important;
+    vertical-align: 3px;
+    transition: filter 140ms ease, opacity 140ms ease;
+  }
+  .repo-header-live-badge:hover { filter: brightness(1.15); text-decoration: none !important; }
+  .repo-header-live-badge--live {
+    background: rgba(218, 54, 51, 0.12);
+    color: #f97171;
+    border: 1px solid rgba(218, 54, 51, 0.35);
+  }
+  .repo-header-live-badge--live .repo-header-live-dot {
+    animation: pushWatchPulse 1.2s ease-in-out infinite;
+    display: inline-block;
+  }
+  .repo-header-live-badge--recent {
+    background: rgba(140, 109, 255, 0.08);
+    color: var(--text-muted);
+    border: 1px solid rgba(140, 109, 255, 0.22);
+  }
+  .repo-header-live-badge--recent:hover { color: var(--accent); }
+  @media (prefers-reduced-motion: reduce) {
+    .repo-header-live-badge--live .repo-header-live-dot { animation: none; }
+  }
+
   .repo-nav {
     display: flex;
     gap: 1px;

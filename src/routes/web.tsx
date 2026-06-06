@@ -13,6 +13,7 @@ import {
   repositories,
   stars,
   commitVerifications,
+  activityFeed,
 } from "../db/schema";
 import { Layout } from "../views/layout";
 import { PendingCommentsBanner as RepoHomePendingBanner } from "../views/pending-comments-banner";
@@ -25,6 +26,7 @@ import {
   BranchSwitcher,
   HighlightedCode,
   PlainCode,
+  type RecentPush,
 } from "../views/components";
 import { DiffView } from "../views/diff-view";
 import {
@@ -68,6 +70,42 @@ const web = new Hono<AuthEnv>();
 
 // Soft auth on all web routes — c.get("user") available but may be null
 web.use("*", softAuth);
+
+/**
+ * Query the most recent push to a repo from the activity_feed table.
+ * Returns a RecentPush if there's been a push in the last 24 hours,
+ * or null otherwise. Used by the RepoHeader live/watch indicator.
+ *
+ * Queries activity_feed where action='push' and targetId holds the commit SHA.
+ */
+async function getRecentPush(repoId: string): Promise<RecentPush | null> {
+  try {
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const [row] = await db
+      .select({
+        targetId: activityFeed.targetId,
+        createdAt: activityFeed.createdAt,
+      })
+      .from(activityFeed)
+      .where(
+        and(
+          eq(activityFeed.repositoryId, repoId),
+          eq(activityFeed.action, "push"),
+          sql`${activityFeed.createdAt} >= ${cutoff.toISOString()}`
+        )
+      )
+      .orderBy(desc(activityFeed.createdAt))
+      .limit(1);
+    if (!row || !row.targetId) return null;
+    return {
+      sha: row.targetId,
+      ageMs: Date.now() - new Date(row.createdAt).getTime(),
+    };
+  } catch {
+    // DB unavailable or schema mismatch — degrade gracefully.
+    return null;
+  }
+}
 
 /**
  * Shared CSS for the polished code-browse surfaces (parallel session 3.E).
@@ -882,6 +920,27 @@ const codeBrowseCss = `
     background: rgba(255,255,255,0.04);
   }
   .commits-row-copy.is-copied { color: #6ee7b7; border-color: rgba(52,211,153,0.35); }
+  /* Push Watch link — eye icon next to the SHA chip */
+  .commits-row-watch {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    background: transparent;
+    cursor: pointer;
+    transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+    text-decoration: none !important;
+  }
+  .commits-row-watch:hover {
+    border-color: rgba(140,109,255,0.45);
+    color: var(--accent);
+    background: rgba(140,109,255,0.08);
+    text-decoration: none !important;
+  }
   .commits-empty {
     position: relative;
     overflow: hidden;
@@ -2409,6 +2468,12 @@ web.get("/:owner/:repo", async (c) => {
     }
   }
 
+  // Push Watch discoverability — fetch the most recent push within 24 h.
+  // Runs only when we have a repoId (i.e. the repo row was found in the DB).
+  const recentPush: RecentPush | null = repoId
+    ? await getRecentPush(repoId)
+    : null;
+
   // Repo-home polish — shared style block (Block 2.A — parallel session 2.A).
   // Scoped via .repo-home-* class prefix to prevent bleed into other surfaces.
   const repoHomeCss = `
@@ -3039,6 +3104,7 @@ web.get("/:owner/:repo", async (c) => {
                 currentUser={user?.username}
                 archived={archived}
                 isTemplate={isTemplate}
+                recentPush={recentPush}
               />
               {healthScore && (() => {
                 const gradeLabel: Record<string, string> = {
@@ -3157,6 +3223,7 @@ web.get("/:owner/:repo", async (c) => {
               currentUser={user?.username}
               archived={archived}
               isTemplate={isTemplate}
+              recentPush={recentPush}
             />
             {healthScore && (() => {
               const gradeLabel: Record<string, string> = {
@@ -4363,7 +4430,10 @@ web.get("/:owner/:repo/commits/:ref?", async (c) => {
   const commits = await listCommits(owner, repo, ref, 50);
 
   // Block J3 — batch-fetch cached verification results for the page.
+  // Also resolve repoId here so we can query the recent push for the
+  // Push Watch live/watch indicator in the header.
   let verifications: Record<string, { verified: boolean; reason: string }> = {};
+  let commitsPageRecentPush: RecentPush | null = null;
   try {
     const [ownerRow] = await db
       .select()
@@ -4381,25 +4451,32 @@ web.get("/:owner/:repo/commits/:ref?", async (c) => {
           )
         )
         .limit(1);
-      if (repoRow && commits.length > 0) {
-        const rows = await db
-          .select()
-          .from(commitVerifications)
-          .where(
-            and(
-              eq(commitVerifications.repositoryId, repoRow.id),
-              inArray(
-                commitVerifications.commitSha,
-                commits.map((c) => c.sha)
-              )
-            )
-          );
-        for (const r of rows) {
+      if (repoRow) {
+        // Fetch verifications and recent push in parallel.
+        const [verRows, rp] = await Promise.all([
+          commits.length > 0
+            ? db
+                .select()
+                .from(commitVerifications)
+                .where(
+                  and(
+                    eq(commitVerifications.repositoryId, repoRow.id),
+                    inArray(
+                      commitVerifications.commitSha,
+                      commits.map((c) => c.sha)
+                    )
+                  )
+                )
+            : Promise.resolve([]),
+          getRecentPush(repoRow.id),
+        ]);
+        for (const r of verRows) {
           verifications[r.commitSha] = {
             verified: r.verified,
             reason: r.reason,
           };
         }
+        commitsPageRecentPush = rp;
       }
     }
   } catch {
@@ -4409,7 +4486,7 @@ web.get("/:owner/:repo/commits/:ref?", async (c) => {
   return c.html(
     <Layout title={`Commits — ${owner}/${repo}`} user={user}>
       <style dangerouslySetInnerHTML={{ __html: codeBrowseCss }} />
-      <RepoHeader owner={owner} repo={repo} />
+      <RepoHeader owner={owner} repo={repo} recentPush={commitsPageRecentPush} />
       <RepoNav owner={owner} repo={repo} active="commits" />
       <div class="commits-hero">
         <div class="commits-hero-orb-wrap" aria-hidden="true">
@@ -4567,6 +4644,17 @@ web.get("/:owner/:repo/commits/:ref?", async (c) => {
                           title={cm.sha}
                         >
                           {cm.sha.slice(0, 7)}
+                        </a>
+                        <a
+                          href={`/${owner}/${repo}/push/${cm.sha}`}
+                          class="commits-row-watch"
+                          title="Watch gate + deploy results for this push"
+                          aria-label={`Watch push ${cm.sha.slice(0, 7)}`}
+                        >
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                            <circle cx="12" cy="12" r="3" />
+                          </svg>
                         </a>
                         <button
                           type="button"

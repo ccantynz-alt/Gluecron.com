@@ -76,7 +76,7 @@ These are confirmed missing by direct code inspection.
 - [ ] **Branch preview expiry UX** — previews.tsx shows status pills (building/ready/failed/expired). Once expiry cleanup is wired, test the "expired" state renders correctly.
 
 ### Documentation & Help
-- [ ] **Docs site** — `/help` exists as a migration cheatsheet. Need: Getting Started, API reference, MCP server setup, Workflow YAML syntax, Agent publishing guide. Could be `/docs` served from the self-hosted repo.
+- [x] 2026-06-06 **Docs site** — `src/routes/docs.tsx` (1600 lines). Routes: /docs, /docs/getting-started, /docs/workflow-yaml, /docs/mcp-server, /docs/api, /docs/agents. All 15 MCP tool names from mcp-tools.ts, real rate limits, real workflow YAML examples, agent.json manifest format. Footer "Docs" link updated.
 - [x] 2026-06-06 **Changelog page** — `src/routes/changelog.tsx` at `/changelog`. June + May 2026 releases listed. "Subscribe to updates" CTA → `/settings/notifications`. Changelog link added to footer in `layout.tsx`.
 - [ ] **Legal pages attorney review** — All four legal pages (`terms`, `privacy`, `dmca`, `acceptable-use`) are substantive drafts marked "DRAFT — requires attorney review." Get legal sign-off before any paid launch.
 - [x] 2026-06-06 **Status page — polish** — `drizzle/0080_incidents_and_status_subscribers.sql` adds `incidents` + `status_subscribers` tables. `src/routes/status.tsx` rewritten: overall status banner, 6 service uptime rows, last-10 incident history table, subscribe form with confirm/unsubscribe token flow.

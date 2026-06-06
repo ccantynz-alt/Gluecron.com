@@ -93,7 +93,7 @@ These are confirmed missing by direct code inspection.
 - [x] 2026-06-06 **GitHub migration as primary CTA** — "Migrate from GitHub →" button added to landing hero and logged-out nav (accent pill). "Coming from GitHub?" callout card on explore page. Import page headline: "Migrate your GitHub org in 60 seconds."
 - [x] 2026-06-06 **Developer program page** — `src/routes/developer-program.tsx` at `/developer-program`. Hero: "Build on Gluecron. Earn revenue." Publish agent / 70% revenue share / partner badge sections. Partner application form (POST logs + redirects). Footer link added.
 - [x] 2026-06-06 **Shareable AI hours saved card** — `src/routes/share.tsx`: SVG OG image at `/share/hours-saved?user=:username` (1200×630, dark bg, green glow number). HTML share page at `/share/:username` with og:image, Twitter pre-fill, copy-link button. "Share your AI stats" link added to billing usage page. Hours: PRs×1.5 + reviews×0.5 + heals×0.3.
-- [ ] **Blog / devlog** — Monthly shipping updates. Developers follow platforms that ship visibly.
+- [x] 2026-06-06 **Blog / devlog** — `src/routes/blog.tsx` at `/blog` + `/blog/:slug`. 3 posts: "30 features in one session", "Why we killed the overnight pitch", "Spec to PR in 90 seconds". Footer "Blog" link added. No DB dependency.
 
 ---
 
@@ -109,7 +109,7 @@ These are confirmed missing by direct code inspection.
 - [x] 2026-06-06 **Multi-agent pipeline UI** — `src/routes/agent-pipelines.tsx` (1100 lines). Routes: `/:owner/:repo/agents` (list), `/agents/new` (builder, JS-free ?stages=N pattern), `POST /agents` (creates session + lease rows), `/:sessionId` (live view, 5s meta-refresh), `/:sessionId/cancel`. "Agents" tab added to RepoNav.
 - [x] 2026-06-06 **AI pair programmer (browser)** — Covered by "Claude Web Sessions → customer-facing" above. `/:owner/:repo/claude` open to all authenticated users. SSE streaming via `claude --print --output-format stream-json`. "✨ Claude AI" sidebar card on repo home.
 - [x] 2026-06-06 **End-to-end test suite** — 38 Playwright tests across `e2e/`: auth (7), repo (9), pulls (6), issues (8), settings (8). `e2e/fixtures.ts` shared helpers with real git push via `Bun.spawn`. `bun run e2e` script added. `@playwright/test ^1.49.0` in devDependencies.
-- [ ] **Load testing** — k6 or Artillery before any growth push. What happens at 1000 concurrent git pushes?
+- [x] 2026-06-06 **Load testing** — `scripts/load-test.js` (100 VUs, p95&lt;500ms threshold, tests landing/explore/blog/pricing). `scripts/load-test-git.js` (150 VUs + spike, tests Smart HTTP info/refs and git-upload-pack). Run with `k6 run scripts/load-test.js`.
 - [ ] **Database connection pooling verification** — Confirm PgBouncer or Neon pooling is correctly configured for multi-instance load.
 
 ---

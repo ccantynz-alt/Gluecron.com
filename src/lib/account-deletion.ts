@@ -19,12 +19,23 @@
  *      tick. Per-user errors are logged + skipped — never thrown — so a
  *      single FK violation can't stall the queue.
  *
+ * Cascade executed by `purgeScheduledAccounts` for each user:
+ *   - Cancel any active Stripe subscription (if STRIPE_SECRET_KEY is set).
+ *   - Delete bare git repo directories from disk (GIT_REPOS_PATH/<username>/).
+ *   - Hard-delete the `users` row; FK ON DELETE CASCADE handles:
+ *       sessions, ssh_keys, api_tokens, notifications, stars, reactions,
+ *       ai_chats, push_subscriptions, oauth_access_tokens, gists, etc.
+ *   - audit_log.user_id is already set to ON DELETE SET NULL at the DB level,
+ *     so audit rows are automatically anonymised when the user row is removed.
+ *
  * Nothing here throws. All DB / email failures are logged and swallowed.
  */
 
 import { eq, lt } from "drizzle-orm";
+import { rm } from "fs/promises";
+import { join } from "path";
 import { db } from "../db";
-import { sessions, users } from "../db/schema";
+import { repositories, sessions, userQuotas, users } from "../db/schema";
 import { sendEmail, absoluteUrl } from "./email";
 import { audit } from "./notify";
 
@@ -124,6 +135,26 @@ export async function cancelAccountDeletion(
   return { ok: true };
 }
 
+/**
+ * Cancel a Stripe subscription at period end for GDPR purge.
+ * Silently swallows all errors — a Stripe outage must never block deletion.
+ */
+async function cancelStripeSubscription(subscriptionId: string): Promise<void> {
+  const key = process.env.STRIPE_SECRET_KEY;
+  if (!key || key.length < 10) return;
+  try {
+    await fetch(`https://api.stripe.com/v1/subscriptions/${encodeURIComponent(subscriptionId)}`, {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+    });
+  } catch (err) {
+    console.error(`[account-deletion] stripe cancel failed for sub=${subscriptionId}:`, err);
+  }
+}
+
 export async function purgeScheduledAccounts(
   opts: { now?: Date; cap?: number } = {}
 ): Promise<{ purged: number; errors: number }> {
@@ -150,6 +181,46 @@ export async function purgeScheduledAccounts(
   let errors = 0;
   for (const c of candidates) {
     try {
+      // 1. Cancel any active Stripe subscription before removing the user row.
+      try {
+        const quotaRows = await db
+          .select({ stripeSubscriptionId: userQuotas.stripeSubscriptionId })
+          .from(userQuotas)
+          .where(eq(userQuotas.userId, c.id))
+          .limit(1);
+        const subId = quotaRows[0]?.stripeSubscriptionId;
+        if (subId) {
+          await cancelStripeSubscription(subId);
+        }
+      } catch (err) {
+        console.error(`[account-deletion] quota lookup failed for user=${c.id}:`, err);
+      }
+
+      // 2. Delete bare git repo directories from disk (GIT_REPOS_PATH/<username>/).
+      //    We collect all repo diskPaths owned by this user and remove each one.
+      try {
+        const repoRows = await db
+          .select({ diskPath: repositories.diskPath })
+          .from(repositories)
+          .where(eq(repositories.ownerId, c.id));
+        for (const r of repoRows) {
+          const absPath = r.diskPath.startsWith("/")
+            ? r.diskPath
+            : join(process.env.GIT_REPOS_PATH || "./repos", r.diskPath);
+          await rm(absPath, { recursive: true, force: true });
+        }
+        // Also remove the per-user directory if it exists (may be empty or already gone).
+        const userDir = join(process.env.GIT_REPOS_PATH || "./repos", c.username);
+        await rm(userDir, { recursive: true, force: true });
+      } catch (err) {
+        console.error(`[account-deletion] disk cleanup failed for user=${c.id}:`, err);
+      }
+
+      // 3. Hard-delete the users row.
+      //    FK ON DELETE CASCADE handles: sessions, ssh_keys, api_tokens,
+      //    notifications, stars, reactions, ai_chats, push_subscriptions,
+      //    oauth_access_tokens, gists, user_quotas, user_totp, user_passkeys, etc.
+      //    FK ON DELETE SET NULL handles: audit_log.user_id (anonymises entries).
       const deleted = await db
         .delete(users)
         .where(eq(users.id, c.id))

@@ -2872,6 +2872,14 @@ admin.get("/admin", async (c) => {
             <span class="admin-action-icon">{Icons.bot}</span>
             Connect Claude
           </a>
+          <a href="/admin/deletions" class="admin-action">
+            <span class="admin-action-icon">{Icons.flag}</span>
+            GDPR Deletions
+          </a>
+          <a href="/admin/stripe" class="admin-action">
+            <span class="admin-action-icon">{Icons.key}</span>
+            Stripe Sync
+          </a>
           <form
             method="post"
             action="/admin/demo/reseed"

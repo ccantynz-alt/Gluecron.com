@@ -88,6 +88,8 @@ import orgRoutes from "./routes/orgs";
 import notificationRoutes from "./routes/notifications";
 import onboardingRoutes from "./routes/onboarding";
 import adminRoutes from "./routes/admin";
+import adminDeletionsRoutes from "./routes/admin-deletions";
+import adminStripeRoutes from "./routes/admin-stripe";
 import adminDeploysRoutes from "./routes/admin-deploys";
 import adminDeploysPageRoutes from "./routes/admin-deploys-page";
 import adminServerTargetsRoutes from "./routes/admin-server-targets";
@@ -597,6 +599,8 @@ app.route("/", onboardingRoutes);
 
 // Admin + feature routes
 app.route("/", adminRoutes);
+app.route("/", adminDeletionsRoutes);
+app.route("/", adminStripeRoutes);
 app.route("/", adminIntegrationsRoutes);
 app.route("/", adminAdvancementRoutes);
 app.route("/", adminDeploysRoutes);

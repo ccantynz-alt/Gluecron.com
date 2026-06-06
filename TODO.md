@@ -68,11 +68,11 @@ These are confirmed missing by direct code inspection.
 
 ### Developer Experience
 - [x] 2026-06-06 **System/autopilot user** — `drizzle/0078_bot_user.sql` seeds `gluecron[bot]` (empty password_hash, non-loginable). `src/lib/bot-user.ts` lazy-caches the UUID. 10 comment call sites updated across `stale-sweep.ts`, `ai-review.ts`, `ai-review-trio.ts`, `autopilot.ts`. 🤖 bot pill shown in PR/issue comment headers.
-- [ ] **Notification preferences** — Flat checkbox list currently. Restructure into categories: AI activity, CI/CD, code review, mentions. Per-category toggle.
+- [x] 2026-06-06 **Notification preferences** — Restructured into 4 categories in `src/routes/settings.tsx`: AI activity, CI/CD, Code review, Mentions. All existing `name=` attrs preserved — POST handler unchanged. Email pill count updated to 5 events.
 - [ ] **Repo health badge on repo overview** — `computeHealthScore` exists, health page exists. Add a small badge to `RepoHeader`.
 - [x] 2026-06-06 **AI Trio Review UI indicator** — `TrioVerdictPills` component added to `src/routes/pulls.tsx`. Three pills (Security/Correctness/Style) in the PR header meta div. Feature-flagged on `AI_TRIO_REVIEW_ENABLED=1`. Pills link to `#trio-review-section`. No extra DB query — reads from already-fetched `prComments`.
 - [x] 2026-06-06 **L1 sleep-mode column split** — `drizzle/0079_sleep_digest_column.sql` adds `last_sleep_digest_sent_at`. Schema updated. `sleep-mode.ts` and `autopilot.ts` now write/read the dedicated column. Tests updated. (Renamed from 0077 to avoid collision with `0077_auto_generate_tests.sql`.)
-- [ ] **GitHub unlink route** — `/settings/sso/unlink` removes any SSO link. Add dedicated `/settings/github/unlink`.
+- [x] 2026-06-06 **GitHub unlink route** — `POST /settings/github/unlink` deletes `sso_user_links` rows with `subject` starting `"github:"`. "Disconnect GitHub" button shown on settings page when GitHub is linked. Audited via `auth.github.unlink`.
 - [ ] **Branch preview expiry UX** — previews.tsx shows status pills (building/ready/failed/expired). Once expiry cleanup is wired, test the "expired" state renders correctly.
 
 ### Documentation & Help

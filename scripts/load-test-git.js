@@ -91,9 +91,10 @@ var GIT_PAT   = (typeof __ENV !== 'undefined' && __ENV.GIT_PAT)   || '';
 // Derived
 var REPO_PATH = '/' + GIT_OWNER + '/' + GIT_REPO + '.git';
 
-// Auth header — only included when a PAT is available
+// Auth header — only included when a PAT is available.
+// The value is constructed at runtime from the GIT_PAT env var — no hardcoded secret. // secrets-ok
 var authHeaders = GIT_PAT
-  ? { Authorization: 'Basic ' + btoa('token:' + GIT_PAT) }
+  ? { Authorization: 'Basic ' + btoa('token:' + GIT_PAT) } // secrets-ok
   : {};
 
 // git-upload-pack POST capability advertisement body.

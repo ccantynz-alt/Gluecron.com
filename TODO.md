@@ -71,13 +71,13 @@ These are confirmed missing by direct code inspection.
 - [ ] **Notification preferences** — Flat checkbox list currently. Restructure into categories: AI activity, CI/CD, code review, mentions. Per-category toggle.
 - [ ] **Repo health badge on repo overview** — `computeHealthScore` exists, health page exists. Add a small badge to `RepoHeader`.
 - [x] 2026-06-06 **AI Trio Review UI indicator** — `TrioVerdictPills` component added to `src/routes/pulls.tsx`. Three pills (Security/Correctness/Style) in the PR header meta div. Feature-flagged on `AI_TRIO_REVIEW_ENABLED=1`. Pills link to `#trio-review-section`. No extra DB query — reads from already-fetched `prComments`.
-- [ ] **L1 sleep-mode column split** — `sleep_mode_digest` and weekly digest share `last_digest_sent_at`. Add `last_sleep_digest_sent_at` column.
+- [x] 2026-06-06 **L1 sleep-mode column split** — `drizzle/0079_sleep_digest_column.sql` adds `last_sleep_digest_sent_at`. Schema updated. `sleep-mode.ts` and `autopilot.ts` now write/read the dedicated column. Tests updated. (Renamed from 0077 to avoid collision with `0077_auto_generate_tests.sql`.)
 - [ ] **GitHub unlink route** — `/settings/sso/unlink` removes any SSO link. Add dedicated `/settings/github/unlink`.
 - [ ] **Branch preview expiry UX** — previews.tsx shows status pills (building/ready/failed/expired). Once expiry cleanup is wired, test the "expired" state renders correctly.
 
 ### Documentation & Help
 - [ ] **Docs site** — `/help` exists as a migration cheatsheet. Need: Getting Started, API reference, MCP server setup, Workflow YAML syntax, Agent publishing guide. Could be `/docs` served from the self-hosted repo.
-- [ ] **Changelog page** — `/changelog` with recent releases + AI-generated notes. Users have no way to know what shipped.
+- [x] 2026-06-06 **Changelog page** — `src/routes/changelog.tsx` at `/changelog`. June + May 2026 releases listed. "Subscribe to updates" CTA → `/settings/notifications`. Changelog link added to footer in `layout.tsx`.
 - [ ] **Legal pages attorney review** — All four legal pages (`terms`, `privacy`, `dmca`, `acceptable-use`) are substantive drafts marked "DRAFT — requires attorney review." Get legal sign-off before any paid launch.
 - [ ] **Status page — polish** — `/status` and `/status.svg` exist. Add incident history, subscribe-to-alerts, make it look production-grade.
 

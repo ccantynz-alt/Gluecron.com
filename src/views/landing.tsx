@@ -8,12 +8,12 @@
  * Block L10 — hero rewrite. The hero now lands the Block L positioning
  * ("the git host built around Claude"): gradient headline, one-line
  * install snippet w/ copy button, three CTAs (Sign up / Demo / vs-GitHub),
- * and a four-line "what just happened" rail driven off the L4 publicStats
+ * and a four-line activity rail driven off the L4 publicStats
  * payload. The L4 counters tile section and L5 vs-GitHub CTA are both
  * preserved — additive only.
  *
  * Also adds two new editorial sections below the L4 counters:
- *   - "Three reasons to switch" (Sleep Mode / Migrate / Demo)
+ *   - "Three reasons to switch" (Instant Shipping / Migrate / Demo)
  *   - "How is this different from GitHub?" pull-quote → /vs-github
  *
  * Pure presentational. Drops into <Layout user={null}>.
@@ -215,7 +215,7 @@ export const LandingHero: FC<LandingPageProps> = ({
               </div>
             </div>
 
-            {/* U1 — tightened "what just happened" rail.
+            {/* U1 — tightened activity rail.
                 Same data as before, rendered as a single horizontal
                 rule with the gradient accent line on top. Numbers
                 smaller, copy still scannable. */}
@@ -2829,7 +2829,7 @@ const landingCss = `
     color: var(--green, #34d399);
   }
 
-  /* ---------- L10/U1 hero "what just happened" rail ----------
+  /* ---------- L10/U1 hero activity rail ----------
      U1 — tightened into a single horizontal strip. The 1px gradient
      rule on top is the same accent the headline uses, so the rail
      reads as part of the hero composition rather than a stray list. */

@@ -647,7 +647,7 @@ export function defaultTasks(): AutopilotTask[] {
       // users. The T+0 "welcome" email is sent immediately at registration
       // via src/routes/auth.tsx. This task handles the delayed emails.
       // Idempotent via the per-user `onboarding_emails_sent` jsonb column
-      // (migration 0080). Silently skips when email is not configured.
+      // (migration 0081). Silently skips when email is not configured.
       name: "onboarding-drip",
       run: async () => {
         try {

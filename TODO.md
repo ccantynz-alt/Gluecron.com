@@ -90,8 +90,8 @@ These are confirmed missing by direct code inspection.
 - [ ] **CLI → publish to npm** — `cli/gluecron.ts` is built. Publish as `gluecron` npm package. `npx gluecron login` as zero-install entry.
 - [ ] **CLI → Homebrew formula** — `brew install gluecron`. Mac developer standard.
 - [ ] **JetBrains plugin** — Same four commands as VS Code. Kotlin plugin. Covers IntelliJ, WebStorm, GoLand.
-- [ ] **GitHub migration as primary CTA** — Bulk import is built (`src/routes/import-bulk.tsx`). Make "Migrate your GitHub org in 60 seconds" the hero CTA for GitHub users, not buried in the nav.
-- [ ] **Developer program page** — `/developer-program`: publish an agent, revenue share (30% platform cut is already in the schema), `gluecron-partner` badge, docs.
+- [x] 2026-06-06 **GitHub migration as primary CTA** — "Migrate from GitHub →" button added to landing hero and logged-out nav (accent pill). "Coming from GitHub?" callout card on explore page. Import page headline: "Migrate your GitHub org in 60 seconds."
+- [x] 2026-06-06 **Developer program page** — `src/routes/developer-program.tsx` at `/developer-program`. Hero: "Build on Gluecron. Earn revenue." Publish agent / 70% revenue share / partner badge sections. Partner application form (POST logs + redirects). Footer link added.
 - [ ] **Shareable AI hours saved card** — OG-image endpoint for Twitter/LinkedIn: "I saved 14 hours this week with Gluecron". Viral growth lever.
 - [ ] **Blog / devlog** — Monthly shipping updates. Developers follow platforms that ship visibly.
 

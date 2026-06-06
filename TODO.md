@@ -73,7 +73,7 @@ These are confirmed missing by direct code inspection.
 - [x] 2026-06-06 **AI Trio Review UI indicator** — `TrioVerdictPills` component added to `src/routes/pulls.tsx`. Three pills (Security/Correctness/Style) in the PR header meta div. Feature-flagged on `AI_TRIO_REVIEW_ENABLED=1`. Pills link to `#trio-review-section`. No extra DB query — reads from already-fetched `prComments`.
 - [x] 2026-06-06 **L1 sleep-mode column split** — `drizzle/0079_sleep_digest_column.sql` adds `last_sleep_digest_sent_at`. Schema updated. `sleep-mode.ts` and `autopilot.ts` now write/read the dedicated column. Tests updated. (Renamed from 0077 to avoid collision with `0077_auto_generate_tests.sql`.)
 - [x] 2026-06-06 **GitHub unlink route** — `POST /settings/github/unlink` deletes `sso_user_links` rows with `subject` starting `"github:"`. "Disconnect GitHub" button shown on settings page when GitHub is linked. Audited via `auth.github.unlink`.
-- [ ] **Branch preview expiry UX** — previews.tsx shows status pills (building/ready/failed/expired). Once expiry cleanup is wired, test the "expired" state renders correctly.
+- [x] 2026-06-06 **Branch preview expiry UX** — `src/routes/previews.tsx`: expired cards get `.preview-card.is-expired`, strikethrough muted URL, "↺ Rebuild" button linking to `/previews/rebuild?branch=`. `expireOldPreviews()` confirmed to set `status='expired'` correctly.
 
 ### Documentation & Help
 - [x] 2026-06-06 **Docs site** — `src/routes/docs.tsx` (1600 lines). Routes: /docs, /docs/getting-started, /docs/workflow-yaml, /docs/mcp-server, /docs/api, /docs/agents. All 15 MCP tool names from mcp-tools.ts, real rate limits, real workflow YAML examples, agent.json manifest format. Footer "Docs" link updated.
@@ -100,7 +100,7 @@ These are confirmed missing by direct code inspection.
 ## ⚫ PRIORITY 6 — Strategic / Long-Term
 
 - [ ] **SOC 2 Type II** — Engage auditor, scope controls. 6–9 months. No enterprise deals without it.
-- [ ] **EU data residency** — Neon postgres EU region + Fly.io EU region. "Data region" selector at org creation.
+- [x] 2026-06-06 **EU data residency** — `drizzle/0083_data_region.sql` adds `data_region` to `repositories`. Dropdown on repo creation (US/EU Frankfurt). Read-only pill in repo settings. "EU data residency" added to Pro tier on pricing page + FAQ.
 - [x] 2026-06-06 **GDPR account deletion verification** — Two gaps fixed in `src/lib/account-deletion.ts`: disk repo cleanup (rm each `repositories.diskPath` + user dir) and Stripe subscription cancellation. DB CASCADE already handled sessions/ssh_keys/api_tokens etc. `audit_log.user_id` ON DELETE SET NULL anonymises rows. New `/admin/deletions` page + force-purge button.
 - [x] 2026-06-06 **Audit log SIEM export** — `GET /api/v2/audit` in `src/routes/api-v2.ts`. Admin Bearer auth, params: since/until/limit/cursor/actor/action/resource_type. Returns `{events, nextCursor, hasMore}` + `X-Total-Count` header. Each event: id, action, actor_username, resource_type, metadata, created_at, ip_address.
 - [x] 2026-06-06 **Enterprise sales page** — `src/routes/enterprise.tsx` at `/enterprise`. Sections: custom pricing, SSO (SAML/OIDC), SLA, data residency, SOC 2, SIEM. Contact form `POST /enterprise/contact` → `enterprise_leads` table (migration 0082). Footer "Enterprise" link added.

@@ -1,204 +1,181 @@
 # Gluecron Master To-Do List
 
-Last updated: 2026-06-06 (rev 3 — full expanded list)
+Last updated: 2026-06-06 (rev 4 — full codebase audit complete, Bible is 35% of reality)
 
-Tick off items as they ship. Add date + commit ref next to each completed item.
-Work top-to-bottom within each priority section.
+**IMPORTANT:** The BUILD_BIBLE.md documents ~35% of the actual codebase. 34 migrations (0043–0076) and 87+ lib files exist beyond what the Bible tracks. This list is based on direct code scanning, not the Bible.
 
----
-
-## 🔴 PRIORITY 1 — Revenue (Money In, Do First)
-
-- [ ] **Stripe Checkout flow** — no user can self-serve upgrade today. Stripe webhook handler exists, plan tables exist, billing UI exists, zero checkout session. Wire `stripe.checkout.sessions.create`, handle `checkout.session.completed` to flip plan. Without this: zero revenue.
-- [ ] **Stripe customer portal** — let paying users manage/cancel their subscription without emailing support. One Stripe API call (`stripe.billingPortal.sessions.create`), redirect from `/settings/billing`.
-- [ ] **Sponsors payment rails** — `sponsorship_tiers` and `sponsorships` tables exist, UI exists, payment deferred. Wire Stripe Payment Links or Checkout for recurring sponsorships. Maintainers need to actually receive money.
-- [ ] **Pricing page conversion** — `/pricing` exists but copy is not conversion-optimised. Lead with the 90-second spec-to-PR number. Add a comparison table that makes Free look good (drives signups) and Pro look obvious (drives upgrades). Remove all "sleep/wake up" language.
-- [ ] **API usage dashboard** — `/settings/usage` page wiring `aiCostEvents` table. Paid users have no visibility into token spend, rate limit history, or quota usage. Required before charging per-AI-call.
-- [ ] **AI budget enforcement** — `aiBudgets` table exists with monthly spend caps. Verify enforcement is actually wired: when cap is hit, AI features degrade gracefully (return fallback, notify user) rather than silently continuing and racking up cost.
-- [ ] **Free tier viral loop** — make every free user a growth channel. After each AI action, surface a shareable card: "AI just merged my PR in 90 seconds on @gluecron". `/api/v2/me/ai-savings/share` OG-image endpoint. Twitter/LinkedIn share buttons on the AI hours-saved dashboard widget.
+Tick off items as they ship. Add `[x] YYYY-MM-DD commit:abc` when done.
+Work top-to-bottom within each priority.
 
 ---
 
-## 🟠 PRIORITY 2 — Messaging (Affects Every Page, Fix Fast)
+## 🔴 PRIORITY 1 — Configuration Blockers (Built, Just Not Configured)
 
-The current pitch ("label an issue, walk away, wake up to a merged PR") positions Gluecron as slow and async. Developers sit at their computer and want it done NOW. Every page needs to lead with speed.
+These are NOT build tasks — the code is complete. They need ops/config action.
 
-- [ ] **Landing hero rewrite** (`src/views/landing.tsx`) — new headline: "Write the spec. Gluecron ships it." Subhead: "Spec to PR in 90 seconds. Push to live in 25. AI review, gates, merge — all automatic." Remove async framing. Add live counter showing specs-to-PRs fired today.
-- [ ] **Landing "what just happened" rail** — replace any async/overnight copy with real-time event examples: "PR #47 auto-merged 12 seconds ago", "AI flagged a secret in push 3 minutes ago", "Spec shipped to PR in 1m 43s". Makes it feel alive and instant.
-- [ ] **vs-github AI rows rewrite** (`src/routes/vs-github.tsx`) — reframe the 10 AI-native rows around latency not capability. GitHub Copilot waits for you to type. Gluecron acts in seconds. Add actual timing numbers to each row.
-- [ ] **Demo page rewrite** (`src/routes/demo.tsx`) — replace "watch autopilot work" framing with a live ticker of things happening right now: PRs merging, AI reviews posting, specs being built. Make it feel like a stock ticker for developer productivity.
-- [ ] **Sleep Mode demoted** (`src/routes/sleep-mode.tsx`) — move sleep mode marketing to the bottom of feature pages only. It's a useful secondary feature, never the headline. Primary pitch everywhere = instant results.
-- [ ] **All OG/meta descriptions** — audit every `<meta description>` and OG tag across the app. Strip "wake up to" and replace with speed language.
-- [ ] **Email templates** — the transactional emails (notifications, digests) likely echo the async pitch. Update to celebrate what just happened instantly, not what built up overnight.
-
----
-
-## 🟡 PRIORITY 3 — Product: Verify What's Built (Routes Exist, Status Unknown)
-
-The codebase has many routes that aren't in the BUILD_BIBLE scorecard. Each needs to be opened in a browser, tested end-to-end, and confirmed working or flagged as broken/stub.
-
-- [ ] **Voice-to-PR** (`src/routes/voice-to-pr.tsx`, 1072 lines) — record voice, get a draft PR. Huge UX differentiator. Is this actually working? Test the full flow: record → transcribe → spec → PR. If broken, fix or remove the route.
-- [ ] **Per-repo AI chat** (`src/routes/repo-chat.tsx`) — chat with Claude about a specific repo. Distinct from the global `/ask`. Test: open a repo, go to chat, ask a code question, verify context is scoped to that repo.
-- [ ] **Personal cross-repo chat** (`src/routes/personal-chat.tsx`) — chat with Claude across all your repos. Test the context window and repo-switching.
-- [ ] **Standup reports** (`src/routes/standups.tsx`) — auto-generated standup from recent activity. What does it generate? Is it useful? Test for a real repo with recent commits/PRs.
-- [ ] **Multi-repo refactoring** (`src/routes/refactors.tsx`) — AI-driven refactor that opens PRs across multiple repos simultaneously. Verify `multiRepoRefactors` + `multiRepoRefactorPrs` tables are wired. Test the full flow.
-- [ ] **Build agent spec** (`src/routes/build-agent-spec.tsx`) — AI spec builder UI. Is this the same as spec-to-PR or a different flow? Clarify and document.
-- [ ] **Migration assistant** (`src/routes/migration-assistant.tsx`) — AI-assisted migration tool. What does it migrate? Code patterns, framework versions? Test and document.
-- [ ] **Comment moderation** (`src/routes/comment-moderation.tsx`) — spam/abuse filtering queue. Test: post a spam comment, verify it enters the moderation queue, approve/reject works.
-- [ ] **Interactive playground** (`src/routes/playground.tsx`) — what is this? Test it. If it's a Claude Code sandbox, make it prominent. If it's broken, fix or remove.
-- [ ] **PR live co-editing** (`src/routes/pr-live.ts`) — `prLiveSessions` table exists. Real-time cursor sharing on PRs? Test with two browsers simultaneously.
-- [ ] **Hosted Claude loops** (`src/routes/claude-deploy.tsx`, `hostedClaudeLoops` table) — Claude agents running as persistent loops on user repos. Verify the UI, test creating a loop, verify it runs, verify cost is tracked in `aiCostEvents`.
-- [ ] **Cloud dev environments** (`src/routes/dev-env.tsx`, `devEnvs` table) — Codespaces equivalent. Massive feature if working. Test: create a dev env for a repo, verify it spins up (or that it's a stub that needs implementation).
-- [ ] **Branch preview URLs** (`src/routes/previews.tsx`, `branchPreviews` table) — per-branch preview deployments. Verify this is wired to the workflow runner and actually generates live URLs.
-- [ ] **PR sandbox** (`src/routes/pr-sandbox.ts`, `prSandboxes` table) — runnable PR environment. Test: open a PR, create sandbox, verify it runs.
-- [ ] **Slack/Discord/Teams integration** (`src/routes/integrations-chat.ts`, `chatIntegrations` table) — notifications into chat channels. Test connecting a Slack workspace, push an event, verify message arrives.
-- [ ] **Google OAuth login** (`src/routes/google-oauth.tsx`) — sign in with Google. Test the full OAuth flow: click → Google → callback → logged in.
-- [ ] **Connect Claude** (`src/routes/connect-claude.tsx`) — distinct from `/connect/claude-guide`. What does this do? Clarify.
-- [ ] **Import secrets** (`src/routes/import-secrets.tsx`) — import secrets from GitHub/Vault/env file into workflow secrets. Test the full flow.
-- [ ] **Agent settings** (`src/routes/settings-agents.tsx`) — per-user agent configuration. What settings exist? Verify UI is complete.
-- [ ] **Integration settings** (`src/routes/settings-integrations.tsx`) — user-level integrations (Slack, Linear, etc.). Verify complete.
-- [ ] **Activity feed** (`src/routes/activity.tsx`) — distinct from the dashboard feed. Test and verify it's showing meaningful data.
-- [ ] **Message inbox** (`src/routes/inbox.tsx`) — distinct from notifications. What goes here? Verify it's working.
-- [ ] **Admin > Diagnose** (`src/routes/admin-diagnose.tsx`, 1337 lines) — stale issue/PR detection, suspicious pattern detection. Test each diagnostic and verify results are accurate.
-- [ ] **Admin > Self-host wizard** (`src/routes/admin-self-host.tsx`, 1240 lines) — bootstrap automation for self-hosting. Test the full setup flow.
-- [ ] **Admin > Server targets** (`src/routes/admin-server-targets.tsx`) — SSH deploy targets UI. Verify admin can add a target and trigger a deploy.
-- [ ] **Admin > Advancement flags** (`src/routes/admin-advancement.tsx`) — per-block feature gating. Verify all flags are wired to their features.
-- [ ] **Admin > Integration secrets** (`src/routes/admin-integrations.tsx`) — admin sets Anthropic API key, Resend key, GitHub OAuth keys from the UI. Verify each saves correctly and the feature it powers activates.
-- [ ] **2030 landing page** (`src/views/landing-2030.tsx`) — future landing page in the codebase. What is this? Is it a planned redesign? Decide: ship it or delete it.
-- [ ] **Legal pages** — terms, privacy, DMCA, acceptable-use exist as routes. Verify: (1) actual legal text is there (not placeholder), (2) linked from footer, (3) accessible to logged-out users.
+- [ ] **Set STRIPE_SECRET_KEY + STRIPE_WEBHOOK_SECRET in production** — Stripe Checkout, customer portal, and webhook handler are 100% built (`src/lib/stripe.ts`, `src/routes/billing.tsx`, `src/routes/stripe-webhook.ts`). The billing UI even shows a warning when the key is missing. Run `scripts/stripe-bootstrap.ts` to create products/prices in Stripe with the right lookup keys (`gluecron_pro_monthly` etc), then set the secrets on Fly.io. Zero code changes needed.
+- [ ] **Verify SSH git push works end-to-end** — `src/lib/ssh-server.ts` is a full 545-line production implementation that starts at boot (`src/index.ts`). It handles `git-upload-pack` and `git-receive-pack`, does public-key auth against the `ssh_keys` table, and triggers post-receive hooks. Test from a clean machine: add an SSH key at `/settings`, then `git clone git@gluecron.com:user/repo.git`. If the SSH_PORT env var isn't set, default is 2222 — verify the port is open on the server.
+- [ ] **Enable AI Trio Review** — Three-model parallel PR review (security / correctness / style) is fully built in `src/lib/ai-review-trio.ts` and wired into `src/lib/ai-review.ts`. Set `AI_TRIO_REVIEW_ENABLED=1` to activate. This is a genuine differentiator — no other platform has this.
+- [ ] **Fix duplicate migration number 0065** — Two migration files both named `0065_*.sql`: one for `ai_cost_events` + `ai_budgets`, one for `auto_generate_tests`. Drizzle will apply one and ignore the other. Rename the auto-tests one to `0065b_auto_generate_tests.sql` or the next available number.
+- [ ] **Set SERVER_TARGETS_KEY** — Server targets encrypt SSH private keys via AES. If `SERVER_TARGETS_KEY` env var isn't set, deploy target creation will fail silently. Set a 32-byte hex key in production.
+- [ ] **Set PREVIEW_DOMAIN** — Branch preview URLs are computed as `${branchSlug}-${repoSlug}.preview.gluecron.com` or `PREVIEW_DOMAIN` env var. Set this to match where previews will actually be served.
 
 ---
 
-## 🟢 PRIORITY 4 — Product: Known Gaps (Confirmed Not Built)
+## 🟠 PRIORITY 2 — Genuine Code Gaps (Need Building)
 
-### Core Infrastructure
-- [ ] **SSH git push** — SSH keys stored in DB, Smart HTTP documented, but `git clone git@gluecron.com:user/repo.git` may not work. Test from a clean machine. If broken: implement SSH server (ssh2 library, key lookup, `git-upload-pack`/`git-receive-pack` subprocess). Many devs refuse HTTPS for git.
-- [ ] **Container registry (Docker/OCI)** — npm registry shipped, schema ready for containers, OCI protocol not implemented. Wire: `GET /v2/`, blob upload/download, manifest push/pull. Without this, Docker users cannot fully leave GitHub.
-- [ ] **Server targets — customer rollout** — SSH deploy targets (Block ST) are admin-only. Expose `/settings/deploy-targets` for all users: add target (host, user, private key, deploy script), push-to-deploy from any branch. The "push and it's live in 25 seconds" story needs this for customer repos, not just Gluecron.com itself.
-- [ ] **Redis SSE** — live comment updates, PR live view, push watch use single-process in-memory broadcaster. Multi-instance deploys break it. Replace with Redis pub/sub behind the same `sse.ts` interface.
-- [ ] **Workflow cache SAVE** — CI caching only does LOAD. Save-on-job-success unimplemented. Every CI run after the first is cold. Wire the SAVE half of the cache action.
-- [ ] **Pack-content ruleset enforcement** — `commit_message_pattern`, `blocked_file_paths`, `max_file_size` in rulesets need actual git pack inspection. Currently advisory for those types. Implement in `src/lib/push-policy.ts`.
+These are confirmed missing by direct code inspection.
 
-### AI & Automation
-- [ ] **Spec-to-Live full pipeline** — currently Spec→PR. Wire the rest: PR opens → AI review fires → gates run → auto-merge → deploy → real-time browser notification showing elapsed time "merged in 1m 52s". Make the whole loop visible in the browser while it happens.
-- [ ] **L7 skill files build step** — `scripts/install.sh` writes skill file bodies via heredocs that drift from canonical `.claude/skills/` files. Add a release step that materialises heredocs from actual files.
-- [ ] **Skill bundle on import** — when a user imports a GitHub repo, the Claude Code skills should be bundled into the imported repo's `.claude/settings.json` automatically.
-- [ ] **GitHub Actions → Gluecron YAML translator** — auto-translate `.github/workflows/*.yml` to `.gluecron/workflows/*.yml` at import time. Removes the biggest migration blocker.
+- [ ] **Container registry (Docker/OCI)** — No files exist for this anywhere in the codebase. npm package registry is complete (`src/lib/packages.ts`). The OCI push/pull protocol needs implementing: `GET /v2/`, `HEAD /v2/:name/blobs/:digest`, `POST /v2/:name/blobs/uploads/`, `PUT /v2/:name/manifests/:ref`. Without Docker support, teams with containerised apps can't fully leave GitHub.
+- [ ] **Redis SSE fan-out** — `src/lib/sse.ts` is a single-process in-memory broadcaster. The TODO(scale) is right in the code. Multi-instance deploys mean live comment updates, PR live view, and push watch only reach subscribers on the same process. Replace the internal broadcaster with Redis pub/sub behind the same interface.
+- [ ] **Workflow cache SAVE** — `src/lib/actions/cache-action.ts` has an explicit TODO(v2) for the SAVE half. Only LOAD is implemented. Every CI run after the first runs cold. Wire save-on-job-success.
+- [ ] **Pack-content ruleset enforcement** — `commit_message_pattern`, `blocked_file_paths`, `max_file_size` in `src/lib/rulesets.ts` need actual git pack inspection to enforce at push time. Currently those rule types are advisory only. Implement in `src/lib/push-policy.ts`.
+- [ ] **Branch preview expiry cleanup** — `src/lib/branch-previews.ts` exports `expireOldPreviews()` but it's never called anywhere (not wired into autopilot). Branch preview rows have a 24h TTL in the DB schema (`expires_at`) but nothing enforces it. Add as an autopilot task.
+- [ ] **Server targets → customer-facing** — `src/routes/admin-server-targets.tsx` and migration `0073_server_targets.sql` exist but the routes are under `/admin/servers` — site-admin only. Build a customer-facing `/settings/deploy-targets` that lets any user add SSH deploy targets for their own repos. This is the push-to-your-own-server story.
+- [ ] **Claude Web Sessions → customer-facing** — Migration `0074_claude_web_sessions.sql` exists with `claude_web_sessions` + `claude_web_messages` tables. Admin-only in v1 per migration notes. Build the customer UI at `/:owner/:repo/claude` — browser-based Claude Code sessions with persistent transcript. This is a massive differentiator.
+- [ ] **AI budget hard enforcement** — `src/routes/billing-usage.tsx` confirms: the budget cap is advisory only ("Advisory cap; we warn when projected EOM exceeds it"). When a user's projected AI spend exceeds their cap, features should degrade gracefully. Wire `checkQuota()` from `src/lib/billing.ts` as a hard gate before AI feature calls.
+- [ ] **Spec-to-Live real-time progress UI** — Spec→PR exists. The remaining loop is PR→AI review→auto-merge→deploy→notification. More importantly, the user submits a spec and sees a blank page or redirect. Wire a live progress view (SSE-backed) showing each stage as it happens: "Writing code... Opening PR... AI reviewing... Gates passing... Merged in 1m 52s." This is the "wow" moment.
+- [ ] **Agent marketplace — real listings** — Migration `0070_agent_marketplace.sql` is complete with full schema (listings, installs, reviews, 30% revenue cut built in). The route `src/routes/marketplace-agents.tsx` exists. But there are only seed listings. Write a "Publish an agent" guide, reach out to 10 developers, get 20+ real listings.
+
+---
+
+## 🟡 PRIORITY 3 — Messaging (Every Page Needs This)
+
+- [ ] **Landing hero** (`src/views/landing.tsx`) — Kill "wake up to a merged PR." New headline: "Write the spec. Gluecron ships it." Subhead leads with numbers: "Spec to PR in 90 seconds. Push to live in 25. AI review, auto-merge, deploy — all automatic."
+- [ ] **Landing "what's happening now" rail** — Replace async copy with real-time events: "PR #47 auto-merged 8 seconds ago", "AI flagged a secret in last push", "Spec shipped to draft PR in 1m 43s". Live-feeling, instant.
+- [ ] **vs-github AI rows** (`src/routes/vs-github.tsx`) — Reframe 10 AI-native comparison rows around latency not just capability. Add real timing numbers. GitHub Copilot waits for you to type; Gluecron acts the moment you open a PR.
+- [ ] **Demo page** (`src/routes/demo.tsx`) — Replace "watch autopilot work" with a live ticker of things happening right now. Stock-ticker feel, not a status report.
+- [ ] **Sleep Mode demoted** (`src/routes/sleep-mode.tsx`) — Move to secondary feature only. Never headline. Primary pitch everywhere = instant results.
+- [ ] **OG/meta descriptions** — Audit every page's `<meta description>` and OG tags. Strip "wake up to" and replace with speed language.
+- [ ] **Pricing page** (`src/routes/pricing.tsx`) — CTAs currently link to `/settings/billing?plan=X` not directly to checkout. Fine functionally but lead copy needs to hit the speed angle. Add the "spec to PR in 90 seconds" stat to the hero.
+
+---
+
+## 🔵 PRIORITY 4 — Polish & Customer Experience
+
+### Onboarding
+- [ ] **Empty state for new repos** — Push your first commit / Import from GitHub / Try Spec-to-PR. Not a blank page.
+- [ ] **Onboarding email sequence** — T+0 welcome, T+1 day "try spec-to-PR", T+3 days "here's what AI did for similar repos". Resend sequences.
+- [ ] **Dashboard "AI just did this" widget** — What autopilot did in the last hour (not 7 days). PRs auto-merged, specs shipped, CI healed, secrets repaired. Real-time feel.
+- [ ] **Push Watch → make it discoverable** — The page (`/:owner/:repo/push/:sha`) exists and is polished. Add a "Live" pulsing link on the repo header that activates after every push. This is the first "wow" moment new users need to see.
+- [ ] **Repo overview AI stats strip** — Below the file tree: "AI merged 3 PRs this week · Saved ~4.5 hrs · 0 open security alerts." Makes AI value visible at a glance.
+
+### Admin
+- [ ] **Admin > AI cost breakdown** — Total AI spend this month, per feature (review/triage/CI healer/spec-to-PR/chat), top spenders. `aiCostEvents` table has everything needed. Unit economics.
+- [ ] **Admin > Stripe sync** — Stripe subscription status per user vs local plan. Flag mismatches. Link to Stripe dashboard.
+- [ ] **Admin > Autopilot health** — Last tick time, per-task success/error counts, average tick duration. Expose the CI healer, proactive monitor, stale sweep, and preview expiry tasks alongside existing tasks.
+- [ ] **Admin > User growth chart** — Signups over time, activation rate (created a repo), conversion rate (free→paid).
+- [ ] **K3 tasks on `/admin/autopilot`** — `auto-merge-sweep` and `ai-build-from-issues` run every tick but aren't listed in the admin UI. Add them with stats.
 
 ### Developer Experience
-- [ ] **Spec-to-PR real-time progress UI** — the spec form submits and... what does the user see? Wire a live progress view: "Analysing repo → Writing code → Creating branch → Opening PR → Done." This makes the 90-second wait feel fast, not slow.
-- [ ] **Bulk issue operations polish** — bulk close/reopen is in-flight per the BUILD_BIBLE. Verify the floating action bar and checkboxes are complete and working.
-- [ ] **K3 tasks on `/admin/autopilot`** — `auto-merge-sweep` and `ai-build-from-issues` run every tick but aren't in the admin UI. Add them with last-run time and count stats.
-- [ ] **System/autopilot user** — K3 posts marker comments credited to the PR/issue author. Create a synthetic `gluecron[bot]` user row so autopilot actions show a bot avatar, not a human's name.
-- [ ] **@mention autocomplete on commit messages** — mention-autocomplete wires textareas. Extend to the web editor commit message field.
-- [ ] **Workflow artifact retention policy** — artifacts accumulate forever. Add 90-day default with per-repo override and autopilot cleanup task.
-- [ ] **L1 sleep-mode column** — sleep-mode digest and weekly digest share `last_digest_sent_at`. Split to `last_sleep_digest_sent_at` to avoid starving one feed.
-- [ ] **GitHub unlink route** — `/settings/sso/unlink` removes any SSO link. Add `/settings/github/unlink` for GitHub OAuth users specifically.
-- [ ] **AI commit message audit events** — `audit()` call missing from `generateCommitMessage`. Adds the L9 hours-saved counter line item for commit message generation.
+- [ ] **System/autopilot user** — K3 posts marker comments credited to the PR/issue author. Create `gluecron[bot]` synthetic user row. Autopilot actions should show a bot avatar.
+- [ ] **Notification preferences** — Flat checkbox list currently. Restructure into categories: AI activity, CI/CD, code review, mentions. Per-category toggle.
+- [ ] **Repo health badge on repo overview** — `computeHealthScore` exists, health page exists. Add a small badge to `RepoHeader`.
+- [ ] **AI Trio Review UI indicator** — When trio review is enabled, show three separate verdict pills on the PR (Security ✓, Correctness ✓, Style ✓) not one combined comment. The data is already structured that way.
+- [ ] **L1 sleep-mode column split** — `sleep_mode_digest` and weekly digest share `last_digest_sent_at`. Add `last_sleep_digest_sent_at` column.
+- [ ] **GitHub unlink route** — `/settings/sso/unlink` removes any SSO link. Add dedicated `/settings/github/unlink`.
+- [ ] **Branch preview expiry UX** — previews.tsx shows status pills (building/ready/failed/expired). Once expiry cleanup is wired, test the "expired" state renders correctly.
+
+### Documentation & Help
+- [ ] **Docs site** — `/help` exists as a migration cheatsheet. Need: Getting Started, API reference, MCP server setup, Workflow YAML syntax, Agent publishing guide. Could be `/docs` served from the self-hosted repo.
+- [ ] **Changelog page** — `/changelog` with recent releases + AI-generated notes. Users have no way to know what shipped.
+- [ ] **Legal pages attorney review** — All four legal pages (`terms`, `privacy`, `dmca`, `acceptable-use`) are substantive drafts marked "DRAFT — requires attorney review." Get legal sign-off before any paid launch.
+- [ ] **Status page — polish** — `/status` and `/status.svg` exist. Add incident history, subscribe-to-alerts, make it look production-grade.
 
 ---
 
-## 🔵 PRIORITY 5 — Customer-Facing Sections (Must Look Complete and Polished)
+## 🟣 PRIORITY 5 — Growth & Distribution
 
-### The "Now" Dashboard Experience
-- [ ] **Dashboard "AI just did this" widget** — top of dashboard, shows what autopilot did in the last hour: PRs auto-merged, specs shipped, secrets repaired, AI reviews posted. Real-time feel. Not "last 7 days" — "last hour."
-- [ ] **Push Watch → make it prominent** (`/:owner/:repo/push/:sha`) — the page exists. Add a "Live" link directly on the repo header that lights up after every push and shows the push-to-live progress bar. This is the "wow" moment new users need to see.
-- [ ] **Repo overview: health badge + AI stats** — health score badge top-right of repo header. Below the file tree: "AI merged 3 PRs this week · Saved ~4.5 hrs · 0 open security alerts." Makes AI value visible at a glance.
-- [ ] **Notification preferences overhaul** — `/settings/notifications` is a flat list. Restructure into categories: AI activity, CI/CD, code review, mentions/assigns. Per-category email + push + in-app toggle.
-
-### Admin Panel (Must Be Production-Grade)
-- [ ] **Admin > AI cost breakdown** — total AI spend this month, cost per feature type (review vs triage vs completion vs chat), top spenders. Unit economics tracking.
-- [ ] **Admin > Stripe sync view** — Stripe subscription status per user vs local plan. Flag mismatches. Allow manual sync.
-- [ ] **Admin > Autopilot health dashboard** — last tick time, tasks completed per tick, error rates, average tick duration. Time-series chart showing autopilot activity.
-- [ ] **Admin > Mirror status** — failed mirrors, sync lag, last successful sync. Alert column for repos that haven't synced in 24h.
-- [ ] **Admin > Email deliverability** — sent/bounced/failed counts from Resend. Currently fire-and-forget with zero visibility.
-- [ ] **Admin > User growth chart** — signups over time, activation rate (users who created a repo), conversion rate (free → paid). Business health at a glance.
-- [ ] **Admin > Revenue dashboard** — MRR, new subscribers this month, churn, plan distribution. Pull from Stripe API.
-
-### Onboarding Flow
-- [ ] **Onboarding email sequence** — after signup, users should get: (1) welcome + quick start at T+0, (2) "try spec-to-PR" prompt at T+1 day, (3) "here's what AI did for repos like yours" at T+3 days. Resend sequences.
-- [ ] **Empty state for new repos** — new repo with no code should show: "Push your first commit" with exact git commands + "Or import from GitHub" + "Or try Spec-to-PR to let AI write your first feature." Not a blank page.
-- [ ] **Onboarding checklist widget on dashboard** — for users who haven't done: ☐ push a repo ☐ open a PR ☐ try spec-to-PR ☐ enable auto-merge. Disappears once complete.
-- [ ] **`curl | bash` install flow** — `curl -sSL gluecron.com/install | bash` (L2) exists. Test on a clean machine. Verify it: signs in, mints PAT, writes Claude Desktop config, imports a repo. Fix any broken steps.
-
-### Help & Documentation
-- [ ] **Documentation site** — `/help` exists as a migration cheatsheet. Need a proper docs site: Getting Started, CLI reference, API reference, MCP server setup, workflow YAML syntax, migration guide. Could be `/docs` served from git or a separate subdomain.
-- [ ] **Changelog / what's new** — users have no way to know what shipped. Add `/changelog` showing recent releases with AI-generated notes. Feeds trust.
-- [ ] **In-app contextual help** — "?" icons next to non-obvious features (DORA metrics, rulesets, merge queues) that expand a tooltip or link to docs.
-- [ ] **Status page completeness** — `/status` and `/status.svg` exist. Verify: uptime history, incident history, subscribe-to-alerts link. Make it look like Atlassian Status Page quality.
+- [ ] **60-second demo video** — Screen record: type a spec → AI writes code → PR opens → trio review posts → gates pass → auto-merged. Show elapsed time counter. No voiceover. Embed everywhere.
+- [ ] **VS Code extension → publish** — `vscode-extension/` is built. Run `vsce package`, publish to VS Code Marketplace. Free discovery.
+- [ ] **CLI → publish to npm** — `cli/gluecron.ts` is built. Publish as `gluecron` npm package. `npx gluecron login` as zero-install entry.
+- [ ] **CLI → Homebrew formula** — `brew install gluecron`. Mac developer standard.
+- [ ] **JetBrains plugin** — Same four commands as VS Code. Kotlin plugin. Covers IntelliJ, WebStorm, GoLand.
+- [ ] **GitHub migration as primary CTA** — Bulk import is built (`src/routes/import-bulk.tsx`). Make "Migrate your GitHub org in 60 seconds" the hero CTA for GitHub users, not buried in the nav.
+- [ ] **Developer program page** — `/developer-program`: publish an agent, revenue share (30% platform cut is already in the schema), `gluecron-partner` badge, docs.
+- [ ] **Shareable AI hours saved card** — OG-image endpoint for Twitter/LinkedIn: "I saved 14 hours this week with Gluecron". Viral growth lever.
+- [ ] **Blog / devlog** — Monthly shipping updates. Developers follow platforms that ship visibly.
 
 ---
 
-## 🟣 PRIORITY 6 — Growth & Ecosystem
+## ⚫ PRIORITY 6 — Strategic / Long-Term
 
-### Acquisition
-- [ ] **60-second demo video** — screen record: type a spec → watch AI write code → PR opens → AI review posts → gates pass → merged. Show the elapsed time counter. No voiceover. Embed on landing, `/demo`, `/vs-github`. This is the single highest-ROI marketing asset.
-- [ ] **Zero-friction GitHub migration** — import page already exists but make it the primary CTA on landing for GitHub users. Add: "Migrate your entire GitHub org in 60 seconds" with a big button. The bulk import is built — just needs prominence.
-- [ ] **`/vs-github` ongoing maintenance** — living document. As GitHub ships, update the table. Set a monthly reminder to review it.
-- [ ] **HackerNews / dev community launch** — plan a Show HN post. The platform is substantial enough. Need: a live demo URL, the 60-second video, a clear "what's different" paragraph. Time it with the demo video completion.
-- [ ] **Developer program page** — `/developer-program`: register as a marketplace app builder, revenue share terms, `gluecron-partner` badge, dedicated support. Required before the marketplace can grow organically.
-- [ ] **Blog / devlog** — even a simple `/blog` with monthly updates. Developers follow platforms that ship visibly. Show the build.
-
-### Distribution
-- [ ] **VS Code extension → publish to VS Code Marketplace** — `vscode-extension/` is built. Run `vsce package`, publish. Free discovery from millions of VS Code users.
-- [ ] **CLI → publish to npm** — `cli/gluecron.ts` is built. Publish as `gluecron` npm package. `npx gluecron login` as zero-install entry point.
-- [ ] **CLI → Homebrew formula** — add to homebrew-core or a tap. `brew install gluecron`. Mac developer standard.
-- [ ] **JetBrains plugin** — IntelliJ, WebStorm, GoLand users. Kotlin plugin, same four commands as VS Code extension. Covers the second-largest IDE population.
-
-### Platform Expansion
-- [ ] **Agent marketplace — real listings** — currently 4 seed listings. Need 20+ real agents with real installs. Reach out to 10 developers to build and list agents. Create a "build an agent" tutorial.
-- [ ] **Dependency network graph UI** — `repositoriesDependingOn()` is implemented in `src/lib/deps.ts`. Wire `/:owner/:repo/dependencies/dependents` — "who depends on me?" page. Big for open source maintainers.
-- [ ] **Multi-agent pipeline UI** — `agentSessions` + `agentLeases` tables exist. Wire a UI to define pipelines: Agent A writes, Agent B reviews, Agent C deploys. The future of automated software teams.
-- [ ] **AI pair programmer (browser)** — real-time Claude session in the browser alongside the file editor. Think Cursor-in-a-tab. Uses web editor + AI completion endpoint + SSE for live edits. Biggest competitive moat against Cursor/Copilot.
+- [ ] **SOC 2 Type II** — Engage auditor, scope controls. 6–9 months. No enterprise deals without it.
+- [ ] **EU data residency** — Neon postgres EU region + Fly.io EU region. "Data region" selector at org creation.
+- [ ] **GDPR account deletion verification** — Migration `0049_account_deletion.sql` adds `deleted_at` and `deletion_scheduled_for`. Verify the full cascade is implemented: bare git repo deletion, related rows purged, audit log anonymised.
+- [ ] **Audit log SIEM export** — `GET /api/v2/audit?since=&format=json`. Required by enterprise security teams (Splunk, Datadog, Elastic).
+- [ ] **Enterprise sales page** — `/enterprise`: custom pricing, SSO, dedicated support SLA, data residency. Contact form → Calendly.
+- [ ] **Native iOS app** — Minimum viable: repo browser, notifications, PR approve/reject, AI chat. React Native.
+- [ ] **Native Android app** — Share React Native codebase with iOS.
+- [ ] **Multi-agent pipeline UI** — `agent-multiplayer.ts` and `agent_sessions`/`agent_leases` tables are complete. Wire a UI to define pipelines: Agent A writes, Agent B reviews, Agent C deploys.
+- [ ] **AI pair programmer (browser)** — Claude Code session embedded in a browser tab alongside the file editor. `claude_web_sessions` schema is ready (migration 0074), `src/routes/claude-web.tsx` exists — make it customer-facing.
+- [ ] **End-to-end test suite** — Playwright covering register → push → PR → AI review → merge. Catches flow regressions that unit tests miss.
+- [ ] **Load testing** — k6 or Artillery before any growth push. What happens at 1000 concurrent git pushes?
+- [ ] **Database connection pooling verification** — Confirm PgBouncer or Neon pooling is correctly configured for multi-instance load.
 
 ---
 
-## ⚫ PRIORITY 7 — Strategic / Long-Term
+## ✅ CONFIRMED COMPLETE (Direct Code Verification)
 
-### Enterprise
-- [ ] **SOC 2 Type II** — engage an auditor, scope controls, begin evidence collection. 6–9 months to certification. Without it: no mid-market or enterprise deals close, regardless of features.
-- [ ] **EU data residency** — Neon postgres EU region + Fly.io EU region. "Data region" selector at org creation. Enterprise legal requirement in many EU companies.
-- [ ] **GDPR full deletion cascade** — verify: repo bare git dir deleted, issues/PRs/comments purged or anonymised, tokens revoked, audit log entries anonymised. Confirm grace period implementation is complete.
-- [ ] **Audit log SIEM export** — `GET /api/v2/audit?since=&format=json` for Splunk/Datadog/Elastic integration. Required by enterprise security teams.
-- [ ] **Enterprise sales page** — `/enterprise`: custom pricing, SSO/SAML, dedicated support SLA, audit log export, data residency. Contact form → Calendly.
-- [ ] **99.9% SLA commitment** — write it down, publish it. Enterprises need a contractual uptime commitment before signing.
+Verified by reading actual files — not just the Bible.
 
-### Mobile
-- [ ] **Native iOS app** — the only ❌ in the entire platform scorecard. Minimum viable: repo browser, notifications, PR approve/reject, AI chat. React Native for code share with Android.
-- [ ] **Native Android app** — same codebase as iOS via React Native.
-- [ ] **PWA push notification fix** — Web Push (M8) is implemented. Verify push notifications actually arrive on mobile browsers (iOS Safari is particularly finicky with Web Push standards).
+**Revenue/Billing:**
+- Stripe Checkout + webhook + customer portal — complete, needs env vars only
+- Billing plans, quotas, usage tracking — complete
+- Billing UI with usage bars, plan cards, upgrade flow — complete
+- AI cost events + per-call tracking (`ai_cost_events` table) — complete
+- Budget cap warning system — complete (advisory; hard enforcement is a gap above)
 
-### Reliability
-- [ ] **End-to-end test suite** — unit tests are 1491 passing. But is there a full E2E suite (Playwright/Puppeteer) covering: register → create repo → push code → open PR → AI review fires → merge? This is what catches regressions in the full flow.
-- [ ] **Load testing** — what happens at 1000 concurrent git pushes? At 10k concurrent web sessions? Run k6 or Artillery before any growth push.
-- [ ] **Database connection pooling** — Neon + Drizzle direct connection. Under load, connection limits become the bottleneck. Verify PgBouncer or Neon's built-in pooling is configured correctly.
-- [ ] **Backup and recovery verification** — Neon has backups. Test restoration. Document the RTO/RPO. Required for SOC 2 and for not losing customer code.
+**Auth & Identity:**
+- SSH git push — complete (ssh-server.ts, 545 lines, wired at boot)
+- Password reset, email verification, magic link sign-in — complete
+- Google OAuth — complete
+- Playground anonymous accounts — complete
+- Account deletion with grace period — complete
+- Terms acceptance audit trail — complete
+
+**AI Features (all wired, not stubs):**
+- AI CI healer (auto-fixes failed workflow runs) — complete, runs every 5 min
+- AI proactive monitor (platform health surveillance) — complete, runs hourly
+- Stale PR/issue sweep (two-stage poke + auto-close) — complete, runs every 5 min
+- AI trio review (three-model parallel: security/correctness/style) — complete, opt-in
+- AI standup generation (daily/weekly briefs) — complete
+- Repair flywheel (learning cache for patches) — complete
+- Voice-to-PR — complete (1092 lines)
+- Multi-repo refactoring — complete
+- Migration assistant (AI-driven major dep upgrades) — complete
+
+**Developer Experience:**
+- Per-repo AI chat — complete (repo-chat.tsx, 967 lines)
+- Personal cross-repo AI chat — complete (personal-chat.tsx, 1137 lines)
+- Hosted Claude loops (deploy Claude agents as endpoints) — complete
+- Cloud dev environments (browser IDE) — complete (schema + routes, feature-flagged)
+- Branch preview URLs — complete (URL gen; expiry cleanup missing — see Priority 2)
+- PR sandboxes — complete (4h TTL, auto-provision on PR open)
+- PR live co-editing with cursor presence — complete
+- Comment moderation queue — complete
+- Import secrets from GitHub — complete
+- Agent multiplayer (sessions, leases, budgets) — complete
+
+**Integrations:**
+- Slack/Discord/Teams chat notifications — complete
+- Durable webhook delivery with exponential backoff retry — complete
+- Synthetic uptime monitoring — complete
+- Deploy timeline + step streaming — complete
+
+**Admin:**
+- /admin/diagnose — 14 system health checks — complete
+- /admin/self-host — self-hosting wizard — complete
+- /admin/servers — SSH deploy targets — complete (admin-only; customer rollout is a gap)
+
+**Everything in BUILD_BIBLE §2 marked ✅** is confirmed present in the codebase. The Bible claims 100% accuracy for what it documents — no phantom features found.
 
 ---
 
-## ✅ COMPLETED (Reference — Do Not Redo)
+## Notes
 
-Everything in `BUILD_BIBLE.md §2` marked ✅ is shipped. Key capabilities:
-
-**Git hosting:** clone, push, fetch, SSH key storage, forking, stars, topics, archiving, templates, mirroring, repository transfer, public/private visibility
-
-**Code browsing:** file tree, syntax highlighting (40+ languages), blame, diff, raw, branch/tag switcher, commit history, semantic search, symbol navigation, dependency graph, security advisories, commit signature verification, repository rulesets
-
-**Collaboration:** issues, PRs, inline comments, draft PRs, reactions, mentions, notifications, discussions, wikis, gists, projects/kanban, milestones, code owners, issue/PR templates, saved replies, merge queues, required checks, protected tags
-
-**CI/CD:** workflow runner (GitHub Actions equivalent), workflow secrets, matrix builds, caching (LOAD), environments with approval gates, deployment tracking, branch protection, gate runs, auto-repair, secret scanner
-
-**AI (all wired, not stubs):** code review (blocks merges), PR/issue triage, changelogs, test generation, spec-to-PR, auto-merge (K2), AI build from issues (K3), codebase explanation, dependency updater, merge conflict resolver, commit message suggestion, PR description suggestion, copilot completions, sleep-mode digest (L1), AI hours saved (L9)
-
-**Platform:** organizations, teams, SSO/OIDC, 2FA/TOTP, WebAuthn/passkeys, OAuth 2.0 provider, GitHub sign-in (L6), MCP server (K1), Claude Code skills (L7), VS Code extension (G4), CLI (G3), GraphQL API, REST v2, package registry (npm), static hosting (Pages), marketplace, DORA metrics, velocity, health score, hot files, pulse, traffic analytics, admin panel, billing infrastructure, audit logs, rate limiting, observability, PWA, SEO
-
-**Marketing shipped:** landing hero (L10), vs-github page (L5), pricing page (L8), demo page (L3), public stats counters (L4), install script (L2), onboarding flow, help page, keyboard shortcuts, command palette
-
----
-
-## How to Use This File
-
-- `- [ ]` = not started
-- `- [x] YYYY-MM-DD commit:abc1234` = done
-- Add new gaps here as they're discovered
-- When in doubt about priority, Revenue (P1) > Messaging (P2) > Verify existing (P3) > Build new (P4+)
+- `- [ ]` = not started / not configured
+- `- [x] YYYY-MM-DD commit:abc` = done
+- Bible is accurate but covers only ~35% of the codebase by file count
+- 34 migrations beyond 0042 represent major post-Bible development
+- When in doubt: scan the code, don't trust the Bible

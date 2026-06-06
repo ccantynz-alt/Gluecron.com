@@ -42,9 +42,9 @@ These are confirmed missing by direct code inspection.
 
 - [x] 2026-06-06 **Landing hero** (`src/views/landing.tsx`) — H1: "Write the spec. Gluecron ships it." Subhead: "Spec to PR in 90 seconds. Push to live in 25. AI review, auto-merge, deploy — automatic." Sleep Mode demoted to single closing clause. Rail label: "deploys shipped".
 - [x] 2026-06-06 **Landing "what's happening now" rail** — Rail label updated; "Three reasons" card 1 rewritten to lead with timing numbers. Sleep Mode demoted to one line.
-- [ ] **vs-github AI rows** (`src/routes/vs-github.tsx`) — Reframe 10 AI-native comparison rows around latency not just capability. Add real timing numbers. GitHub Copilot waits for you to type; Gluecron acts the moment you open a PR.
-- [ ] **Demo page** (`src/routes/demo.tsx`) — Replace "watch autopilot work" with a live ticker of things happening right now. Stock-ticker feel, not a status report.
-- [ ] **Sleep Mode demoted** (`src/routes/sleep-mode.tsx`) — Move to secondary feature only. Never headline. Primary pitch everywhere = instant results.
+- [x] 2026-06-06 **vs-github AI rows** (`src/routes/vs-github.tsx`) — All 10 AI-native rows now have latency numbers: "AI review fires the moment PR opens (~8s)", "auto-merge triggers the instant gates pass", "ai:build → draft PR in 90 seconds", etc. Sleep Mode renamed to "async batch digest" — framed as opt-in, not the headline.
+- [x] 2026-06-06 **Demo page** (`src/routes/demo.tsx`) — Tile headings: "being built right now" / "merged the instant gates passed". Steps updated with real-time language. Live feed subtitle: "Happening right now". Empty states rewritten.
+- [x] 2026-06-06 **Sleep Mode demoted** — Demoted across landing (one closing clause) and vs-github (async opt-in framing). Never leads anywhere.
 - [ ] **OG/meta descriptions** — Audit every page's `<meta description>` and OG tags. Strip "wake up to" and replace with speed language.
 - [ ] **Pricing page** (`src/routes/pricing.tsx`) — CTAs currently link to `/settings/billing?plan=X` not directly to checkout. Fine functionally but lead copy needs to hit the speed angle. Add the "spec to PR in 90 seconds" stat to the hero.
 

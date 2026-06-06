@@ -339,6 +339,7 @@ export const Layout: FC<
               </div>
               <div class="footer-col">
                 <div class="footer-col-title">Platform</div>
+                <a href="/docs">Docs</a>
                 <a href="/help">Quickstart</a>
                 <a href="/status">Status</a>
                 <a href="/api/graphql">GraphQL</a>

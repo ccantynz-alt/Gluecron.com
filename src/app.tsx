@@ -51,6 +51,7 @@ import statusRoutes from "./routes/status";
 import adminStatusRoutes from "./routes/admin-status";
 import helpRoutes from "./routes/help";
 import changelogRoutes from "./routes/changelog";
+import docsRoutes from "./routes/docs";
 import marketingRoutes from "./routes/marketing";
 import pricingRoutes from "./routes/pricing";
 import seoRoutes from "./routes/seo";
@@ -521,6 +522,9 @@ app.route("/", adminStatusRoutes);
 
 // /help — quickstart + API cheatsheet
 app.route("/", helpRoutes);
+
+// /docs — expanded documentation site (getting started, workflow YAML, MCP, API, agents)
+app.route("/", docsRoutes);
 
 // L8 — public /pricing page (free-tier polish). Mounted BEFORE marketing
 // so the new editorial pricing layout wins the route; the legacy marketing

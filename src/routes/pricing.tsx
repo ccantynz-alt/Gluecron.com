@@ -36,19 +36,19 @@ const PLAN_COPY: Record<
   { tagline: string; supportTier: string }
 > = {
   free: {
-    tagline: "Personal projects + open source. Full AI suite.",
+    tagline: "AI review on every PR, auto-merge, and spec-to-PR — on unlimited public repos, forever.",
     supportTier: "Community support",
   },
   pro: {
-    tagline: "Working developers shipping every day.",
+    tagline: "Private repos + higher AI quota. AI review, auto-merge, and spec-to-PR for working developers shipping daily.",
     supportTier: "Email support, priority AI queue",
   },
   team: {
-    tagline: "Teams running production on Gluecron.",
+    tagline: "Full AI suite for production teams — AI review, auto-merge when gates pass, and spec-to-PR at scale.",
     supportTier: "Slack channel + 24h response",
   },
   enterprise: {
-    tagline: "Orgs that need SSO, audit, on-prem.",
+    tagline: "SSO, audit log, on-prem deploy — with the full AI suite: review, auto-merge, and spec-to-PR.",
     supportTier: "24/7 incident response + DPA",
   },
 };
@@ -93,6 +93,7 @@ const PricingPage: FC<{ plans: Plan[]; loggedIn: boolean }> = ({
         <div class="pl-hero-hairline" aria-hidden="true" />
         <div class="pl-hero-orb" aria-hidden="true" />
         <div class="eyebrow">Pricing</div>
+        <p class="pl-hero-speed">Spec to PR in 90 seconds.</p>
         <h1 class="display pl-hero-title">
           One subscription.{" "}
           <span class="gradient-text">
@@ -100,8 +101,8 @@ const PricingPage: FC<{ plans: Plan[]; loggedIn: boolean }> = ({
           </span>
         </h1>
         <p class="pl-hero-sub">
-          AI code review, autonomous PRs, code completion, and the git host
-          itself — bundled. What costs $89/user on GitHub + Copilot + Advanced
+          AI review fires in ~8s. Merges the instant gates pass. Spec to PR in
+          90 seconds. What costs $89/user on GitHub + Copilot + Advanced
           Security starts at $0 here.
         </p>
         <div class="pl-hero-jumps">
@@ -117,6 +118,19 @@ const PricingPage: FC<{ plans: Plan[]; loggedIn: boolean }> = ({
         {plans.map((p) => (
           <PlanCard plan={p} loggedIn={loggedIn} />
         ))}
+      </section>
+
+      {/* ------------------- Included in every plan ------------------- */}
+      <section class="pl-section pl-every-plan">
+        <div class="pl-every-plan-inner">
+          <div class="pl-every-plan-label">Included in every plan</div>
+          <ul class="pl-every-plan-list">
+            <li>AI review on every PR</li>
+            <li>Auto-merge when gates pass</li>
+            <li>Spec to PR in 90 seconds</li>
+            <li>Push Watch live stream</li>
+          </ul>
+        </div>
       </section>
 
       {/* ------------------- Bundle math vs GitHub ------------------- */}
@@ -419,6 +433,15 @@ const pricingCss = `
     .pl-hero-orb { animation: none; }
   }
   .pl-hero .eyebrow { justify-content: center; margin: 0 auto var(--s-4); }
+  .pl-hero-speed {
+    font-family: var(--font-mono);
+    font-size: clamp(13px, 1.4vw, 16px);
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: var(--accent);
+    margin: 0 0 var(--s-3);
+    text-transform: uppercase;
+  }
   .pl-hero-title {
     font-size: clamp(36px, 6.5vw, 72px);
     line-height: 1.02;
@@ -841,6 +864,51 @@ const pricingCss = `
     gap: 12px;
     justify-content: center;
     flex-wrap: wrap;
+  }
+
+  /* Every-plan strip */
+  .pl-every-plan { margin: calc(var(--s-14) * -0.5) auto var(--s-10); }
+  .pl-every-plan-inner {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    flex-wrap: wrap;
+    justify-content: center;
+    padding: 14px 28px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--r-full);
+    background: var(--bg-elevated);
+    max-width: 760px;
+    margin: 0 auto;
+    font-size: 13px;
+  }
+  .pl-every-plan-label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+  .pl-every-plan-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    gap: 0;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .pl-every-plan-list li {
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .pl-every-plan-list li + li::before {
+    content: '·';
+    color: var(--text-muted);
+    margin-right: 10px;
   }
 
   /* Responsive */

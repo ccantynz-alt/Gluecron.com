@@ -50,6 +50,7 @@ import healthDashboardRoutes from "./routes/health";
 import statusRoutes from "./routes/status";
 import adminStatusRoutes from "./routes/admin-status";
 import helpRoutes from "./routes/help";
+import changelogRoutes from "./routes/changelog";
 import marketingRoutes from "./routes/marketing";
 import pricingRoutes from "./routes/pricing";
 import seoRoutes from "./routes/seo";
@@ -523,6 +524,9 @@ app.route("/", helpRoutes);
 // so the new editorial pricing layout wins the route; the legacy marketing
 // pricing remains as a safety net but is shadowed at the router.
 app.route("/", pricingRoutes);
+
+// /changelog — manually curated platform release history
+app.route("/", changelogRoutes);
 
 // /pricing, /features, /about — marketing surface
 app.route("/", marketingRoutes);

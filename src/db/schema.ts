@@ -79,9 +79,11 @@ export const users = pgTable("users", {
   lastDigestSentAt: timestamp("last_digest_sent_at"),
   // Block L1 — Sleep Mode. When enabled, the autopilot sleep-mode-digest
   // task delivers a daily "what Claude shipped overnight" report at the
-  // user-configured UTC hour (0-23, default 9). Reuses lastDigestSentAt
-  // as the 23h cooldown anchor — the cooldown is shared with the weekly
-  // digest, so a user cannot receive both on the same day.
+  // user-configured UTC hour (0-23, default 9). Uses its own independent
+  // cooldown anchor (lastSleepDigestSentAt) so the weekly digest timer is
+  // not reset when a sleep-mode digest fires, and vice versa.
+  // Migration 0077 adds the column.
+  lastSleepDigestSentAt: timestamp("last_sleep_digest_sent_at"),
   sleepModeEnabled: boolean("sleep_mode_enabled").default(false).notNull(),
   sleepModeDigestHourUtc: integer("sleep_mode_digest_hour_utc").default(9).notNull(),
   // Block M2 — Web Push per-event preferences. Default on; opt-out via /settings.

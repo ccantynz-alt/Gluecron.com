@@ -768,7 +768,8 @@ export async function runSyntheticMonitorTaskOnce(
 export interface SleepModeDigestCandidate {
   userId: string;
   digestHourUtc: number;
-  lastDigestSentAt: Date | null;
+  /** Independent cooldown anchor for the sleep-mode digest (migration 0077). */
+  lastSleepDigestSentAt: Date | null;
 }
 
 export interface SleepModeDigestTaskDeps {
@@ -791,9 +792,11 @@ export interface SleepModeDigestTaskSummary {
 
 /**
  * Default candidate-finder. Returns enabled users whose
- * `lastDigestSentAt` is older than the cooldown OR null. The hour-match
+ * `lastSleepDigestSentAt` is older than the cooldown OR null. The hour-match
  * filter is applied in JS by `runSleepModeDigestTaskOnce` so it stays
  * timezone-independent of any SQL `extract(hour ...)` behaviour.
+ * Uses the dedicated `last_sleep_digest_sent_at` column (migration 0077) so
+ * the cooldown is independent of the weekly digest timer.
  */
 async function defaultFindSleepModeCandidates(
   cap: number
@@ -803,7 +806,7 @@ async function defaultFindSleepModeCandidates(
       .select({
         userId: users.id,
         digestHourUtc: users.sleepModeDigestHourUtc,
-        lastDigestSentAt: users.lastDigestSentAt,
+        lastSleepDigestSentAt: users.lastSleepDigestSentAt,
       })
       .from(users)
       .where(eq(users.sleepModeEnabled, true))
@@ -811,7 +814,7 @@ async function defaultFindSleepModeCandidates(
     return rows.map((r) => ({
       userId: r.userId,
       digestHourUtc: r.digestHourUtc,
-      lastDigestSentAt: r.lastDigestSentAt,
+      lastSleepDigestSentAt: r.lastSleepDigestSentAt,
     }));
   } catch (err) {
     console.error("[autopilot] sleep-mode-digest: candidate query failed:", err);
@@ -823,7 +826,7 @@ async function defaultFindSleepModeCandidates(
  * One iteration of the sleep-mode-digest task. Never throws.
  *
  * Per-user filters (applied in JS so we can DI a clock):
- *   1. `lastDigestSentAt` is null OR older than cooldown (23h).
+ *   1. `lastSleepDigestSentAt` is null OR older than cooldown (23h).
  *   2. `now.getUTCHours() === digestHourUtc` — fires once at the user's
  *      configured local UTC hour.
  *
@@ -863,8 +866,8 @@ export async function runSleepModeDigestTaskOnce(
       }
       // Cooldown: skip if we sent within the last cooldown window.
       if (
-        cand.lastDigestSentAt &&
-        nowDate.getTime() - new Date(cand.lastDigestSentAt).getTime() <
+        cand.lastSleepDigestSentAt &&
+        nowDate.getTime() - new Date(cand.lastSleepDigestSentAt).getTime() <
           cooldownMs
       ) {
         skipped += 1;

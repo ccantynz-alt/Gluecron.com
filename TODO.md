@@ -70,7 +70,7 @@ These are confirmed missing by direct code inspection.
 - [ ] **System/autopilot user** — K3 posts marker comments credited to the PR/issue author. Create `gluecron[bot]` synthetic user row. Autopilot actions should show a bot avatar.
 - [ ] **Notification preferences** — Flat checkbox list currently. Restructure into categories: AI activity, CI/CD, code review, mentions. Per-category toggle.
 - [ ] **Repo health badge on repo overview** — `computeHealthScore` exists, health page exists. Add a small badge to `RepoHeader`.
-- [ ] **AI Trio Review UI indicator** — When trio review is enabled, show three separate verdict pills on the PR (Security ✓, Correctness ✓, Style ✓) not one combined comment. The data is already structured that way.
+- [x] 2026-06-06 **AI Trio Review UI indicator** — `TrioVerdictPills` component added to `src/routes/pulls.tsx`. Three pills (Security/Correctness/Style) in the PR header meta div. Feature-flagged on `AI_TRIO_REVIEW_ENABLED=1`. Pills link to `#trio-review-section`. No extra DB query — reads from already-fetched `prComments`.
 - [ ] **L1 sleep-mode column split** — `sleep_mode_digest` and weekly digest share `last_digest_sent_at`. Add `last_sleep_digest_sent_at` column.
 - [ ] **GitHub unlink route** — `/settings/sso/unlink` removes any SSO link. Add dedicated `/settings/github/unlink`.
 - [ ] **Branch preview expiry UX** — previews.tsx shows status pills (building/ready/failed/expired). Once expiry cleanup is wired, test the "expired" state renders correctly.

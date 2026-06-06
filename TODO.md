@@ -1,6 +1,6 @@
 # Gluecron Master To-Do List
 
-Last updated: 2026-06-06
+Last updated: 2026-06-06 (rev 2 — messaging correction)
 
 Track progress here. Check off items as they ship. Work top-to-bottom — priority order.
 
@@ -31,7 +31,7 @@ Track progress here. Check off items as they ship. Work top-to-bottom — priori
 - [ ] **Workflow artifact retention policy** — workflow artifacts accumulate indefinitely. Add a retention window (default 90 days, configurable per repo) with an autopilot cleanup task.
 
 ### AI & Automation
-- [ ] **Spec-to-Live full pipeline** — currently Spec→PR. Wire the remaining loop: PR→AI review approval→auto-merge→deploy→smoke test→email/sleep-mode notification "done". The K2/K3 auto-merge and L1 sleep-mode exist separately — connect them into one end-to-end flow.
+- [ ] **Spec-to-Live full pipeline** — currently Spec→PR. Wire the remaining loop: PR→AI review approval→auto-merge→deploy→smoke test→real-time notification in the browser "done in 2m 14s". The K2/K3 auto-merge and push watch exist separately — connect them into one visible end-to-end flow with a live progress bar the developer watches happen right now, not tomorrow.
 - [ ] **AI budget enforcement** — `aiBudgets` table exists with monthly spend caps. Verify the enforcement is actually wired: when `aiCostEvents` total for the month exceeds the cap, AI features should degrade gracefully (return fallback, notify user) rather than silently continuing.
 - [ ] **L7 skill files build step** — `scripts/install.sh` writes `.claude/skills/` SKILL.md bodies via inline heredocs that can drift from the canonical files. Add a build/release step that materialises the heredocs from the actual skill files so they stay in sync.
 - [ ] **Imported repos get skill bundle** — L7 skill files are only bundled into this repo + L2-installed users. When a user imports a GitHub repo, the skills should be bundled into the imported repo's `.claude/settings.json`.
@@ -49,8 +49,13 @@ Track progress here. Check off items as they ship. Work top-to-bottom — priori
 
 ## 🔵 PRIORITY 4 — Customer-Facing Sections (Needs to Look Polished)
 
+### Messaging Correction (IMPORTANT — affects landing, demo, vs-github, pricing)
+- [ ] **Rewrite all "sleep and wake up" copy** — the current pitch ("label an issue, walk away, wake up to a merged PR") positions Gluecron as slow and async. Developers sit at their computer and want results NOW. Replace every instance with instant/speed framing: "Label an issue. It's a PR in 90 seconds." The real story is: spec→PR in 2 minutes, AI review fires the moment the PR opens, auto-merge triggers the instant gates pass, push→live in ~25 seconds. Sleep Mode stays as a secondary feature for async users — it must NOT be the headline anywhere. Pages to update: `src/views/landing.tsx`, `src/routes/vs-github.tsx`, `src/routes/pricing.tsx`, `src/routes/demo.tsx`, `src/routes/sleep-mode.tsx` (marketing section only), any OG/meta descriptions.
+- [ ] **Rewrite landing hero** — current hero leads with the async pitch. New headline should hit speed and instant AI action. Suggested direction: "Write the spec. Gluecron ships it." or "AI that acts in seconds, not suggestions that sit in a tab." Sub-head should call out the 2-minute spec→PR and 25-second push→live numbers.
+- [ ] **Rewrite `/vs-github` AI-native section** — the 10 AI-native rows compare features but the copy still leans async. Reframe around real-time speed advantage: GitHub Copilot waits for you to type; Gluecron acts the moment you open a PR. Lead with latency numbers.
+
 ### Marketing & Acquisition
-- [ ] **60-second demo video** — record "label an issue, go to sleep, wake up to merged PR." This does more than any feature page. Embed on landing, `/demo`, and `/vs-github`.
+- [ ] **60-second demo video** — record "I write a spec, it's a merged PR in under 3 minutes." Show the real-time flow: spec form → AI writes code → PR opens → AI review posts → gates pass → auto-merged. No voiceover needed. Embed on landing, `/demo`, and `/vs-github`. This does more than any feature page.
 - [ ] **Shareable AI hours saved card** — L9 hours-saved counter is on the dashboard. Add a `/api/v2/me/ai-savings/share` endpoint that generates an OG-image card (e.g. "I saved 14 hours this week with Gluecron") for Twitter/LinkedIn sharing. Viral growth lever.
 - [ ] **`/vs-github` ongoing maintenance** — 26-row comparison table. As GitHub ships features, update this. Make it a living document, not a snapshot.
 - [ ] **Pricing page A/B** — `/pricing` exists. Test different price points and feature-gating messaging. The current copy is functional but not conversion-optimised.

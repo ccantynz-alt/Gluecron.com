@@ -67,7 +67,7 @@ These are confirmed missing by direct code inspection.
 - [x] 2026-06-06 commit:44ed968 **K3 tasks on `/admin/autopilot`** — `auto-merge-sweep` and `ai-build-from-issues` were already present; `preview-expiry` added. Badge updated to "10 tasks".
 
 ### Developer Experience
-- [ ] **System/autopilot user** — K3 posts marker comments credited to the PR/issue author. Create `gluecron[bot]` synthetic user row. Autopilot actions should show a bot avatar.
+- [x] 2026-06-06 **System/autopilot user** — `drizzle/0078_bot_user.sql` seeds `gluecron[bot]` (empty password_hash, non-loginable). `src/lib/bot-user.ts` lazy-caches the UUID. 10 comment call sites updated across `stale-sweep.ts`, `ai-review.ts`, `ai-review-trio.ts`, `autopilot.ts`. 🤖 bot pill shown in PR/issue comment headers.
 - [ ] **Notification preferences** — Flat checkbox list currently. Restructure into categories: AI activity, CI/CD, code review, mentions. Per-category toggle.
 - [ ] **Repo health badge on repo overview** — `computeHealthScore` exists, health page exists. Add a small badge to `RepoHeader`.
 - [x] 2026-06-06 **AI Trio Review UI indicator** — `TrioVerdictPills` component added to `src/routes/pulls.tsx`. Three pills (Security/Correctness/Style) in the PR header meta div. Feature-flagged on `AI_TRIO_REVIEW_ENABLED=1`. Pills link to `#trio-review-section`. No extra DB query — reads from already-fetched `prComments`.

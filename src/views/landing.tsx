@@ -147,11 +147,11 @@ export const LandingHero: FC<LandingPageProps> = ({
             </div>
 
             <h1 class="landing-hero-title display">
-              <span class="gradient-text">The git host built around Claude.</span>
+              <span class="gradient-text">Write the spec. Gluecron ships it.</span>
             </h1>
 
             <p class="landing-hero-sub">
-              Label an issue. Walk away. Wake up to a merged PR.
+              Spec to PR in 90 seconds. Push to live in 25. AI review, auto-merge, deploy — automatic.
             </p>
 
             {/* U1 — primary CTA row, demoted to 2 buttons. */}
@@ -220,7 +220,7 @@ export const LandingHero: FC<LandingPageProps> = ({
                 rule with the gradient accent line on top. Numbers
                 smaller, copy still scannable. */}
             {publicStats && (
-              <ul class="landing-hero-rail" aria-label="What just happened on Gluecron">
+              <ul class="landing-hero-rail" aria-label="Gluecron live this week">
                 <li>
                   <strong>{publicStats.weeklyPrsAutoMerged.toLocaleString()}</strong>
                   <span class="landing-hero-rail-label">PRs auto-merged</span>
@@ -231,7 +231,7 @@ export const LandingHero: FC<LandingPageProps> = ({
                 </li>
                 <li>
                   <strong>{publicStats.weeklyDeploysShipped.toLocaleString()}</strong>
-                  <span class="landing-hero-rail-label">deploys overnight</span>
+                  <span class="landing-hero-rail-label">deploys shipped</span>
                 </li>
                 <li>
                   <strong>{`~${Math.round(publicStats.weeklyHoursSaved).toLocaleString()}`}</strong>
@@ -333,9 +333,9 @@ export const LandingHero: FC<LandingPageProps> = ({
                   <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />
                 </svg>
               }
-              title="Toggle Sleep Mode"
-              body="Claude does the work overnight. You get a 9 AM digest of what shipped — PRs merged, deploys live, incidents triaged."
-              link={{ href: "/sleep-mode", label: "Turn on Sleep Mode" }}
+              title="Ships in seconds, not tabs"
+              body="Spec to draft PR in 90 seconds. AI review posted in under 10. Push to live in 25. Every step streams in real time — no polling, no waiting on a CI tab. Or let Sleep Mode batch it for when you're away."
+              link={{ href: "/sleep-mode", label: "See Sleep Mode" }}
             />
             <ReasonCard
               icon={
@@ -358,7 +358,7 @@ export const LandingHero: FC<LandingPageProps> = ({
                 </svg>
               }
               title="Open the demo, watch it work"
-              body="The demo repo is real. Label an issue, hit refresh, see Claude open the PR. Inspect the diff. Approve the merge. Zero setup, zero credit card."
+              body="The demo repo is real. Label an issue, watch Claude open the PR in seconds. Inspect the diff. Approve the merge. Zero setup, zero credit card."
               link={{ href: "/demo", label: "Open the live demo" }}
             />
           </div>

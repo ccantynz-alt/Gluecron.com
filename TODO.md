@@ -79,7 +79,7 @@ These are confirmed missing by direct code inspection.
 - [ ] **Docs site** — `/help` exists as a migration cheatsheet. Need: Getting Started, API reference, MCP server setup, Workflow YAML syntax, Agent publishing guide. Could be `/docs` served from the self-hosted repo.
 - [x] 2026-06-06 **Changelog page** — `src/routes/changelog.tsx` at `/changelog`. June + May 2026 releases listed. "Subscribe to updates" CTA → `/settings/notifications`. Changelog link added to footer in `layout.tsx`.
 - [ ] **Legal pages attorney review** — All four legal pages (`terms`, `privacy`, `dmca`, `acceptable-use`) are substantive drafts marked "DRAFT — requires attorney review." Get legal sign-off before any paid launch.
-- [ ] **Status page — polish** — `/status` and `/status.svg` exist. Add incident history, subscribe-to-alerts, make it look production-grade.
+- [x] 2026-06-06 **Status page — polish** — `drizzle/0080_incidents_and_status_subscribers.sql` adds `incidents` + `status_subscribers` tables. `src/routes/status.tsx` rewritten: overall status banner, 6 service uptime rows, last-10 incident history table, subscribe form with confirm/unsubscribe token flow.
 
 ---
 

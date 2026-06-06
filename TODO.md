@@ -56,7 +56,7 @@ These are confirmed missing by direct code inspection.
 - [ ] **Empty state for new repos** — Push your first commit / Import from GitHub / Try Spec-to-PR. Not a blank page.
 - [ ] **Onboarding email sequence** — T+0 welcome, T+1 day "try spec-to-PR", T+3 days "here's what AI did for similar repos". Resend sequences.
 - [x] 2026-06-06 **Dashboard "AI just did this" widget** — `AiActivityWidget` added to `src/routes/dashboard.tsx`. Queries `audit_log` (auto_merge.merged, ai_build.dispatched) and `gate_runs` (status=repaired) for last 60 minutes. Shows per-category counts, item list with links, "All quiet — AI is watching." empty state.
-- [ ] **Push Watch → make it discoverable** — The page (`/:owner/:repo/push/:sha`) exists and is polished. Add a "Live" pulsing link on the repo header that activates after every push. This is the first "wow" moment new users need to see.
+- [x] 2026-06-06 **Push Watch → make it discoverable** — Pulsing "● Live" badge in `RepoHeader` (red + `pushWatchPulse` animation when &lt;5min, muted "○ Watch" when &lt;24hr). Query on `activity_feed` WHERE action='push'. Eye-icon watch link on every commit row. `src/views/components.tsx`, `src/views/layout.tsx`, `src/routes/web.tsx`.
 - [ ] **Repo overview AI stats strip** — Below the file tree: "AI merged 3 PRs this week · Saved ~4.5 hrs · 0 open security alerts." Makes AI value visible at a glance.
 
 ### Admin

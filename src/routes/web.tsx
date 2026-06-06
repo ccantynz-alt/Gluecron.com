@@ -47,6 +47,8 @@ import {
 } from "../git/repository";
 import { renderMarkdown, markdownCss } from "../lib/markdown";
 import { highlightCode } from "../lib/highlight";
+import { computeHealthScore } from "../lib/health-score";
+import type { HealthScore } from "../lib/health-score";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
 import { trackByName } from "../lib/traffic";
@@ -60,6 +62,7 @@ import {
   countAiReviewsSince,
   listDemoActivityFeed,
 } from "../lib/demo-activity";
+import { computeHealthScore, type HealthScore } from "../lib/health-score";
 
 const web = new Hono<AuthEnv>();
 
@@ -2380,6 +2383,18 @@ web.get("/:owner/:repo", async (c) => {
     repoOwnerId,
   } = starInfo;
 
+  // Health score badge — fire-and-forget, best-effort. If the DB call fails
+  // or repoId is null (anonymous view of non-DB repo), healthScore stays null
+  // and the badge simply doesn't render.
+  let healthScore: HealthScore | null = null;
+  if (repoId) {
+    try {
+      healthScore = await computeHealthScore(repoId);
+    } catch {
+      // swallow — badge is optional
+    }
+  }
+
   // Pending-comments banner data (lazy + best-effort). Only the repo
   // owner sees the banner, so non-owner views skip the DB hit entirely.
   let repoHomePendingCount = 0;
@@ -2712,6 +2727,131 @@ web.get("/:owner/:repo", async (c) => {
     .repo-home-empty-snippet .repo-home-cmt { color: var(--text-faint); }
     .repo-home-empty-snippet .repo-home-cmd { color: var(--accent); }
 
+    /* Health score badge */
+    .repo-health-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 10px;
+      border-radius: 999px;
+      font-size: 11.5px;
+      font-weight: 700;
+      font-family: var(--font-mono);
+      text-decoration: none;
+      border: 1px solid transparent;
+      transition: filter 120ms ease, opacity 120ms ease;
+      vertical-align: middle;
+    }
+    .repo-health-badge:hover { filter: brightness(1.15); text-decoration: none; opacity: 0.9; }
+    .repo-health-badge-elite {
+      background: rgba(52,211,153,0.15);
+      color: #6ee7b7;
+      border-color: rgba(52,211,153,0.30);
+    }
+    .repo-health-badge-strong {
+      background: rgba(96,165,250,0.15);
+      color: #93c5fd;
+      border-color: rgba(96,165,250,0.30);
+    }
+    .repo-health-badge-improving {
+      background: rgba(251,191,36,0.15);
+      color: #fde68a;
+      border-color: rgba(251,191,36,0.30);
+    }
+    .repo-health-badge-needs-attention {
+      background: rgba(248,113,113,0.15);
+      color: #fca5a5;
+      border-color: rgba(248,113,113,0.30);
+    }
+
+    /* Three-option empty-state panel */
+    .repo-empty-options {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: var(--space-3);
+      margin-top: var(--space-5);
+    }
+    @media (max-width: 760px) {
+      .repo-empty-options { grid-template-columns: 1fr; }
+    }
+    .repo-empty-option {
+      position: relative;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: var(--space-4) var(--space-4);
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-2);
+      overflow: hidden;
+      transition: border-color 140ms ease, background 140ms ease;
+    }
+    .repo-empty-option:hover {
+      border-color: rgba(140,109,255,0.45);
+      background: rgba(140,109,255,0.04);
+    }
+    .repo-empty-option::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, transparent 0%, #8c6dff 30%, #36c5d6 70%, transparent 100%);
+      opacity: 0.55;
+      pointer-events: none;
+    }
+    .repo-empty-option-label {
+      font-size: 10px;
+      font-family: var(--font-mono);
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 2px;
+    }
+    .repo-empty-option-title {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 16px;
+      letter-spacing: -0.01em;
+      color: var(--text-strong);
+      margin: 0;
+    }
+    .repo-empty-option-sub {
+      font-size: 13px;
+      color: var(--text-muted);
+      line-height: 1.5;
+      margin: 0;
+      flex: 1;
+    }
+    .repo-empty-option-snippet {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: var(--space-2) var(--space-3);
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      line-height: 1.75;
+      color: var(--text-strong);
+      overflow-x: auto;
+      white-space: pre;
+      margin: var(--space-1) 0 0;
+    }
+    .repo-empty-option-snippet .reo-cmt { color: var(--text-faint); }
+    .repo-empty-option-snippet .reo-cmd { color: var(--accent); }
+    .repo-empty-option-cta {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: auto;
+      padding-top: var(--space-2);
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--accent);
+      text-decoration: none;
+      transition: color 120ms ease;
+    }
+    .repo-empty-option-cta:hover { color: var(--text-strong); text-decoration: none; }
+
     @media (max-width: 720px) {
       .repo-home-hero { padding: var(--space-4) var(--space-4); }
       .repo-home-clone-body { flex-direction: column; align-items: stretch; }
@@ -2764,6 +2904,113 @@ web.get("/:owner/:repo", async (c) => {
     return c.html(
       <Layout title={`${owner}/${repo}`} user={user}>
         <style dangerouslySetInnerHTML={{ __html: repoHomeCss }} />
+        <style dangerouslySetInnerHTML={{ __html: `
+          .empty-options-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: var(--space-4);
+            margin-top: var(--space-4);
+          }
+          @media (max-width: 800px) {
+            .empty-options-grid { grid-template-columns: 1fr; }
+          }
+          .empty-option-card {
+            position: relative;
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: var(--space-5);
+            display: flex;
+            flex-direction: column;
+            gap: var(--space-3);
+            overflow: hidden;
+            transition: border-color 140ms ease, box-shadow 140ms ease;
+          }
+          .empty-option-card:hover {
+            border-color: rgba(140,109,255,0.45);
+            box-shadow: 0 8px 24px -8px rgba(140,109,255,0.18);
+          }
+          .empty-option-card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, transparent 0%, #8c6dff 30%, #36c5d6 70%, transparent 100%);
+            opacity: 0.55;
+            pointer-events: none;
+          }
+          .empty-option-label {
+            font-size: 10.5px;
+            font-family: var(--font-mono);
+            text-transform: uppercase;
+            letter-spacing: 0.14em;
+            color: var(--accent);
+            font-weight: 700;
+          }
+          .empty-option-title {
+            font-family: var(--font-display);
+            font-weight: 700;
+            font-size: 17px;
+            letter-spacing: -0.01em;
+            color: var(--text-strong);
+            margin: 0;
+            line-height: 1.25;
+          }
+          .empty-option-body {
+            font-size: 13px;
+            color: var(--text-muted);
+            line-height: 1.55;
+            margin: 0;
+            flex: 1;
+          }
+          .empty-option-snippet {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: var(--space-3) var(--space-4);
+            font-family: var(--font-mono);
+            font-size: 11.5px;
+            line-height: 1.75;
+            color: var(--text-strong);
+            overflow-x: auto;
+            white-space: pre;
+            margin: 0;
+          }
+          .empty-option-snippet .ec { color: var(--text-faint); }
+          .empty-option-snippet .em { color: var(--accent); }
+          .empty-option-cta {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 16px;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-strong);
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 9999px;
+            text-decoration: none;
+            align-self: flex-start;
+            transition: border-color 140ms ease, background 140ms ease, color 140ms ease;
+          }
+          .empty-option-cta:hover {
+            border-color: rgba(140,109,255,0.55);
+            background: rgba(140,109,255,0.08);
+            color: var(--accent);
+            text-decoration: none;
+          }
+          .empty-option-cta-accent {
+            background: linear-gradient(135deg, #8c6dff, #36c5d6);
+            border-color: transparent;
+            color: #fff;
+          }
+          .empty-option-cta-accent:hover {
+            background: linear-gradient(135deg, #7c5df0, #28b4c8);
+            border-color: transparent;
+            color: #fff;
+            box-shadow: 0 6px 18px -6px rgba(140,109,255,0.55);
+          }
+        ` }} />
         <div class="repo-home-hero">
           <div class="repo-home-hero-orb-wrap" aria-hidden="true">
             <div class="repo-home-hero-orb" />
@@ -2772,16 +3019,33 @@ web.get("/:owner/:repo", async (c) => {
             <div class="repo-home-eyebrow">
               <strong>Repository</strong> · {owner}
             </div>
-            <RepoHeader
-              owner={owner}
-              repo={repo}
-              starCount={starCount}
-              starred={starred}
-              forkCount={forkCount}
-              currentUser={user?.username}
-              archived={archived}
-              isTemplate={isTemplate}
-            />
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+              <RepoHeader
+                owner={owner}
+                repo={repo}
+                starCount={starCount}
+                starred={starred}
+                forkCount={forkCount}
+                currentUser={user?.username}
+                archived={archived}
+                isTemplate={isTemplate}
+              />
+              {healthScore && (() => {
+                const gradeLabel: Record<string, string> = {
+                  elite: "Elite", strong: "Strong",
+                  improving: "Improving", "needs-attention": "Needs Attention",
+                };
+                return (
+                  <a
+                    href={`/${owner}/${repo}/insights/health`}
+                    class={`repo-health-badge repo-health-badge-${healthScore!.grade}`}
+                    title={`Health score: ${healthScore!.total}/100`}
+                  >
+                    {gradeLabel[healthScore!.grade] ?? healthScore!.grade}
+                  </a>
+                );
+              })()}
+            </div>
             {description ? (
               <p class="repo-home-description">{description}</p>
             ) : (
@@ -2793,31 +3057,53 @@ web.get("/:owner/:repo", async (c) => {
           </div>
         </div>
         <RepoNav owner={owner} repo={repo} active="code" />
-        <div class="repo-home-empty">
-          <div class="repo-home-empty-eyebrow">Getting started</div>
+        <div style="margin-top:var(--space-4)">
+          <div style="font-size:12px;font-family:var(--font-mono);color:var(--accent);letter-spacing:0.12em;text-transform:uppercase;font-weight:600;margin-bottom:var(--space-2)">
+            Getting started
+          </div>
           <h2 class="repo-home-empty-title">
-            Push your first commit to{" "}
-            <span class="gradient-text">{repo}</span>.
+            <span class="gradient-text">{repo}</span> is ready — make your first move.
           </h2>
           <p class="repo-home-empty-sub">
-            This repository is empty. Paste the snippet below in an existing
-            project directory to wire it up to Gluecron — your push triggers
-            gate checks and AI review automatically.
+            Choose how you want to kick things off. Every push wires up gate
+            checks and AI review automatically.
           </p>
-          <pre class="repo-home-empty-snippet">
-            <span class="repo-home-cmt">
-              # from an existing project directory
-            </span>
-            {"\n"}
-            <span class="repo-home-cmd">git remote add</span>
-            {` origin ${cloneHttpsUrl}`}
-            {"\n"}
-            <span class="repo-home-cmd">git branch</span>
-            {` -M main`}
-            {"\n"}
-            <span class="repo-home-cmd">git push</span>
-            {` -u origin main`}
-          </pre>
+          <div class="empty-options-grid">
+            <div class="empty-option-card">
+              <div class="empty-option-label">Option A</div>
+              <h3 class="empty-option-title">Push your first commit</h3>
+              <p class="empty-option-body">
+                Wire up an existing project in seconds. Run these commands from
+                your project directory.
+              </p>
+              <pre class="empty-option-snippet"><span class="ec"># from your project directory</span>
+<span class="em">git remote add</span> origin {cloneHttpsUrl}
+<span class="em">git branch</span> -M main
+<span class="em">git push</span> -u origin main</pre>
+            </div>
+            <div class="empty-option-card">
+              <div class="empty-option-label">Option B</div>
+              <h3 class="empty-option-title">Import from GitHub</h3>
+              <p class="empty-option-body">
+                Mirror an existing GitHub repository here in one click. Gluecron
+                syncs the full history and branches.
+              </p>
+              <a href="/import" class="empty-option-cta">
+                Import repository
+              </a>
+            </div>
+            <div class="empty-option-card">
+              <div class="empty-option-label">Option C</div>
+              <h3 class="empty-option-title">Try Spec-to-PR</h3>
+              <p class="empty-option-body">
+                Let AI write your first feature. Describe what you want to build
+                and Gluecron opens a pull request with the code.
+              </p>
+              <a href={`/${owner}/${repo}/specs`} class="empty-option-cta empty-option-cta-accent">
+                Let AI write your first feature
+              </a>
+            </div>
+          </div>
         </div>
       </Layout>
     );
@@ -2840,16 +3126,33 @@ web.get("/:owner/:repo", async (c) => {
           <div class="repo-home-eyebrow">
             <strong>Repository</strong> · {owner}
           </div>
-          <RepoHeader
-            owner={owner}
-            repo={repo}
-            starCount={starCount}
-            starred={starred}
-            forkCount={forkCount}
-            currentUser={user?.username}
-            archived={archived}
-            isTemplate={isTemplate}
-          />
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <RepoHeader
+              owner={owner}
+              repo={repo}
+              starCount={starCount}
+              starred={starred}
+              forkCount={forkCount}
+              currentUser={user?.username}
+              archived={archived}
+              isTemplate={isTemplate}
+            />
+            {healthScore && (() => {
+              const gradeLabel: Record<string, string> = {
+                elite: "Elite", strong: "Strong",
+                improving: "Improving", "needs-attention": "Needs Attention",
+              };
+              return (
+                <a
+                  href={`/${owner}/${repo}/insights/health`}
+                  class={`repo-health-badge repo-health-badge-${healthScore!.grade}`}
+                  title={`Health score: ${healthScore!.total}/100`}
+                >
+                  {gradeLabel[healthScore!.grade] ?? healthScore!.grade}
+                </a>
+              );
+            })()}
+          </div>
           {description ? (
             <p class="repo-home-description">{description}</p>
           ) : (

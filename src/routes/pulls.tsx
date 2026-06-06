@@ -122,6 +122,7 @@ import {
 
 import { suggestReviewers, type ReviewerCandidate } from "../lib/reviewer-suggest";
 import { computePrSize, type PrSizeInfo } from "../lib/pr-size";
+import { BOT_USERNAME } from "../lib/bot-user";
 
 const pulls = new Hono<AuthEnv>();
 
@@ -695,6 +696,16 @@ const PRS_DETAIL_STYLES = `
     text-transform: uppercase;
     color: #fff;
     background: linear-gradient(135deg, #8c6dff 0%, #36c5d6 130%);
+    border-radius: 9999px;
+  }
+  .prs-bot-badge {
+    display: inline-flex; align-items: center; gap: 3px;
+    padding: 1px 7px;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--fg-muted);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
     border-radius: 9999px;
   }
 
@@ -3887,6 +3898,9 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
               >
                 <div class="prs-comment-head">
                   <strong>{commentAuthor.username}</strong>
+                  {commentAuthor.username === BOT_USERNAME && (
+                    <span class="prs-bot-badge">&#x1F916; bot</span>
+                  )}
                   {comment.isAiReview && (
                     <span class="prs-ai-badge">AI Review</span>
                   )}

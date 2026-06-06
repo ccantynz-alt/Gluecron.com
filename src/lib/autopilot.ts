@@ -69,6 +69,7 @@ import { runAdvancementScan } from "./advancement-scanner";
 import { expireOldSandboxes } from "./pr-sandbox";
 import { expireIdleEnvs } from "./dev-env";
 import { expireOldPreviews } from "./branch-previews";
+import { getBotUserIdOrFallback } from "./bot-user";
 
 export interface AutopilotTaskResult {
   name: string;
@@ -1198,9 +1199,10 @@ async function defaultOnMerged(
     console.error("[autopilot] auto-merge: merged audit failed:", err);
   }
   try {
+    const commentAuthorId = await getBotUserIdOrFallback(cand.authorUserId);
     await db.insert(prComments).values({
       pullRequestId: cand.prId,
-      authorId: cand.authorUserId,
+      authorId: commentAuthorId,
       isAiReview: true,
       body: `${AUTO_MERGE_COMMENT_MARKER}\nAuto-merged by Gluecron autopilot — branch protection conditions satisfied.`,
     });

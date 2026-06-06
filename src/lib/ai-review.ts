@@ -18,6 +18,7 @@ import {
   runTrioReview,
 } from "./ai-review-trio";
 import { assertAiQuota, AiQuotaExceededError } from "./billing";
+import { getBotUserIdOrFallback } from "./bot-user";
 
 interface ReviewComment {
   filePath: string;
@@ -358,6 +359,10 @@ export async function triggerAiReview(
       return;
     }
 
+    // Resolve the bot user id once; fall back to the PR author so that
+    // comment insertion never fails even before migration 0078 has run.
+    const commentAuthorId = await getBotUserIdOrFallback(pr.authorId);
+
     let result: ReviewResult;
     try {
       result = await reviewDiff(
@@ -376,7 +381,7 @@ export async function triggerAiReview(
         .insert(prComments)
         .values({
           pullRequestId: prId,
-          authorId: pr.authorId,
+          authorId: commentAuthorId,
           isAiReview: true,
           body: `${AI_REVIEW_MARKER}\n## AI review unavailable\n\nThe AI review attempt failed: ${reason}. The PR is otherwise unchanged.`,
         })
@@ -400,7 +405,7 @@ export async function triggerAiReview(
       .insert(prComments)
       .values({
         pullRequestId: prId,
-        authorId: pr.authorId,
+        authorId: commentAuthorId,
         isAiReview: true,
         body: summaryBody,
       })
@@ -423,7 +428,7 @@ export async function triggerAiReview(
         .insert(prComments)
         .values({
           pullRequestId: prId,
-          authorId: pr.authorId,
+          authorId: commentAuthorId,
           isAiReview: true,
           body: c.body,
           filePath,

@@ -598,13 +598,14 @@ function SettingsHero(props: {
 }
 
 /** Pill-row sub-navigation, hand-built so we don't depend on shared components. */
-export type SettingsSubnavKey = "profile" | "keys" | "agents";
+export type SettingsSubnavKey = "profile" | "keys" | "agents" | "deploy-targets";
 
 export function SettingsSubnav(props: { active: SettingsSubnavKey }) {
   const items: Array<{ key: SettingsSubnavKey; href: string; label: string }> = [
     { key: "profile", href: "/settings", label: "Profile" },
     { key: "keys", href: "/settings/keys", label: "SSH keys" },
     { key: "agents", href: "/settings/agents", label: "Agents" },
+    { key: "deploy-targets", href: "/settings/deploy-targets", label: "Deploy targets" },
   ];
   return (
     <nav class="settings-subnav" aria-label="Settings sections">

@@ -13,10 +13,9 @@ Work top-to-bottom within each priority.
 
 These are NOT build tasks — the code is complete. They need ops/config action.
 
-- [ ] **Set STRIPE_SECRET_KEY + STRIPE_WEBHOOK_SECRET in production** — Stripe Checkout, customer portal, and webhook handler are 100% built (`src/lib/stripe.ts`, `src/routes/billing.tsx`, `src/routes/stripe-webhook.ts`). The billing UI even shows a warning when the key is missing. Run `scripts/stripe-bootstrap.ts` to create products/prices in Stripe with the right lookup keys (`gluecron_pro_monthly` etc), then set the secrets on Fly.io. Zero code changes needed.
 - [ ] **Verify SSH git push works end-to-end** — `src/lib/ssh-server.ts` is a full 545-line production implementation that starts at boot (`src/index.ts`). It handles `git-upload-pack` and `git-receive-pack`, does public-key auth against the `ssh_keys` table, and triggers post-receive hooks. Test from a clean machine: add an SSH key at `/settings`, then `git clone git@gluecron.com:user/repo.git`. If the SSH_PORT env var isn't set, default is 2222 — verify the port is open on the server.
 - [ ] **Enable AI Trio Review** — Three-model parallel PR review (security / correctness / style) is fully built in `src/lib/ai-review-trio.ts` and wired into `src/lib/ai-review.ts`. Set `AI_TRIO_REVIEW_ENABLED=1` to activate. This is a genuine differentiator — no other platform has this.
-- [ ] **Fix duplicate migration number 0065** — Two migration files both named `0065_*.sql`: one for `ai_cost_events` + `ai_budgets`, one for `auto_generate_tests`. Drizzle will apply one and ignore the other. Rename the auto-tests one to `0065b_auto_generate_tests.sql` or the next available number.
+- [x] 2026-06-06 **Fix duplicate migration number 0065** — Renamed `0065_auto_generate_tests.sql` to `0077_auto_generate_tests.sql` (was conflicting with `0065_ai_cost_events.sql`). Both migrations now have unique numbers.
 - [ ] **Set SERVER_TARGETS_KEY** — Server targets encrypt SSH private keys via AES. If `SERVER_TARGETS_KEY` env var isn't set, deploy target creation will fail silently. Set a 32-byte hex key in production.
 - [ ] **Set PREVIEW_DOMAIN** — Branch preview URLs are computed as `${branchSlug}-${repoSlug}.preview.gluecron.com` or `PREVIEW_DOMAIN` env var. Set this to match where previews will actually be served.
 
@@ -169,6 +168,14 @@ Verified by reading actual files — not just the Bible.
 - /admin/servers — SSH deploy targets — complete (admin-only; customer rollout is a gap)
 
 **Everything in BUILD_BIBLE §2 marked ✅** is confirmed present in the codebase. The Bible claims 100% accuracy for what it documents — no phantom features found.
+
+---
+
+## 💳 LAST — Stripe/Billing Configuration (When Platform Is Ready)
+
+These are NOT build tasks — the code is 100% complete. Do these only after the platform is stable and ready for paying customers.
+
+- [ ] **Set STRIPE_SECRET_KEY + STRIPE_WEBHOOK_SECRET in production** — Stripe Checkout, customer portal, and webhook handler are 100% built (`src/lib/stripe.ts`, `src/routes/billing.tsx`, `src/routes/stripe-webhook.ts`). The billing UI even shows a warning when the key is missing. Run `scripts/stripe-bootstrap.ts` to create products/prices in Stripe with the right lookup keys (`gluecron_pro_monthly` etc), then set the secrets on Fly.io. Zero code changes needed.
 
 ---
 

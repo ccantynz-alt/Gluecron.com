@@ -4019,4 +4019,62 @@ export const claudeWebMessages = pgTable(
 );
 
 export type ClaudeWebMessage = typeof claudeWebMessages.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// 0077 — Status page: incident history + subscriber list.
+//
+// incidents: manually-filed or autopilot-detected outage records shown on
+//   the public /status page. severity: 'minor' | 'major' | 'critical'.
+//   status: 'investigating' | 'identified' | 'monitoring' | 'resolved'.
+//
+// status_subscribers: email addresses that have opted-in to receive alerts
+//   when a new incident is filed.
+// ---------------------------------------------------------------------------
+export const incidents = pgTable(
+  "incidents",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    title: text("title").notNull(),
+    severity: text("severity").notNull().default("minor"),
+    status: text("status").notNull().default("resolved"),
+    startedAt: timestamp("started_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    body: text("body"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("idx_incidents_started_at").on(table.startedAt),
+    index("idx_incidents_status").on(table.status),
+  ]
+);
+
+export type Incident = typeof incidents.$inferSelect;
+export type NewIncident = typeof incidents.$inferInsert;
+
+export const statusSubscribers = pgTable(
+  "status_subscribers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    email: text("email").notNull().unique(),
+    confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+    confirmToken: text("confirm_token").unique(),
+    unsubscribeToken: text("unsubscribe_token").unique(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("idx_status_subscribers_email").on(table.email),
+  ]
+);
+
+export type StatusSubscriber = typeof statusSubscribers.$inferSelect;
+export type NewStatusSubscriber = typeof statusSubscribers.$inferInsert;
 export type NewClaudeWebMessage = typeof claudeWebMessages.$inferInsert;

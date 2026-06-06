@@ -102,4 +102,13 @@ export const config = {
   get webauthnRpName() {
     return process.env.WEBAUTHN_RP_NAME || "gluecron";
   },
+  /**
+   * Redis / Valkey connection URL for cross-instance SSE fan-out.
+   * When set, `src/lib/sse.ts` uses Redis pub/sub so SSE events reach all
+   * server instances behind the load balancer.  Falls back to in-process
+   * delivery when unset.
+   */
+  get redisUrl() {
+    return process.env.REDIS_URL || process.env.VALKEY_URL || "";
+  },
 };

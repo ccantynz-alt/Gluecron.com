@@ -53,7 +53,7 @@ These are confirmed missing by direct code inspection.
 ## 🔵 PRIORITY 4 — Polish & Customer Experience
 
 ### Onboarding
-- [ ] **Empty state for new repos** — Push your first commit / Import from GitHub / Try Spec-to-PR. Not a blank page.
+- [x] 2026-06-06 **Empty state for new repos** — 3-option panel in `src/routes/web.tsx`: git commands to push first commit, link to /import, link to /:owner/:repo/specs. Done in wave 1.
 - [x] 2026-06-06 **Onboarding email sequence** — `drizzle/0081_onboarding_emails.sql` adds `onboarding_emails_sent jsonb`. `src/lib/onboarding-drip.ts`: T+0 welcome (fire-and-forget in `auth.tsx` POST /register), T+1d "Try Spec-to-PR", T+3d "Your AI is watching" via `onboarding-drip` autopilot task. Idempotent via jsonb key tracking. Skips when RESEND_API_KEY unset.
 - [x] 2026-06-06 **Dashboard "AI just did this" widget** — `AiActivityWidget` added to `src/routes/dashboard.tsx`. Queries `audit_log` (auto_merge.merged, ai_build.dispatched) and `gate_runs` (status=repaired) for last 60 minutes. Shows per-category counts, item list with links, "All quiet — AI is watching." empty state.
 - [x] 2026-06-06 **Push Watch → make it discoverable** — Pulsing "● Live" badge in `RepoHeader` (red + `pushWatchPulse` animation when &lt;5min, muted "○ Watch" when &lt;24hr). Query on `activity_feed` WHERE action='push'. Eye-icon watch link on every commit row. `src/views/components.tsx`, `src/views/layout.tsx`, `src/routes/web.tsx`.
@@ -69,7 +69,7 @@ These are confirmed missing by direct code inspection.
 ### Developer Experience
 - [x] 2026-06-06 **System/autopilot user** — `drizzle/0078_bot_user.sql` seeds `gluecron[bot]` (empty password_hash, non-loginable). `src/lib/bot-user.ts` lazy-caches the UUID. 10 comment call sites updated across `stale-sweep.ts`, `ai-review.ts`, `ai-review-trio.ts`, `autopilot.ts`. 🤖 bot pill shown in PR/issue comment headers.
 - [x] 2026-06-06 **Notification preferences** — Restructured into 4 categories in `src/routes/settings.tsx`: AI activity, CI/CD, Code review, Mentions. All existing `name=` attrs preserved — POST handler unchanged. Email pill count updated to 5 events.
-- [ ] **Repo health badge on repo overview** — `computeHealthScore` exists, health page exists. Add a small badge to `RepoHeader`.
+- [x] 2026-06-06 **Repo health badge on repo overview** — Health score badge added to `RepoHeader` in `src/routes/web.tsx`. Grade colours: Elite=green, Strong=blue, Improving=yellow, Needs Attention=red. Links to /:owner/:repo/insights/health. Done in wave 1.
 - [x] 2026-06-06 **AI Trio Review UI indicator** — `TrioVerdictPills` component added to `src/routes/pulls.tsx`. Three pills (Security/Correctness/Style) in the PR header meta div. Feature-flagged on `AI_TRIO_REVIEW_ENABLED=1`. Pills link to `#trio-review-section`. No extra DB query — reads from already-fetched `prComments`.
 - [x] 2026-06-06 **L1 sleep-mode column split** — `drizzle/0079_sleep_digest_column.sql` adds `last_sleep_digest_sent_at`. Schema updated. `sleep-mode.ts` and `autopilot.ts` now write/read the dedicated column. Tests updated. (Renamed from 0077 to avoid collision with `0077_auto_generate_tests.sql`.)
 - [x] 2026-06-06 **GitHub unlink route** — `POST /settings/github/unlink` deletes `sso_user_links` rows with `subject` starting `"github:"`. "Disconnect GitHub" button shown on settings page when GitHub is linked. Audited via `auth.github.unlink`.
@@ -107,7 +107,7 @@ These are confirmed missing by direct code inspection.
 - [ ] **Native iOS app** — Minimum viable: repo browser, notifications, PR approve/reject, AI chat. React Native.
 - [ ] **Native Android app** — Share React Native codebase with iOS.
 - [ ] **Multi-agent pipeline UI** — `agent-multiplayer.ts` and `agent_sessions`/`agent_leases` tables are complete. Wire a UI to define pipelines: Agent A writes, Agent B reviews, Agent C deploys.
-- [ ] **AI pair programmer (browser)** — Claude Code session embedded in a browser tab alongside the file editor. `claude_web_sessions` schema is ready (migration 0074), `src/routes/claude-web.tsx` exists — make it customer-facing.
+- [x] 2026-06-06 **AI pair programmer (browser)** — Covered by "Claude Web Sessions → customer-facing" above. `/:owner/:repo/claude` open to all authenticated users. SSE streaming via `claude --print --output-format stream-json`. "✨ Claude AI" sidebar card on repo home.
 - [ ] **End-to-end test suite** — Playwright covering register → push → PR → AI review → merge. Catches flow regressions that unit tests miss.
 - [ ] **Load testing** — k6 or Artillery before any growth push. What happens at 1000 concurrent git pushes?
 - [ ] **Database connection pooling verification** — Confirm PgBouncer or Neon pooling is correctly configured for multi-instance load.

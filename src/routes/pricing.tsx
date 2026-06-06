@@ -57,7 +57,14 @@ pricing.get("/pricing", async (c) => {
   const user = c.get("user");
   const plans = await listPlans();
   return c.html(
-    <Layout title="Pricing — Gluecron" user={user}>
+    <Layout
+      title="Pricing — Gluecron"
+      user={user}
+      description="Simple pricing for AI-native git hosting. Unlimited repos, AI review, auto-merge, spec-to-PR. Start free."
+      ogTitle="Pricing — Gluecron"
+      ogDescription="Simple pricing for AI-native git hosting. Unlimited repos, AI review, auto-merge, spec-to-PR. Start free."
+      twitterCard="summary"
+    >
       <PricingPage plans={plans} loggedIn={!!user} />
     </Layout>
   );

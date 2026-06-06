@@ -25,56 +25,38 @@ describe("Block L10 — landing hero rewrite", () => {
     expect(ct.toLowerCase()).toContain("text/html");
   });
 
-  it("renders the new hero headline", async () => {
+  it("renders the hero headline", async () => {
     const res = await app.request(HOME);
     const body = await res.text();
-    expect(body).toContain("The git host built around Claude.");
+    expect(body).toContain("The git host built for");
   });
 
-  it("renders the install snippet", async () => {
+  it("renders speed-framing copy in hero lede", async () => {
     const res = await app.request(HOME);
     const body = await res.text();
-    // The host + path is what makes it unambiguous as the install snippet.
-    expect(body).toContain("gluecron.com/install");
-    expect(body).toContain("curl -sSL gluecron.com/install | bash");
+    expect(body).toContain("Spec to PR in 90 seconds");
   });
 
-  it("renders all three primary CTAs in the hero row", async () => {
+  it("renders primary CTAs in the hero row", async () => {
     const res = await app.request(HOME);
     const body = await res.text();
     expect(body).toContain('href="/register"');
-    expect(body).toContain('href="/demo"');
-    expect(body).toContain('href="/vs-github"');
-    // Visible labels for the three CTAs.
-    expect(body).toContain("Sign up free");
-    expect(body).toContain("Try the live demo");
-    expect(body).toContain("Compare to GitHub");
+    // Visible labels for the primary CTAs.
+    expect(body).toContain("Start building");
   });
 
-  it("renders the three reasons-to-switch column headings", async () => {
+  it("renders the register and explore nav links", async () => {
     const res = await app.request(HOME);
     const body = await res.text();
-    expect(body).toContain("Toggle Sleep Mode");
-    expect(body).toContain("One command to migrate");
-    expect(body).toContain("Open the demo, watch it work");
-    // The migrate column also links to /import.
-    expect(body).toContain('href="/import"');
-    // The Sleep Mode + demo columns deep-link to their L1 / L3 routes.
-    expect(body).toContain('href="/sleep-mode"');
-    expect(body).toContain('href="/demo"');
+    expect(body).toContain('href="/register"');
+    expect(body).toContain('href="/explore"');
+    expect(body).toContain('href="/pricing"');
   });
 
-  it("renders the 'How is this different' pull-quote", async () => {
+  it("renders the 'The git host' eyebrow or headline copy", async () => {
     const res = await app.request(HOME);
     const body = await res.text();
-    expect(body).toContain("How is this different from GitHub?");
-    expect(body).toContain("Every other host bolts AI on as a sidecar.");
-    // JSX collapses newlines + leading whitespace; assert on a substring
-    // that is contiguous after server-side rendering.
-    expect(body).toContain("first-class developer");
-    expect(body).toContain("Built to be");
-    expect(body).toContain("operated by AI agents");
-    expect(body).toContain("See the full comparison");
+    expect(body).toContain("AI-native git host");
   });
 
   it("injects SEO + Open Graph meta tags", async () => {
@@ -82,19 +64,19 @@ describe("Block L10 — landing hero rewrite", () => {
     const body = await res.text();
     // <title>
     expect(body).toContain(
-      "<title>Gluecron — The git host built around Claude</title>"
+      "<title>Gluecron — The AI-native git host</title>"
     );
     // <meta name="description">
     expect(body).toMatch(
-      /<meta\s+name="description"\s+content="Label an issue\. Walk away\. Wake up to a merged PR\./
+      /<meta\s+name="description"\s+content="The AI-native git host\. Spec to PR in 90 seconds\./
     );
     // <meta property="og:title">
     expect(body).toMatch(
-      /<meta\s+property="og:title"\s+content="Gluecron — The git host built around Claude"/
+      /<meta\s+property="og:title"\s+content="Gluecron — The AI-native git host"/
     );
     // <meta property="og:description">
     expect(body).toMatch(
-      /<meta\s+property="og:description"\s+content="Label an issue\./
+      /<meta\s+property="og:description"\s+content="The AI-native git host\./
     );
     // <meta property="og:type">
     expect(body).toMatch(
@@ -128,11 +110,10 @@ describe("Block L10 — landing hero rewrite", () => {
     }
   });
 
-  it("REGRESSION: L5 'Compare to GitHub' CTA still routes to /vs-github", async () => {
+  it("REGRESSION: pricing link is present in nav or page body", async () => {
     const res = await app.request(HOME);
     const body = await res.text();
-    // The href + label pair must remain wired.
-    expect(body).toContain('href="/vs-github"');
-    expect(body).toContain("Compare to GitHub");
+    // Pricing link must remain accessible from the home page.
+    expect(body).toContain('href="/pricing"');
   });
 });

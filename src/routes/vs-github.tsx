@@ -678,7 +678,14 @@ function SpeedChart() {
 vsGithub.get("/vs-github", (c) => {
   const user = c.get("user");
   return c.html(
-    <Layout title="Gluecron vs GitHub — 16 years vs one weekend" user={user}>
+    <Layout
+      title="Gluecron vs GitHub — 16 years vs one weekend"
+      user={user}
+      description="How Gluecron outperforms GitHub on every AI metric. AI review in ~8s. Auto-merge on gate pass. Spec to PR in 90 seconds."
+      ogTitle="Gluecron vs GitHub — 16 years vs one weekend"
+      ogDescription="How Gluecron outperforms GitHub on every AI metric. AI review in ~8s. Auto-merge on gate pass. Spec to PR in 90 seconds."
+      twitterCard="summary_large_image"
+    >
       <style dangerouslySetInnerHTML={{ __html: pageCss }} />
       <div class="vsg-page vsg-root">
         {/* ============ 1. SHOCKING HERO ============ */}

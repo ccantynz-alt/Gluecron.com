@@ -248,7 +248,14 @@ help.get("/help", (c) => {
   const user = c.get("user");
 
   return c.html(
-    <Layout title="Help — gluecron" user={user}>
+    <Layout
+      title="Help — gluecron"
+      user={user}
+      description="Gluecron documentation — getting started, workflow YAML, MCP server, API reference."
+      ogTitle="Help — Gluecron"
+      ogDescription="Gluecron documentation — getting started, workflow YAML, MCP server, API reference."
+      twitterCard="summary"
+    >
       <style dangerouslySetInnerHTML={{ __html: helpStyles }} />
       <div class="help-wrap">
         {/* ─── Hero ─── */}
@@ -671,7 +678,7 @@ help.get("/help", (c) => {
               Every <code>.gluecron/specs/*.md</code> file across your
               repos shows up here. Add a spec, push it, then either run
               the spec-to-PR generator from the page or label the file
-              and let autopilot do it overnight.
+              and let autopilot run it automatically.
             </div>
           </div>
         </section>

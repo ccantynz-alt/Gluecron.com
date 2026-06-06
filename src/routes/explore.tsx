@@ -648,7 +648,14 @@ explore.get("/explore", async (c) => {
   // before the real list lands.
   if (c.req.query("skeleton") === "1") {
     return c.html(
-      <Layout title="Explore" user={user}>
+      <Layout
+        title="Explore"
+        user={user}
+        description="Discover open-source projects hosted on Gluecron — the AI-native GitHub alternative."
+        ogTitle="Explore — Gluecron"
+        ogDescription="Discover open-source projects hosted on Gluecron — the AI-native GitHub alternative."
+        twitterCard="summary"
+      >
         <ExploreStyle />
         <div class="explore-wrap">
           <section class="explore-hero" aria-hidden="true">
@@ -794,7 +801,14 @@ explore.get("/explore", async (c) => {
           : `Sorted by repository creation date`;
 
   return c.html(
-    <Layout title="Explore" user={user}>
+    <Layout
+      title="Explore"
+      user={user}
+      description="Discover open-source projects hosted on Gluecron — the AI-native GitHub alternative."
+      ogTitle="Explore — Gluecron"
+      ogDescription="Discover open-source projects hosted on Gluecron — the AI-native GitHub alternative."
+      twitterCard="summary"
+    >
       <ExploreStyle />
       <div class="explore-wrap">
         <section class="explore-hero">

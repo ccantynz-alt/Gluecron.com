@@ -2901,8 +2901,18 @@ web.get("/:owner/:repo", async (c) => {
   };
 
   if (tree.length === 0) {
+    const repoOgDesc = description
+      ? `${owner}/${repo} on Gluecron — ${description}`
+      : `${owner}/${repo} on Gluecron — AI-native git hosting with push-time gates and auto-merge.`;
     return c.html(
-      <Layout title={`${owner}/${repo}`} user={user}>
+      <Layout
+        title={`${owner}/${repo}`}
+        user={user}
+        description={repoOgDesc}
+        ogTitle={`${owner}/${repo} — Gluecron`}
+        ogDescription={repoOgDesc}
+        twitterCard="summary"
+      >
         <style dangerouslySetInnerHTML={{ __html: repoHomeCss }} />
         <style dangerouslySetInnerHTML={{ __html: `
           .empty-options-grid {
@@ -3115,8 +3125,19 @@ web.get("/:owner/:repo", async (c) => {
   const fileCount = tree.filter((e: any) => e.type !== "tree").length;
   const dirCount = tree.filter((e: any) => e.type === "tree").length;
 
+  const repoOgDesc = description
+    ? `${owner}/${repo} on Gluecron — ${description}`
+    : `${owner}/${repo} on Gluecron — AI-native git hosting with push-time gates and auto-merge.`;
+
   return c.html(
-    <Layout title={`${owner}/${repo}`} user={user}>
+    <Layout
+      title={`${owner}/${repo}`}
+      user={user}
+      description={repoOgDesc}
+      ogTitle={`${owner}/${repo} — Gluecron`}
+      ogDescription={repoOgDesc}
+      twitterCard="summary"
+    >
       <style dangerouslySetInnerHTML={{ __html: repoHomeCss }} />
       <div class="repo-home-hero">
         <div class="repo-home-hero-orb-wrap" aria-hidden="true">

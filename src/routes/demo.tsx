@@ -210,7 +210,14 @@ app.get("/demo", softAuth, async (c) => {
 `.trim();
 
   return c.html(
-    <Layout title="Live demo" user={user}>
+    <Layout
+      title="Live demo"
+      user={user}
+      description="Watch Gluecron build and ship code in real time. AI writes the PR, reviews it, and merges it automatically."
+      ogTitle="Live demo — Gluecron"
+      ogDescription="Watch Gluecron build and ship code in real time. AI writes the PR, reviews it, and merges it automatically."
+      twitterCard="summary_large_image"
+    >
       <style dangerouslySetInnerHTML={{ __html: DEMO_CSS }} />
       <div class="demo-page">
         {/* ─── Hero ─── */}

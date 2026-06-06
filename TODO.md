@@ -40,8 +40,8 @@ These are confirmed missing by direct code inspection.
 
 ## 🟡 PRIORITY 3 — Messaging (Every Page Needs This)
 
-- [ ] **Landing hero** (`src/views/landing.tsx`) — Kill "wake up to a merged PR." New headline: "Write the spec. Gluecron ships it." Subhead leads with numbers: "Spec to PR in 90 seconds. Push to live in 25. AI review, auto-merge, deploy — all automatic."
-- [ ] **Landing "what's happening now" rail** — Replace async copy with real-time events: "PR #47 auto-merged 8 seconds ago", "AI flagged a secret in last push", "Spec shipped to draft PR in 1m 43s". Live-feeling, instant.
+- [x] 2026-06-06 **Landing hero** (`src/views/landing.tsx`) — H1: "Write the spec. Gluecron ships it." Subhead: "Spec to PR in 90 seconds. Push to live in 25. AI review, auto-merge, deploy — automatic." Sleep Mode demoted to single closing clause. Rail label: "deploys shipped".
+- [x] 2026-06-06 **Landing "what's happening now" rail** — Rail label updated; "Three reasons" card 1 rewritten to lead with timing numbers. Sleep Mode demoted to one line.
 - [ ] **vs-github AI rows** (`src/routes/vs-github.tsx`) — Reframe 10 AI-native comparison rows around latency not just capability. Add real timing numbers. GitHub Copilot waits for you to type; Gluecron acts the moment you open a PR.
 - [ ] **Demo page** (`src/routes/demo.tsx`) — Replace "watch autopilot work" with a live ticker of things happening right now. Stock-ticker feel, not a status report.
 - [ ] **Sleep Mode demoted** (`src/routes/sleep-mode.tsx`) — Move to secondary feature only. Never headline. Primary pitch everywhere = instant results.

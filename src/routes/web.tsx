@@ -3597,6 +3597,26 @@ web.get("/:owner/:repo", async (c) => {
               </div>
             )}
           </div>
+          {/* Claude AI — quick-access card for authenticated users */}
+          {user && (
+            <div class="repo-home-side-card" style="margin-top:12px">
+              <h3 class="repo-home-side-title" style="margin-bottom:10px">
+                ✨ Claude AI
+              </h3>
+              <a
+                href={`/${owner}/${repo}/claude`}
+                style="display:block;background:#1f6feb;color:#fff;text-align:center;padding:8px 14px;border-radius:6px;text-decoration:none;font-size:14px;font-weight:600;margin-bottom:8px"
+              >
+                Claude Code sessions
+              </a>
+              <a
+                href={`/${owner}/${repo}/ask`}
+                style="display:block;color:#9ca3af;text-align:center;padding:6px 14px;border-radius:6px;text-decoration:none;font-size:13px;border:1px solid #1f2937"
+              >
+                Ask AI about this repo
+              </a>
+            </div>
+          )}
         </aside>
       </div>
       <script

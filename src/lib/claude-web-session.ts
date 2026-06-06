@@ -392,6 +392,29 @@ export async function listSessionsForRepo(
     .limit(limit);
 }
 
+/**
+ * List sessions for a specific user in a specific repo, ordered by most
+ * recently active first. Used by the customer-facing /:owner/:repo/claude
+ * page so each user sees only their own sessions.
+ */
+export async function listSessionsForUser(
+  repositoryId: string,
+  ownerUserId: string,
+  limit = 50
+): Promise<ClaudeWebSession[]> {
+  return db
+    .select()
+    .from(claudeWebSessions)
+    .where(
+      and(
+        eq(claudeWebSessions.repositoryId, repositoryId),
+        eq(claudeWebSessions.ownerUserId, ownerUserId)
+      )
+    )
+    .orderBy(claudeWebSessions.lastActiveAt)
+    .limit(limit);
+}
+
 export async function deleteSession(id: string): Promise<void> {
   await db.delete(claudeWebSessions).where(eq(claudeWebSessions.id, id));
 }

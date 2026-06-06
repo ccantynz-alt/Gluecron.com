@@ -54,7 +54,7 @@ These are confirmed missing by direct code inspection.
 
 ### Onboarding
 - [ ] **Empty state for new repos** — Push your first commit / Import from GitHub / Try Spec-to-PR. Not a blank page.
-- [ ] **Onboarding email sequence** — T+0 welcome, T+1 day "try spec-to-PR", T+3 days "here's what AI did for similar repos". Resend sequences.
+- [x] 2026-06-06 **Onboarding email sequence** — `drizzle/0081_onboarding_emails.sql` adds `onboarding_emails_sent jsonb`. `src/lib/onboarding-drip.ts`: T+0 welcome (fire-and-forget in `auth.tsx` POST /register), T+1d "Try Spec-to-PR", T+3d "Your AI is watching" via `onboarding-drip` autopilot task. Idempotent via jsonb key tracking. Skips when RESEND_API_KEY unset.
 - [x] 2026-06-06 **Dashboard "AI just did this" widget** — `AiActivityWidget` added to `src/routes/dashboard.tsx`. Queries `audit_log` (auto_merge.merged, ai_build.dispatched) and `gate_runs` (status=repaired) for last 60 minutes. Shows per-category counts, item list with links, "All quiet — AI is watching." empty state.
 - [x] 2026-06-06 **Push Watch → make it discoverable** — Pulsing "● Live" badge in `RepoHeader` (red + `pushWatchPulse` animation when &lt;5min, muted "○ Watch" when &lt;24hr). Query on `activity_feed` WHERE action='push'. Eye-icon watch link on every commit row. `src/views/components.tsx`, `src/views/layout.tsx`, `src/routes/web.tsx`.
 - [x] 2026-06-06 **Repo overview AI stats strip** — `getRepoAiStats(repoId)` in `src/routes/web.tsx`. Shows "⚡ AI merged N PRs this week · Saved ~X hrs · N open security alerts" below file tree. Queries `activity_feed` (auto_merge), `pr_comments` (is_ai_review), `gate_runs` (security). Hidden when all zeros.
@@ -92,7 +92,7 @@ These are confirmed missing by direct code inspection.
 - [ ] **JetBrains plugin** — Same four commands as VS Code. Kotlin plugin. Covers IntelliJ, WebStorm, GoLand.
 - [x] 2026-06-06 **GitHub migration as primary CTA** — "Migrate from GitHub →" button added to landing hero and logged-out nav (accent pill). "Coming from GitHub?" callout card on explore page. Import page headline: "Migrate your GitHub org in 60 seconds."
 - [x] 2026-06-06 **Developer program page** — `src/routes/developer-program.tsx` at `/developer-program`. Hero: "Build on Gluecron. Earn revenue." Publish agent / 70% revenue share / partner badge sections. Partner application form (POST logs + redirects). Footer link added.
-- [ ] **Shareable AI hours saved card** — OG-image endpoint for Twitter/LinkedIn: "I saved 14 hours this week with Gluecron". Viral growth lever.
+- [x] 2026-06-06 **Shareable AI hours saved card** — `src/routes/share.tsx`: SVG OG image at `/share/hours-saved?user=:username` (1200×630, dark bg, green glow number). HTML share page at `/share/:username` with og:image, Twitter pre-fill, copy-link button. "Share your AI stats" link added to billing usage page. Hours: PRs×1.5 + reviews×0.5 + heals×0.3.
 - [ ] **Blog / devlog** — Monthly shipping updates. Developers follow platforms that ship visibly.
 
 ---

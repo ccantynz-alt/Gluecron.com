@@ -17,6 +17,7 @@ import {
   alreadyTrioReviewed,
   runTrioReview,
 } from "./ai-review-trio";
+import { assertAiQuota, AiQuotaExceededError } from "./billing";
 
 interface ReviewComment {
   filePath: string;
@@ -303,6 +304,29 @@ export async function triggerAiReview(
       .where(eq(pullRequests.id, prId))
       .limit(1);
     if (!pr) return;
+
+    // Hard quota gate — post a comment and bail if the user's AI budget is
+    // exhausted. This runs after loading the PR so we have authorId for the
+    // comment insert.
+    try {
+      await assertAiQuota(pr.authorId);
+    } catch (err) {
+      if (err instanceof AiQuotaExceededError) {
+        await db
+          .insert(prComments)
+          .values({
+            pullRequestId: prId,
+            authorId: pr.authorId,
+            isAiReview: true,
+            body: `${AI_REVIEW_MARKER}\n## AI review skipped\n\nYour monthly AI token budget has been reached. Upgrade at [/settings/billing](/settings/billing) to re-enable AI code review.`,
+          })
+          .catch(() => {});
+        return;
+      }
+      // Any other error from assertAiQuota is unexpected — log and proceed
+      // (fail open so a billing glitch never silently kills reviews).
+      console.warn("[ai-review] assertAiQuota failed unexpectedly:", err);
+    }
 
     let diffText = await diffBetweenBranches(
       ownerName,

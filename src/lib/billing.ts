@@ -316,3 +316,116 @@ export function formatPrice(cents: number): string {
   if (cents === 0) return "Free";
   return `$${(cents / 100).toFixed(2)}/mo`;
 }
+
+// ---------------------------------------------------------------------------
+// AI quota hard-gate helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Thrown by `assertAiQuota` when the user's AI token budget is exhausted.
+ * Callers should catch this specifically and degrade gracefully — post a
+ * comment, return a user-facing error, or skip silently — rather than letting
+ * it bubble up as an unhandled exception.
+ */
+export class AiQuotaExceededError extends Error {
+  readonly userId: string;
+  readonly planSlug: string;
+  constructor(userId: string, planSlug: string) {
+    super(
+      `AI quota exceeded for user ${userId} (plan: ${planSlug}). Upgrade at /settings/billing.`
+    );
+    this.name = "AiQuotaExceededError";
+    this.userId = userId;
+    this.planSlug = planSlug;
+  }
+}
+
+interface QuotaCacheEntry {
+  /** True = allowed, false = blocked. */
+  allowed: boolean;
+  /** Usage as a fraction of the limit (0–1). Used to emit the 90% warning. */
+  fraction: number;
+  planSlug: string;
+  expiresAt: number;
+}
+
+/** Per-user TTL cache. A simple Map is fine — the process is single-replica. */
+const _quotaCache = new Map<string, QuotaCacheEntry>();
+
+/** Cache TTL in milliseconds. */
+const QUOTA_CACHE_TTL_MS = 60_000;
+
+/**
+ * Check whether the user has AI token budget remaining, using an in-process
+ * 60-second cache to avoid a DB round-trip on every AI call.
+ *
+ * - Returns `{ allowed: true }` when usage is under 100% of the plan limit.
+ * - Returns `{ allowed: false }` when at or above the limit.
+ * - Returns `{ allowed: true, nearLimit: true }` when usage is >= 90% but
+ *   under 100%, so callers can log a warning.
+ *
+ * Fails **open** on any DB / billing error (same policy as `checkQuota`).
+ */
+export async function checkAiQuotaCached(
+  userId: string
+): Promise<{ allowed: boolean; nearLimit: boolean; planSlug: string }> {
+  if (!userId) return { allowed: true, nearLimit: false, planSlug: "free" };
+
+  const now = Date.now();
+  const cached = _quotaCache.get(userId);
+  if (cached && cached.expiresAt > now) {
+    return {
+      allowed: cached.allowed,
+      nearLimit: cached.fraction >= 0.9 && cached.allowed,
+      planSlug: cached.planSlug,
+    };
+  }
+
+  try {
+    const quota = await getUserQuota(userId);
+    const limit = quota.plan.aiTokensMonthly;
+    const used = quota.usage.aiTokensUsedThisMonth;
+    const allowed = limit <= 0 || used < limit;
+    const fraction = limit > 0 ? used / limit : 0;
+    const entry: QuotaCacheEntry = {
+      allowed,
+      fraction,
+      planSlug: quota.planSlug,
+      expiresAt: now + QUOTA_CACHE_TTL_MS,
+    };
+    _quotaCache.set(userId, entry);
+    return { allowed, nearLimit: fraction >= 0.9 && allowed, planSlug: quota.planSlug };
+  } catch {
+    // Fail open — billing is never a hard dependency for the primary path.
+    return { allowed: true, nearLimit: false, planSlug: "free" };
+  }
+}
+
+/**
+ * Invalidate the cached quota entry for a user. Call after `bumpUsage` when
+ * you want the next AI call to re-check immediately rather than waiting up to
+ * 60 seconds.
+ */
+export function invalidateQuotaCache(userId: string): void {
+  _quotaCache.delete(userId);
+}
+
+/**
+ * Assert that the user has AI token quota remaining. Throws
+ * `AiQuotaExceededError` if blocked; logs a warning (but proceeds) when
+ * usage is 90-99% of the limit.
+ *
+ * Designed to be called at the top of every AI feature entry point.
+ * Never throws on billing errors (fails open).
+ */
+export async function assertAiQuota(userId: string): Promise<void> {
+  const { allowed, nearLimit, planSlug } = await checkAiQuotaCached(userId);
+  if (nearLimit) {
+    console.warn(
+      `[billing] AI quota warning: user ${userId} (plan: ${planSlug}) is near their monthly AI token limit.`
+    );
+  }
+  if (!allowed) {
+    throw new AiQuotaExceededError(userId, planSlug);
+  }
+}

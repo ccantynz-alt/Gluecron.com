@@ -48,6 +48,7 @@ import {
   generatePatchForGateTestFinding,
   type GateTestFinding,
 } from "./ai-patch-generator";
+import { assertAiQuota, AiQuotaExceededError } from "./billing";
 
 // ---------------------------------------------------------------------------
 // Tunables
@@ -450,13 +451,10 @@ export async function healOneRun(
     return { outcome: "skipped", reason: "already processed" };
   }
 
-  const analysis = await analyzeFailedWorkflowRun(runId, {
-    client: opts.client,
-  });
-
-  // Look up the run for audit metadata (repo + sha).
+  // Look up the run for audit metadata (repo + sha) and owner for quota check.
   let repositoryId: string | null = null;
   let commitSha: string | null = null;
+  let repoOwnerId: string | null = null;
   try {
     const [row] = await db
       .select({
@@ -473,6 +471,42 @@ export async function healOneRun(
   } catch (err) {
     console.warn("[ai-ci-healer] post-analyze run lookup failed:", err);
   }
+
+  // Resolve repo owner for the quota check.
+  if (repositoryId) {
+    try {
+      const [repoRow] = await db
+        .select({ ownerId: repositories.ownerId })
+        .from(repositories)
+        .where(eq(repositories.id, repositoryId))
+        .limit(1);
+      if (repoRow) repoOwnerId = repoRow.ownerId;
+    } catch {
+      /* tolerate */
+    }
+  }
+
+  // Hard quota gate — skip silently when the repo owner's AI budget is
+  // exhausted. We don't fail the CI run; the autopilot marker is not written
+  // so the healer will retry on the next tick once budget resets.
+  if (repoOwnerId) {
+    try {
+      await assertAiQuota(repoOwnerId);
+    } catch (err) {
+      if (err instanceof AiQuotaExceededError) {
+        console.log(
+          `[ai-ci-healer] skipping run=${runId}: AI quota exceeded for owner=${repoOwnerId}`
+        );
+        return { outcome: "skipped", reason: "AI quota exceeded" };
+      }
+      // Unexpected error — log and proceed (fail open).
+      console.warn("[ai-ci-healer] assertAiQuota failed unexpectedly:", err);
+    }
+  }
+
+  const analysis = await analyzeFailedWorkflowRun(runId, {
+    client: opts.client,
+  });
 
   if (!analysis) {
     await audit({

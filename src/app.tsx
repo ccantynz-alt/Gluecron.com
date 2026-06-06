@@ -170,6 +170,7 @@ import pulseRoutes from "./routes/pulse";
 import healthScoreRoutes from "./routes/health-score";
 import hotFilesRoutes from "./routes/hot-files";
 import developerProgramRoutes from "./routes/developer-program";
+import shareRoutes from "./routes/share";
 import { authRateLimit, gitRateLimit, searchRateLimit } from "./middleware/rate-limit";
 import { csrfToken, csrfProtect } from "./middleware/csrf";
 import { noCache } from "./middleware/no-cache";
@@ -695,6 +696,12 @@ app.route("/", voiceRoutes);
 // before the web catch-all so the bare `/play` literal wins over the
 // `/:owner` user-profile route.
 app.route("/", playgroundRoutes);
+
+// Shareable AI hours-saved OG image card + landing page.
+// /share/hours-saved?user=:username  → 1200×630 SVG (og:image)
+// /share/:username                   → HTML page with og:image meta + Twitter share
+// Mounted BEFORE webRoutes so /share/* doesn't fall through to the /:owner profile route.
+app.route("/", shareRoutes);
 
 // Web UI (catch-all, must be last)
 app.route("/", webRoutes);

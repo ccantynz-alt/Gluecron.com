@@ -150,7 +150,7 @@ export async function readPlaygroundYml(
 }
 
 /**
- * Ask Claude (Haiku) to draft a playground.yml for a repo. Used when the
+ * Ask Claude (Sonnet) to draft a playground.yml for a repo. Used when the
  * repo hasn't committed one. Returns the YAML body, or
  * `DEFAULT_PLAYGROUND_YML` if AI is unavailable / errors. Never throws.
  *
@@ -164,7 +164,7 @@ export async function generatePlaygroundYml(
   try {
     const client = getAnthropic();
     const message = await client.messages.create({
-      model: MODEL_HAIKU,
+      model: MODEL_SONNET,
       max_tokens: 800,
       messages: [
         {

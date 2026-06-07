@@ -218,6 +218,12 @@ export const RepoNav: FC<{
       Security
     </a>
     <a
+      href={`/${owner}/${repo}/cloud-deployments`}
+      class={active === "deployments" ? "active" : ""}
+    >
+      Deployments
+    </a>
+    <a
       href={`/${owner}/${repo}/insights`}
       class={active === "insights" ? "active" : ""}
     >

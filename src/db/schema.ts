@@ -236,6 +236,12 @@ export const repositories = pgTable(
     dataRegion: text("data_region").default("us").notNull(),
     previewBuildCommand: text("preview_build_command"),
     previewOutputDir: text("preview_output_dir").default("dist"),
+    // Migration 0077 — opt-in flag for the AI dependency auto-updater.
+    // When true, the autopilot dep-update-sweep task reads package.json,
+    // queries npm for patch/minor updates, applies them, runs GateTest,
+    // and auto-merges (pass) or opens a PR with an AI migration guide
+    // (fail). Default false — off by default because it touches branches.
+    depUpdaterEnabled: boolean("dep_updater_enabled").default(false).notNull(),
   },
   (table) => [
     // Partial: uniqueness only in the user namespace (org-owned rows exempt).
@@ -490,6 +496,30 @@ export const codeOwners = pgTable(
 );
 
 /**
+ * PR review requests — tracks reviewers auto-assigned via CODEOWNERS
+ * or manually requested. The UNIQUE constraint prevents duplicate requests.
+ * Migration 0077.
+ */
+export const prReviewRequests = pgTable(
+  "pr_review_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    prId: uuid("pr_id")
+      .notNull()
+      .references(() => pullRequests.id, { onDelete: "cascade" }),
+    reviewerId: uuid("reviewer_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    requestedBy: uuid("requested_by").references(() => users.id),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("pr_review_requests_pr").on(table.prId),
+    index("pr_review_requests_reviewer").on(table.reviewerId),
+  ]
+);
+
+/**
  * Per-repo AI chat sessions — conversational repo assistant.
  */
 export const aiChats = pgTable(
@@ -618,6 +648,11 @@ export const issues = pgTable(
     title: text("title").notNull(),
     body: text("body"),
     state: text("state").notNull().default("open"), // open, closed
+    // Migration 0077 — milestone grouping. Optional; ON DELETE SET NULL so
+    // deleting a milestone never removes the issue.
+    milestoneId: uuid("milestone_id").references(() => milestones.id, {
+      onDelete: "set null",
+    }),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
     closedAt: timestamp("closed_at"),
@@ -625,6 +660,7 @@ export const issues = pgTable(
   (table) => [
     index("issues_repo_state").on(table.repositoryId, table.state),
     index("issues_repo_number").on(table.repositoryId, table.number),
+    index("issues_milestone").on(table.milestoneId),
   ]
 );
 
@@ -995,6 +1031,7 @@ export type Milestone = typeof milestones.$inferSelect;
 export type Reaction = typeof reactions.$inferSelect;
 export type PrReview = typeof prReviews.$inferSelect;
 export type CodeOwner = typeof codeOwners.$inferSelect;
+export type PrReviewRequest = typeof prReviewRequests.$inferSelect;
 export type AiChat = typeof aiChats.$inferSelect;
 export type AuditLogEntry = typeof auditLog.$inferSelect;
 export type Deployment = typeof deployments.$inferSelect;
@@ -4254,3 +4291,183 @@ export const prPreviews = pgTable(
 
 export type PrPreview = typeof prPreviews.$inferSelect;
 export type NewPrPreview = typeof prPreviews.$inferInsert;
+
+// ----------------------------------------------------------------------------
+// Migration 0092 — Enterprise SSO (SAML 2.0 + OIDC per-org) + SCIM
+// ----------------------------------------------------------------------------
+
+/**
+ * Per-org SSO configuration. One row per org. Supports both SAML 2.0 and OIDC.
+ * Distinct from the site-wide `sso_config` table (Block I10 / OIDC-only).
+ */
+export const orgSsoConfigs = pgTable("org_sso_configs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  orgId: uuid("org_id")
+    .notNull()
+    .unique()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  provider: text("provider").notNull().default("saml"), // 'saml' | 'oidc'
+  // SAML fields
+  idpEntityId: text("idp_entity_id"),
+  idpSsoUrl: text("idp_sso_url"),
+  idpCertificate: text("idp_certificate"), // PEM cert from IdP
+  spEntityId: text("sp_entity_id"),         // our SP entity ID
+  // OIDC fields
+  oidcClientId: text("oidc_client_id"),
+  oidcClientSecret: text("oidc_client_secret"),
+  oidcDiscoveryUrl: text("oidc_discovery_url"),
+  // Common
+  domainHint: text("domain_hint"), // e.g. "acme.com" — auto-routes users from this domain
+  attributeMapping: jsonb("attribute_mapping")
+    .$type<Record<string, string>>()
+    .default({ email: "email", name: "name", username: "preferred_username" }),
+  enabled: boolean("enabled").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+/**
+ * SCIM provisioning tokens. Hashed SHA-256 bearer tokens issued per-org.
+ * Identity providers (Okta, Azure AD) use these to provision/deprovision users.
+ */
+export const scimTokens = pgTable("scim_tokens", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  orgId: uuid("org_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  tokenHash: text("token_hash").notNull().unique(), // SHA-256 of the token
+  createdBy: uuid("created_by")
+    .notNull()
+    .references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  lastUsedAt: timestamp("last_used_at"),
+});
+
+/**
+ * Tracks active IdP-initiated SSO sessions per org. Allows per-org
+ * SLO (Single Logout) and session audit.
+ */
+export const orgSsoSessions = pgTable(
+  "org_sso_sessions",
+
+// Migration 0077 — Incident hook configs
+// Maps a monitoring provider (PagerDuty / Datadog / Opsgenie / generic) to a
+// specific repo. Inbound webhooks are validated against secret_hash (SHA-256
+// of the user-chosen webhook secret passed in the ?secret= query param).
+// ---------------------------------------------------------------------------
+export const incidentHookConfigs = pgTable(
+  "incident_hook_configs",
+>>>>>>> 9953332 (feat: production incident auto-fix — PagerDuty/Datadog webhook → AI-generated fix PR)
+
+
+>>>>>>> 3a845e4 (feat: enterprise SSO (SAML 2.0 + OIDC) and SCIM user provisioning)
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    idpSessionId: text("idp_session_id"),
+    createdAt: timestamp("created_at").defaultNow(),
+    expiresAt: timestamp("expires_at").notNull(),
+  },
+  (table) => [
+    index("org_sso_sessions_user").on(table.userId),
+    index("org_sso_sessions_expires").on(table.expiresAt),
+  ]
+);
+
+export type OrgSsoConfig = typeof orgSsoConfigs.$inferSelect;
+export type NewOrgSsoConfig = typeof orgSsoConfigs.$inferInsert;
+export type ScimToken = typeof scimTokens.$inferSelect;
+export type OrgSsoSession = typeof orgSsoSessions.$inferSelect;
+
+    repoId: uuid("repo_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    /** 'pagerduty' | 'datadog' | 'opsgenie' | 'generic' */
+    provider: text("provider").notNull(),
+    /** SHA-256 hex of the user's plaintext webhook secret. */
+    secretHash: text("secret_hash").notNull(),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("incident_hook_configs_repo_provider").on(
+      table.repoId,
+      table.provider
+    ),
+    index("incident_hook_configs_user").on(table.userId),
+  ]
+);
+
+export type IncidentHookConfig = typeof incidentHookConfigs.$inferSelect;
+export type NewIncidentHookConfig = typeof incidentHookConfigs.$inferInsert;
+>>>>>>> 9953332 (feat: production incident auto-fix — PagerDuty/Datadog webhook → AI-generated fix PR)
+
+
+>>>>>>> 3a845e4 (feat: enterprise SSO (SAML 2.0 + OIDC) and SCIM user provisioning)
+
+/**
+ * Cloud deploy configurations — per-repo settings for push-triggered deploys
+ * to Fly.io, Railway, Render, Vercel, Netlify, or a generic webhook URL.
+ * Migration 0077.
+ */
+export const cloudDeployConfigs = pgTable(
+  "cloud_deploy_configs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repoId: uuid("repo_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    // 'fly' | 'railway' | 'render' | 'vercel' | 'netlify' | 'webhook'
+    provider: text("provider").notNull(),
+    // Fly app name, Railway service ID, Render service ID, Vercel project ID, webhook URL
+    providerAppId: text("provider_app_id").notNull(),
+    // AES-256-GCM encrypted via SERVER_TARGETS_KEY
+    apiTokenEncrypted: text("api_token_encrypted").notNull(),
+    triggerBranch: text("trigger_branch").notNull().default("main"),
+    enabled: boolean("enabled").notNull().default(true),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => [index("cloud_deploy_configs_repo").on(table.repoId)]
+);
+
+/**
+ * Cloud deployment runs — one row per triggered deployment attempt.
+ * Status transitions: pending -> running -> success | failed | cancelled.
+ * Migration 0077.
+ */
+export const cloudDeployments = pgTable(
+  "cloud_deployments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    configId: uuid("config_id")
+      .notNull()
+      .references(() => cloudDeployConfigs.id, { onDelete: "cascade" }),
+    repoId: uuid("repo_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    commitSha: text("commit_sha").notNull(),
+    // pending | running | success | failed | cancelled
+    status: text("status").notNull().default("pending"),
+    providerDeployId: text("provider_deploy_id"),
+    logUrl: text("log_url"),
+    deployUrl: text("deploy_url"),
+    errorMessage: text("error_message"),
+    startedAt: timestamp("started_at").defaultNow(),
+    completedAt: timestamp("completed_at"),
+    durationMs: integer("duration_ms"),
+  },
+  (table) => [
+    index("cloud_deployments_repo").on(table.repoId, table.startedAt),
+    index("cloud_deployments_config").on(table.configId, table.startedAt),
+  ]
+);
+
+export type CloudDeployConfig = typeof cloudDeployConfigs.$inferSelect;
+export type NewCloudDeployConfig = typeof cloudDeployConfigs.$inferInsert;
+export type CloudDeployment = typeof cloudDeployments.$inferSelect;
+export type NewCloudDeployment = typeof cloudDeployments.$inferInsert;
+>>>>>>> b11ffa9 (feat: multi-cloud deploy integration — push to main deploys to Fly/Railway/Render/Vercel)

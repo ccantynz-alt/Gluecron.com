@@ -1,0 +1,23 @@
+{
+  "expo": {
+    "name": "Gluecron",
+    "slug": "gluecron",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "backgroundColor": "#08090f"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.gluecron.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#08090f"
+      },
+      "package": "com.gluecron.app"
+    }
+  }
+}

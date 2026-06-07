@@ -62,7 +62,7 @@ const RUN_LOG_CAP_BYTES = 32 * 1024;
 const COST_CATEGORY: AiCostCategory = "other";
 
 /** Default model fallback when the snippet didn't tell us what it ran. */
-const DEFAULT_MODEL = "claude-haiku-4-5";
+const DEFAULT_MODEL = "claude-sonnet-4-6";
 
 // ---------------------------------------------------------------------------
 // Pure helpers
@@ -170,7 +170,7 @@ const input = JSON.parse(process.env.INPUT || "{}");
 const repo = input.repo || "ccantynz-alt/Gluecron.com";
 
 const result = await client.messages.create({
-  model: "claude-haiku-4-5",
+  model: "claude-sonnet-4-6",
   max_tokens: 1024,
   messages: [
     { role: "user", content: \`Summarise repo \${repo} in 3 bullets\` },

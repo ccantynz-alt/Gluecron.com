@@ -71,6 +71,7 @@ import { expireIdleEnvs } from "./dev-env";
 import { expireOldPreviews } from "./branch-previews";
 import { getBotUserIdOrFallback } from "./bot-user";
 import { runOnboardingDripTaskOnce } from "./onboarding-drip";
+import { runDepUpdateSweepOnce } from "./dep-updater-sweep";
 
 export interface AutopilotTaskResult {
   name: string;
@@ -158,6 +159,14 @@ let _lastPrSandboxCleanupAt = 0;
  */
 const DEV_ENV_IDLE_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
 let _lastDevEnvIdleSweepAt = 0;
+/**
+ * AI dependency auto-updater cadence (migration 0077). Once per day is
+ * plenty — the task itself caps at 10 repos and 2 candidates per repo,
+ * keeping npm registry traffic low. Skips when DEP_UPDATER_ENABLED env
+ * flag is not set to "1".
+ */
+const DEP_UPDATE_SWEEP_INTERVAL_MS = 24 * 60 * 60 * 1000;
+let _lastDepUpdateSweepAt = 0;
 /**
  * Advancement scanner cadence. Designed to run weekly on Mondays at
  * 08:00 UTC. The task itself is the cheap gate (checks both day-of-week
@@ -659,6 +668,30 @@ export function defaultTasks(): AutopilotTask[] {
           }
         } catch (err) {
           console.error("[autopilot] onboarding-drip: threw:", err);
+        }
+      },
+    },
+    {
+      // AI dependency auto-updater (migration 0077). Once per day: scans
+      // up to 10 repos with depUpdaterEnabled=true, checks for patch/minor
+      // npm updates, applies them, runs GateTest, and either auto-merges
+      // (green) or opens a PR with an AI migration guide (red). Skips
+      // when DEP_UPDATER_ENABLED env flag is not set to "1".
+      name: "dep-update-sweep",
+      run: async () => {
+        if (process.env.DEP_UPDATER_ENABLED !== "1") return;
+        const now = Date.now();
+        if (now - _lastDepUpdateSweepAt < DEP_UPDATE_SWEEP_INTERVAL_MS) {
+          return;
+        }
+        _lastDepUpdateSweepAt = now;
+        try {
+          const summary = await runDepUpdateSweepOnce();
+          console.log(
+            `[autopilot] dep-update-sweep: repos=${summary.repos} runs=${summary.runs} merged=${summary.merged} prs=${summary.prs} skipped=${summary.skipped} errors=${summary.errors}`
+          );
+        } catch (err) {
+          console.error("[autopilot] dep-update-sweep: threw:", err);
         }
       },
     },

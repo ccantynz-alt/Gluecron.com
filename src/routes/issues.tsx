@@ -13,6 +13,7 @@ import {
   labels,
   issueLabels,
   pullRequests,
+  milestones,
 } from "../db/schema";
 import { Layout } from "../views/layout";
 import { RepoHeader, RepoNav } from "../views/components";
@@ -57,6 +58,7 @@ import {
 } from "../views/ui";
 import { getDefaultBranch, resolveRef, updateRef } from "../git/repository";
 import { BOT_USERNAME } from "../lib/bot-user";
+import { isAiAvailable } from "../lib/ai-client";
 
 const issueRoutes = new Hono<AuthEnv>();
 
@@ -817,6 +819,7 @@ issueRoutes.get("/:owner/:repo/issues", softAuth, requireRepoAccess("read"), asy
   const state = c.req.query("state") || "open";
   const searchQ = (c.req.query("q") || "").trim();
   const labelFilter = (c.req.query("label") || "").trim();
+  const milestoneFilter = (c.req.query("milestone") || "").trim();
   const sort = (c.req.query("sort") || "newest").trim();
   // Bounded pagination — unbounded selects ran a full table scan + O(n)
   // sort on every page load; with 10k+ issues the request would hang.
@@ -892,6 +895,17 @@ issueRoutes.get("/:owner/:repo/issues", softAuth, requireRepoAccess("read"), asy
     }
   }
 
+  // If milestone filter is set, resolve the milestone ID
+  let milestoneFilterId: string | null = null;
+  if (milestoneFilter) {
+    const [matchedMs] = await db
+      .select({ id: milestones.id })
+      .from(milestones)
+      .where(and(eq(milestones.repositoryId, repo.id), eq(milestones.id, milestoneFilter)))
+      .limit(1);
+    milestoneFilterId = matchedMs?.id ?? null;
+  }
+
   const baseWhere = and(
     eq(issues.repositoryId, repo.id),
     state === "open" || state === "closed" ? eq(issues.state, state) : undefined,
@@ -900,7 +914,8 @@ issueRoutes.get("/:owner/:repo/issues", softAuth, requireRepoAccess("read"), asy
       ? inArray(issues.id, labelFilteredIds)
       : labelFilteredIds !== null && labelFilteredIds.length === 0
         ? sql`false`
-        : undefined
+        : undefined,
+    milestoneFilterId ? eq(issues.milestoneId, milestoneFilterId) : undefined
   );
 
   const issueList = await db
@@ -927,6 +942,14 @@ issueRoutes.get("/:owner/:repo/issues", softAuth, requireRepoAccess("read"), asy
     })
     .from(issues)
     .where(eq(issues.repositoryId, repo.id));
+
+  // Count open milestones for the "N Milestones" link
+  const [milestoneCounts] = await db
+    .select({
+      open: sql<number>`count(*) filter (where ${milestones.state} = 'open')::int`,
+    })
+    .from(milestones)
+    .where(eq(milestones.repositoryId, repo.id));
 
   const viewerIsOwnerOnList = !!(user && user.id === resolved.owner.id);
   const pendingCountList = viewerIsOwnerOnList
@@ -973,6 +996,18 @@ issueRoutes.get("/:owner/:repo/issues", softAuth, requireRepoAccess("read"), asy
                 + New issue
               </a>
             )}
+            <a
+              href={`/${ownerName}/${repoName}/milestones`}
+              class="btn"
+              title="View milestones for this repository"
+            >
+              Milestones
+              {Number(milestoneCounts?.open ?? 0) > 0 && (
+                <span style="margin-left:5px;font-size:11.5px;background:rgba(140,109,255,0.18);color:#a78bfa;padding:1px 7px;border-radius:9999px">
+                  {Number(milestoneCounts?.open ?? 0)}
+                </span>
+              )}
+            </a>
             <a href={`/${ownerName}/${repoName}`} class="btn">
               Back to code
             </a>
@@ -1149,6 +1184,16 @@ issueRoutes.get(
     const error = c.req.query("error");
     const template = await loadIssueTemplate(ownerName, repoName);
 
+    // Load open milestones for the dropdown
+    const resolved = await resolveRepo(ownerName, repoName);
+    const openMilestones = resolved
+      ? await db
+          .select({ id: milestones.id, title: milestones.title })
+          .from(milestones)
+          .where(and(eq(milestones.repositoryId, resolved.repo.id), eq(milestones.state, "open")))
+          .orderBy(milestones.title)
+      : [];
+
     return c.html(
       <Layout title={`New issue — ${ownerName}/${repoName}`} user={user}>
         <IssuesStyle />
@@ -1200,6 +1245,26 @@ issueRoutes.get(
                 mono
               />
             </FormGroup>
+            {openMilestones.length > 0 && (
+              <FormGroup>
+                <label
+                  for="milestone_id"
+                  style="display:block;font-size:13px;font-weight:600;color:var(--text);margin-bottom:6px"
+                >
+                  Milestone <span style="font-weight:400;color:var(--text-muted)">(optional)</span>
+                </label>
+                <select
+                  id="milestone_id"
+                  name="milestone_id"
+                  style="background:var(--bg-surface);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;padding:8px 12px;outline:none;width:100%;max-width:340px"
+                >
+                  <option value="">No milestone</option>
+                  {openMilestones.map((ms) => (
+                    <option value={ms.id}>{ms.title}</option>
+                  ))}
+                </select>
+              </FormGroup>
+            )}
             <Button type="submit" variant="primary">
               Submit new issue
             </Button>
@@ -1222,6 +1287,7 @@ issueRoutes.post(
     const body = await c.req.parseBody();
     const title = String(body.title || "").trim();
     const issueBody = String(body.body || "").trim();
+    const milestoneIdRaw = String(body.milestone_id || "").trim() || null;
 
     if (!title) {
       return c.redirect(
@@ -1232,6 +1298,17 @@ issueRoutes.post(
     const resolved = await resolveRepo(ownerName, repoName);
     if (!resolved) return c.redirect(`/${ownerName}/${repoName}`);
 
+    // Validate milestone belongs to this repo if provided
+    let validatedMilestoneId: string | null = null;
+    if (milestoneIdRaw) {
+      const [msRow] = await db
+        .select({ id: milestones.id })
+        .from(milestones)
+        .where(and(eq(milestones.id, milestoneIdRaw), eq(milestones.repositoryId, resolved.repo.id)))
+        .limit(1);
+      validatedMilestoneId = msRow?.id ?? null;
+    }
+
     const [issue] = await db
       .insert(issues)
       .values({
@@ -1239,6 +1316,7 @@ issueRoutes.post(
         authorId: user.id,
         title,
         body: issueBody || null,
+        milestoneId: validatedMilestoneId,
       })
       .returning();
 
@@ -1454,6 +1532,23 @@ issueRoutes.get("/:owner/:repo/issues/:number", softAuth, requireRepoAccess("rea
               >
                 Build with AI
               </a>
+            )}
+            {issue.state === "open" && user && isAiAvailable() && (
+              <form
+                method="post"
+                action={`/${ownerName}/${repoName}/issues/${issue.number}/ship`}
+                style="display:inline"
+                title="Let AI implement this feature automatically"
+              >
+                <button
+                  type="submit"
+                  class="btn btn-primary"
+                  style="font-size:13px;padding:6px 12px;background:linear-gradient(135deg,#8c6dff,#36c5d6);border:none;cursor:pointer"
+                  onclick="return confirm('Ship Agent will read the codebase, write code, and open a PR automatically. Review the PR before merging. Continue?')"
+                >
+                  Ship It
+                </button>
+              </form>
             )}
             {issue.state === "open" && user && (
               <details class="issue-branch-dropdown" style="position:relative;display:inline-block">
@@ -1698,6 +1793,19 @@ issueRoutes.post(
         });
       } catch {
         /* SSE is best-effort */
+      }
+      // Notify the issue author — fire-and-forget, never blocks the response.
+      if (issue.authorId && issue.authorId !== user.id) {
+        void import("../lib/notify").then(({ createNotification }) =>
+          createNotification({
+            userId: issue.authorId,
+            type: "issue_comment",
+            title: `New comment on "${issue.title}"`,
+            body: commentBody.length > 200 ? commentBody.slice(0, 200) + "…" : commentBody,
+            url: `/${ownerName}/${repoName}/issues/${issueNum}`,
+            repoId: resolved.repo.id,
+          })
+        ).catch(() => { /* never block the response */ });
       }
     }
 

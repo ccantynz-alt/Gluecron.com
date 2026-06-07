@@ -129,6 +129,19 @@ import {
   reviewersForChangedFiles,
 } from "../lib/codeowners";
 import { checkMergeEligible } from "../lib/branch-rules";
+import {
+  joinRoom,
+  leaveRoom,
+  updatePresence,
+  pingSession,
+  getRoomUsers,
+  broadcastToRoom,
+  registerSocket,
+  unregisterSocket,
+} from "../lib/pr-presence";
+import { upgradeWebSocket, websocket as presenceWebsocket } from "hono/bun";
+
+export { presenceWebsocket };
 
 const pulls = new Hono<AuthEnv>();
 
@@ -1477,6 +1490,121 @@ const PRS_DETAIL_STYLES = `
   }
 `;
 
+/* ──────────────────────────────────────────────────────────────────────
+ * Figma-style collaborative PR presence — styles for the presence bar
+ * above the diff and the per-line reviewer cursor pills. All scoped
+ * with `.presence-*` prefix so they never bleed into other views.
+ * ──────────────────────────────────────────────────────────────────── */
+const PRESENCE_STYLES = `
+  .presence-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 14px;
+    margin: 0 0 10px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    font-size: 12.5px;
+    color: var(--text-muted);
+    min-height: 38px;
+  }
+  .presence-bar-label {
+    font-weight: 600;
+    color: var(--text-muted);
+    flex-shrink: 0;
+  }
+  .presence-avatars {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 1;
+    flex-wrap: wrap;
+  }
+  .presence-avatar {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 8px 3px 4px;
+    border-radius: 9999px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #fff;
+    opacity: 0.92;
+    transition: opacity 200ms;
+  }
+  .presence-avatar-dot {
+    width: 20px; height: 20px;
+    border-radius: 9999px;
+    background: rgba(255,255,255,0.22);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+  .presence-count {
+    font-size: 12px;
+    color: var(--text-faint);
+    flex-shrink: 0;
+  }
+  /* Per-line reviewer cursor pill — injected by JS into .diff-row */
+  .presence-line-pill {
+    position: absolute;
+    right: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 7px;
+    border-radius: 9999px;
+    font-size: 10.5px;
+    font-weight: 600;
+    color: #fff;
+    pointer-events: none;
+    white-space: nowrap;
+    z-index: 10;
+    opacity: 0.88;
+    animation: presence-in 160ms ease;
+  }
+  @keyframes presence-in {
+    from { opacity: 0; transform: translateY(-50%) scale(0.85); }
+    to   { opacity: 0.88; transform: translateY(-50%) scale(1); }
+  }
+  .presence-line-pill.is-typing::after {
+    content: '…';
+    opacity: 0.7;
+  }
+  /* diff rows with a cursor pill need relative positioning */
+  .diff-row { position: relative; }
+  /* Toast for join/leave events */
+  .presence-toast-wrap {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    z-index: 9999;
+    pointer-events: none;
+  }
+  .presence-toast {
+    padding: 8px 14px;
+    border-radius: 8px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    box-shadow: 0 6px 20px -8px rgba(0,0,0,0.55);
+    font-size: 13px;
+    color: var(--text);
+    opacity: 1;
+    transition: opacity 400ms;
+  }
+  .presence-toast.fading { opacity: 0; }
+`;
+
+
 /**
  * Tiny inline JS that drives the "Suggest description with AI" button.
  * On click, gathers form values, POSTs JSON to the given endpoint, and
@@ -1534,6 +1662,197 @@ function AI_PR_DESC_SCRIPT(endpointUrl: string): string {
  * All endpoint URLs are JSON-escaped via safe replacements so they
  * can't break out of the <script> tag.
  */
+
+/**
+ * Figma-style collaborative PR presence client (WebSocket).
+ *
+ * Connects to `GET /:owner/:repo/pulls/:number/presence` (WebSocket upgrade).
+ * On connect the server sends `{type:"init", users:[...]}` so the bar renders
+ * immediately. Subsequent messages from the server drive the presence bar and
+ * per-line cursor pills in the diff.
+ *
+ * Outbound messages:
+ *   {type:"cursor", line: N}   — user hovered a diff line
+ *   {type:"typing", line: N, typing: bool}  — textarea focus/blur in diff
+ *   {type:"ping"}              — keep-alive every 10s
+ *
+ * Inbound messages:
+ *   {type:"init",   users:[{sessionId,username,colour,line,typing}]}
+ *   {type:"join",   user:{sessionId,username,colour,line,typing}}
+ *   {type:"leave",  sessionId}
+ *   {type:"cursor", sessionId, username, colour, line}
+ *   {type:"typing", sessionId, username, colour, line, typing}
+ */
+function PR_PRESENCE_SCRIPT(owner: string, repo: string, prNum: number): string {
+  const wsPath = JSON.stringify(`/${owner}/${repo}/pulls/${prNum}/presence`)
+    .split("<").join("\\u003C")
+    .split(">").join("\\u003E")
+    .split("&").join("\\u0026");
+  return `(function(){
+try{
+var wsPath=${wsPath};
+var proto=location.protocol==='https:'?'wss:':'ws:';
+var url=proto+'//'+location.host+wsPath;
+var mySessionId=null;
+// sessionId -> {username, colour, line, typing}
+var peers={};
+var ws=null;
+var pingTimer=null;
+var reconnectDelay=1500;
+var reconnectTimer=null;
+
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+
+// ── Toast ──────────────────────────────────────────────────────────────
+var toastWrap=document.getElementById('presence-toasts');
+function toast(msg){
+  if(!toastWrap)return;
+  var t=document.createElement('div');
+  t.className='presence-toast';
+  t.textContent=msg;
+  toastWrap.appendChild(t);
+  setTimeout(function(){t.classList.add('fading');setTimeout(function(){if(t.parentNode)t.parentNode.removeChild(t);},420);},2500);
+}
+
+// ── Presence bar ───────────────────────────────────────────────────────
+var avEl=document.getElementById('presence-avatars');
+var countEl=document.getElementById('presence-count');
+function renderBar(){
+  if(!avEl)return;
+  var ids=Object.keys(peers);
+  var html='';
+  for(var i=0;i<ids.length&&i<8;i++){
+    var p=peers[ids[i]];
+    var initials=(p.username||'?').slice(0,2).toUpperCase();
+    html+='<span class="presence-avatar" style="background:'+esc(p.colour)+'" title="'+esc(p.username)+'">';
+    html+='<span class="presence-avatar-dot">'+esc(initials)+'</span>';
+    html+=esc(p.username);
+    html+='</span>';
+  }
+  avEl.innerHTML=html;
+  if(countEl){
+    var n=ids.length;
+    countEl.textContent=n===0?'No other reviewers':n===1?'1 reviewer online':n+' reviewers online';
+  }
+}
+
+// ── Diff cursor pills ──────────────────────────────────────────────────
+// data-line value is like "12:x:5" or "12:5:x" — pull numeric line only
+function lineNumFromKey(key){var m=String(key).match(/(\d+)/);return m?parseInt(m[1],10):null;}
+function findDiffRow(line){return document.querySelector('[data-line]') &&
+  (function(){var rows=document.querySelectorAll('[data-line]');
+    for(var i=0;i<rows.length;i++){var n=lineNumFromKey(rows[i].getAttribute('data-line')||'');if(n===line)return rows[i];}
+    return null;
+  })();}
+function removePill(sessionId){var old=document.querySelector('[data-presence-sid="'+sessionId+'"]');if(old&&old.parentNode)old.parentNode.removeChild(old);}
+function placePill(sessionId,username,colour,line,typing){
+  removePill(sessionId);
+  if(line==null)return;
+  var row=findDiffRow(line);if(!row)return;
+  var pill=document.createElement('span');
+  pill.className='presence-line-pill'+(typing?' is-typing':'');
+  pill.setAttribute('data-presence-sid',sessionId);
+  pill.style.background=colour||'#8c6dff';
+  pill.textContent=(username||'?').slice(0,12)+(typing?' typing':'');
+  row.appendChild(pill);
+}
+function clearPeer(sessionId){removePill(sessionId);delete peers[sessionId];}
+
+// ── Inbound message handler ────────────────────────────────────────────
+function onMsg(raw){
+  var d;try{d=JSON.parse(raw);}catch(e){return;}
+  if(!d||!d.type)return;
+  if(d.type==='init'){
+    mySessionId=d.sessionId||null;
+    peers={};
+    (d.users||[]).forEach(function(u){
+      if(u.sessionId===mySessionId)return;
+      peers[u.sessionId]={username:u.username,colour:u.colour,line:u.line,typing:u.typing};
+      placePill(u.sessionId,u.username,u.colour,u.line,u.typing);
+    });
+    renderBar();
+  } else if(d.type==='join'){
+    if(d.user&&d.user.sessionId!==mySessionId){
+      peers[d.user.sessionId]={username:d.user.username,colour:d.user.colour,line:d.user.line,typing:d.user.typing};
+      renderBar();
+      toast(esc(d.user.username)+' joined the review');
+    }
+  } else if(d.type==='leave'){
+    if(d.sessionId&&d.sessionId!==mySessionId){
+      var name=peers[d.sessionId]&&peers[d.sessionId].username;
+      clearPeer(d.sessionId);
+      renderBar();
+      if(name)toast(esc(name)+' left the review');
+    }
+  } else if(d.type==='cursor'){
+    if(d.sessionId&&d.sessionId!==mySessionId){
+      if(peers[d.sessionId]){peers[d.sessionId].line=d.line;peers[d.sessionId].typing=false;}
+      placePill(d.sessionId,d.username,d.colour,d.line,false);
+    }
+  } else if(d.type==='typing'){
+    if(d.sessionId&&d.sessionId!==mySessionId){
+      if(peers[d.sessionId]){peers[d.sessionId].line=d.line;peers[d.sessionId].typing=d.typing;}
+      placePill(d.sessionId,d.username,d.colour,d.line,d.typing);
+    }
+  }
+}
+
+// ── Outbound helpers ───────────────────────────────────────────────────
+function send(obj){try{if(ws&&ws.readyState===1)ws.send(JSON.stringify(obj));}catch(e){}}
+
+// ── Mouse hover on diff rows ───────────────────────────────────────────
+var hoverTimer=null;
+document.addEventListener('mouseover',function(ev){
+  var row=ev.target&&ev.target.closest&&ev.target.closest('[data-line]');
+  if(!row)return;
+  if(hoverTimer)clearTimeout(hoverTimer);
+  hoverTimer=setTimeout(function(){
+    var key=row.getAttribute('data-line')||'';
+    var line=lineNumFromKey(key);
+    if(line!=null)send({type:'cursor',line:line});
+  },80);
+});
+
+// ── Typing detection in diff comment textareas ─────────────────────────
+document.addEventListener('focusin',function(ev){
+  var ta=ev.target;
+  if(!ta||ta.tagName!=='TEXTAREA')return;
+  var row=ta.closest&&ta.closest('[data-line]');if(!row)return;
+  var line=lineNumFromKey(row.getAttribute('data-line')||'');
+  if(line!=null)send({type:'typing',line:line,typing:true});
+});
+document.addEventListener('focusout',function(ev){
+  var ta=ev.target;
+  if(!ta||ta.tagName!=='TEXTAREA')return;
+  var row=ta.closest&&ta.closest('[data-line]');if(!row)return;
+  var line=lineNumFromKey(row.getAttribute('data-line')||'');
+  if(line!=null)send({type:'typing',line:line,typing:false});
+});
+
+// ── WebSocket lifecycle ────────────────────────────────────────────────
+function connect(){
+  if(reconnectTimer){clearTimeout(reconnectTimer);reconnectTimer=null;}
+  try{ws=new WebSocket(url);}catch(e){scheduleReconnect();return;}
+  ws.onopen=function(){
+    reconnectDelay=1500;
+    pingTimer=setInterval(function(){send({type:'ping'});},10000);
+  };
+  ws.onmessage=function(ev){onMsg(ev.data);};
+  ws.onclose=function(){
+    if(pingTimer){clearInterval(pingTimer);pingTimer=null;}
+    scheduleReconnect();
+  };
+  ws.onerror=function(){try{ws.close();}catch(e){}};
+}
+function scheduleReconnect(){
+  reconnectTimer=setTimeout(function(){connect();},reconnectDelay);
+  reconnectDelay=Math.min(reconnectDelay*2,30000);
+}
+
+connect();
+}catch(e){}})();`;
+}
+
 function LIVE_COEDIT_SCRIPT(prId: string): string {
   const idJson = JSON.stringify(prId)
     .split("<").join("\\u003C")
@@ -3892,6 +4211,25 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
       <script dangerouslySetInnerHTML={{ __html: markdownPreviewScript() }} />
       <script dangerouslySetInnerHTML={{ __html: ctrlEnterSubmitScript() + codeBlockCopyScript() }} />
 
+      {/* Presence styles + bar (shown only on the files tab so cursor pills work) */}
+      <style dangerouslySetInnerHTML={{ __html: PRESENCE_STYLES }} />
+      {/* Toast container — always present for join/leave toasts */}
+      <div id="presence-toasts" class="presence-toast-wrap" aria-live="polite" />
+      {user && (
+        <>
+          <div class="presence-bar" id="presence-bar">
+            <span class="presence-bar-label">Live reviewers</span>
+            <div class="presence-avatars" id="presence-avatars" />
+            <span class="presence-count" id="presence-count">Loading…</span>
+          </div>
+          <script
+            dangerouslySetInnerHTML={{
+              __html: PR_PRESENCE_SCRIPT(ownerName, repoName, pr.number),
+            }}
+          />
+        </>
+      )}
+
       <nav class="prs-detail-tabs" aria-label="Pull request sections">
         <a
           class={`prs-detail-tab${tab === "conversation" ? " is-active" : ""}`}
@@ -5564,6 +5902,154 @@ pulls.post(
       `/${ownerName}/${repoName}/pulls/${prNum}?info=${encodeURIComponent(msg)}`
     );
   }
+);
+
+// ─── WebSocket presence endpoint ─────────────────────────────────────────────
+//
+// GET /:owner/:repo/pulls/:number/presence  (WebSocket upgrade)
+//
+// Unauthenticated connections are rejected with 401. On connect:
+//   → server sends {type:"init", sessionId, users:[...]}
+//   → server broadcasts {type:"join", user} to all other sessions in the room
+//
+// Accepted client messages:
+//   {type:"cursor",  line: number}             — user hovering a diff line
+//   {type:"typing",  line: number, typing: bool} — textarea focus/blur
+//   {type:"ping"}                              — keep-alive (updates lastSeen)
+//
+// The WS `data` payload we store on each socket carries everything needed in
+// the event handlers so no closure tricks are required.
+
+pulls.get(
+  "/:owner/:repo/pulls/:number/presence",
+  softAuth,
+  upgradeWebSocket(async (c) => {
+    const { owner: ownerName, repo: repoName, number: prNumStr } = c.req.param();
+    const prNum = parseInt(prNumStr ?? "0", 10);
+    const user = c.get("user");
+
+    // Auth check — no anonymous presence
+    if (!user) {
+      // upgradeWebSocket doesn't support returning a non-101 directly;
+      // we return a dummy handler that immediately closes with 4001.
+      return {
+        onOpen(_evt: Event, ws: import("hono/ws").WSContext) {
+          ws.close(4001, "Unauthorized");
+        },
+        onMessage() {},
+        onClose() {},
+      };
+    }
+
+    // Resolve repo to get its numeric id for the room key
+    const resolved = await resolveRepo(ownerName, repoName);
+    if (!resolved || isNaN(prNum)) {
+      return {
+        onOpen(_evt: Event, ws: import("hono/ws").WSContext) {
+          ws.close(4004, "Not found");
+        },
+        onMessage() {},
+        onClose() {},
+      };
+    }
+
+    const prId = `${resolved.repo.id}:${prNum}`;
+    const sessionId = `${user.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
+    return {
+      onOpen(_evt: Event, ws: import("hono/ws").WSContext) {
+        // Register and join room
+        registerSocket(prId, sessionId, {
+          send: (data: string) => ws.send(data),
+          readyState: ws.readyState,
+        });
+        const presenceUser = joinRoom(prId, sessionId, {
+          userId: user.id,
+          username: user.username,
+        });
+
+        // Send init snapshot to the new joiner
+        const currentUsers = getRoomUsers(prId);
+        ws.send(
+          JSON.stringify({
+            type: "init",
+            sessionId,
+            users: currentUsers,
+          })
+        );
+
+        // Broadcast join to all OTHER sessions
+        broadcastToRoom(
+          prId,
+          {
+            type: "join",
+            user: { ...presenceUser, sessionId },
+          },
+          sessionId
+        );
+      },
+
+      onMessage(evt: MessageEvent, _ws: import("hono/ws").WSContext) {
+        let msg: { type: string; line?: number; typing?: boolean };
+        try {
+          msg = JSON.parse(typeof evt.data === "string" ? evt.data : String(evt.data));
+        } catch {
+          return;
+        }
+
+        if (msg.type === "ping") {
+          pingSession(prId, sessionId);
+          return;
+        }
+
+        if (msg.type === "cursor") {
+          const line = typeof msg.line === "number" ? msg.line : null;
+          const updated = updatePresence(prId, sessionId, line, false);
+          if (updated) {
+            broadcastToRoom(
+              prId,
+              {
+                type: "cursor",
+                sessionId,
+                username: updated.username,
+                colour: updated.colour,
+                line,
+              },
+              sessionId
+            );
+          }
+          return;
+        }
+
+        if (msg.type === "typing") {
+          const line = typeof msg.line === "number" ? msg.line : null;
+          const typing = !!msg.typing;
+          const updated = updatePresence(prId, sessionId, line, typing);
+          if (updated) {
+            broadcastToRoom(
+              prId,
+              {
+                type: "typing",
+                sessionId,
+                username: updated.username,
+                colour: updated.colour,
+                line,
+                typing,
+              },
+              sessionId
+            );
+          }
+          return;
+        }
+      },
+
+      onClose() {
+        leaveRoom(prId, sessionId);
+        unregisterSocket(prId, sessionId);
+        broadcastToRoom(prId, { type: "leave", sessionId });
+      },
+    };
+  })
 );
 
 export default pulls;

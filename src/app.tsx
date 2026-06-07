@@ -189,6 +189,7 @@ import { staleBranchRoutes } from "./routes/stale-branches";
 import pulseRoutes from "./routes/pulse";
 import healthScoreRoutes from "./routes/health-score";
 import hotFilesRoutes from "./routes/hot-files";
+import debtMapRoutes from "./routes/debt-map";
 import developerProgramRoutes from "./routes/developer-program";
 import shareRoutes from "./routes/share";
 import incidentHookRoutes from "./routes/incident-hooks";
@@ -733,6 +734,8 @@ app.route("/", healthScoreRoutes);
 app.route("/", hotFilesRoutes);
 // Incident Auto-Fix — /hooks/{pagerduty,datadog,opsgenie,incident} + /settings/incident-hooks
 app.route("/", incidentHookRoutes);
+// AI Technical Debt Map — /:owner/:repo/debt-map (visual debt graph + Claude analysis)
+app.route("/", debtMapRoutes);
 // Hosted Claude tool-use loops — paste loop, get endpoint, billing meter.
 // See src/routes/claude-deploy.tsx + src/lib/hosted-claude-loop.ts.
 app.route("/", claudeDeployRoutes);

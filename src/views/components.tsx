@@ -151,7 +151,9 @@ export const RepoNav: FC<{
     | "discussions"
     | "security"
     | "settings"
-    | "debt-map";
+    | "debt-map"
+    | "migrate"
+    | "deployments";
 }> = ({ owner, repo, active }) => (
   <div class="repo-nav">
     <a href={`/${owner}/${repo}`} class={active === "code" ? "active" : ""}>

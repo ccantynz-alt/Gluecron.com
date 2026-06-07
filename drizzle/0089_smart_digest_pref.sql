@@ -1,2 +1,0 @@
-ALTER TABLE users ADD COLUMN IF NOT EXISTS notify_smart_digest BOOLEAN NOT NULL DEFAULT true;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS last_smart_digest_sent_at TIMESTAMPTZ;

@@ -73,6 +73,7 @@ import { getBotUserIdOrFallback } from "./bot-user";
 import { runOnboardingDripTaskOnce } from "./onboarding-drip";
 import { sendSmartDigestsToAll } from "./smart-digest";
 import { runAiLoopSweepOnce } from "./ai-loop";
+import { runDepUpdateSweepOnce } from "./dep-updater-sweep";
 
 export interface AutopilotTaskResult {
   name: string;

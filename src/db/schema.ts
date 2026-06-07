@@ -246,6 +246,7 @@ export const repositories = pgTable(
     // Migration 0088 — smart empty states. Set to true once the onboarding
     // card has been dismissed by the repo owner. Generated on first push.
     onboardingShown: boolean("onboarding_shown").default(false).notNull(),
+    depUpdaterEnabled: boolean("dep_updater_enabled").default(false).notNull(),
   },
   (table) => [
     // Partial: uniqueness only in the user namespace (org-owned rows exempt).

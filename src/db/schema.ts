@@ -4595,3 +4595,57 @@ export const crossRepoImpactCache = pgTable(
 );
 
 export type CrossRepoImpactCache = typeof crossRepoImpactCache.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Migration 0104 — Repository health score cache (6h TTL, in-memory + DB)
+// ---------------------------------------------------------------------------
+export const repoHealthCache = pgTable(
+  "repo_health_cache",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repoId: uuid("repo_id")
+      .notNull()
+      .unique()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    score: integer("score").notNull(),
+    breakdown: jsonb("breakdown").notNull(),
+    computedAt: timestamp("computed_at").defaultNow(),
+    expiresAt: timestamp("expires_at").notNull(),
+  },
+  (table) => [
+    index("idx_repo_health_cache_repo").on(table.repoId),
+  ]
+);
+
+export type RepoHealthCache = typeof repoHealthCache.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Migration 0103 — Workspace jobs (AI Copilot Workspace: issue → PR agent)
+// Hot path is in-memory; this table is for auditability + restart recovery.
+// ---------------------------------------------------------------------------
+export const workspaceJobs = pgTable(
+  "workspace_jobs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repoId: uuid("repo_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    issueId: uuid("issue_id")
+      .notNull()
+      .references(() => issues.id, { onDelete: "cascade" }),
+    triggeredBy: uuid("triggered_by").references(() => users.id),
+    status: text("status").notNull().default("pending"),
+    planComment: text("plan_comment"),
+    branchName: text("branch_name"),
+    prNumber: integer("pr_number"),
+    errorMessage: text("error_message"),
+    startedAt: timestamp("started_at").defaultNow(),
+    updatedAt: timestamp("updated_at").defaultNow(),
+  },
+  (table) => [
+    index("idx_workspace_jobs_repo").on(table.repoId),
+    index("idx_workspace_jobs_issue").on(table.issueId),
+  ]
+);
+
+export type WorkspaceJob = typeof workspaceJobs.$inferSelect;

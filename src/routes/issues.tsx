@@ -58,6 +58,7 @@ import {
 } from "../views/ui";
 import { getDefaultBranch, resolveRef, updateRef } from "../git/repository";
 import { BOT_USERNAME } from "../lib/bot-user";
+import { isAiAvailable } from "../lib/ai-client";
 
 const issueRoutes = new Hono<AuthEnv>();
 
@@ -1531,6 +1532,23 @@ issueRoutes.get("/:owner/:repo/issues/:number", softAuth, requireRepoAccess("rea
               >
                 Build with AI
               </a>
+            )}
+            {issue.state === "open" && user && isAiAvailable() && (
+              <form
+                method="post"
+                action={`/${ownerName}/${repoName}/issues/${issue.number}/ship`}
+                style="display:inline"
+                title="Let AI implement this feature automatically"
+              >
+                <button
+                  type="submit"
+                  class="btn btn-primary"
+                  style="font-size:13px;padding:6px 12px;background:linear-gradient(135deg,#8c6dff,#36c5d6);border:none;cursor:pointer"
+                  onclick="return confirm('Ship Agent will read the codebase, write code, and open a PR automatically. Review the PR before merging. Continue?')"
+                >
+                  Ship It
+                </button>
+              </form>
             )}
             {issue.state === "open" && user && (
               <details class="issue-branch-dropdown" style="position:relative;display:inline-block">

@@ -8,10 +8,92 @@
  *   preferences. Email failures are logged and swallowed.
  */
 
-import { inArray, eq } from "drizzle-orm";
+import { inArray, eq, and, desc, sql } from "drizzle-orm";
 import { db } from "../db";
-import { notifications, auditLog, users } from "../db/schema";
+import { notifications as notificationsMain, auditLog, users } from "../db/schema";
+import { notifications as notificationsExt } from "../db/schema-extensions";
 import { sendEmail, absoluteUrl } from "./email";
+
+// ─── Public helpers (schema-extensions notifications table) ─────────────────
+// These operate on the schema-extensions `notifications` table (which has
+// `type`, `isRead`, `actorId` columns) — the same table the inbox page uses.
+
+/** Create a single in-app notification. Fire-and-forget safe: swallows errors. */
+export async function createNotification(params: {
+  userId: string;
+  type: string;
+  title: string;
+  body?: string;
+  url?: string;
+  repoId?: string;
+}): Promise<void> {
+  try {
+    await db.insert(notificationsExt).values({
+      userId: params.userId,
+      type: params.type,
+      title: params.title,
+      body: params.body,
+      url: params.url,
+      repositoryId: params.repoId,
+    });
+  } catch (err) {
+    console.error("[createNotification] failed:", err);
+  }
+}
+
+/** Return the count of unread notifications for a user. Returns 0 on error. */
+export async function getUnreadCount(userId: string): Promise<number> {
+  try {
+    const [row] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(notificationsExt)
+      .where(and(eq(notificationsExt.userId, userId), eq(notificationsExt.isRead, false)));
+    return Number(row?.count ?? 0);
+  } catch {
+    return 0;
+  }
+}
+
+/** Return notifications for a user (most recent first). Returns [] on error. */
+export async function getNotifications(
+  userId: string,
+  limit = 50
+): Promise<typeof notificationsExt.$inferSelect[]> {
+  try {
+    return await db
+      .select()
+      .from(notificationsExt)
+      .where(eq(notificationsExt.userId, userId))
+      .orderBy(desc(notificationsExt.createdAt))
+      .limit(limit);
+  } catch {
+    return [];
+  }
+}
+
+/** Mark a single notification as read (only if it belongs to userId). */
+export async function markRead(notificationId: string, userId: string): Promise<void> {
+  try {
+    await db
+      .update(notificationsExt)
+      .set({ isRead: true })
+      .where(and(eq(notificationsExt.id, notificationId), eq(notificationsExt.userId, userId)));
+  } catch (err) {
+    console.error("[markRead] failed:", err);
+  }
+}
+
+/** Mark all of a user's notifications as read. */
+export async function markAllRead(userId: string): Promise<void> {
+  try {
+    await db
+      .update(notificationsExt)
+      .set({ isRead: true })
+      .where(and(eq(notificationsExt.userId, userId), eq(notificationsExt.isRead, false)));
+  } catch (err) {
+    console.error("[markAllRead] failed:", err);
+  }
+}
 
 export type NotificationKind =
   | "mention"
@@ -148,7 +230,7 @@ export async function notify(
   }
 ): Promise<void> {
   try {
-    await db.insert(notifications).values({
+    await db.insert(notificationsMain).values({
       userId,
       kind: opts.kind,
       title: opts.title,
@@ -175,7 +257,7 @@ export async function notifyMany(
   const unique = Array.from(new Set(userIds));
   if (unique.length === 0) return;
   try {
-    await db.insert(notifications).values(
+    await db.insert(notificationsMain).values(
       unique.map((userId) => ({
         userId,
         kind: opts.kind,

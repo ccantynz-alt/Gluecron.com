@@ -278,6 +278,7 @@ export const Layout: FC<
                       <a href="/pulls" role="menuitem" class="nav-user-item">Pull requests</a>
                       <a href="/issues" role="menuitem" class="nav-user-item">Issues</a>
                       <a href="/activity" role="menuitem" class="nav-user-item">Activity</a>
+                      <a href="/insights" role="menuitem" class="nav-user-item">Insights</a>
                       <a href="/import" role="menuitem" class="nav-user-item">Import from GitHub</a>
                       <a href="/import/actions" role="menuitem" class="nav-user-item">Actions importer</a>
                       <div class="nav-user-menu-sep" />
@@ -427,6 +428,13 @@ export const Layout: FC<
         <script dangerouslySetInnerHTML={{ __html: toastScript }} />
         <script dangerouslySetInnerHTML={{ __html: navScript }} />
         <script dangerouslySetInnerHTML={{ __html: navAiDropdownScript }} />
+        {/* Bell badge poller — only rendered for authenticated users.
+            Polls /api/notifications/count every 60 s and updates the badge
+            on the inbox bell icon. Falls back gracefully if the endpoint is
+            unavailable or the user signs out mid-session. */}
+        {user && (
+          <script dangerouslySetInnerHTML={{ __html: bellPollerScript }} />
+        )}
       </body>
     </html>
   );
@@ -929,6 +937,52 @@ const navScript = `
       }
     });
   })();
+`;
+
+// Bell poller — updates the inbox badge count every 60 s via /api/notifications/count.
+// Only injected when a user is logged in (checked in the JSX above). Uses the
+// `.nav-inbox-badge` element that the server renders inside `.nav-inbox-btn`.
+// If the badge element is absent (user not logged in, DOM mismatch) it exits
+// cleanly without error.
+export const bellPollerScript = `
+(function() {
+  var badge = document.querySelector('.nav-inbox-btn .nav-inbox-badge');
+  var btn   = document.querySelector('.nav-inbox-btn');
+  function updateBadge(n) {
+    if (!btn) return;
+    if (n > 0) {
+      var label = n > 99 ? '99+' : String(n);
+      if (!badge) {
+        badge = document.createElement('span');
+        badge.className = 'nav-inbox-badge';
+        badge.setAttribute('aria-hidden', 'true');
+        btn.appendChild(badge);
+      }
+      badge.textContent = label;
+      badge.style.display = '';
+      btn.setAttribute('aria-label', 'Inbox — ' + n + ' unread');
+    } else {
+      if (badge) badge.style.display = 'none';
+      btn.setAttribute('aria-label', 'Inbox');
+    }
+  }
+  function poll() {
+    fetch('/api/notifications/count', { credentials: 'same-origin', cache: 'no-store' })
+      .then(function(r) { return r.ok ? r.json() : null; })
+      .then(function(d) {
+        if (!d) return;
+        var n = typeof d.unread === 'number' ? d.unread : (typeof d.count === 'number' ? d.count : 0);
+        updateBadge(n);
+      })
+      .catch(function() {});
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function() { poll(); setInterval(poll, 60000); });
+  } else {
+    poll();
+    setInterval(poll, 60000);
+  }
+})();
 `;
 
 // AI dropdown — keyboard- and click-accessible menu in the top nav.

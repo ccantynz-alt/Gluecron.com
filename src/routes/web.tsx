@@ -58,6 +58,8 @@ import { computeHealthScore } from "../lib/health-score";
 import type { HealthScore } from "../lib/health-score";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
+import { claudeSemanticSearch } from "../lib/claude-semantic-search";
+import { isAiAvailable } from "../lib/ai-client";
 import { trackByName } from "../lib/traffic";
 import { LandingPage, type LandingLiveFeed } from "../views/landing";
 import { Landing2030Page } from "../views/landing-2030";
@@ -3534,9 +3536,9 @@ web.get("/:owner/:repo", async (c) => {
           <span class="repo-ai-cta-icon" aria-hidden="true">{"⛁"}</span>
           Migrations
         </a>
-        <a class="repo-ai-cta" href={`/${owner}/${repo}/semantic-search`} title="Embedding-backed code search">
+        <a class="repo-ai-cta" href={`/${owner}/${repo}/search?mode=semantic`} title="AI-powered semantic code search — ask in plain English">
           <span class="repo-ai-cta-icon" aria-hidden="true">{"✨"}</span>
-          Semantic search
+          AI Search
         </a>
         <a class="repo-ai-cta" href={`/${owner}/${repo}/releases/new`} title="Draft release notes with AI">
           <span class="repo-ai-cta-icon" aria-hidden="true">{"\u{1F3F7}"}</span>
@@ -5282,24 +5284,212 @@ web.get("/:owner/:repo/blame/:ref{.+$}", async (c) => {
   );
 });
 
-// Search
+// Search — keyword + optional Claude semantic mode
 web.get("/:owner/:repo/search", async (c) => {
   const { owner, repo } = c.req.param();
   const user = c.get("user");
   const q = c.req.query("q") || "";
+  const aiAvailable = isAiAvailable();
+  // Default to semantic when Claude is available and no explicit mode set.
+  const modeParam = c.req.query("mode");
+  const mode: "semantic" | "keyword" =
+    modeParam === "keyword"
+      ? "keyword"
+      : modeParam === "semantic"
+        ? "semantic"
+        : aiAvailable
+          ? "semantic"
+          : "keyword";
+  const isSemantic = mode === "semantic" && aiAvailable;
 
   if (!(await repoExists(owner, repo))) return c.notFound();
 
   const defaultBranch = (await getDefaultBranch(owner, repo)) || "main";
-  let results: Array<{ file: string; lineNum: number; line: string }> = [];
+
+  // Keyword results (always available as fallback / when in keyword mode)
+  let keywordResults: Array<{ file: string; lineNum: number; line: string }> = [];
+  // Semantic results (Claude-powered)
+  type SemanticHit = import("../lib/claude-semantic-search").SemanticSearchResult;
+  let semanticHits: SemanticHit[] = [];
+  let semanticMode: "semantic" | "keyword" = "semantic";
+  let quotaExceeded = false;
 
   if (q.trim()) {
-    results = await searchCode(owner, repo, defaultBranch, q.trim());
+    if (isSemantic) {
+      // Resolve repo DB id for caching
+      const [ownerRow] = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.username, owner))
+        .limit(1);
+      const [repoRow] = ownerRow
+        ? await db
+            .select({ id: repositories.id })
+            .from(repositories)
+            .where(
+              and(
+                eq(repositories.ownerId, ownerRow.id),
+                eq(repositories.name, repo)
+              )
+            )
+            .limit(1)
+        : [];
+
+      const rateLimitKey = user
+        ? `user:${user.id}`
+        : (c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? "anon");
+
+      const searchResult = await claudeSemanticSearch(
+        owner,
+        repo,
+        repoRow?.id ?? `${owner}/${repo}`,
+        q.trim(),
+        { branch: defaultBranch, rateLimitKey }
+      );
+      semanticHits = searchResult.results;
+      semanticMode = searchResult.mode;
+      quotaExceeded = searchResult.quotaExceeded;
+    } else {
+      keywordResults = await searchCode(owner, repo, defaultBranch, q.trim());
+    }
   }
+
+  const aiSearchCss = `
+    /* ─── Semantic search mode toggle ─── */
+    .search-mode-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 14px;
+      flex-wrap: wrap;
+    }
+    .search-mode-label {
+      font-size: 12.5px;
+      color: var(--text-muted);
+      font-weight: 500;
+    }
+    .search-mode-toggle {
+      display: inline-flex;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-radius: 9999px;
+      padding: 3px;
+      gap: 2px;
+    }
+    .search-mode-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 5px 12px;
+      border-radius: 9999px;
+      font-size: 12.5px;
+      font-weight: 500;
+      color: var(--text-muted);
+      text-decoration: none;
+      transition: color 120ms ease, background 120ms ease;
+      cursor: pointer;
+      border: none;
+      background: none;
+      font: inherit;
+    }
+    .search-mode-btn:hover { color: var(--text-strong); text-decoration: none; }
+    .search-mode-btn.active {
+      background: rgba(140,109,255,0.15);
+      color: var(--text-strong);
+    }
+    .search-mode-ai-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 8px;
+      border-radius: 9999px;
+      font-size: 11px;
+      font-weight: 600;
+      background: linear-gradient(135deg, rgba(140,109,255,0.20), rgba(54,197,214,0.15));
+      color: #c4b5fd;
+      border: 1px solid rgba(140,109,255,0.30);
+      margin-left: 2px;
+    }
+    .search-quota-warn {
+      font-size: 12.5px;
+      color: var(--text-muted);
+      padding: 6px 12px;
+      background: rgba(255,200,0,0.06);
+      border: 1px solid rgba(255,200,0,0.20);
+      border-radius: 8px;
+    }
+
+    /* ─── Semantic result cards ─── */
+    .sem-results { display: flex; flex-direction: column; gap: 10px; }
+    .sem-result {
+      padding: 14px 16px;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      transition: border-color 120ms ease;
+    }
+    .sem-result:hover { border-color: var(--border-strong); }
+    .sem-result-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 6px;
+    }
+    .sem-result-path {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-strong);
+      text-decoration: none;
+      word-break: break-all;
+    }
+    .sem-result-path:hover { color: #c4b5fd; text-decoration: none; }
+    .sem-result-conf {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 9px;
+      border-radius: 9999px;
+      font-size: 11.5px;
+      font-weight: 600;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .sem-conf-strong { background: rgba(52,211,153,0.12); color: #34d399; border: 1px solid rgba(52,211,153,0.30); }
+    .sem-conf-possible { background: rgba(140,109,255,0.12); color: #b69dff; border: 1px solid rgba(140,109,255,0.30); }
+    .sem-conf-weak { background: rgba(255,255,255,0.04); color: var(--text-muted); border: 1px solid var(--border); }
+    .sem-result-reason {
+      font-size: 12.5px;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+      line-height: 1.5;
+    }
+    .sem-result-snippet {
+      margin: 0;
+      padding: 10px 12px;
+      background: rgba(0,0,0,0.22);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      line-height: 1.55;
+      color: var(--text);
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: 240px;
+      overflow-y: auto;
+    }
+  `;
+
+  const semanticBaseUrl = `/${owner}/${repo}/search?mode=semantic`;
+  const keywordBaseUrl = `/${owner}/${repo}/search?mode=keyword`;
 
   return c.html(
     <Layout title={`Search — ${owner}/${repo}`} user={user}>
-      <style dangerouslySetInnerHTML={{ __html: codeBrowseCss }} />
+      <style dangerouslySetInnerHTML={{ __html: codeBrowseCss + aiSearchCss }} />
       <RepoHeader owner={owner} repo={repo} />
       <RepoNav owner={owner} repo={repo} active="code" />
       <div class="search-hero">
@@ -5307,7 +5497,11 @@ web.get("/:owner/:repo/search", async (c) => {
           <strong>Search</strong> · {owner}/{repo}
         </div>
         <h1 class="search-title">
-          Find any line in <span class="gradient-text">{repo}</span>
+          {isSemantic ? (
+            <>{"Ask "}<span class="gradient-text">{repo}</span>{" anything."}</>
+          ) : (
+            <>{"Find any line in "}<span class="gradient-text">{repo}</span></>
+          )}
         </h1>
         <form
           method="get"
@@ -5315,13 +5509,18 @@ web.get("/:owner/:repo/search", async (c) => {
           class="search-form"
           role="search"
         >
+          <input type="hidden" name="mode" value={mode} />
           <div class="search-input-wrap">
             <span class="search-input-icon" aria-hidden="true">{"⌕"}</span>
             <input
               type="text"
               name="q"
               value={q}
-              placeholder="Search code on the default branch…"
+              placeholder={
+                isSemantic
+                  ? "Ask a question or describe what you're looking for…"
+                  : "Search code on the default branch…"
+              }
               aria-label="Search code"
               class="search-input"
               autocomplete="off"
@@ -5333,67 +5532,187 @@ web.get("/:owner/:repo/search", async (c) => {
           </button>
         </form>
       </div>
-      {q && (
-        <div class="search-results-head">
-          <span class="search-results-count">
-            <strong>{results.length}</strong> result
-            {results.length !== 1 ? "s" : ""}
-          </span>
-          <span class="search-results-query">
-            for <span class="search-results-q">"{q}"</span> on{" "}
-            <code>{defaultBranch}</code>
-          </span>
+
+      {/* Mode toggle */}
+      <div class="search-mode-bar">
+        <span class="search-mode-label">Mode:</span>
+        <div class="search-mode-toggle" role="group" aria-label="Search mode">
+          {aiAvailable ? (
+            <a
+              href={q ? `${semanticBaseUrl}&q=${encodeURIComponent(q)}` : semanticBaseUrl}
+              class={`search-mode-btn${isSemantic ? " active" : ""}`}
+              aria-pressed={isSemantic ? "true" : "false"}
+            >
+              {"✨"} Semantic AI
+              <span class="search-mode-ai-badge">AI-powered</span>
+            </a>
+          ) : null}
+          <a
+            href={q ? `${keywordBaseUrl}&q=${encodeURIComponent(q)}` : keywordBaseUrl}
+            class={`search-mode-btn${!isSemantic ? " active" : ""}`}
+            aria-pressed={!isSemantic ? "true" : "false"}
+          >
+            {"⌕"} Keyword
+          </a>
         </div>
-      )}
-      {q && results.length === 0 ? (
-        <div class="search-empty">
-          <p>
-            No matches for <strong>"{q}"</strong>. Try a shorter query or check
-            you're on the right branch.
-          </p>
-        </div>
-      ) : results.length > 0 ? (
-        <div class="search-results">
-          {(() => {
-            // Group by file
-            const grouped: Record<
-              string,
-              Array<{ lineNum: number; line: string }>
-            > = {};
-            for (const r of results) {
-              if (!grouped[r.file]) grouped[r.file] = [];
-              grouped[r.file].push({ lineNum: r.lineNum, line: r.line });
-            }
-            return Object.entries(grouped).map(([file, matches]) => (
-              <div class="search-file diff-file">
-                <div class="search-file-head diff-file-header">
-                  <a
-                    href={`/${owner}/${repo}/blob/${defaultBranch}/${file}`}
-                    class="search-file-link"
-                  >
-                    {file}
-                  </a>
-                  <span class="search-file-count">
-                    {matches.length} match{matches.length === 1 ? "" : "es"}
-                  </span>
-                </div>
-                <div class="blob-code">
-                  <table>
-                    <tbody>
-                      {matches.map((m) => (
-                        <tr>
-                          <td class="line-num">{m.lineNum}</td>
-                          <td class="line-content">{m.line}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+        {isSemantic && aiAvailable && (
+          <span style="font-size:12px;color:var(--text-muted)">
+            Ask in plain English — finds code by meaning, not just exact words
+          </span>
+        )}
+        {quotaExceeded && (
+          <span class="search-quota-warn">
+            Semantic search quota reached — showing keyword results
+          </span>
+        )}
+      </div>
+
+      {/* ─── Semantic results ─── */}
+      {isSemantic && q && (
+        <>
+          {semanticMode === "keyword" && !quotaExceeded && semanticHits.length > 0 && (
+            <div class="search-quota-warn" style="margin-bottom:10px">
+              Falling back to keyword search — Claude found no relevant files.
+            </div>
+          )}
+          {semanticHits.length === 0 ? (
+            <div class="search-empty">
+              <p>
+                No matches for <strong>"{q}"</strong>.{" "}
+                Try a different phrasing or{" "}
+                <a href={`${keywordBaseUrl}&q=${encodeURIComponent(q)}`}>
+                  switch to keyword search
+                </a>.
+              </p>
+            </div>
+          ) : (
+            <>
+              <div class="search-results-head">
+                <span class="search-results-count">
+                  <strong>{semanticHits.length}</strong> result
+                  {semanticHits.length !== 1 ? "s" : ""}
+                </span>
+                <span class="search-results-query">
+                  {semanticMode === "semantic" ? "AI-ranked files for" : "keyword matches for"}{" "}
+                  <span class="search-results-q">"{q}"</span>
+                </span>
               </div>
-            ));
-          })()}
-        </div>
-      ) : null}
+              <div class="sem-results">
+                {semanticHits.map((h) => {
+                  const confClass =
+                    h.confidence > 0.7
+                      ? "sem-conf-strong"
+                      : h.confidence > 0.4
+                        ? "sem-conf-possible"
+                        : "sem-conf-weak";
+                  const confLabel =
+                    h.confidence > 0.7
+                      ? "Strong match"
+                      : h.confidence > 0.4
+                        ? "Possible match"
+                        : "Weak match";
+                  const href = `/${owner}/${repo}/blob/${defaultBranch}/${h.file}${h.lineNumber ? `#L${h.lineNumber}` : ""}`;
+                  const preview =
+                    h.snippet.length > 800
+                      ? h.snippet.slice(0, 800) + "\n…"
+                      : h.snippet;
+                  return (
+                    <div class="sem-result">
+                      <div class="sem-result-head">
+                        <a href={href} class="sem-result-path">
+                          {h.file}
+                          {h.lineNumber ? (
+                            <span style="color:var(--text-muted);font-weight:500">
+                              :{h.lineNumber}
+                            </span>
+                          ) : null}
+                        </a>
+                        <span class={`sem-result-conf ${confClass}`}>
+                          {confLabel}
+                        </span>
+                      </div>
+                      {h.reason && (
+                        <p class="sem-result-reason">{h.reason}</p>
+                      )}
+                      {preview && (
+                        <pre class="sem-result-snippet">{preview}</pre>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </>
+      )}
+
+      {/* ─── Keyword results ─── */}
+      {!isSemantic && q && (
+        <>
+          <div class="search-results-head">
+            <span class="search-results-count">
+              <strong>{keywordResults.length}</strong> result
+              {keywordResults.length !== 1 ? "s" : ""}
+            </span>
+            <span class="search-results-query">
+              for <span class="search-results-q">"{q}"</span> on{" "}
+              <code>{defaultBranch}</code>
+            </span>
+          </div>
+          {keywordResults.length === 0 ? (
+            <div class="search-empty">
+              <p>
+                No matches for <strong>"{q}"</strong>. Try a shorter query or{" "}
+                {aiAvailable && (
+                  <a href={`${semanticBaseUrl}&q=${encodeURIComponent(q)}`}>
+                    try AI semantic search
+                  </a>
+                )}.
+              </p>
+            </div>
+          ) : (
+            <div class="search-results">
+              {(() => {
+                const grouped: Record<
+                  string,
+                  Array<{ lineNum: number; line: string }>
+                > = {};
+                for (const r of keywordResults) {
+                  if (!grouped[r.file]) grouped[r.file] = [];
+                  grouped[r.file].push({ lineNum: r.lineNum, line: r.line });
+                }
+                return Object.entries(grouped).map(([file, matches]) => (
+                  <div class="search-file diff-file">
+                    <div class="search-file-head diff-file-header">
+                      <a
+                        href={`/${owner}/${repo}/blob/${defaultBranch}/${file}`}
+                        class="search-file-link"
+                      >
+                        {file}
+                      </a>
+                      <span class="search-file-count">
+                        {matches.length} match{matches.length === 1 ? "" : "es"}
+                      </span>
+                    </div>
+                    <div class="blob-code">
+                      <table>
+                        <tbody>
+                          {matches.map((m) => (
+                            <tr>
+                              <td class="line-num">{m.lineNum}</td>
+                              <td class="line-content">{m.line}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ));
+              })()}
+            </div>
+          )}
+        </>
+      )}
     </Layout>
   );
 });

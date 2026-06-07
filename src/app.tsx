@@ -29,6 +29,8 @@ import integrationsChatRoutes from "./routes/integrations-chat";
 import agentsRoutes from "./routes/agents";
 import agentPipelinesRoutes from "./routes/agent-pipelines";
 import issueRoutes from "./routes/issues";
+import milestonesRoutes from "./routes/milestones";
+import shipAgentRoutes from "./routes/ship-agent";
 import commentModerationRoutes from "./routes/comment-moderation";
 import repoSettings from "./routes/repo-settings";
 import collaboratorRoutes from "./routes/collaborators";
@@ -63,6 +65,7 @@ import { platformStatus } from "./routes/platform-status";
 import publicStatsRoutes from "./routes/public-stats";
 import demoRoutes from "./routes/demo";
 import insightRoutes from "./routes/insights";
+import engineeringInsightsRoutes from "./routes/engineering-insights";
 import doraRoutes from "./routes/dora";
 import dashboardRoutes from "./routes/dashboard";
 import legalRoutes from "./routes/legal";
@@ -78,6 +81,7 @@ import migrationRoutes from "./routes/migrations";
 import migrateRoutes from "./routes/migrate";
 import specsRoutes from "./routes/specs";
 import refactorRoutes from "./routes/refactors";
+import codebaseMigratorRoutes from "./routes/codebase-migrator";
 import webRoutes from "./routes/web";
 import hookRoutes from "./routes/hooks";
 import eventsRoutes from "./routes/events";
@@ -161,6 +165,9 @@ import semanticSearchRoutes from "./routes/semantic-search";
 import signingKeysRoutes from "./routes/signing-keys";
 import sponsorsRoutes from "./routes/sponsors";
 import ssoRoutes from "./routes/sso";
+import samlSsoRoutes from "./routes/saml-sso";
+import scimRoutes from "./routes/scim";
+import orgSsoSettingsRoutes from "./routes/org-sso-settings";
 import githubOauthRoutes from "./routes/github-oauth";
 import googleOauthRoutes from "./routes/google-oauth";
 import symbolsRoutes from "./routes/symbols";
@@ -183,8 +190,10 @@ import { staleBranchRoutes } from "./routes/stale-branches";
 import pulseRoutes from "./routes/pulse";
 import healthScoreRoutes from "./routes/health-score";
 import hotFilesRoutes from "./routes/hot-files";
+import debtMapRoutes from "./routes/debt-map";
 import developerProgramRoutes from "./routes/developer-program";
 import shareRoutes from "./routes/share";
+import incidentHookRoutes from "./routes/incident-hooks";
 import { authRateLimit, gitRateLimit, searchRateLimit } from "./middleware/rate-limit";
 import { csrfToken, csrfProtect } from "./middleware/csrf";
 import { noCache } from "./middleware/no-cache";
@@ -499,6 +508,13 @@ app.route("/", compareRoutes);
 // Issue tracker
 app.route("/", issueRoutes);
 
+// Milestones — group issues + PRs toward a shared goal with due dates + progress tracking.
+// Mounted after issueRoutes so /:owner/:repo/issues/* paths win before the milestone patterns.
+app.route("/", milestonesRoutes);
+
+// Ship Agent — autonomous AI feature implementation
+app.route("/", shipAgentRoutes);
+
 // Comment moderation queue — owner-only `/:owner/:repo/comments/pending`
 // + per-row approve/reject/spam actions. Mounted before `pullRoutes` so
 // the `/:owner/:repo/comments/*` paths resolve before the broader PR
@@ -590,6 +606,9 @@ app.route("/", adminDiagnoseRoutes);
 // Insights (time-travel, dependencies, rollback)
 app.route("/", insightRoutes);
 
+// Engineering Intelligence Dashboard — /insights + /:owner/:repo/insights/engineering
+app.route("/", engineeringInsightsRoutes);
+
 // DORA metrics page (/:owner/:repo/insights/dora)
 app.route("/", doraRoutes);
 
@@ -620,6 +639,7 @@ app.route("/", migrateRoutes);
 // Spec-to-PR (experimental AI-generated draft PRs)
 app.route("/", specsRoutes);
 app.route("/", refactorRoutes);
+app.route("/", codebaseMigratorRoutes);
 
 // Explore page
 app.route("/", exploreRoutes);
@@ -714,6 +734,10 @@ app.route("/", pulseRoutes);
 app.route("/", healthScoreRoutes);
 // Hot Files Heatmap — BLOCK M16 — /:owner/:repo/insights/hotfiles
 app.route("/", hotFilesRoutes);
+// Incident Auto-Fix — /hooks/{pagerduty,datadog,opsgenie,incident} + /settings/incident-hooks
+app.route("/", incidentHookRoutes);
+// AI Technical Debt Map — /:owner/:repo/debt-map (visual debt graph + Claude analysis)
+app.route("/", debtMapRoutes);
 // Hosted Claude tool-use loops — paste loop, get endpoint, billing meter.
 // See src/routes/claude-deploy.tsx + src/lib/hosted-claude-loop.ts.
 app.route("/", claudeDeployRoutes);
@@ -725,6 +749,12 @@ app.route("/", semanticSearchRoutes);
 app.route("/", signingKeysRoutes);
 app.route("/", sponsorsRoutes);
 app.route("/", ssoRoutes);
+// Enterprise per-org SAML 2.0 + OIDC SSO routes
+app.route("/", samlSsoRoutes);
+// SCIM 2.0 user provisioning endpoints
+app.route("/", scimRoutes);
+// Per-org SSO + SCIM admin settings UI
+app.route("/", orgSsoSettingsRoutes);
 app.route("/", githubOauthRoutes);
 app.route("/", googleOauthRoutes);
 app.route("/", symbolsRoutes);

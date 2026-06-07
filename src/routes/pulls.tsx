@@ -67,7 +67,6 @@ import {
 import { triggerPrTriage } from "../lib/pr-triage";
 import { generatePrSummary } from "../lib/ai-generators";
 import { isAiAvailable } from "../lib/ai-client";
-import { getPatternWarning, type Pattern } from "../lib/pattern-detector";
 import { getReviewContext, recordPrVisit, type ReviewContext } from "../lib/review-context";
 import {
   computePrRiskForPullRequest,
@@ -126,26 +125,6 @@ import {
 import { suggestReviewers, type ReviewerCandidate } from "../lib/reviewer-suggest";
 import { computePrSize, type PrSizeInfo } from "../lib/pr-size";
 import { BOT_USERNAME } from "../lib/bot-user";
-import {
-  getCodeownersForRepo,
-  reviewersForChangedFiles,
-} from "../lib/codeowners";
-import { checkMergeEligible } from "../lib/branch-rules";
-import {
-  joinRoom,
-  leaveRoom,
-  updatePresence,
-  pingSession,
-  getRoomUsers,
-  broadcastToRoom,
-  registerSocket,
-  unregisterSocket,
-} from "../lib/pr-presence";
-import { upgradeWebSocket, websocket as presenceWebsocket } from "hono/bun";
-
-export { presenceWebsocket };
-import { getBusFactorWarning, type BusFactorFile } from "../lib/bus-factor";
-import { suggestPrSplit, type SplitSuggestion } from "../lib/pr-splitter";
 import { analyzeImpact, type ImpactAnalysis } from "../lib/pr-impact";
 import { getPreviewDir, isPreviewExpired } from "../lib/pr-stage";
 
@@ -4186,37 +4165,6 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
     prSizeInfo = await computePrSize(ownerName, repoName, pr.baseBranch, pr.headBranch);
   } catch { /* swallow — purely cosmetic */ }
 
-  // Bus factor warning — non-blocking. Get changed files list first.
-  let busRiskFiles: BusFactorFile[] = [];
-  let splitSuggestion: SplitSuggestion | null = null;
-  try {
-    // Get names of files changed in this PR
-    const repoDir = getRepoPath(ownerName, repoName);
-    const nameOnlyProc = Bun.spawn(
-      ["git", "diff", "--name-only", `${pr.baseBranch}...${pr.headBranch}`],
-      { cwd: repoDir, stdout: "pipe", stderr: "pipe" }
-    );
-    const nameOnlyRaw = await new Response(nameOnlyProc.stdout).text();
-    await nameOnlyProc.exited;
-    const prChangedFiles = nameOnlyRaw.trim().split("\n").filter(Boolean);
-
-    // Bus factor — check cache for at-risk files that overlap changed files
-    [busRiskFiles] = await Promise.all([
-      getBusFactorWarning(resolved.repo.id, ownerName, repoName, prChangedFiles),
-    ]);
-
-    // PR Split suggestion — only when PR is large (>400 lines)
-    if (prSizeInfo && prSizeInfo.linesChanged > 400) {
-      splitSuggestion = await suggestPrSplit(
-        pr.id,
-        pr.title,
-        ownerName,
-        repoName,
-        pr.baseBranch,
-        pr.headBranch
-      );
-    }
-  } catch { /* always degrade gracefully */ }
   // Merge impact analysis — only for open PRs with write access (cached, fast)
   let impactAnalysis: ImpactAnalysis | null = null;
   if (pr.state === "open" && canManage) {

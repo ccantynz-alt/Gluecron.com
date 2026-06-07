@@ -92,6 +92,16 @@ export const config = {
     return process.env.OCI_STORE_PATH || join(process.cwd(), "oci-store");
   },
   /**
+   * Base URL used to construct preview URLs for PR builds.
+   * When set, the preview-builder will run and serve static files; when unset,
+   * previews are URL-only (no build runs).
+   *
+   * Production: set to e.g. "https://previews.gluecron.com"
+   */
+  get previewDomain() {
+    return process.env.PREVIEW_DOMAIN || "";
+  },
+  /**
    * WebAuthn relying-party ID (domain only, no scheme/port). Derived from
    * appBaseUrl unless overridden. Passkeys issued for one RP ID can't be
    * replayed against another, so this must be stable.
@@ -113,7 +123,6 @@ export const config = {
     return process.env.WEBAUTHN_RP_NAME || "gluecron";
   },
   /**
-<<<<<<< HEAD
    * Redis / Valkey connection URL for cross-instance SSE fan-out.
    * When set, `src/lib/sse.ts` uses Redis pub/sub so SSE events reach all
    * server instances behind the load balancer.  Falls back to in-process

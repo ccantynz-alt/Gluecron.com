@@ -3233,6 +3233,18 @@ pulls.post(
         );
       });
 
+    // Migration 0077 — PR preview build. Fire-and-forget; skips when
+    // PREVIEW_DOMAIN is unset or the repo has no preview_build_command.
+    // Resolve head SHA asynchronously so we don't block the redirect.
+    resolveRef(ownerName, repoName, headBranch)
+      .then((headSha) => {
+        if (!headSha) return;
+        return import("../lib/preview-builder").then((m) =>
+          m.buildPreview(pr.id, resolved.repo.id, headSha)
+        );
+      })
+      .catch(() => {});
+
     return c.redirect(`/${ownerName}/${repoName}/pulls/${pr.number}`);
   }
 );

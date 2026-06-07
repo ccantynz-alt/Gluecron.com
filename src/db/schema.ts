@@ -233,11 +233,9 @@ export const repositories = pgTable(
     // env burns a container until the idle sweep tears it down; owners
     // must explicitly enable per-repo via repo-settings.
     devEnvsEnabled: boolean("dev_envs_enabled").default(false).notNull(),
-    // Migration 0077 — data residency region. 'us' = US East (default),
-    // 'eu' = Frankfurt (EU). EU data residency requires a Pro plan or
-    // higher. Future values (e.g. 'apac') are additive — no constraint
-    // at the DB level so we can extend without a new migration.
     dataRegion: text("data_region").default("us").notNull(),
+    previewBuildCommand: text("preview_build_command"),
+    previewOutputDir: text("preview_output_dir").default("dist"),
   },
   (table) => [
     // Partial: uniqueness only in the user namespace (org-owned rows exempt).
@@ -4203,13 +4201,9 @@ export type NewStatusSubscriber = typeof statusSubscribers.$inferInsert;
 export type NewClaudeWebMessage = typeof claudeWebMessages.$inferInsert;
 
 // ---------------------------------------------------------------------------
-// Migration 0077 — Enterprise leads (contact form submissions from /enterprise)
+// Enterprise leads (contact form submissions from /enterprise)
 // ---------------------------------------------------------------------------
 
-/**
- * Enterprise leads — one row per /enterprise contact form submission.
- * Sales team reads these directly or via a future CRM sync.
- */
 export const enterpriseLeads = pgTable(
   "enterprise_leads",
   {
@@ -4227,3 +4221,36 @@ export const enterpriseLeads = pgTable(
 
 export type EnterpriseLead = typeof enterpriseLeads.$inferSelect;
 export type NewEnterpriseLead = typeof enterpriseLeads.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// PR preview builder — one row per (pr_id, head_sha)
+// ---------------------------------------------------------------------------
+export const prPreviews = pgTable(
+  "pr_previews",
+  {
+    id: serial("id").primaryKey(),
+    repoId: uuid("repo_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    prId: uuid("pr_id")
+      .notNull()
+      .references(() => pullRequests.id, { onDelete: "cascade" }),
+    branchName: text("branch_name").notNull(),
+    headSha: text("head_sha").notNull(),
+    status: text("status").notNull().default("building"),
+    buildLog: text("build_log"),
+    previewUrl: text("preview_url"),
+    buildCommand: text("build_command"),
+    outputDir: text("output_dir").default("dist"),
+    buildDurationMs: integer("build_duration_ms"),
+    createdAt: timestamp("created_at").defaultNow(),
+    updatedAt: timestamp("updated_at").defaultNow(),
+  },
+  (table) => [
+    index("pr_previews_pr_id_idx").on(table.prId),
+    index("pr_previews_repo_id_idx").on(table.repoId),
+  ]
+);
+
+export type PrPreview = typeof prPreviews.$inferSelect;
+export type NewPrPreview = typeof prPreviews.$inferInsert;

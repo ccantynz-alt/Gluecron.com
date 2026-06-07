@@ -4340,6 +4340,101 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
           )}
         </>
       )}
+      {/* Keyboard hint bar — shown at the bottom of PR pages */}
+      <div class="kbd-hints" aria-label="Keyboard shortcuts for this pull request">
+        <kbd>c</kbd> comment &middot; <kbd>e</kbd> edit title &middot; <kbd>m</kbd> merge &middot; <kbd>a</kbd> approve &middot; <kbd>r</kbd> request changes &middot; <kbd>?</kbd> shortcuts
+      </div>
+      <style dangerouslySetInnerHTML={{ __html: `
+        .kbd-hints {
+          position: fixed;
+          bottom: 0;
+          left: 0;
+          right: 0;
+          z-index: 90;
+          padding: 6px 24px;
+          background: var(--bg-secondary);
+          border-top: 1px solid var(--border);
+          font-size: 12px;
+          color: var(--text-muted);
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+        .kbd-hints kbd {
+          font-family: var(--font-mono);
+          font-size: 10px;
+          background: var(--bg-elevated);
+          border: 1px solid var(--border);
+          border-bottom-width: 2px;
+          border-radius: 4px;
+          padding: 1px 5px;
+          color: var(--text);
+          line-height: 1.5;
+        }
+        /* Padding so the page footer doesn't overlap the hint bar */
+        main { padding-bottom: 40px; }
+      ` }} />
+      {/* Repo context commands for command palette */}
+      <script
+        id="cmdk-repo-context"
+        dangerouslySetInnerHTML={{
+          __html: `window.__CMDK_REPO_COMMANDS = ${JSON.stringify([
+            { label: `New issue in ${repoName}`, href: `/${ownerName}/${repoName}/issues/new`, kw: "create add bug" },
+            { label: `New pull request in ${repoName}`, href: `/${ownerName}/${repoName}/pulls/new`, kw: "pr branch merge" },
+            { label: `Browse code — ${ownerName}/${repoName}`, href: `/${ownerName}/${repoName}`, kw: "files tree" },
+            { label: `View commits — ${ownerName}/${repoName}`, href: `/${ownerName}/${repoName}/commits`, kw: "history log" },
+            { label: `Issues — ${ownerName}/${repoName}`, href: `/${ownerName}/${repoName}/issues`, kw: "bugs tasks" },
+            { label: `Pull requests — ${ownerName}/${repoName}`, href: `/${ownerName}/${repoName}/pulls`, kw: "prs reviews" },
+          ])};`,
+        }}
+      />
+      {/* PR keyboard shortcuts script */}
+      <script dangerouslySetInnerHTML={{ __html: `
+        (function(){
+          var commentBox = document.querySelector('textarea[name="body"]');
+          var mergeBtn = document.querySelector('[data-merge-btn], .prs-merge-btn, button[form*="merge"], form[action*="/merge"] button[type="submit"]');
+          var editBtn = document.getElementById('pr-edit-toggle');
+          var approveUrl = ${JSON.stringify(`/${ownerName}/${repoName}/pulls/${pr.number}/review`)};
+
+          function isTyping(t){
+            t = t || {};
+            var tag = (t.tagName || '').toLowerCase();
+            return tag === 'input' || tag === 'textarea' || t.isContentEditable;
+          }
+
+          document.addEventListener('keydown', function(e){
+            if (isTyping(e.target)) return;
+            if (e.metaKey || e.ctrlKey || e.altKey) return;
+            if (e.key === 'c') {
+              e.preventDefault();
+              if (commentBox) { commentBox.focus(); commentBox.scrollIntoView({block:'center'}); }
+            }
+            if (e.key === 'e') {
+              e.preventDefault();
+              if (editBtn) { editBtn.click(); }
+            }
+            if (e.key === 'm') {
+              e.preventDefault();
+              var mBtn = document.querySelector('.prs-merge-btn, form[action*="/merge"] button[type="submit"]');
+              if (mBtn) { mBtn.focus(); mBtn.scrollIntoView({block:'center'}); }
+            }
+            if (e.key === 'a') {
+              e.preventDefault();
+              // Navigate to approve review page
+              window.location.href = approveUrl + '?action=approve';
+            }
+            if (e.key === 'r') {
+              e.preventDefault();
+              window.location.href = approveUrl + '?action=request_changes';
+            }
+            if (e.key === 'Escape') {
+              var focused = document.activeElement;
+              if (focused) focused.blur();
+            }
+          });
+        })();
+      ` }} />
     </Layout>
   );
 });

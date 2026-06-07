@@ -4359,18 +4359,6 @@ export const scimTokens = pgTable("scim_tokens", {
  */
 export const orgSsoSessions = pgTable(
   "org_sso_sessions",
-
-// Migration 0077 — Incident hook configs
-// Maps a monitoring provider (PagerDuty / Datadog / Opsgenie / generic) to a
-// specific repo. Inbound webhooks are validated against secret_hash (SHA-256
-// of the user-chosen webhook secret passed in the ?secret= query param).
-// ---------------------------------------------------------------------------
-export const incidentHookConfigs = pgTable(
-  "incident_hook_configs",
->>>>>>> 9953332 (feat: production incident auto-fix — PagerDuty/Datadog webhook → AI-generated fix PR)
-
-
->>>>>>> 3a845e4 (feat: enterprise SSO (SAML 2.0 + OIDC) and SCIM user provisioning)
   {
     id: uuid("id").primaryKey().defaultRandom(),
     userId: uuid("user_id")
@@ -4394,6 +4382,19 @@ export type NewOrgSsoConfig = typeof orgSsoConfigs.$inferInsert;
 export type ScimToken = typeof scimTokens.$inferSelect;
 export type OrgSsoSession = typeof orgSsoSessions.$inferSelect;
 
+// ---------------------------------------------------------------------------
+// Migration 0077 — Incident hook configs
+// Maps a monitoring provider (PagerDuty / Datadog / Opsgenie / generic) to a
+// specific repo. Inbound webhooks are validated against secret_hash (SHA-256
+// of the user-chosen webhook secret passed in the ?secret= query param).
+// ---------------------------------------------------------------------------
+export const incidentHookConfigs = pgTable(
+  "incident_hook_configs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
     repoId: uuid("repo_id")
       .notNull()
       .references(() => repositories.id, { onDelete: "cascade" }),
@@ -4414,10 +4415,6 @@ export type OrgSsoSession = typeof orgSsoSessions.$inferSelect;
 
 export type IncidentHookConfig = typeof incidentHookConfigs.$inferSelect;
 export type NewIncidentHookConfig = typeof incidentHookConfigs.$inferInsert;
->>>>>>> 9953332 (feat: production incident auto-fix — PagerDuty/Datadog webhook → AI-generated fix PR)
-
-
->>>>>>> 3a845e4 (feat: enterprise SSO (SAML 2.0 + OIDC) and SCIM user provisioning)
 
 /**
  * Cloud deploy configurations — per-repo settings for push-triggered deploys
@@ -4480,7 +4477,6 @@ export type CloudDeployConfig = typeof cloudDeployConfigs.$inferSelect;
 export type NewCloudDeployConfig = typeof cloudDeployConfigs.$inferInsert;
 export type CloudDeployment = typeof cloudDeployments.$inferSelect;
 export type NewCloudDeployment = typeof cloudDeployments.$inferInsert;
->>>>>>> b11ffa9 (feat: multi-cloud deploy integration — push to main deploys to Fly/Railway/Render/Vercel)
 // ---------------------------------------------------------------------------
 // Recurring pattern detection (migration 0088)
 // ---------------------------------------------------------------------------

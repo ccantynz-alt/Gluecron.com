@@ -322,7 +322,7 @@ Only include files with confidence > 0.2. Return [] if nothing is relevant.`;
 
   try {
     const message = await client.messages.create({
-      model: MODEL_HAIKU,
+      model: MODEL_SONNET,
       max_tokens: 1000,
       messages: [{ role: "user", content: prompt }],
     });

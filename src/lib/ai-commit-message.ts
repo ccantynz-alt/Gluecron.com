@@ -273,7 +273,7 @@ export async function generateCommitMessage(
   try {
     const client = getAnthropic();
     const message = await client.messages.create({
-      model: MODEL_HAIKU,
+      model: MODEL_SONNET,
       max_tokens: 512,
       messages: [
         {
@@ -286,7 +286,7 @@ export async function generateCommitMessage(
       const { recordAiCost, extractUsage } = await import("./ai-cost-tracker");
       const usage = extractUsage(message);
       await recordAiCost({
-        model: MODEL_HAIKU,
+        model: MODEL_SONNET,
         inputTokens: usage.input,
         outputTokens: usage.output,
         category: "other",

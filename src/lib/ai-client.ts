@@ -22,9 +22,9 @@ export function isAiAvailable(): boolean {
   return !!config.anthropicApiKey;
 }
 
-/** Default model for code understanding + review */
+/** Primary model for all AI features — code understanding, review, generation */
 export const MODEL_SONNET = "claude-sonnet-4-6";
-/** Fast model for lightweight tasks (commit messages, titles) */
+/** Legacy constant — kept for backwards compatibility, do not use in new code */
 export const MODEL_HAIKU = "claude-haiku-4-5-20251001";
 
 /**

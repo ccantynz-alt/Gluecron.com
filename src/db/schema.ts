@@ -1660,8 +1660,30 @@ export type CodebaseExplanation = typeof codebaseExplanations.$inferSelect;
 export type DepUpdateRun = typeof depUpdateRuns.$inferSelect;
 
 // ---------------------------------------------------------------------------
-// Block E2 — Discussions (migration 0013)
+// Block E2 — Discussions (migration 0013 + 0077)
 // ---------------------------------------------------------------------------
+
+/**
+ * Per-repo discussion categories (migration 0077).
+ * Seeded lazily on first discussion creation: General, Q&A, Announcements, Ideas.
+ * is_answerable = true surfaces "Mark as answer" on threads in that category.
+ */
+export const discussionCategories = pgTable(
+  "discussion_categories",
+  {
+    id: serial("id").primaryKey(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    emoji: text("emoji").notNull().default("💬"),
+    description: text("description"),
+    isAnswerable: boolean("is_answerable").notNull().default(false),
+  },
+  (table) => [index("discussion_categories_repo").on(table.repositoryId)]
+);
+
+export type DiscussionCategory = typeof discussionCategories.$inferSelect;
 
 /**
  * Discussions — forum-style threaded conversations attached to a repo.

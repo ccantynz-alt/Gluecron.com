@@ -113,6 +113,7 @@ export const config = {
     return process.env.WEBAUTHN_RP_NAME || "gluecron";
   },
   /**
+<<<<<<< HEAD
    * Redis / Valkey connection URL for cross-instance SSE fan-out.
    * When set, `src/lib/sse.ts` uses Redis pub/sub so SSE events reach all
    * server instances behind the load balancer.  Falls back to in-process
@@ -129,5 +130,15 @@ export const config = {
    */
   get aiAutoIssues() {
     return process.env.AI_AUTO_ISSUES === "1";
+  },
+  /**
+   * Dependency CVE scanner — when set to "1", the post-receive hook fires
+   * `scanDependencies()` on every push that touches a recognized manifest
+   * file (package.json, requirements.txt, Cargo.toml, go.mod, Gemfile).
+   * Results open security issues automatically. Fire-and-forget; never
+   * blocks a push.
+   */
+  get dependencyScanEnabled() {
+    return process.env.DEPENDENCY_SCAN_ENABLED === "1";
   },
 };

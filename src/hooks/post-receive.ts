@@ -27,6 +27,7 @@ import {
 import { indexChangedFiles } from "../lib/semantic-index";
 import { scanDiffForIssues } from "../lib/ai-auto-issues";
 import { enqueuePreviewBuild } from "../lib/branch-previews";
+import { scanDependencies } from "../lib/dependency-scanner";
 import { runDocDriftCheckForRepo } from "../lib/ai-doc-updater";
 import {
   findTargetsForPush,
@@ -135,6 +136,17 @@ export async function onPostReceive(
     if (ref.newSha.startsWith("0000")) continue;
     scanDiffForIssues(owner, repo, ref.oldSha, ref.newSha, pusherUserId).catch(
       (err) => console.warn("[ai-auto-issues] dispatch error:", err)
+    );
+  }
+
+  // 4f. Dependency CVE scanner — when DEPENDENCY_SCAN_ENABLED=1, scan
+  //     every push that touches a recognized manifest file (package.json,
+  //     requirements.txt, Cargo.toml, go.mod, Gemfile). Auto-opens issues
+  //     for critical/high findings and updates a weekly digest for
+  //     medium/low. Fire-and-forget; never blocks the push path.
+  if (config.dependencyScanEnabled) {
+    void fireDependencyScan(owner, repo, refs).catch((err) =>
+      console.warn("[dependency-scanner] dispatch error:", err)
     );
   }
 
@@ -715,6 +727,59 @@ async function fireServerTargetDeploys(
   );
 }
 
+/**
+ * Fire-and-forget wrapper around scanDependencies for each pushed ref.
+ * Resolves the repo DB row once, then runs the scanner on each live push.
+ * Swallows all errors so a scanner failure never affects the push path.
+ */
+async function fireDependencyScan(
+  owner: string,
+  repo: string,
+  refs: PushRef[]
+): Promise<void> {
+  const liveRefs = refs.filter(
+    (r) => r.refName.startsWith("refs/heads/") && !r.newSha.startsWith("0000")
+  );
+  if (liveRefs.length === 0) return;
+
+  let repoRow: { id: string; ownerId: string } | null = null;
+  try {
+    const [row] = await db
+      .select({ id: repositories.id, ownerId: repositories.ownerId })
+      .from(repositories)
+      .innerJoin(users, eq(repositories.ownerId, users.id))
+      .where(and(eq(users.username, owner), eq(repositories.name, repo)))
+      .limit(1);
+    repoRow = row || null;
+  } catch {
+    return;
+  }
+  if (!repoRow) return;
+
+  for (const ref of liveRefs) {
+    try {
+      const findings = await scanDependencies(
+        repoRow.id,
+        owner,
+        repo,
+        ref.newSha,
+        ref.oldSha,
+        repoRow.ownerId
+      );
+      if (findings.length > 0) {
+        console.log(
+          `[dependency-scanner] ${owner}/${repo}@${ref.newSha.slice(0, 7)}: ${findings.length} finding(s)`
+        );
+      }
+    } catch (err) {
+      console.warn(
+        `[dependency-scanner] scan threw for ${owner}/${repo}@${ref.newSha.slice(0, 7)}:`,
+        err instanceof Error ? err.message : err
+      );
+    }
+  }
+}
+
 /** Test-only access to internal helpers. */
 export const __test = {
   triggerCrontechDeploy,
@@ -726,4 +791,5 @@ export const __test = {
   firePreviewBuilds,
   fireDocDriftCheck,
   fireServerTargetDeploys,
+  fireDependencyScan,
 };

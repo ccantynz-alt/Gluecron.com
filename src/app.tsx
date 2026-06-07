@@ -119,6 +119,7 @@ import billingRoutes from "./routes/billing";
 import billingUsageRoutes from "./routes/billing-usage";
 import stripeWebhookRoutes from "./routes/stripe-webhook";
 import codeScanningRoutes from "./routes/code-scanning";
+import securityRoutes from "./routes/security";
 import commitStatusesRoutes from "./routes/commit-statuses";
 import copilotRoutes from "./routes/copilot";
 import depUpdaterRoutes from "./routes/dep-updater";
@@ -657,6 +658,8 @@ app.route("/", billingRoutes);
 app.route("/", billingUsageRoutes);
 app.route("/", stripeWebhookRoutes);
 app.route("/", codeScanningRoutes);
+// Dependency CVE scanner findings page — /:owner/:repo/security/vulnerabilities
+app.route("/", securityRoutes);
 app.route("/", commitStatusesRoutes);
 app.route("/", copilotRoutes);
 app.route("/", depUpdaterRoutes);

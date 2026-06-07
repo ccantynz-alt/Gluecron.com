@@ -1689,6 +1689,22 @@ export type CodebaseExplanation = typeof codebaseExplanations.$inferSelect;
 export type DepUpdateRun = typeof depUpdateRuns.$inferSelect;
 
 // ---------------------------------------------------------------------------
+// Migration 0077 — repo_explain_cache: structured AI analysis per repo
+// ---------------------------------------------------------------------------
+
+export const repoExplainCache = pgTable("repo_explain_cache", {
+  id: serial("id").primaryKey(),
+  repoId: uuid("repo_id")
+    .notNull()
+    .unique()
+    .references(() => repositories.id, { onDelete: "cascade" }),
+  result: jsonb("result").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export type RepoExplainCache = typeof repoExplainCache.$inferSelect;
+
+// ---------------------------------------------------------------------------
 // Block E2 — Discussions (migration 0013 + 0077)
 // ---------------------------------------------------------------------------
 

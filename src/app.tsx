@@ -109,6 +109,7 @@ import adminSecurityRoutes from "./routes/admin-security";
 import settingsSessionsRoutes from "./routes/settings-sessions";
 import advisoriesRoutes from "./routes/advisories";
 import aiChangelogRoutes from "./routes/ai-changelog";
+import explainRoutes from "./routes/explain";
 import aiExplainRoutes from "./routes/ai-explain";
 import aiTestsRoutes from "./routes/ai-tests";
 import askRoutes from "./routes/ask";
@@ -642,6 +643,9 @@ app.route("/", claudeWebRoutes);
 // Note: adminOpsRoutes is mounted earlier (before insightRoutes) — see comment above.
 app.route("/", advisoriesRoutes);
 app.route("/", aiChangelogRoutes);
+// "Explain This Repo" — rich structured AI analysis dashboard (mounted before
+// the simpler aiExplainRoutes so the new routes win on /:owner/:repo/explain).
+app.route("/", explainRoutes);
 app.route("/", aiExplainRoutes);
 app.route("/", aiTestsRoutes);
 app.route("/", askRoutes);

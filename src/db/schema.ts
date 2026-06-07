@@ -618,6 +618,11 @@ export const issues = pgTable(
     title: text("title").notNull(),
     body: text("body"),
     state: text("state").notNull().default("open"), // open, closed
+    // Migration 0077 — milestone grouping. Optional; ON DELETE SET NULL so
+    // deleting a milestone never removes the issue.
+    milestoneId: uuid("milestone_id").references(() => milestones.id, {
+      onDelete: "set null",
+    }),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
     closedAt: timestamp("closed_at"),
@@ -625,6 +630,7 @@ export const issues = pgTable(
   (table) => [
     index("issues_repo_state").on(table.repositoryId, table.state),
     index("issues_repo_number").on(table.repositoryId, table.number),
+    index("issues_milestone").on(table.milestoneId),
   ]
 );
 

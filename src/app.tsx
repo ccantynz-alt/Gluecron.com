@@ -29,6 +29,7 @@ import integrationsChatRoutes from "./routes/integrations-chat";
 import agentsRoutes from "./routes/agents";
 import agentPipelinesRoutes from "./routes/agent-pipelines";
 import issueRoutes from "./routes/issues";
+import milestonesRoutes from "./routes/milestones";
 import commentModerationRoutes from "./routes/comment-moderation";
 import repoSettings from "./routes/repo-settings";
 import collaboratorRoutes from "./routes/collaborators";
@@ -498,6 +499,10 @@ app.route("/", compareRoutes);
 
 // Issue tracker
 app.route("/", issueRoutes);
+
+// Milestones — group issues + PRs toward a shared goal with due dates + progress tracking.
+// Mounted after issueRoutes so /:owner/:repo/issues/* paths win before the milestone patterns.
+app.route("/", milestonesRoutes);
 
 // Comment moderation queue — owner-only `/:owner/:repo/comments/pending`
 // + per-row approve/reject/spam actions. Mounted before `pullRoutes` so

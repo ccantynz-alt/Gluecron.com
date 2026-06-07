@@ -279,6 +279,7 @@ export const Layout: FC<
                       <a href="/issues" role="menuitem" class="nav-user-item">Issues</a>
                       <a href="/activity" role="menuitem" class="nav-user-item">Activity</a>
                       <a href="/import" role="menuitem" class="nav-user-item">Import from GitHub</a>
+                      <a href="/import/actions" role="menuitem" class="nav-user-item">Actions importer</a>
                       <div class="nav-user-menu-sep" />
                       <a href={`/${user.username}`} role="menuitem" class="nav-user-item">Your profile</a>
                       <a href="/settings" role="menuitem" class="nav-user-item">Settings</a>

@@ -72,6 +72,7 @@ import legalAcceptableUseRoutes from "./routes/legal/acceptable-use";
 import importRoutes from "./routes/import";
 import importBulkRoutes from "./routes/import-bulk";
 import importSecretsRoutes from "./routes/import-secrets";
+import actionsImporterRoutes from "./routes/actions-importer";
 import migrationRoutes from "./routes/migrations";
 import specsRoutes from "./routes/specs";
 import refactorRoutes from "./routes/refactors";
@@ -598,6 +599,8 @@ app.route("/", legalDmcaRoutes);
 app.route("/", importRoutes);
 app.route("/", importBulkRoutes);
 app.route("/", importSecretsRoutes);
+// GitHub Actions → Gluecron gates.yml importer (stateless converter)
+app.route("/", actionsImporterRoutes);
 app.route("/", migrationRoutes);
 
 // Spec-to-PR (experimental AI-generated draft PRs)

@@ -16,6 +16,7 @@ import buildAgentSpecRoutes from "./routes/build-agent-spec";
 import pullsDashboardRoutes from "./routes/pulls-dashboard";
 import issuesDashboardRoutes from "./routes/issues-dashboard";
 import inboxRoutes from "./routes/inbox";
+import digestRoutes from "./routes/digest";
 import activityRoutes from "./routes/activity";
 import authRoutes from "./routes/auth";
 import passwordResetRoutes from "./routes/password-reset";
@@ -421,6 +422,8 @@ app.route("/", activityRoutes);
 app.route("/", inboxRoutes);
 // AI standup feed — daily / weekly Claude-generated team brief
 app.route("/", standupRoutes);
+// Smart morning digest — AI-curated daily developer queue (/digest)
+app.route("/", digestRoutes);
 
 // Auth routes (register, login, logout)
 app.route("/", authRoutes);

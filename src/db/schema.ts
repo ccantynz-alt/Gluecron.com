@@ -12,6 +12,7 @@ import {
   jsonb,
   numeric,
   customType,
+  primaryKey,
 } from "drizzle-orm/pg-core";
 
 // Postgres `bytea` — drizzle-orm doesn't ship a first-class bytea column, so
@@ -131,6 +132,12 @@ export const users = pgTable("users", {
   // drip schedule and sends any outstanding emails. Never null — defaults to
   // an empty array at insert time.
   onboardingEmailsSent: jsonb("onboarding_emails_sent").$type<string[]>().default([]).notNull(),
+  // Migration 0089 — Smart morning digest (AI-curated daily notification queue).
+  // When true, the autopilot `smart-digest` task delivers one AI-curated
+  // digest notification per day at 07:00 UTC. Independent cooldown via
+  // `lastSmartDigestSentAt` so it doesn't interact with weekly email digest.
+  notifySmartDigest: boolean("notify_smart_digest").default(true).notNull(),
+  lastSmartDigestSentAt: timestamp("last_smart_digest_sent_at", { withTimezone: true }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -4516,3 +4523,27 @@ export const busFactorCache = pgTable("bus_factor_cache", {
   atRiskFiles: jsonb("at_risk_files").notNull().default([]),
   totalFilesAnalyzed: integer("total_files_analyzed").notNull().default(0),
 });
+// ---------------------------------------------------------------------------
+// Migration 0088 — PR visit tracking for context-restore feature
+// ---------------------------------------------------------------------------
+
+/**
+ * pr_visits — lightweight upsert table tracking each user's last visit to a
+ * PR. Used by `src/lib/review-context.ts` to compute what changed since the
+ * reviewer was last here and generate a "Welcome back" context banner.
+ */
+export const prVisits = pgTable(
+  "pr_visits",
+  {
+    prId: uuid("pr_id")
+      .notNull()
+      .references(() => pullRequests.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    visitedAt: timestamp("visited_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.prId, t.userId] })]
+);
+
+export type PrVisit = typeof prVisits.$inferSelect;

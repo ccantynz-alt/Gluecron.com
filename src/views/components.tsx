@@ -150,7 +150,8 @@ export const RepoNav: FC<{
     | "agents"
     | "discussions"
     | "security"
-    | "settings";
+    | "settings"
+    | "debt-map";
 }> = ({ owner, repo, active }) => (
   <div class="repo-nav">
     <a href={`/${owner}/${repo}`} class={active === "code" ? "active" : ""}>
@@ -251,6 +252,13 @@ export const RepoNav: FC<{
       title="AI Tests \u2014 generate failing test stubs from a source file"
     >
       {"\u2728"} Tests
+    </a>
+    <a
+      href={`/${owner}/${repo}/debt-map`}
+      class={`repo-nav-ai${active === "debt-map" ? " active" : ""}`}
+      title="AI Debt Map \u2014 visual technical debt graph with Claude analysis"
+    >
+      {"\u2593"} Debt Map
     </a>
   </div>
 );

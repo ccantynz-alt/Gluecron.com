@@ -183,6 +183,7 @@ import { staleBranchRoutes } from "./routes/stale-branches";
 import pulseRoutes from "./routes/pulse";
 import healthScoreRoutes from "./routes/health-score";
 import hotFilesRoutes from "./routes/hot-files";
+import debtMapRoutes from "./routes/debt-map";
 import developerProgramRoutes from "./routes/developer-program";
 import shareRoutes from "./routes/share";
 import { authRateLimit, gitRateLimit, searchRateLimit } from "./middleware/rate-limit";
@@ -714,6 +715,8 @@ app.route("/", pulseRoutes);
 app.route("/", healthScoreRoutes);
 // Hot Files Heatmap — BLOCK M16 — /:owner/:repo/insights/hotfiles
 app.route("/", hotFilesRoutes);
+// AI Technical Debt Map — /:owner/:repo/debt-map (visual debt graph + Claude analysis)
+app.route("/", debtMapRoutes);
 // Hosted Claude tool-use loops — paste loop, get endpoint, billing meter.
 // See src/routes/claude-deploy.tsx + src/lib/hosted-claude-loop.ts.
 app.route("/", claudeDeployRoutes);

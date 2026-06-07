@@ -71,7 +71,6 @@ import { expireIdleEnvs } from "./dev-env";
 import { expireOldPreviews } from "./branch-previews";
 import { getBotUserIdOrFallback } from "./bot-user";
 import { runOnboardingDripTaskOnce } from "./onboarding-drip";
-import { runDepUpdateSweepOnce } from "./dep-updater-sweep";
 import { sendSmartDigestsToAll } from "./smart-digest";
 
 export interface AutopilotTaskResult {

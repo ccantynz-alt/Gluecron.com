@@ -150,10 +150,8 @@ export const RepoNav: FC<{
     | "agents"
     | "discussions"
     | "security"
-    | "deployments"
     | "settings"
-    | "debt-map"
-    | "migrate";
+    | "debt-map";
 }> = ({ owner, repo, active }) => (
   <div class="repo-nav">
     <a href={`/${owner}/${repo}`} class={active === "code" ? "active" : ""}>
@@ -267,13 +265,6 @@ export const RepoNav: FC<{
       title="AI Debt Map \u2014 visual technical debt graph with Claude analysis"
     >
       {"\u2593"} Debt Map
-    </a>
-    <a
-      href={`/${owner}/${repo}/migrate`}
-      class={`repo-nav-ai${active === "migrate" ? " active" : ""}`}
-      title="AI Codebase Migration \u2014 one-click language or framework translation"
-    >
-      {"\u2728"} Migrate
     </a>
   </div>
 );

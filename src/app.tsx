@@ -804,8 +804,6 @@ app.route("/", pulseRoutes);
 app.route("/", healthScoreRoutes);
 // Hot Files Heatmap — BLOCK M16 — /:owner/:repo/insights/hotfiles
 app.route("/", hotFilesRoutes);
-// Incident Auto-Fix — /hooks/{pagerduty,datadog,opsgenie,incident} + /settings/incident-hooks
-app.route("/", incidentHookRoutes);
 // AI Technical Debt Map — /:owner/:repo/debt-map (visual debt graph + Claude analysis)
 app.route("/", debtMapRoutes);
 // Bus Factor Analysis — /:owner/:repo/insights/bus-factor

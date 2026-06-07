@@ -5,7 +5,7 @@
 import { Hono } from "hono";
 import { eq } from "drizzle-orm";
 import { db } from "../db";
-import { users, sshKeys } from "../db/schema";
+import { users, sshKeys, ssoUserLinks } from "../db/schema";
 import { getStandupPrefs, setStandupPrefs } from "../lib/ai-standup";
 import type { AuthEnv } from "../middleware/auth";
 import { requireAuth } from "../middleware/auth";
@@ -22,6 +22,7 @@ import {
   daysUntilPurge,
 } from "../lib/account-deletion";
 import { deleteCookie } from "hono/cookie";
+import { audit } from "../lib/notify";
 
 const settings = new Hono<AuthEnv>();
 
@@ -598,13 +599,14 @@ function SettingsHero(props: {
 }
 
 /** Pill-row sub-navigation, hand-built so we don't depend on shared components. */
-export type SettingsSubnavKey = "profile" | "keys" | "agents";
+export type SettingsSubnavKey = "profile" | "keys" | "agents" | "deploy-targets";
 
 export function SettingsSubnav(props: { active: SettingsSubnavKey }) {
   const items: Array<{ key: SettingsSubnavKey; href: string; label: string }> = [
     { key: "profile", href: "/settings", label: "Profile" },
     { key: "keys", href: "/settings/keys", label: "SSH keys" },
     { key: "agents", href: "/settings/agents", label: "Agents" },
+    { key: "deploy-targets", href: "/settings/deploy-targets", label: "Deploy targets" },
   ];
   return (
     <nav class="settings-subnav" aria-label="Settings sections">
@@ -636,6 +638,13 @@ function Banner(props: { kind: "success" | "error"; text: string }) {
 settings.get("/settings", async (c) => {
   const user = c.get("user")!;
   const success = c.req.query("success");
+  // Check if the user has a GitHub OAuth link (subject starts with "github:")
+  const githubLink = await db
+    .select({ id: ssoUserLinks.id, subject: ssoUserLinks.subject })
+    .from(ssoUserLinks)
+    .where(eq(ssoUserLinks.userId, user.id))
+    .then((rows) => rows.find((r) => r.subject.startsWith("github:")));
+  const hasGithubLinked = !!githubLink;
   const standupPrefs = (await getStandupPrefs(user.id)) || {
     dailyEnabled: false,
     weeklyEnabled: false,
@@ -683,6 +692,51 @@ settings.get("/settings", async (c) => {
 
         {success && (
           <Banner kind="success" text={decodeURIComponent(success)} />
+        )}
+
+        {/* ─── GitHub account link ─── */}
+        {hasGithubLinked && (
+          <section class="settings-section">
+            <div class="settings-section-head">
+              <div class="settings-section-eyebrow">Connected account</div>
+              <h2 class="settings-section-title">GitHub</h2>
+              <p class="settings-section-desc">
+                Your Gluecron account is linked to a GitHub account.
+                Disconnecting removes the link but does not delete your
+                Gluecron account or any of your repositories.
+              </p>
+            </div>
+            <div class="settings-section-body">
+              <div
+                style={
+                  "display:flex;align-items:center;gap:12px;padding:12px 14px;" +
+                  "background:rgba(52,211,153,0.06);border:1px solid rgba(52,211,153,0.22);" +
+                  "border-radius:10px;"
+                }
+              >
+                <span
+                  style={
+                    "display:inline-flex;align-items:center;justify-content:center;" +
+                    "width:32px;height:32px;border-radius:8px;" +
+                    "background:rgba(52,211,153,0.14);color:#6ee7b7;font-weight:700;font-size:15px;"
+                  }
+                  aria-hidden="true"
+                >
+                  ✓
+                </span>
+                <span style="font-size:14px;color:var(--text)">
+                  GitHub account connected
+                </span>
+              </div>
+            </div>
+            <div class="settings-section-foot">
+              <form method="post" action="/settings/github/unlink">
+                <button type="submit" class="btn btn-danger btn-sm">
+                  Disconnect GitHub
+                </button>
+              </form>
+            </div>
+          </section>
         )}
 
         {/* ─── Profile ─── */}
@@ -1615,11 +1669,14 @@ settings.get("/settings/notifications", async (c) => {
   const success = c.req.query("success");
 
   // Count how many event toggles are enabled per channel (just for the pill).
+  // Email: mention, assign, gate_fail, digest_weekly, pending_comment (5 total)
   const emailOnCount =
     (user.notifyEmailOnMention ? 1 : 0) +
     (user.notifyEmailOnAssign ? 1 : 0) +
     (user.notifyEmailOnGateFail ? 1 : 0) +
-    (user.notifyEmailDigestWeekly ? 1 : 0);
+    (user.notifyEmailDigestWeekly ? 1 : 0) +
+    (user.notifyEmailOnPendingComment ? 1 : 0);
+  // Push: mention, assign, review_request, deploy_failed (4 total)
   const pushOnCount =
     (user.notifyPushOnMention ? 1 : 0) +
     (user.notifyPushOnAssign ? 1 : 0) +
@@ -1680,7 +1737,7 @@ settings.get("/settings/notifications", async (c) => {
             </div>
             <div class="notifset-channel-text">
               <h3 class="notifset-channel-name">Email</h3>
-              <p class="notifset-channel-meta">{emailOnCount} of 4 events enabled</p>
+              <p class="notifset-channel-meta">{emailOnCount} of 5 events enabled</p>
             </div>
             <span class={"notifset-channel-pill " + (emailOnCount > 0 ? "is-on" : "")}>
               <span class="dot" aria-hidden="true" />
@@ -1702,190 +1759,57 @@ settings.get("/settings/notifications", async (c) => {
           </div>
         </div>
 
-        {/* ─── Event rules form ─── */}
+        {/* ─── Event rules form — 4 categories ─── */}
         <form method="post" action="/settings/notifications">
-          <section class="notifset-section">
-            <header class="notifset-section-head">
-              <h3 class="notifset-section-title">
-                <span class="notifset-section-icon" aria-hidden="true">
-                  <NotifsetMailIcon />
-                </span>
-                Email rules
-              </h3>
-              <p class="notifset-section-sub">
-                Pick which events email you. In-app notifications continue
-                regardless of what you toggle here.
-              </p>
-            </header>
-            <div class="notifset-section-body">
-              <label class="notifset-rule">
-                <input
-                  type="checkbox"
-                  name="notify_email_on_mention"
-                  value="1"
-                  checked={user.notifyEmailOnMention}
-                  aria-label="Someone @mentions me or requests a review"
-                />
-                <span class="notifset-rule-text">
-                  Someone <code>@mentions</code> me or requests a review
-                  <span class="notifset-rule-hint">
-                    Direct pings on issues, PRs, and code comments.
-                  </span>
-                </span>
-              </label>
-              <label class="notifset-rule">
-                <input
-                  type="checkbox"
-                  name="notify_email_on_assign"
-                  value="1"
-                  checked={user.notifyEmailOnAssign}
-                  aria-label="I am assigned to an issue or PR"
-                />
-                <span class="notifset-rule-text">
-                  I am assigned to an issue or PR
-                  <span class="notifset-rule-hint">
-                    Email when someone hands you something to work on.
-                  </span>
-                </span>
-              </label>
-              <label class="notifset-rule">
-                <input
-                  type="checkbox"
-                  name="notify_email_on_gate_fail"
-                  value="1"
-                  checked={user.notifyEmailOnGateFail}
-                  aria-label="A gate fails on one of my repositories"
-                />
-                <span class="notifset-rule-text">
-                  A gate fails on one of my repositories
-                  <span class="notifset-rule-hint">
-                    Security, test, or build gate alerts on your repos.
-                  </span>
-                </span>
-              </label>
-              <label class="notifset-rule">
-                <input
-                  type="checkbox"
-                  name="notify_email_digest_weekly"
-                  value="1"
-                  checked={user.notifyEmailDigestWeekly}
-                  aria-label="Weekly digest email"
-                />
-                <span class="notifset-rule-text">
-                  Weekly digest &mdash; <a href="/settings/digest/preview" style="color:var(--accent)">preview</a>
-                  <span class="notifset-rule-hint">
-                    A Monday summary of what shipped last week.
-                  </span>
-                </span>
-              </label>
-              <label class="notifset-rule">
-                <input
-                  type="checkbox"
-                  name="notify_email_on_pending_comment"
-                  value="1"
-                  checked={user.notifyEmailOnPendingComment}
-                  aria-label="Someone leaves a comment on a public repo you own and it needs your approval"
-                />
-                <span class="notifset-rule-text">
-                  Pending comment requests on my repos
-                  <span class="notifset-rule-hint">
-                    A non-collaborator left a comment on a public repo you
-                    own. Comments stay hidden until you review them.
-                  </span>
-                </span>
-              </label>
-            </div>
-          </section>
 
-          <section class="notifset-section">
-            <header class="notifset-section-head">
-              <h3 class="notifset-section-title">
-                <span class="notifset-section-icon" aria-hidden="true">
-                  <NotifsetPushIcon />
-                </span>
-                Web push rules
-              </h3>
-              <p class="notifset-section-sub">
-                Install Gluecron as a PWA, then subscribe a device from{" "}
-                <a href="/settings" style="color:var(--accent)">main settings</a>. These
-                toggles control which event kinds trigger a push notification.
-              </p>
-            </header>
-            <div class="notifset-section-body">
-              <label class="notifset-rule">
-                <input
-                  type="checkbox"
-                  name="notify_push_on_mention"
-                  value="1"
-                  checked={user.notifyPushOnMention}
-                  aria-label="Someone @mentions me"
-                />
-                <span class="notifset-rule-text">
-                  Someone <code>@mentions</code> me
-                </span>
-              </label>
-              <label class="notifset-rule">
-                <input
-                  type="checkbox"
-                  name="notify_push_on_assign"
-                  value="1"
-                  checked={user.notifyPushOnAssign}
-                  aria-label="I am assigned to an issue or PR"
-                />
-                <span class="notifset-rule-text">I am assigned to an issue or PR</span>
-              </label>
-              <label class="notifset-rule">
-                <input
-                  type="checkbox"
-                  name="notify_push_on_review_request"
-                  value="1"
-                  checked={user.notifyPushOnReviewRequest}
-                  aria-label="Someone requests a review from me"
-                />
-                <span class="notifset-rule-text">Someone requests a review from me</span>
-              </label>
-              <label class="notifset-rule">
-                <input
-                  type="checkbox"
-                  name="notify_push_on_deploy_failed"
-                  value="1"
-                  checked={user.notifyPushOnDeployFailed}
-                  aria-label="A deploy fails"
-                />
-                <span class="notifset-rule-text">
-                  A deploy fails on one of my repositories
-                </span>
-              </label>
-            </div>
-          </section>
-
+          {/* ── Category 1: AI activity ── */}
           <section class="notifset-section">
             <header class="notifset-section-head">
               <h3 class="notifset-section-title">
                 <span class="notifset-section-icon" aria-hidden="true">
                   <NotifsetInappIcon />
                 </span>
-                Sleep Mode
+                AI activity
               </h3>
               <p class="notifset-section-sub">
-                Toggle Sleep Mode and pick when your morning digest lands.
-                <a href="/sleep-mode" style="color:var(--accent);margin-left:4px">Learn more</a>.
+                Be notified when Claude acts on your behalf — reviews, spec
+                builds, CI self-heals, and auto-merges. In-app always fires;
+                email and push are opt-in.
               </p>
             </header>
             <div class="notifset-section-body">
               <label class="notifset-rule">
                 <input
                   type="checkbox"
+                  name="notify_email_digest_weekly"
+                  value="1"
+                  checked={user.notifyEmailDigestWeekly}
+                  aria-label="Weekly AI activity digest"
+                />
+                <span class="notifset-rule-text">
+                  Weekly AI activity digest (email) &mdash;{" "}
+                  <a href="/settings/digest/preview" style="color:var(--accent)">preview</a>
+                  <span class="notifset-rule-hint">
+                    A Monday summary of AI reviews posted, specs built, CI heals,
+                    and auto-merges from the past week.
+                  </span>
+                </span>
+              </label>
+              <label class="notifset-rule">
+                <input
+                  type="checkbox"
                   name="sleep_mode_enabled"
                   value="1"
                   checked={user.sleepModeEnabled}
-                  aria-label="Enable Sleep Mode"
+                  aria-label="Enable Sleep Mode overnight digest"
                 />
                 <span class="notifset-rule-text">
-                  Enable Sleep Mode (daily &ldquo;overnight&rdquo; digest)
+                  Enable Sleep Mode overnight digest (email)
                   <span class="notifset-rule-hint">
-                    Claude operates autonomously between digests and reports
-                    back on the schedule you pick.
+                    Claude operates autonomously overnight and sends a daily
+                    report of what shipped — PRs auto-merged, issues built,
+                    AI reviews, security auto-fixes, gate repairs.{" "}
+                    <a href="/sleep-mode" style="color:var(--accent)">Learn more</a>.
                   </span>
                 </span>
               </label>
@@ -1905,6 +1829,183 @@ settings.get("/settings/notifications", async (c) => {
                 />
                 <a href="/settings/sleep-mode/preview">Preview digest now</a>
               </div>
+            </div>
+          </section>
+
+          {/* ── Category 2: CI/CD ── */}
+          <section class="notifset-section">
+            <header class="notifset-section-head">
+              <h3 class="notifset-section-title">
+                <span class="notifset-section-icon" aria-hidden="true">
+                  <NotifsetPushIcon />
+                </span>
+                CI/CD
+              </h3>
+              <p class="notifset-section-sub">
+                Workflow runs, gate results, and deploy outcomes on repositories
+                you own. Email and push are opt-in per channel.
+              </p>
+            </header>
+            <div class="notifset-section-body">
+              <label class="notifset-rule">
+                <input
+                  type="checkbox"
+                  name="notify_email_on_gate_fail"
+                  value="1"
+                  checked={user.notifyEmailOnGateFail}
+                  aria-label="A gate fails on one of my repositories — email"
+                />
+                <span class="notifset-rule-text">
+                  Gate / workflow fails (email)
+                  <span class="notifset-rule-hint">
+                    Security, test, or build gate failures on your repos —
+                    triggered on push and PR.
+                  </span>
+                </span>
+              </label>
+              <label class="notifset-rule">
+                <input
+                  type="checkbox"
+                  name="notify_push_on_deploy_failed"
+                  value="1"
+                  checked={user.notifyPushOnDeployFailed}
+                  aria-label="A deploy fails — web push"
+                />
+                <span class="notifset-rule-text">
+                  Deploy fails (web push)
+                  <span class="notifset-rule-hint">
+                    Push notification when a deploy to production fails on
+                    one of your repositories.
+                  </span>
+                </span>
+              </label>
+            </div>
+          </section>
+
+          {/* ── Category 3: Code review ── */}
+          <section class="notifset-section">
+            <header class="notifset-section-head">
+              <h3 class="notifset-section-title">
+                <span class="notifset-section-icon" aria-hidden="true">
+                  <NotifsetMailIcon />
+                </span>
+                Code review
+              </h3>
+              <p class="notifset-section-sub">
+                PR comments, review requests, assignments, and merges.
+              </p>
+            </header>
+            <div class="notifset-section-body">
+              <label class="notifset-rule">
+                <input
+                  type="checkbox"
+                  name="notify_push_on_review_request"
+                  value="1"
+                  checked={user.notifyPushOnReviewRequest}
+                  aria-label="Someone requests a review from me — web push"
+                />
+                <span class="notifset-rule-text">
+                  Review requested (web push)
+                  <span class="notifset-rule-hint">
+                    Push notification when you are added as a reviewer to a PR.
+                  </span>
+                </span>
+              </label>
+              <label class="notifset-rule">
+                <input
+                  type="checkbox"
+                  name="notify_email_on_assign"
+                  value="1"
+                  checked={user.notifyEmailOnAssign}
+                  aria-label="I am assigned to an issue or PR — email"
+                />
+                <span class="notifset-rule-text">
+                  Assigned to an issue or PR (email)
+                  <span class="notifset-rule-hint">
+                    Email when someone hands you a PR or issue to work on.
+                  </span>
+                </span>
+              </label>
+              <label class="notifset-rule">
+                <input
+                  type="checkbox"
+                  name="notify_push_on_assign"
+                  value="1"
+                  checked={user.notifyPushOnAssign}
+                  aria-label="I am assigned to an issue or PR — web push"
+                />
+                <span class="notifset-rule-text">
+                  Assigned to an issue or PR (web push)
+                  <span class="notifset-rule-hint">
+                    Push notification when you are assigned to a PR or issue.
+                  </span>
+                </span>
+              </label>
+              <label class="notifset-rule">
+                <input
+                  type="checkbox"
+                  name="notify_email_on_pending_comment"
+                  value="1"
+                  checked={user.notifyEmailOnPendingComment}
+                  aria-label="Pending comment approval needed on my repos"
+                />
+                <span class="notifset-rule-text">
+                  Pending comment needs approval (email)
+                  <span class="notifset-rule-hint">
+                    A non-collaborator left a comment on a public repo you
+                    own. Comments stay hidden until you review them.
+                  </span>
+                </span>
+              </label>
+            </div>
+          </section>
+
+          {/* ── Category 4: Mentions ── */}
+          <section class="notifset-section">
+            <header class="notifset-section-head">
+              <h3 class="notifset-section-title">
+                <span class="notifset-section-icon" aria-hidden="true">
+                  <NotifsetBellIcon />
+                </span>
+                Mentions
+              </h3>
+              <p class="notifset-section-sub">
+                Direct <code style="font-family:var(--font-mono);font-size:12px;background:rgba(255,255,255,0.04);border:1px solid var(--border);padding:1px 6px;border-radius:4px">@mentions</code> in
+                issues and PR comments. In-app always fires; email and push are opt-in.
+              </p>
+            </header>
+            <div class="notifset-section-body">
+              <label class="notifset-rule">
+                <input
+                  type="checkbox"
+                  name="notify_email_on_mention"
+                  value="1"
+                  checked={user.notifyEmailOnMention}
+                  aria-label="Someone @mentions me or requests a review — email"
+                />
+                <span class="notifset-rule-text">
+                  <code>@mention</code> in issue or PR comment (email)
+                  <span class="notifset-rule-hint">
+                    Email when someone tags you directly in a thread or
+                    requests a review.
+                  </span>
+                </span>
+              </label>
+              <label class="notifset-rule">
+                <input
+                  type="checkbox"
+                  name="notify_push_on_mention"
+                  value="1"
+                  checked={user.notifyPushOnMention}
+                  aria-label="Someone @mentions me — web push"
+                />
+                <span class="notifset-rule-text">
+                  <code>@mention</code> in issue or PR comment (web push)
+                  <span class="notifset-rule-hint">
+                    Push notification when someone tags you in a thread.
+                  </span>
+                </span>
+              </label>
             </div>
             <div class="notifset-section-foot">
               <span class="notifset-foot-hint">
@@ -2374,6 +2475,37 @@ settings.delete("/api/user/keys/:id", async (c) => {
 
   await db.delete(sshKeys).where(eq(sshKeys.id, keyId));
   return c.json({ deleted: true });
+});
+
+// ─── /settings/github/unlink — disconnect GitHub OAuth ───────────────────────
+// Alias for /settings/sso/unlink scoped to just the "github:" prefixed links.
+// Deletes only the github: sso_user_links row(s) for the current user, leaving
+// any enterprise-OIDC or google: links intact.
+settings.post("/settings/github/unlink", requireAuth, async (c) => {
+  const user = c.get("user")!;
+  // Fetch all SSO links for this user, then filter for GitHub ones in JS
+  // (avoids a raw SQL LIKE in the ORM layer).
+  const allLinks = await db
+    .select({ id: ssoUserLinks.id, subject: ssoUserLinks.subject })
+    .from(ssoUserLinks)
+    .where(eq(ssoUserLinks.userId, user.id));
+  const githubLinks = allLinks.filter((l) => l.subject.startsWith("github:"));
+  if (githubLinks.length === 0) {
+    return c.redirect(
+      "/settings?error=" + encodeURIComponent("No GitHub account is linked.")
+    );
+  }
+  for (const link of githubLinks) {
+    await db.delete(ssoUserLinks).where(eq(ssoUserLinks.id, link.id));
+  }
+  await audit({
+    userId: user.id,
+    action: "auth.github.unlink",
+    metadata: { removedLinks: githubLinks.length },
+  });
+  return c.redirect(
+    "/settings?success=" + encodeURIComponent("GitHub account disconnected.")
+  );
 });
 
 export default settings;

@@ -5,7 +5,7 @@
 
 import { Hono } from "hono";
 import { html } from "hono/html";
-import { eq, and, desc, inArray, sql } from "drizzle-orm";
+import { eq, and, desc, inArray, sql, gte, count } from "drizzle-orm";
 import { db } from "../db";
 import { config } from "../lib/config";
 import {
@@ -13,6 +13,12 @@ import {
   repositories,
   stars,
   commitVerifications,
+  activityFeed,
+  pullRequests,
+  prComments,
+  issues,
+  labels,
+  issueLabels,
 } from "../db/schema";
 import { Layout } from "../views/layout";
 import { PendingCommentsBanner as RepoHomePendingBanner } from "../views/pending-comments-banner";
@@ -25,6 +31,7 @@ import {
   BranchSwitcher,
   HighlightedCode,
   PlainCode,
+  type RecentPush,
 } from "../views/components";
 import { DiffView } from "../views/diff-view";
 import {
@@ -47,6 +54,8 @@ import {
 } from "../git/repository";
 import { renderMarkdown, markdownCss } from "../lib/markdown";
 import { highlightCode } from "../lib/highlight";
+import { computeHealthScore } from "../lib/health-score";
+import type { HealthScore } from "../lib/health-score";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
 import { trackByName } from "../lib/traffic";
@@ -65,6 +74,110 @@ const web = new Hono<AuthEnv>();
 
 // Soft auth on all web routes — c.get("user") available but may be null
 web.use("*", softAuth);
+
+// ---------------------------------------------------------------------------
+// Repo AI stats — computed once per repo home page load, best-effort.
+// Fast because every WHERE clause is bounded to a 7-day window.
+// ---------------------------------------------------------------------------
+interface RepoAiStats {
+  mergedCount: number;
+  reviewCount: number;
+  securityAlertCount: number;
+  hoursSaved: string;
+}
+
+async function getRepoAiStats(repoId: string): Promise<RepoAiStats> {
+  const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+  // 1. AI-merged PRs this week: activity_feed entries with action =
+  //    'auto_merge.merged' in the last 7 days for this repo.
+  //    This is cheaper than a JOIN on pull_requests and covers both the
+  //    `mergedBy = botUser` pattern and the autopilot auto-merge path.
+  const [mergedRow] = await db
+    .select({ n: count() })
+    .from(activityFeed)
+    .where(
+      and(
+        eq(activityFeed.repositoryId, repoId),
+        eq(activityFeed.action, "auto_merge.merged"),
+        gte(activityFeed.createdAt, since)
+      )
+    );
+  const mergedCount = Number(mergedRow?.n ?? 0);
+
+  // 2. AI reviews this week: pr_comments where is_ai_review = true in
+  //    the last 7 days, joined through pull_requests to scope to this repo.
+  const [reviewRow] = await db
+    .select({ n: count() })
+    .from(prComments)
+    .innerJoin(pullRequests, eq(prComments.pullRequestId, pullRequests.id))
+    .where(
+      and(
+        eq(pullRequests.repositoryId, repoId),
+        eq(prComments.isAiReview, true),
+        gte(prComments.createdAt, since)
+      )
+    );
+  const reviewCount = Number(reviewRow?.n ?? 0);
+
+  // 3. Open security alerts: open issues that carry a label whose name
+  //    contains 'security' (case-insensitive) for this repo.
+  const [secRow] = await db
+    .select({ n: count() })
+    .from(issues)
+    .innerJoin(issueLabels, eq(issueLabels.issueId, issues.id))
+    .innerJoin(labels, eq(issueLabels.labelId, labels.id))
+    .where(
+      and(
+        eq(issues.repositoryId, repoId),
+        eq(issues.state, "open"),
+        sql`lower(${labels.name}) like '%security%'`
+      )
+    );
+  const securityAlertCount = Number(secRow?.n ?? 0);
+
+  // Hours saved: each AI-merged PR ~ 1.5 h, each AI review ~ 0.5 h.
+  const hours = mergedCount * 1.5 + reviewCount * 0.5;
+  const hoursSaved = hours.toFixed(1);
+
+  return { mergedCount, reviewCount, securityAlertCount, hoursSaved };
+}
+
+/**
+ * Query the most recent push to a repo from the activity_feed table.
+ * Returns a RecentPush if there's been a push in the last 24 hours,
+ * or null otherwise. Used by the RepoHeader live/watch indicator.
+ *
+ * Queries activity_feed where action='push' and targetId holds the commit SHA.
+ */
+async function getRecentPush(repoId: string): Promise<RecentPush | null> {
+  try {
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const [row] = await db
+      .select({
+        targetId: activityFeed.targetId,
+        createdAt: activityFeed.createdAt,
+      })
+      .from(activityFeed)
+      .where(
+        and(
+          eq(activityFeed.repositoryId, repoId),
+          eq(activityFeed.action, "push"),
+          sql`${activityFeed.createdAt} >= ${cutoff.toISOString()}`
+        )
+      )
+      .orderBy(desc(activityFeed.createdAt))
+      .limit(1);
+    if (!row || !row.targetId) return null;
+    return {
+      sha: row.targetId,
+      ageMs: Date.now() - new Date(row.createdAt).getTime(),
+    };
+  } catch {
+    // DB unavailable or schema mismatch — degrade gracefully.
+    return null;
+  }
+}
 
 /**
  * Shared CSS for the polished code-browse surfaces (parallel session 3.E).
@@ -879,6 +992,27 @@ const codeBrowseCss = `
     background: rgba(255,255,255,0.04);
   }
   .commits-row-copy.is-copied { color: #6ee7b7; border-color: rgba(52,211,153,0.35); }
+  /* Push Watch link — eye icon next to the SHA chip */
+  .commits-row-watch {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    background: transparent;
+    cursor: pointer;
+    transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+    text-decoration: none !important;
+  }
+  .commits-row-watch:hover {
+    border-color: rgba(140,109,255,0.45);
+    color: var(--accent);
+    background: rgba(140,109,255,0.08);
+    text-decoration: none !important;
+  }
   .commits-empty {
     position: relative;
     overflow: hidden;
@@ -1868,6 +2002,27 @@ web.get("/new", requireAuth, (c) => {
               Just a UI hint — push your own commits to fill the repo.
             </p>
           </div>
+          <div class="new-repo-row">
+            <label class="new-repo-label" for="data_region">
+              Data region
+            </label>
+            <select
+              id="data_region"
+              name="data_region"
+              class="new-repo-input"
+              style="cursor: pointer;"
+            >
+              <option value="us" selected>US (default)</option>
+              <option value="eu">EU (Frankfurt)</option>
+            </select>
+            <p class="new-repo-hint">
+              EU data residency requires a{" "}
+              <a href="/pricing" style="color: var(--accent); text-decoration: none;">
+                Pro plan or higher
+              </a>
+              . Repositories cannot be moved between regions after creation.
+            </p>
+          </div>
           <div class="new-repo-callout">
             <div class="new-repo-callout-eyebrow">AI-native by default</div>
             <p class="new-repo-callout-body">
@@ -1896,6 +2051,7 @@ web.post("/new", requireAuth, async (c) => {
   const name = String(body.name || "").trim();
   const description = String(body.description || "").trim();
   const isPrivate = body.visibility === "private";
+  const dataRegion = body.data_region === "eu" ? "eu" : "us";
 
   if (!name) {
     return c.redirect("/new?error=Repository+name+is+required");
@@ -1927,6 +2083,7 @@ web.post("/new", requireAuth, async (c) => {
       description: description || null,
       isPrivate,
       diskPath,
+      dataRegion,
     })
     .returning();
 
@@ -2380,6 +2537,18 @@ web.get("/:owner/:repo", async (c) => {
     repoOwnerId,
   } = starInfo;
 
+  // Health score badge — fire-and-forget, best-effort. If the DB call fails
+  // or repoId is null (anonymous view of non-DB repo), healthScore stays null
+  // and the badge simply doesn't render.
+  let healthScore: HealthScore | null = null;
+  if (repoId) {
+    try {
+      healthScore = await computeHealthScore(repoId);
+    } catch {
+      // swallow — badge is optional
+    }
+  }
+
   // Pending-comments banner data (lazy + best-effort). Only the repo
   // owner sees the banner, so non-owner views skip the DB hit entirely.
   let repoHomePendingCount = 0;
@@ -2391,6 +2560,27 @@ web.get("/:owner/:repo", async (c) => {
       repoHomePendingCount = await countPendingForRepo(repoId);
     } catch {
       /* swallow */
+    }
+  }
+
+  // Push Watch discoverability — fetch the most recent push within 24 h.
+  // Runs only when we have a repoId (i.e. the repo row was found in the DB).
+  const recentPush: RecentPush | null = repoId
+    ? await getRecentPush(repoId)
+    : null;
+
+  // AI stats strip — best-effort, fail-open to zero values.
+  let aiStats: RepoAiStats = {
+    mergedCount: 0,
+    reviewCount: 0,
+    securityAlertCount: 0,
+    hoursSaved: "0.0",
+  };
+  if (repoId) {
+    try {
+      aiStats = await getRepoAiStats(repoId);
+    } catch {
+      /* swallow — show zero values */
     }
   }
 
@@ -2712,6 +2902,131 @@ web.get("/:owner/:repo", async (c) => {
     .repo-home-empty-snippet .repo-home-cmt { color: var(--text-faint); }
     .repo-home-empty-snippet .repo-home-cmd { color: var(--accent); }
 
+    /* Health score badge */
+    .repo-health-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 10px;
+      border-radius: 999px;
+      font-size: 11.5px;
+      font-weight: 700;
+      font-family: var(--font-mono);
+      text-decoration: none;
+      border: 1px solid transparent;
+      transition: filter 120ms ease, opacity 120ms ease;
+      vertical-align: middle;
+    }
+    .repo-health-badge:hover { filter: brightness(1.15); text-decoration: none; opacity: 0.9; }
+    .repo-health-badge-elite {
+      background: rgba(52,211,153,0.15);
+      color: #6ee7b7;
+      border-color: rgba(52,211,153,0.30);
+    }
+    .repo-health-badge-strong {
+      background: rgba(96,165,250,0.15);
+      color: #93c5fd;
+      border-color: rgba(96,165,250,0.30);
+    }
+    .repo-health-badge-improving {
+      background: rgba(251,191,36,0.15);
+      color: #fde68a;
+      border-color: rgba(251,191,36,0.30);
+    }
+    .repo-health-badge-needs-attention {
+      background: rgba(248,113,113,0.15);
+      color: #fca5a5;
+      border-color: rgba(248,113,113,0.30);
+    }
+
+    /* Three-option empty-state panel */
+    .repo-empty-options {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: var(--space-3);
+      margin-top: var(--space-5);
+    }
+    @media (max-width: 760px) {
+      .repo-empty-options { grid-template-columns: 1fr; }
+    }
+    .repo-empty-option {
+      position: relative;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: var(--space-4) var(--space-4);
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-2);
+      overflow: hidden;
+      transition: border-color 140ms ease, background 140ms ease;
+    }
+    .repo-empty-option:hover {
+      border-color: rgba(140,109,255,0.45);
+      background: rgba(140,109,255,0.04);
+    }
+    .repo-empty-option::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, transparent 0%, #8c6dff 30%, #36c5d6 70%, transparent 100%);
+      opacity: 0.55;
+      pointer-events: none;
+    }
+    .repo-empty-option-label {
+      font-size: 10px;
+      font-family: var(--font-mono);
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 2px;
+    }
+    .repo-empty-option-title {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: 16px;
+      letter-spacing: -0.01em;
+      color: var(--text-strong);
+      margin: 0;
+    }
+    .repo-empty-option-sub {
+      font-size: 13px;
+      color: var(--text-muted);
+      line-height: 1.5;
+      margin: 0;
+      flex: 1;
+    }
+    .repo-empty-option-snippet {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: var(--space-2) var(--space-3);
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      line-height: 1.75;
+      color: var(--text-strong);
+      overflow-x: auto;
+      white-space: pre;
+      margin: var(--space-1) 0 0;
+    }
+    .repo-empty-option-snippet .reo-cmt { color: var(--text-faint); }
+    .repo-empty-option-snippet .reo-cmd { color: var(--accent); }
+    .repo-empty-option-cta {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: auto;
+      padding-top: var(--space-2);
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--accent);
+      text-decoration: none;
+      transition: color 120ms ease;
+    }
+    .repo-empty-option-cta:hover { color: var(--text-strong); text-decoration: none; }
+
     @media (max-width: 720px) {
       .repo-home-hero { padding: var(--space-4) var(--space-4); }
       .repo-home-clone-body { flex-direction: column; align-items: stretch; }
@@ -2721,6 +3036,32 @@ web.get("/:owner/:repo", async (c) => {
       .repo-home-clone-tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; }
       .repo-home-clone-tab { min-height: 44px; padding: 11px 14px; }
       .repo-home-side-card { padding: var(--space-3); }
+    }
+
+    /* AI stats strip */
+    .repo-ai-stats-strip {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 12px;
+      margin-bottom: 4px;
+      font-size: 12px;
+      color: var(--text-muted);
+      flex-wrap: wrap;
+    }
+    .repo-ai-stats-strip a {
+      color: var(--text-muted);
+      text-decoration: underline;
+      text-decoration-color: transparent;
+      transition: color 120ms ease, text-decoration-color 120ms ease;
+    }
+    .repo-ai-stats-strip a:hover {
+      color: var(--accent);
+      text-decoration-color: currentColor;
+    }
+    .repo-ai-stats-sep {
+      opacity: 0.4;
+      user-select: none;
     }
   `;
   const cloneHttpsUrl = `${config.appBaseUrl}/${owner}/${repo}.git`;
@@ -2761,9 +3102,126 @@ web.get("/:owner/:repo", async (c) => {
   };
 
   if (tree.length === 0) {
+    const repoOgDesc = description
+      ? `${owner}/${repo} on Gluecron — ${description}`
+      : `${owner}/${repo} on Gluecron — AI-native git hosting with push-time gates and auto-merge.`;
     return c.html(
-      <Layout title={`${owner}/${repo}`} user={user}>
+      <Layout
+        title={`${owner}/${repo}`}
+        user={user}
+        description={repoOgDesc}
+        ogTitle={`${owner}/${repo} — Gluecron`}
+        ogDescription={repoOgDesc}
+        twitterCard="summary"
+      >
         <style dangerouslySetInnerHTML={{ __html: repoHomeCss }} />
+        <style dangerouslySetInnerHTML={{ __html: `
+          .empty-options-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: var(--space-4);
+            margin-top: var(--space-4);
+          }
+          @media (max-width: 800px) {
+            .empty-options-grid { grid-template-columns: 1fr; }
+          }
+          .empty-option-card {
+            position: relative;
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: var(--space-5);
+            display: flex;
+            flex-direction: column;
+            gap: var(--space-3);
+            overflow: hidden;
+            transition: border-color 140ms ease, box-shadow 140ms ease;
+          }
+          .empty-option-card:hover {
+            border-color: rgba(140,109,255,0.45);
+            box-shadow: 0 8px 24px -8px rgba(140,109,255,0.18);
+          }
+          .empty-option-card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, transparent 0%, #8c6dff 30%, #36c5d6 70%, transparent 100%);
+            opacity: 0.55;
+            pointer-events: none;
+          }
+          .empty-option-label {
+            font-size: 10.5px;
+            font-family: var(--font-mono);
+            text-transform: uppercase;
+            letter-spacing: 0.14em;
+            color: var(--accent);
+            font-weight: 700;
+          }
+          .empty-option-title {
+            font-family: var(--font-display);
+            font-weight: 700;
+            font-size: 17px;
+            letter-spacing: -0.01em;
+            color: var(--text-strong);
+            margin: 0;
+            line-height: 1.25;
+          }
+          .empty-option-body {
+            font-size: 13px;
+            color: var(--text-muted);
+            line-height: 1.55;
+            margin: 0;
+            flex: 1;
+          }
+          .empty-option-snippet {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: var(--space-3) var(--space-4);
+            font-family: var(--font-mono);
+            font-size: 11.5px;
+            line-height: 1.75;
+            color: var(--text-strong);
+            overflow-x: auto;
+            white-space: pre;
+            margin: 0;
+          }
+          .empty-option-snippet .ec { color: var(--text-faint); }
+          .empty-option-snippet .em { color: var(--accent); }
+          .empty-option-cta {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 16px;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-strong);
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 9999px;
+            text-decoration: none;
+            align-self: flex-start;
+            transition: border-color 140ms ease, background 140ms ease, color 140ms ease;
+          }
+          .empty-option-cta:hover {
+            border-color: rgba(140,109,255,0.55);
+            background: rgba(140,109,255,0.08);
+            color: var(--accent);
+            text-decoration: none;
+          }
+          .empty-option-cta-accent {
+            background: linear-gradient(135deg, #8c6dff, #36c5d6);
+            border-color: transparent;
+            color: #fff;
+          }
+          .empty-option-cta-accent:hover {
+            background: linear-gradient(135deg, #7c5df0, #28b4c8);
+            border-color: transparent;
+            color: #fff;
+            box-shadow: 0 6px 18px -6px rgba(140,109,255,0.55);
+          }
+        ` }} />
         <div class="repo-home-hero">
           <div class="repo-home-hero-orb-wrap" aria-hidden="true">
             <div class="repo-home-hero-orb" />
@@ -2772,16 +3230,34 @@ web.get("/:owner/:repo", async (c) => {
             <div class="repo-home-eyebrow">
               <strong>Repository</strong> · {owner}
             </div>
-            <RepoHeader
-              owner={owner}
-              repo={repo}
-              starCount={starCount}
-              starred={starred}
-              forkCount={forkCount}
-              currentUser={user?.username}
-              archived={archived}
-              isTemplate={isTemplate}
-            />
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+              <RepoHeader
+                owner={owner}
+                repo={repo}
+                starCount={starCount}
+                starred={starred}
+                forkCount={forkCount}
+                currentUser={user?.username}
+                archived={archived}
+                isTemplate={isTemplate}
+                recentPush={recentPush}
+              />
+              {healthScore && (() => {
+                const gradeLabel: Record<string, string> = {
+                  elite: "Elite", strong: "Strong",
+                  improving: "Improving", "needs-attention": "Needs Attention",
+                };
+                return (
+                  <a
+                    href={`/${owner}/${repo}/insights/health`}
+                    class={`repo-health-badge repo-health-badge-${healthScore!.grade}`}
+                    title={`Health score: ${healthScore!.total}/100`}
+                  >
+                    {gradeLabel[healthScore!.grade] ?? healthScore!.grade}
+                  </a>
+                );
+              })()}
+            </div>
             {description ? (
               <p class="repo-home-description">{description}</p>
             ) : (
@@ -2793,31 +3269,53 @@ web.get("/:owner/:repo", async (c) => {
           </div>
         </div>
         <RepoNav owner={owner} repo={repo} active="code" />
-        <div class="repo-home-empty">
-          <div class="repo-home-empty-eyebrow">Getting started</div>
+        <div style="margin-top:var(--space-4)">
+          <div style="font-size:12px;font-family:var(--font-mono);color:var(--accent);letter-spacing:0.12em;text-transform:uppercase;font-weight:600;margin-bottom:var(--space-2)">
+            Getting started
+          </div>
           <h2 class="repo-home-empty-title">
-            Push your first commit to{" "}
-            <span class="gradient-text">{repo}</span>.
+            <span class="gradient-text">{repo}</span> is ready — make your first move.
           </h2>
           <p class="repo-home-empty-sub">
-            This repository is empty. Paste the snippet below in an existing
-            project directory to wire it up to Gluecron — your push triggers
-            gate checks and AI review automatically.
+            Choose how you want to kick things off. Every push wires up gate
+            checks and AI review automatically.
           </p>
-          <pre class="repo-home-empty-snippet">
-            <span class="repo-home-cmt">
-              # from an existing project directory
-            </span>
-            {"\n"}
-            <span class="repo-home-cmd">git remote add</span>
-            {` origin ${cloneHttpsUrl}`}
-            {"\n"}
-            <span class="repo-home-cmd">git branch</span>
-            {` -M main`}
-            {"\n"}
-            <span class="repo-home-cmd">git push</span>
-            {` -u origin main`}
-          </pre>
+          <div class="empty-options-grid">
+            <div class="empty-option-card">
+              <div class="empty-option-label">Option A</div>
+              <h3 class="empty-option-title">Push your first commit</h3>
+              <p class="empty-option-body">
+                Wire up an existing project in seconds. Run these commands from
+                your project directory.
+              </p>
+              <pre class="empty-option-snippet"><span class="ec"># from your project directory</span>
+<span class="em">git remote add</span> origin {cloneHttpsUrl}
+<span class="em">git branch</span> -M main
+<span class="em">git push</span> -u origin main</pre>
+            </div>
+            <div class="empty-option-card">
+              <div class="empty-option-label">Option B</div>
+              <h3 class="empty-option-title">Import from GitHub</h3>
+              <p class="empty-option-body">
+                Mirror an existing GitHub repository here in one click. Gluecron
+                syncs the full history and branches.
+              </p>
+              <a href="/import" class="empty-option-cta">
+                Import repository
+              </a>
+            </div>
+            <div class="empty-option-card">
+              <div class="empty-option-label">Option C</div>
+              <h3 class="empty-option-title">Try Spec-to-PR</h3>
+              <p class="empty-option-body">
+                Let AI write your first feature. Describe what you want to build
+                and Gluecron opens a pull request with the code.
+              </p>
+              <a href={`/${owner}/${repo}/specs`} class="empty-option-cta empty-option-cta-accent">
+                Let AI write your first feature
+              </a>
+            </div>
+          </div>
         </div>
       </Layout>
     );
@@ -2829,8 +3327,19 @@ web.get("/:owner/:repo", async (c) => {
   const fileCount = tree.filter((e: any) => e.type !== "tree").length;
   const dirCount = tree.filter((e: any) => e.type === "tree").length;
 
+  const repoOgDesc = description
+    ? `${owner}/${repo} on Gluecron — ${description}`
+    : `${owner}/${repo} on Gluecron — AI-native git hosting with push-time gates and auto-merge.`;
+
   return c.html(
-    <Layout title={`${owner}/${repo}`} user={user}>
+    <Layout
+      title={`${owner}/${repo}`}
+      user={user}
+      description={repoOgDesc}
+      ogTitle={`${owner}/${repo} — Gluecron`}
+      ogDescription={repoOgDesc}
+      twitterCard="summary"
+    >
       <style dangerouslySetInnerHTML={{ __html: repoHomeCss }} />
       <div class="repo-home-hero">
         <div class="repo-home-hero-orb-wrap" aria-hidden="true">
@@ -2840,16 +3349,34 @@ web.get("/:owner/:repo", async (c) => {
           <div class="repo-home-eyebrow">
             <strong>Repository</strong> · {owner}
           </div>
-          <RepoHeader
-            owner={owner}
-            repo={repo}
-            starCount={starCount}
-            starred={starred}
-            forkCount={forkCount}
-            currentUser={user?.username}
-            archived={archived}
-            isTemplate={isTemplate}
-          />
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <RepoHeader
+              owner={owner}
+              repo={repo}
+              starCount={starCount}
+              starred={starred}
+              forkCount={forkCount}
+              currentUser={user?.username}
+              archived={archived}
+              isTemplate={isTemplate}
+              recentPush={recentPush}
+            />
+            {healthScore && (() => {
+              const gradeLabel: Record<string, string> = {
+                elite: "Elite", strong: "Strong",
+                improving: "Improving", "needs-attention": "Needs Attention",
+              };
+              return (
+                <a
+                  href={`/${owner}/${repo}/insights/health`}
+                  class={`repo-health-badge repo-health-badge-${healthScore!.grade}`}
+                  title={`Health score: ${healthScore!.total}/100`}
+                >
+                  {gradeLabel[healthScore!.grade] ?? healthScore!.grade}
+                </a>
+              );
+            })()}
+          </div>
           {description ? (
             <p class="repo-home-description">{description}</p>
           ) : (
@@ -3036,6 +3563,34 @@ web.get("/:owner/:repo", async (c) => {
             ref={defaultBranch}
             path=""
           />
+          {/* AI stats strip — one-line summary of AI value for this repo */}
+          {(aiStats.mergedCount > 0 || aiStats.reviewCount > 0 || aiStats.securityAlertCount > 0) ? (
+            <div class="repo-ai-stats-strip" aria-label="AI activity summary for this week">
+              <span>{"⚡"}</span>
+              {aiStats.mergedCount > 0 ? (
+                <a href={`/${owner}/${repo}/pulls?state=merged`}>
+                  AI merged {aiStats.mergedCount} PR{aiStats.mergedCount === 1 ? "" : "s"} this week
+                </a>
+              ) : (
+                <span>0 AI merges this week</span>
+              )}
+              <span class="repo-ai-stats-sep">{"·"}</span>
+              <span>Saved ~{aiStats.hoursSaved} hrs</span>
+              <span class="repo-ai-stats-sep">{"·"}</span>
+              {aiStats.securityAlertCount > 0 ? (
+                <a href={`/${owner}/${repo}/issues?label=security`}>
+                  {aiStats.securityAlertCount} open security alert{aiStats.securityAlertCount === 1 ? "" : "s"}
+                </a>
+              ) : (
+                <span>0 open security alerts</span>
+              )}
+            </div>
+          ) : (
+            <div class="repo-ai-stats-strip" aria-label="AI activity summary for this week">
+              <span>{"⚡"}</span>
+              <span>AI is watching — no activity this week</span>
+            </div>
+          )}
           {readme && (() => {
             const readmeHtml = renderMarkdown(readme);
             return (
@@ -3206,6 +3761,26 @@ web.get("/:owner/:repo", async (c) => {
               </div>
             )}
           </div>
+          {/* Claude AI — quick-access card for authenticated users */}
+          {user && (
+            <div class="repo-home-side-card" style="margin-top:12px">
+              <h3 class="repo-home-side-title" style="margin-bottom:10px">
+                ✨ Claude AI
+              </h3>
+              <a
+                href={`/${owner}/${repo}/claude`}
+                style="display:block;background:#1f6feb;color:#fff;text-align:center;padding:8px 14px;border-radius:6px;text-decoration:none;font-size:14px;font-weight:600;margin-bottom:8px"
+              >
+                Claude Code sessions
+              </a>
+              <a
+                href={`/${owner}/${repo}/ask`}
+                style="display:block;color:#9ca3af;text-align:center;padding:6px 14px;border-radius:6px;text-decoration:none;font-size:13px;border:1px solid #1f2937"
+              >
+                Ask AI about this repo
+              </a>
+            </div>
+          )}
         </aside>
       </div>
       <script
@@ -4039,7 +4614,10 @@ web.get("/:owner/:repo/commits/:ref?", async (c) => {
   const commits = await listCommits(owner, repo, ref, 50);
 
   // Block J3 — batch-fetch cached verification results for the page.
+  // Also resolve repoId here so we can query the recent push for the
+  // Push Watch live/watch indicator in the header.
   let verifications: Record<string, { verified: boolean; reason: string }> = {};
+  let commitsPageRecentPush: RecentPush | null = null;
   try {
     const [ownerRow] = await db
       .select()
@@ -4057,25 +4635,32 @@ web.get("/:owner/:repo/commits/:ref?", async (c) => {
           )
         )
         .limit(1);
-      if (repoRow && commits.length > 0) {
-        const rows = await db
-          .select()
-          .from(commitVerifications)
-          .where(
-            and(
-              eq(commitVerifications.repositoryId, repoRow.id),
-              inArray(
-                commitVerifications.commitSha,
-                commits.map((c) => c.sha)
-              )
-            )
-          );
-        for (const r of rows) {
+      if (repoRow) {
+        // Fetch verifications and recent push in parallel.
+        const [verRows, rp] = await Promise.all([
+          commits.length > 0
+            ? db
+                .select()
+                .from(commitVerifications)
+                .where(
+                  and(
+                    eq(commitVerifications.repositoryId, repoRow.id),
+                    inArray(
+                      commitVerifications.commitSha,
+                      commits.map((c) => c.sha)
+                    )
+                  )
+                )
+            : Promise.resolve([]),
+          getRecentPush(repoRow.id),
+        ]);
+        for (const r of verRows) {
           verifications[r.commitSha] = {
             verified: r.verified,
             reason: r.reason,
           };
         }
+        commitsPageRecentPush = rp;
       }
     }
   } catch {
@@ -4085,7 +4670,7 @@ web.get("/:owner/:repo/commits/:ref?", async (c) => {
   return c.html(
     <Layout title={`Commits — ${owner}/${repo}`} user={user}>
       <style dangerouslySetInnerHTML={{ __html: codeBrowseCss }} />
-      <RepoHeader owner={owner} repo={repo} />
+      <RepoHeader owner={owner} repo={repo} recentPush={commitsPageRecentPush} />
       <RepoNav owner={owner} repo={repo} active="commits" />
       <div class="commits-hero">
         <div class="commits-hero-orb-wrap" aria-hidden="true">
@@ -4243,6 +4828,17 @@ web.get("/:owner/:repo/commits/:ref?", async (c) => {
                           title={cm.sha}
                         >
                           {cm.sha.slice(0, 7)}
+                        </a>
+                        <a
+                          href={`/${owner}/${repo}/push/${cm.sha}`}
+                          class="commits-row-watch"
+                          title="Watch gate + deploy results for this push"
+                          aria-label={`Watch push ${cm.sha.slice(0, 7)}`}
+                        >
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                            <circle cx="12" cy="12" r="3" />
+                          </svg>
                         </a>
                         <button
                           type="button"

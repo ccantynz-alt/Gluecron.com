@@ -693,6 +693,25 @@ repoSettings.get("/:owner/:repo/settings", requireAuth, requireRepoAccess("admin
                   </label>
                 </div>
               </div>
+              <div class="repo-settings-field">
+                <label class="repo-settings-field-label">Data region</label>
+                <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                  <span
+                    style={`display:inline-flex; align-items:center; gap:6px; padding:4px 12px; border-radius:9999px; font-size:12px; font-weight:600; font-family:var(--font-mono); ${
+                      repo.dataRegion === "eu"
+                        ? "background:rgba(54,197,214,0.10); color:#67e8f9; border:1px solid rgba(54,197,214,0.28);"
+                        : "background:rgba(140,109,255,0.10); color:#c4b5fd; border:1px solid rgba(140,109,255,0.28);"
+                    }`}
+                  >
+                    {repo.dataRegion === "eu" ? "EU · Frankfurt" : "US · Default"}
+                  </span>
+                  <span class="repo-settings-field-hint" style="margin:0;">
+                    Data region is set at creation and cannot be changed. EU data
+                    residency requires a{" "}
+                    <a href="/pricing" style="color:var(--accent);text-decoration:none;">Pro plan or higher</a>.
+                  </span>
+                </div>
+              </div>
             </div>
             <div class="repo-settings-section-foot">
               <button type="submit" class="repo-settings-cta">
@@ -1001,6 +1020,72 @@ repoSettings.get("/:owner/:repo/settings", requireAuth, requireRepoAccess("admin
             <div class="repo-settings-section-foot">
               <button type="submit" class="repo-settings-cta">
                 Save stale settings <span class="arrow">→</span>
+              </button>
+            </div>
+          </form>
+        </section>
+
+        {/* ─── PR preview builds (migration 0077) ─── */}
+        <section class="repo-settings-section">
+          <div class="repo-settings-section-head">
+            <div class="repo-settings-section-eyebrow">Preview builds</div>
+            <h2 class="repo-settings-section-title">PR preview environments</h2>
+            <p class="repo-settings-section-desc">
+              When a build command is set, every PR push automatically clones
+              the branch, runs the command, and serves the built output from a
+              unique preview URL — like Vercel, but native to Gluecron. Leave
+              blank to use URL-only previews (no build runs).
+            </p>
+          </div>
+          <form
+            method="post"
+            action={`/${ownerName}/${repoName}/settings/previews`}
+          >
+            <div class="repo-settings-section-body">
+              <div class="repo-settings-field">
+                <label class="repo-settings-field-label" for="preview_build_command">
+                  Build command
+                </label>
+                <input
+                  id="preview_build_command"
+                  class="repo-settings-input"
+                  type="text"
+                  name="preview_build_command"
+                  placeholder="npm run build"
+                  value={
+                    (repo as { previewBuildCommand?: string | null }).previewBuildCommand ?? ""
+                  }
+                />
+                <p class="repo-settings-field-hint">
+                  e.g. <code>npm run build</code>, <code>bun run build</code>, or{" "}
+                  <code>hugo</code>. Runs inside the cloned branch directory.
+                </p>
+              </div>
+              <div class="repo-settings-field">
+                <label class="repo-settings-field-label" for="preview_output_dir">
+                  Output directory
+                </label>
+                <input
+                  id="preview_output_dir"
+                  class="repo-settings-input"
+                  type="text"
+                  name="preview_output_dir"
+                  placeholder="dist"
+                  value={
+                    (repo as { previewOutputDir?: string | null }).previewOutputDir ?? "dist"
+                  }
+                />
+                <p class="repo-settings-field-hint">
+                  The directory your build writes to. Common values:{" "}
+                  <code>dist</code>, <code>public</code>, <code>out</code>,{" "}
+                  <code>build</code>. Served from{" "}
+                  <code>/previews/{ownerName}/{repoName}/{"<branch>"}/</code>
+                </p>
+              </div>
+            </div>
+            <div class="repo-settings-section-foot">
+              <button type="submit" class="repo-settings-cta">
+                Save preview settings <span class="arrow">→</span>
               </button>
             </div>
           </form>
@@ -1451,6 +1536,52 @@ repoSettings.post(
     await db.delete(repositories).where(eq(repositories.id, repo.id));
 
     return c.redirect(`/${ownerName}`);
+  }
+);
+
+// Migration 0077 — PR preview build configuration. Owner-only.
+repoSettings.post(
+  "/:owner/:repo/settings/previews",
+  requireAuth,
+  requireRepoAccess("admin"),
+  async (c) => {
+    const { owner: ownerName, repo: repoName } = c.req.param();
+    const user = c.get("user")!;
+    const body = await c.req.parseBody();
+
+    const [owner] = await db
+      .select()
+      .from(users)
+      .where(eq(users.username, ownerName))
+      .limit(1);
+    if (!owner || owner.id !== user.id) {
+      return c.redirect(`/${ownerName}/${repoName}`);
+    }
+
+    const [repo] = await db
+      .select()
+      .from(repositories)
+      .where(
+        and(eq(repositories.ownerId, owner.id), eq(repositories.name, repoName))
+      )
+      .limit(1);
+    if (!repo) return c.notFound();
+
+    const buildCommand = String(body.preview_build_command || "").trim() || null;
+    const outputDir = String(body.preview_output_dir || "").trim() || "dist";
+
+    await db
+      .update(repositories)
+      .set({
+        previewBuildCommand: buildCommand,
+        previewOutputDir: outputDir,
+        updatedAt: new Date(),
+      })
+      .where(eq(repositories.id, repo.id));
+
+    return c.redirect(
+      `/${ownerName}/${repoName}/settings?success=Preview+build+settings+saved`
+    );
   }
 );
 

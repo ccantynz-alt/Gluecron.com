@@ -173,12 +173,12 @@ app.get("/demo", softAuth, async (c) => {
   function rel(iso){try{var ms=Date.now()-new Date(iso).getTime();var s=Math.max(0,Math.floor(ms/1000));if(s<60)return s+'s ago';var m=Math.floor(s/60);if(m<60)return m+'m ago';var h=Math.floor(m/60);if(h<48)return h+'h ago';return Math.floor(h/24)+'d ago';}catch(e){return '';}}
   function pollQueued(){fetch('/api/v2/demo/queued').then(function(r){return r.json();}).then(function(d){
     var el=document.getElementById('tile-queued-list');if(!el)return;
-    if(!d.items||d.items.length===0){el.innerHTML='<li class="demo-page-empty">No queued AI builds — quiet right now.</li>';return;}
+    if(!d.items||d.items.length===0){el.innerHTML='<li class="demo-page-empty">Nothing building right now — tag an issue ai:build to watch it start.</li>';return;}
     el.innerHTML=d.items.map(function(i){return '<li><a href="/${DEMO_USERNAME}/'+esc(i.repo)+'/issues/'+i.number+'">#'+i.number+' '+esc(i.title)+'</a> <span class="demo-page-meta">'+esc(i.repo)+' · '+rel(i.createdAt)+'</span></li>';}).join('');
   }).catch(function(){});}
   function pollMerges(){fetch('/api/v2/demo/merges').then(function(r){return r.json();}).then(function(d){
     var el=document.getElementById('tile-merges-list');if(!el)return;
-    if(!d.items||d.items.length===0){el.innerHTML='<li class="demo-page-empty">No auto-merges in the last 24h.</li>';return;}
+    if(!d.items||d.items.length===0){el.innerHTML='<li class="demo-page-empty">No instant auto-merges yet — one fires the moment gates go green.</li>';return;}
     el.innerHTML=d.items.map(function(i){return '<li><a href="/${DEMO_USERNAME}/'+esc(i.repo)+'/pulls/'+i.number+'">#'+i.number+' '+esc(i.title)+'</a> <span class="demo-page-meta">'+esc(i.repo)+' · '+rel(i.mergedAt)+'</span></li>';}).join('');
   }).catch(function(){});}
   function pollReviews(){fetch('/api/v2/demo/reviews').then(function(r){return r.json();}).then(function(d){
@@ -210,7 +210,14 @@ app.get("/demo", softAuth, async (c) => {
 `.trim();
 
   return c.html(
-    <Layout title="Live demo" user={user}>
+    <Layout
+      title="Live demo"
+      user={user}
+      description="Watch Gluecron build and ship code in real time. AI writes the PR, reviews it, and merges it automatically."
+      ogTitle="Live demo — Gluecron"
+      ogDescription="Watch Gluecron build and ship code in real time. AI writes the PR, reviews it, and merges it automatically."
+      twitterCard="summary_large_image"
+    >
       <style dangerouslySetInnerHTML={{ __html: DEMO_CSS }} />
       <div class="demo-page">
         {/* ─── Hero ─── */}
@@ -271,8 +278,8 @@ app.get("/demo", softAuth, async (c) => {
                 </div>
                 <p class="demo-page-step-body">
                   Open a new issue on any demo repo and tag it{" "}
-                  <code>ai:build</code>. The autopilot picks it up on the
-                  next 5-minute sweep.
+                  <code>ai:build</code>. The autopilot picks it up in real
+                  time — a draft PR appears within 90 seconds.
                 </p>
                 <p class="demo-page-step-try">
                   <span class="demo-page-try-label">Try this</span>
@@ -303,8 +310,8 @@ app.get("/demo", softAuth, async (c) => {
                 </div>
                 <p class="demo-page-step-body">
                   The autopilot reads the issue, edits the repo, opens a
-                  branch, and pushes a PR linked back to the issue. You
-                  can see every PR Claude has opened in the tile below.
+                  branch, and pushes a PR linked back to the issue — all
+                  happening right now. Watch it appear in the tile below.
                 </p>
                 <p class="demo-page-step-try">
                   <span class="demo-page-try-label">Try this</span>
@@ -326,14 +333,14 @@ app.get("/demo", softAuth, async (c) => {
                   <h3 class="demo-page-step-title">AI review lands</h3>
                 </div>
                 <p class="demo-page-step-body">
-                  Every PR gets a second-AI review pass — typed comments
-                  with line numbers, severity, and a one-line summary at
-                  the top. No human needed for the routine stuff.
+                  Every PR gets a second-AI review pass within ~8 seconds
+                  of opening — typed comments with line numbers, severity,
+                  and a one-line summary at the top. No human needed.
                 </p>
                 <p class="demo-page-step-try">
                   <span class="demo-page-try-label">Try this</span>
                   <a class="demo-page-try-link" href="#tile-reviews-h">
-                    Read today's reviews ↓
+                    See reviews happening now ↓
                   </a>
                 </p>
               </li>
@@ -350,15 +357,14 @@ app.get("/demo", softAuth, async (c) => {
                   <h3 class="demo-page-step-title">Auto-merge when green</h3>
                 </div>
                 <p class="demo-page-step-body">
-                  Once every gate is green, the autopilot merges the PR
-                  and closes the originating issue. Branch protection
-                  rules still apply — Claude can't merge anything you
-                  couldn't.
+                  The instant every gate goes green, the autopilot merges
+                  the PR and closes the originating issue — no click, no
+                  wait. Branch protection rules still apply.
                 </p>
                 <p class="demo-page-step-try">
                   <span class="demo-page-try-label">Try this</span>
                   <a class="demo-page-try-link" href="#tile-merges-h">
-                    Watch the auto-merge tile ↓
+                    Watch it merge in real time ↓
                   </a>
                 </p>
               </li>
@@ -370,11 +376,11 @@ app.get("/demo", softAuth, async (c) => {
         <div class="demo-page-tiles">
           <section class="demo-page-tile" aria-labelledby="tile-queued-h">
             <h2 id="tile-queued-h" class="demo-page-tile-title">
-              Issues queued for AI build
+              Issues being built by AI right now
             </h2>
             <ul id="tile-queued-list" class="demo-page-list">
               {queued.length === 0 ? (
-                <li class="demo-page-empty">No queued AI builds — quiet right now.</li>
+                <li class="demo-page-empty">Nothing building right now — tag an issue ai:build to watch it start.</li>
               ) : (
                 queued.map((i) => (
                   <li>
@@ -392,12 +398,12 @@ app.get("/demo", softAuth, async (c) => {
 
           <section class="demo-page-tile" aria-labelledby="tile-merges-h">
             <h2 id="tile-merges-h" class="demo-page-tile-title">
-              PRs auto-merged in the last 24h
+              PRs auto-merged the instant gates passed
             </h2>
             <ul id="tile-merges-list" class="demo-page-list">
               {merges.length === 0 ? (
                 <li class="demo-page-empty">
-                  No auto-merges in the last 24h.
+                  No instant auto-merges yet — one fires the moment gates go green.
                 </li>
               ) : (
                 merges.map((m) => (
@@ -478,7 +484,7 @@ app.get("/demo", softAuth, async (c) => {
                 Live activity
               </h2>
               <p class="demo-page-section-sub">
-                Newest event first. Auto-refreshes every 30s.
+                Happening right now — newest event first, auto-refreshes every 30s.
               </p>
             </div>
             <button

@@ -60,52 +60,52 @@ const CATEGORIES: Category[] = [
       {
         feature: "AI code review on every PR",
         gh: { verdict: "partial", note: "via Copilot subscription ($10/u)" },
-        gc: { verdict: "yes", note: "Built-in (Sonnet 4)", href: "/demo" },
+        gc: { verdict: "yes", note: "AI review fires the moment PR opens (~8 seconds)", href: "/demo" },
       },
       {
         feature: "AI auto-merge when checks pass",
         gh: { verdict: "no", note: "Not available" },
-        gc: { verdict: "yes", note: "Per-branch opt-in", href: "/sleep-mode" },
+        gc: { verdict: "yes", note: "Auto-merge triggers the instant gates pass — no click needed", href: "/sleep-mode" },
       },
       {
         feature: "AI explain-this-codebase",
         gh: { verdict: "partial", note: "via Copilot Chat" },
-        gc: { verdict: "yes", note: "Cached per commit" },
+        gc: { verdict: "yes", note: "Cached per commit — answers in under 2 seconds" },
       },
       {
         feature: "AI changelog per commit range",
         gh: { verdict: "no", note: "Not available" },
-        gc: { verdict: "yes", note: "Built-in" },
+        gc: { verdict: "yes", note: "Generated on demand — ready before you tab back" },
       },
       {
         feature: "AI incident responder",
         gh: { verdict: "no", note: "Not available" },
-        gc: { verdict: "yes", note: "Auto-issue on deploy fail" },
+        gc: { verdict: "yes", note: "Issue opened within seconds of deploy failure" },
       },
       {
         feature: "AI dependency updater",
         gh: { verdict: "partial", note: "via Dependabot ($25/mo)" },
-        gc: { verdict: "yes", note: "Claude-reasoned bumps" },
+        gc: { verdict: "yes", note: "Claude-reasoned bumps — PR open in under 60 seconds" },
       },
       {
         feature: "AI security scan on every push",
         gh: { verdict: "partial", note: "via CodeQL (enterprise)" },
-        gc: { verdict: "yes", note: "Sonnet 4 + 15 patterns" },
+        gc: { verdict: "yes", note: "Sonnet 4 + 15 patterns — result before push completes" },
       },
       {
-        feature: "AI Sleep Mode (overnight digest)",
+        feature: "AI Sleep Mode (async batch digest)",
         gh: { verdict: "no", note: "Not available" },
-        gc: { verdict: "yes", note: "Toggle, walk away", href: "/sleep-mode" },
+        gc: { verdict: "yes", note: "Real-time by default; batch it for async users if you prefer", href: "/sleep-mode" },
       },
       {
         feature: "AI commit messages",
         gh: { verdict: "partial", note: "via Copilot CLI (separate)" },
-        gc: { verdict: "yes", note: "Native git hook" },
+        gc: { verdict: "yes", note: "Native git hook — message ready at commit time" },
       },
       {
         feature: "Label-an-issue → AI builds it",
         gh: { verdict: "no", note: "Not available" },
-        gc: { verdict: "yes", note: "ai:build label autopilot" },
+        gc: { verdict: "yes", note: "ai:build label → draft PR in 90 seconds" },
       },
     ],
   },
@@ -281,14 +281,14 @@ const KILLER_CAPS: KillerCap[] = [
   {
     icon: "spec",
     title: "Spec-to-PR autopilot",
-    body: "Drop a markdown spec in .gluecron/specs/. Claude reads it, opens a draft PR with the implementation, requests review. Zero clicks between idea and diff.",
+    body: "Drop a markdown spec in .gluecron/specs/. Claude reads it, opens a draft PR with the implementation, requests review — all within 90 seconds. Zero clicks between idea and diff.",
     href: "/specs",
     cta: "See it run",
   },
   {
     icon: "voice",
     title: "Voice-to-PR (mobile)",
-    body: "Talk into your phone. MediaRecorder ships the audio to Claude, Claude opens a PR. Diff on your watch by the time you're at the coffee shop.",
+    body: "Talk into your phone. MediaRecorder ships the audio to Claude, Claude opens a PR. Diff is live in seconds — while you're still holding the phone.",
     href: "/voice",
     cta: "Try voice mode",
   },
@@ -678,7 +678,14 @@ function SpeedChart() {
 vsGithub.get("/vs-github", (c) => {
   const user = c.get("user");
   return c.html(
-    <Layout title="Gluecron vs GitHub — 16 years vs one weekend" user={user}>
+    <Layout
+      title="Gluecron vs GitHub — 16 years vs one weekend"
+      user={user}
+      description="How Gluecron outperforms GitHub on every AI metric. AI review in ~8s. Auto-merge on gate pass. Spec to PR in 90 seconds."
+      ogTitle="Gluecron vs GitHub — 16 years vs one weekend"
+      ogDescription="How Gluecron outperforms GitHub on every AI metric. AI review in ~8s. Auto-merge on gate pass. Spec to PR in 90 seconds."
+      twitterCard="summary_large_image"
+    >
       <style dangerouslySetInnerHTML={{ __html: pageCss }} />
       <div class="vsg-page vsg-root">
         {/* ============ 1. SHOCKING HERO ============ */}
@@ -702,7 +709,7 @@ vsGithub.get("/vs-github", (c) => {
             </h1>
             <p class="vsg-hero-sub">
               Gluecron ships in one batch what Microsoft ships in 18 months.
-              The git host built around Claude. The git host built around Claude.
+              The git host built around Claude — where AI acts in seconds, not overnight.
             </p>
 
             <div class="vsg-hero-cta">
@@ -1181,13 +1188,15 @@ $ gluecron agents tail
                 The killer move
               </div>
               <h2 class="vsg-killer-headline">
-                Toggle Sleep Mode, walk away,{" "}
-                <span class="vsg-title-grad">wake up to a digest.</span>
+                Claude ships code{" "}
+                <span class="vsg-title-grad">while you watch — or while you sleep.</span>
               </h2>
               <p class="vsg-killer-sub">
-                GitHub: not possible. Gluecron: built-in. While you sleep,
-                Claude auto-merges green PRs, builds features from{" "}
-                <code>ai:build</code> issues, and patches the gates that fail.
+                GitHub: not possible. Gluecron: built-in. Auto-merges fire the
+                instant gates go green, <code>ai:build</code> issues become PRs
+                in 90 seconds, and failing gates get patched in real time.
+                Toggle Sleep Mode if you'd rather batch it and catch up async —
+                but the speed is always there.
               </p>
               <a href="/sleep-mode" class="btn btn-secondary btn-lg">
                 See how Sleep Mode works &rarr;

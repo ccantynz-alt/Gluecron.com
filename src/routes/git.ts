@@ -16,6 +16,7 @@ import { trackByName } from "../lib/traffic";
 import {
   evaluatePushPolicy,
   formatPolicyError,
+  installPackInspectionHookForRepo,
 } from "../lib/push-policy";
 import { resolvePusher } from "../lib/git-push-auth";
 import { audit } from "../lib/notify";
@@ -92,24 +93,36 @@ git.post("/:owner/:repo.git/git-receive-pack", async (c) => {
   const bodyBuffer = await c.req.arrayBuffer();
   const refs = parseReceivePackRefs(new Uint8Array(bodyBuffer));
 
+  // Resolve the pusher early so we can pass it to both the policy gate and
+  // the post-receive hook (e.g. for AI auto-issue attribution).
+  let pusherUserId = "";
+  try {
+    const pusher = await resolvePusher(c.req.header("authorization"));
+    pusherUserId = pusher?.userId || "";
+  } catch {
+    // Fail open — policy gate and post-receive handle missing pushers fine.
+  }
+
   // Pre-receive policy: protected tags + ruleset name patterns. Fail-open
   // on any DB hiccup (the helper returns {allowed:true} in that case).
+  // We also retain the repoRow so the pack-inspection hook below can reuse it.
+  let cachedRepoId: string | null = null;
   if (refs.length > 0) {
     try {
       const repoRow = await loadRepoRow(owner, repo);
       if (repoRow) {
-        const pusher = await resolvePusher(c.req.header("authorization"));
+        cachedRepoId = repoRow.id;
         const decision = await evaluatePushPolicy({
           repositoryId: repoRow.id,
           refs,
-          pusherUserId: pusher?.userId || null,
+          pusherUserId: pusherUserId || null,
         });
         if (!decision.allowed) {
           // Audit the rejection so owners can see blocked-push attempts
           // even though the request never reached the post-receive hook.
           // Fire-and-forget — never block the 403.
           audit({
-            userId: pusher?.userId || null,
+            userId: pusherUserId || null,
             repositoryId: repoRow.id,
             action: "push.rejected",
             targetType: "repository",
@@ -122,7 +135,7 @@ git.post("/:owner/:repo.git/git-receive-pack", async (c) => {
             metadata: {
               violations: decision.violations,
               refs: refs.map((r) => r.refName),
-              pusherSource: pusher?.source || "anonymous",
+              pusherSource: pusherUserId ? "user" : "anonymous",
             },
           }).catch((err) => {
             console.warn(
@@ -141,19 +154,44 @@ git.post("/:owner/:repo.git/git-receive-pack", async (c) => {
     }
   }
 
-  const response = await serviceRpc(
-    owner,
-    repoRaw,
-    "git-receive-pack",
-    bodyBuffer
-  );
+  // Pack-content inspection: install a pre-receive hook that enforces
+  // commit_message_pattern, blocked_file_paths, and max_file_size rules.
+  // git-receive-pack runs the hook before promoting quarantined objects, so
+  // a hook exit-1 leaves the repo unchanged.  We clean up the temp dir
+  // unconditionally after serviceRpc returns.
+  let hookEnv: Record<string, string> | undefined;
+  let hookCleanup: (() => Promise<void>) | undefined;
+  if (refs.length > 0 && cachedRepoId) {
+    try {
+      const hook = await installPackInspectionHookForRepo(cachedRepoId);
+      if (hook) {
+        hookEnv = hook.env;
+        hookCleanup = hook.cleanup;
+      }
+    } catch {
+      // fail-open
+    }
+  }
+
+  let response: Response;
+  try {
+    response = await serviceRpc(
+      owner,
+      repoRaw,
+      "git-receive-pack",
+      bodyBuffer,
+      hookEnv
+    );
+  } finally {
+    hookCleanup?.().catch(() => {});
+  }
 
   // Invalidate cached git data for this repo immediately
   invalidateRepoCache(owner, repo);
 
   // Fire post-receive hooks asynchronously (don't block response).
   if (refs.length > 0) {
-    onPostReceive(owner, repo, refs).catch((err) =>
+    onPostReceive(owner, repo, refs, pusherUserId).catch((err) =>
       console.error("[post-receive] hook error:", err)
     );
   }

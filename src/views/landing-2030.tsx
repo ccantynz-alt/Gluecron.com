@@ -61,8 +61,8 @@ const IconIntel: FC = () => (
 const FEATURES: { icon: FC; title: string; body: string }[] = [
   { icon: IconReview, title: "Claude code review",
     body: "Every pull request gets a senior-level review the moment it opens — line-level comments, risk flags, and a verdict, in seconds." },
-  { icon: IconMerge, title: "Merge while you sleep",
-    body: "Gates green and review clean? Gluecron merges autonomously. Label an issue at night, wake to a shipped PR." },
+  { icon: IconMerge, title: "Auto-merge the instant gates pass",
+    body: "Gates green and review clean? Gluecron merges autonomously. Label an issue, get a shipped PR — no waiting." },
   { icon: IconGate, title: "Push-time gate enforcement",
     body: "Security and quality gates run at the moment of push — not minutes later in CI. Bad code never reaches your branch." },
   { icon: IconGit, title: "Git-native hosting",
@@ -77,13 +77,13 @@ const STEPS: { n: string; title: string; body: string }[] = [
   { n: "01", title: "Label an issue", body: "Drop a label on an issue — or just describe what you want. That's the whole input." },
   { n: "02", title: "Agents go to work", body: "Claude opens a branch, writes the change, and submits a pull request against your gates." },
   { n: "03", title: "Reviewed & gated", body: "The PR is reviewed line-by-line and run through push-time security and quality gates." },
-  { n: "04", title: "Merged, autonomously", body: "Green across the board? It merges itself and deploys. You wake up to shipped work." },
+  { n: "04", title: "Merged, autonomously", body: "Green across the board? It merges itself and deploys. Shipped while you were still in the same coding session." },
 ];
 
 export const Landing2030Page: FC<Landing2030Props> = () => {
-  const title = "Gluecron — The git host built for 2030";
+  const title = "Gluecron — The AI-native git host";
   const desc =
-    "Gluecron is the AI-native git host. Claude reviews every pull request, gates run at push time, and clean PRs merge while you sleep. Label an issue, walk away, wake up to a merged PR.";
+    "The AI-native git host. Spec to PR in 90 seconds. Auto-merge the instant gates pass. Ship faster than any team on GitHub.";
   return (
     <html lang="en">
       <head>
@@ -138,8 +138,9 @@ export const Landing2030Page: FC<Landing2030Props> = () => {
             </h1>
             <p class="lede rise" style="--d:120ms">
               Gluecron hosts your code, reviews every pull request with Claude,
-              enforces gates at push time, and merges clean work while you sleep.
-              Label an issue, walk away, wake up to a merged PR.
+              enforces gates at push time, and merges clean work the instant
+              gates pass. Spec to PR in 90 seconds — ship faster than any team
+              on GitHub.
             </p>
             <div class="hero-actions rise" style="--d:180ms">
               <a href="/register" class="btn btn-solid btn-lg">Start building →</a>

@@ -68,6 +68,9 @@ import { runPrTestGeneratorTaskOnce } from "./autopilot-pr-test-generator";
 import { runAdvancementScan } from "./advancement-scanner";
 import { expireOldSandboxes } from "./pr-sandbox";
 import { expireIdleEnvs } from "./dev-env";
+import { expireOldPreviews } from "./branch-previews";
+import { getBotUserIdOrFallback } from "./bot-user";
+import { runOnboardingDripTaskOnce } from "./onboarding-drip";
 
 export interface AutopilotTaskResult {
   name: string;
@@ -621,6 +624,44 @@ export function defaultTasks(): AutopilotTask[] {
         }
       },
     },
+    {
+      // Preview expiry — migration 0062. Flips every branch-preview row
+      // whose `expires_at` is in the past to status='expired'. Runs on
+      // every tick; the lib itself is a cheap SQL UPDATE and is a no-op
+      // when there's nothing to expire, so this never adds meaningful
+      // overhead.
+      name: "preview-expiry",
+      run: async () => {
+        try {
+          const expired = await expireOldPreviews();
+          if (expired > 0) {
+            console.log(`[autopilot] preview-expiry: expired=${expired}`);
+          }
+        } catch (err) {
+          console.error("[autopilot] preview-expiry: threw:", err);
+        }
+      },
+    },
+    {
+      // Onboarding drip — sends pending T+1d and T+3d drip emails to new
+      // users. The T+0 "welcome" email is sent immediately at registration
+      // via src/routes/auth.tsx. This task handles the delayed emails.
+      // Idempotent via the per-user `onboarding_emails_sent` jsonb column
+      // (migration 0081). Silently skips when email is not configured.
+      name: "onboarding-drip",
+      run: async () => {
+        try {
+          const summary = await runOnboardingDripTaskOnce();
+          if (summary.sent > 0 || summary.errors > 0) {
+            console.log(
+              `[autopilot] onboarding-drip: sent=${summary.sent} skipped=${summary.skipped} errors=${summary.errors}`
+            );
+          }
+        } catch (err) {
+          console.error("[autopilot] onboarding-drip: threw:", err);
+        }
+      },
+    },
   ];
 }
 
@@ -748,7 +789,8 @@ export async function runSyntheticMonitorTaskOnce(
 export interface SleepModeDigestCandidate {
   userId: string;
   digestHourUtc: number;
-  lastDigestSentAt: Date | null;
+  /** Independent cooldown anchor for the sleep-mode digest (migration 0077). */
+  lastSleepDigestSentAt: Date | null;
 }
 
 export interface SleepModeDigestTaskDeps {
@@ -771,9 +813,11 @@ export interface SleepModeDigestTaskSummary {
 
 /**
  * Default candidate-finder. Returns enabled users whose
- * `lastDigestSentAt` is older than the cooldown OR null. The hour-match
+ * `lastSleepDigestSentAt` is older than the cooldown OR null. The hour-match
  * filter is applied in JS by `runSleepModeDigestTaskOnce` so it stays
  * timezone-independent of any SQL `extract(hour ...)` behaviour.
+ * Uses the dedicated `last_sleep_digest_sent_at` column (migration 0077) so
+ * the cooldown is independent of the weekly digest timer.
  */
 async function defaultFindSleepModeCandidates(
   cap: number
@@ -783,7 +827,7 @@ async function defaultFindSleepModeCandidates(
       .select({
         userId: users.id,
         digestHourUtc: users.sleepModeDigestHourUtc,
-        lastDigestSentAt: users.lastDigestSentAt,
+        lastSleepDigestSentAt: users.lastSleepDigestSentAt,
       })
       .from(users)
       .where(eq(users.sleepModeEnabled, true))
@@ -791,7 +835,7 @@ async function defaultFindSleepModeCandidates(
     return rows.map((r) => ({
       userId: r.userId,
       digestHourUtc: r.digestHourUtc,
-      lastDigestSentAt: r.lastDigestSentAt,
+      lastSleepDigestSentAt: r.lastSleepDigestSentAt,
     }));
   } catch (err) {
     console.error("[autopilot] sleep-mode-digest: candidate query failed:", err);
@@ -803,7 +847,7 @@ async function defaultFindSleepModeCandidates(
  * One iteration of the sleep-mode-digest task. Never throws.
  *
  * Per-user filters (applied in JS so we can DI a clock):
- *   1. `lastDigestSentAt` is null OR older than cooldown (23h).
+ *   1. `lastSleepDigestSentAt` is null OR older than cooldown (23h).
  *   2. `now.getUTCHours() === digestHourUtc` — fires once at the user's
  *      configured local UTC hour.
  *
@@ -843,8 +887,8 @@ export async function runSleepModeDigestTaskOnce(
       }
       // Cooldown: skip if we sent within the last cooldown window.
       if (
-        cand.lastDigestSentAt &&
-        nowDate.getTime() - new Date(cand.lastDigestSentAt).getTime() <
+        cand.lastSleepDigestSentAt &&
+        nowDate.getTime() - new Date(cand.lastSleepDigestSentAt).getTime() <
           cooldownMs
       ) {
         skipped += 1;
@@ -1179,9 +1223,10 @@ async function defaultOnMerged(
     console.error("[autopilot] auto-merge: merged audit failed:", err);
   }
   try {
+    const commentAuthorId = await getBotUserIdOrFallback(cand.authorUserId);
     await db.insert(prComments).values({
       pullRequestId: cand.prId,
-      authorId: cand.authorUserId,
+      authorId: commentAuthorId,
       isAiReview: true,
       body: `${AUTO_MERGE_COMMENT_MARKER}\nAuto-merged by Gluecron autopilot — branch protection conditions satisfied.`,
     });

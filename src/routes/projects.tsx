@@ -21,6 +21,8 @@ import {
   projectItems,
   repositories,
   users,
+  issues,
+  pullRequests,
 } from "../db/schema";
 import { Layout } from "../views/layout";
 import { RepoHeader } from "../views/components";
@@ -377,6 +379,37 @@ const projStyles = `
     color: var(--text-strong);
     line-height: 1.35;
   }
+  .proj-kcard-link {
+    color: var(--text-strong);
+    text-decoration: none;
+  }
+  .proj-kcard-link:hover { text-decoration: underline; color: var(--accent); }
+  .proj-kcard-meta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 4px;
+    flex-wrap: wrap;
+  }
+  .proj-kcard-num {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .proj-kcard-state {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 7px;
+    border-radius: 9999px;
+    font-size: 10.5px;
+    font-weight: 600;
+    text-transform: capitalize;
+  }
+  .proj-kcard-state.is-open { background: rgba(52,211,153,0.14); color: #6ee7b7; }
+  .proj-kcard-state.is-closed { background: rgba(148,163,184,0.16); color: #94a3b8; }
+  .proj-kcard-state.is-merged { background: rgba(167,139,250,0.14); color: #c4b5fd; }
+  .proj-kcard-state.is-draft { background: rgba(148,163,184,0.12); color: #94a3b8; }
   .proj-kcard-note {
     margin-top: 4px;
     color: var(--text-muted);
@@ -388,10 +421,38 @@ const projStyles = `
     display: flex;
     gap: 4px;
     flex-wrap: wrap;
+    align-items: center;
   }
-  .proj-kcard-actions form { margin: 0; display: inline; }
+  .proj-kcard-actions form { margin: 0; display: inline-flex; align-items: center; gap: 4px; }
+  .proj-kcard-select {
+    font: inherit;
+    font-size: 11.5px;
+    padding: 3px 6px;
+    color: var(--text);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .proj-kcard-select:focus { outline: none; border-color: rgba(140,109,255,0.55); }
 
-  .proj-kadd { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+  .proj-kadd-details summary::-webkit-details-marker { display: none; }
+  .proj-kadd-panel {
+    margin-top: 8px;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .proj-kadd-sep {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 2px 0;
+  }
+  .proj-kadd { display: flex; flex-direction: column; gap: 6px; }
   .proj-kadd input {
     width: 100%;
     box-sizing: border-box;
@@ -770,6 +831,10 @@ projectRoutes.get(
     let project: any = null;
     let columns: any[] = [];
     let items: any[] = [];
+    // Maps itemId → { number, title, state } for linked issues/PRs
+    const linkedIssueMap: Record<string, { number: number; title: string; state: string; isDraft?: boolean }> = {};
+    const linkedPrMap: Record<string, { number: number; title: string; state: string; isDraft?: boolean }> = {};
+
     try {
       const [row] = await db
         .select()
@@ -793,6 +858,37 @@ projectRoutes.get(
           .from(projectItems)
           .where(eq(projectItems.projectId, row.id))
           .orderBy(asc(projectItems.position));
+
+        // Gather itemIds for linked issues / PRs so we can fetch their details.
+        const issueItemIds = items
+          .filter((it) => it.itemType === "issue" && it.itemId)
+          .map((it) => it.itemId as string);
+        const prItemIds = items
+          .filter((it) => it.itemType === "pr" && it.itemId)
+          .map((it) => it.itemId as string);
+
+        if (issueItemIds.length > 0) {
+          const issueRows = await db
+            .select({ id: issues.id, number: issues.number, title: issues.title, state: issues.state })
+            .from(issues)
+            .where(eq(issues.repositoryId, resolved.repo.id));
+          for (const ir of issueRows) {
+            if (issueItemIds.includes(ir.id)) {
+              linkedIssueMap[ir.id] = { number: ir.number, title: ir.title, state: ir.state };
+            }
+          }
+        }
+        if (prItemIds.length > 0) {
+          const prRows = await db
+            .select({ id: pullRequests.id, number: pullRequests.number, title: pullRequests.title, state: pullRequests.state, isDraft: pullRequests.isDraft })
+            .from(pullRequests)
+            .where(eq(pullRequests.repositoryId, resolved.repo.id));
+          for (const pr of prRows) {
+            if (prItemIds.includes(pr.id)) {
+              linkedPrMap[pr.id] = { number: pr.number, title: pr.title, state: pr.state, isDraft: pr.isDraft };
+            }
+          }
+        }
       }
     } catch {
       // leave nulls
@@ -858,72 +954,164 @@ projectRoutes.get(
                     {(itemsByCol[col.id] || []).length}
                   </span>
                 </div>
-                {(itemsByCol[col.id] || []).map((it) => (
-                  <div class="proj-kcard">
-                    <div class="proj-kcard-title">{it.title || "(untitled)"}</div>
-                    {it.note && (
-                      <div class="proj-kcard-note">{it.note}</div>
-                    )}
-                    {user && (
-                      <div class="proj-kcard-actions">
-                        {columns
-                          .filter((oc) => oc.id !== col.id)
-                          .map((oc) => (
+                {(itemsByCol[col.id] || []).map((it) => {
+                  // Resolve linked issue/PR metadata for richer card display.
+                  const linkedIssue = it.itemType === "issue" && it.itemId
+                    ? linkedIssueMap[it.itemId]
+                    : null;
+                  const linkedPr = it.itemType === "pr" && it.itemId
+                    ? linkedPrMap[it.itemId]
+                    : null;
+                  const cardTitle = linkedIssue?.title || linkedPr?.title || it.title || "(untitled)";
+                  const cardNumber = linkedIssue?.number ?? linkedPr?.number ?? null;
+                  const cardState = linkedIssue?.state ?? (linkedPr?.isDraft ? "draft" : linkedPr?.state) ?? null;
+                  const cardHref = linkedIssue
+                    ? `/${ownerName}/${repoName}/issues/${linkedIssue.number}`
+                    : linkedPr
+                    ? `/${ownerName}/${repoName}/pulls/${linkedPr.number}`
+                    : null;
+
+                  return (
+                    <div class="proj-kcard">
+                      <div class="proj-kcard-title">
+                        {cardHref ? (
+                          <a href={cardHref} class="proj-kcard-link">{cardTitle}</a>
+                        ) : (
+                          cardTitle
+                        )}
+                      </div>
+                      {(cardNumber !== null || cardState) && (
+                        <div class="proj-kcard-meta">
+                          {cardNumber !== null && (
+                            <span class="proj-kcard-num">#{cardNumber}</span>
+                          )}
+                          {cardState && (
+                            <span class={`proj-kcard-state is-${cardState}`}>
+                              {cardState}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                      {it.note && (
+                        <div class="proj-kcard-note">{it.note}</div>
+                      )}
+                      {user && (
+                        <div class="proj-kcard-actions">
+                          {columns.length > 1 && (
                             <form
                               method="post"
                               action={`/${ownerName}/${repoName}/projects/${project.number}/items/${it.id}/move`}
+                              style="display:inline-flex;align-items:center;gap:4px"
                             >
-                              <input
-                                type="hidden"
+                              <select
                                 name="column_id"
-                                value={oc.id}
-                              />
+                                class="proj-kcard-select"
+                                aria-label="Move to column"
+                              >
+                                {columns
+                                  .filter((oc) => oc.id !== col.id)
+                                  .map((oc) => (
+                                    <option value={oc.id}>{oc.name}</option>
+                                  ))}
+                              </select>
                               <button
                                 type="submit"
                                 class="proj-btn proj-btn-ghost proj-btn-mini"
                               >
-                                → {oc.name}
+                                Move
                               </button>
                             </form>
-                          ))}
-                        <form
-                          method="post"
-                          action={`/${ownerName}/${repoName}/projects/${project.number}/items/${it.id}/delete`}
-                        >
-                          <button
-                            type="submit"
-                            class="proj-btn proj-btn-ghost proj-btn-mini"
-                            aria-label="Delete item"
+                          )}
+                          <form
+                            method="post"
+                            action={`/${ownerName}/${repoName}/projects/${project.number}/items/${it.id}/delete`}
                           >
-                            ×
-                          </button>
-                        </form>
-                      </div>
-                    )}
-                  </div>
-                ))}
+                            <button
+                              type="submit"
+                              class="proj-btn proj-btn-ghost proj-btn-mini"
+                              aria-label="Delete item"
+                            >
+                              ×
+                            </button>
+                          </form>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
                 {user && (
-                  <form
-                    method="post"
-                    action={`/${ownerName}/${repoName}/projects/${project.number}/items`}
-                    class="proj-kadd"
-                  >
-                    <input type="hidden" name="column_id" value={col.id} />
-                    <input
-                      type="text"
-                      name="title"
-                      placeholder="New card title"
-                      required
-                      aria-label="New card title"
-                    />
-                    <button
-                      type="submit"
-                      class="proj-btn proj-btn-ghost proj-btn-mini"
-                    >
+                  <details class="proj-kadd-details">
+                    <summary class="proj-btn proj-btn-ghost proj-btn-mini" style="cursor:pointer;list-style:none;margin-top:8px">
                       <IconPlus />
                       Add card
-                    </button>
-                  </form>
+                    </summary>
+                    <div class="proj-kadd-panel">
+                      <form
+                        method="post"
+                        action={`/${ownerName}/${repoName}/projects/${project.number}/items`}
+                        class="proj-kadd"
+                      >
+                        <input type="hidden" name="column_id" value={col.id} />
+                        <input type="hidden" name="item_type" value="note" />
+                        <input
+                          type="text"
+                          name="title"
+                          placeholder="Note title"
+                          required
+                          aria-label="Note title"
+                        />
+                        <button
+                          type="submit"
+                          class="proj-btn proj-btn-ghost proj-btn-mini"
+                        >
+                          Add note
+                        </button>
+                      </form>
+                      <hr class="proj-kadd-sep" />
+                      <form
+                        method="post"
+                        action={`/${ownerName}/${repoName}/projects/${project.number}/items`}
+                        class="proj-kadd"
+                      >
+                        <input type="hidden" name="column_id" value={col.id} />
+                        <input type="hidden" name="item_type" value="issue" />
+                        <input
+                          type="number"
+                          name="issue_number"
+                          placeholder="Issue # (e.g. 42)"
+                          min="1"
+                          aria-label="Issue number"
+                        />
+                        <button
+                          type="submit"
+                          class="proj-btn proj-btn-ghost proj-btn-mini"
+                        >
+                          Link issue
+                        </button>
+                      </form>
+                      <form
+                        method="post"
+                        action={`/${ownerName}/${repoName}/projects/${project.number}/items`}
+                        class="proj-kadd"
+                      >
+                        <input type="hidden" name="column_id" value={col.id} />
+                        <input type="hidden" name="item_type" value="pr" />
+                        <input
+                          type="number"
+                          name="pr_number"
+                          placeholder="PR # (e.g. 7)"
+                          min="1"
+                          aria-label="Pull request number"
+                        />
+                        <button
+                          type="submit"
+                          class="proj-btn proj-btn-ghost proj-btn-mini"
+                        >
+                          Link PR
+                        </button>
+                      </form>
+                    </div>
+                  </details>
                 )}
               </div>
             ))}
@@ -1001,7 +1189,7 @@ projectRoutes.post(
   }
 );
 
-// Add item
+// Add item (note, linked issue, or linked PR)
 projectRoutes.post(
   "/:owner/:repo/projects/:number/items",
   requireAuth,
@@ -1013,9 +1201,24 @@ projectRoutes.post(
 
     const form = await c.req.formData();
     const columnId = (form.get("column_id") as string || "").trim();
+    const itemType = (form.get("item_type") as string || "note").trim();
     const title = (form.get("title") as string || "").trim();
     const note = (form.get("note") as string || "").trim();
-    if (!columnId || !title) {
+    const issueNumberRaw = parseInt(form.get("issue_number") as string || "", 10);
+    const prNumberRaw = parseInt(form.get("pr_number") as string || "", 10);
+
+    if (!columnId) {
+      return c.redirect(`/${ownerName}/${repoName}/projects/${numParam}`);
+    }
+
+    // For notes, title is required. For issue/pr links, we look up by number.
+    if (itemType === "note" && !title) {
+      return c.redirect(`/${ownerName}/${repoName}/projects/${numParam}`);
+    }
+    if (itemType === "issue" && isNaN(issueNumberRaw)) {
+      return c.redirect(`/${ownerName}/${repoName}/projects/${numParam}`);
+    }
+    if (itemType === "pr" && isNaN(prNumberRaw)) {
       return c.redirect(`/${ownerName}/${repoName}/projects/${numParam}`);
     }
 
@@ -1035,13 +1238,63 @@ projectRoutes.post(
           .select({ p: sql<number>`coalesce(max(${projectItems.position}), -1)` })
           .from(projectItems)
           .where(eq(projectItems.columnId, columnId));
-        await db.insert(projectItems).values({
-          projectId: row.id,
-          columnId,
-          title,
-          note,
-          position: Number(maxPos?.p || -1) + 1,
-        });
+        const position = Number(maxPos?.p || -1) + 1;
+
+        if (itemType === "issue" && !isNaN(issueNumberRaw)) {
+          // Look up the issue by number in this repo
+          const [issueRow] = await db
+            .select({ id: issues.id, title: issues.title })
+            .from(issues)
+            .where(
+              and(
+                eq(issues.repositoryId, resolved.repo.id),
+                eq(issues.number, issueNumberRaw)
+              )
+            )
+            .limit(1);
+          if (issueRow) {
+            await db.insert(projectItems).values({
+              projectId: row.id,
+              columnId,
+              itemType: "issue",
+              itemId: issueRow.id,
+              title: issueRow.title,
+              position,
+            });
+          }
+        } else if (itemType === "pr" && !isNaN(prNumberRaw)) {
+          // Look up the PR by number in this repo
+          const [prRow] = await db
+            .select({ id: pullRequests.id, title: pullRequests.title })
+            .from(pullRequests)
+            .where(
+              and(
+                eq(pullRequests.repositoryId, resolved.repo.id),
+                eq(pullRequests.number, prNumberRaw)
+              )
+            )
+            .limit(1);
+          if (prRow) {
+            await db.insert(projectItems).values({
+              projectId: row.id,
+              columnId,
+              itemType: "pr",
+              itemId: prRow.id,
+              title: prRow.title,
+              position,
+            });
+          }
+        } else {
+          // Freeform note
+          await db.insert(projectItems).values({
+            projectId: row.id,
+            columnId,
+            itemType: "note",
+            title,
+            note,
+            position,
+          });
+        }
       }
     } catch {
       // swallow

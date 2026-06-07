@@ -4,7 +4,7 @@
 
 import { Hono } from "hono";
 import { setCookie, deleteCookie, getCookie } from "hono/cookie";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, gte, isNull, sql } from "drizzle-orm";
 import { db } from "../db";
 import {
   users,
@@ -12,6 +12,7 @@ import {
   organizations,
   userTotp,
   userRecoveryCodes,
+  loginAttempts,
 } from "../db/schema";
 import {
   hashPassword,
@@ -22,6 +23,7 @@ import {
 } from "../lib/auth";
 import { verifyTotpCode, hashRecoveryCode } from "../lib/totp";
 import { cancelAccountDeletion } from "../lib/account-deletion";
+import { audit } from "../lib/notify";
 import {
   getSsoConfig,
   getGithubOauthConfig,
@@ -304,6 +306,17 @@ auth.post("/register", async (c) => {
       });
   }
 
+  // Onboarding drip — T+0 "welcome" email. Fire-and-forget; never blocks
+  // the redirect. Silently skips when email is not configured.
+  import("../lib/onboarding-drip")
+    .then((m) => m.sendWelcomeEmail(user.id))
+    .catch((err) => {
+      console.error(
+        `[auth] onboarding welcome email failed for ${user.id}:`,
+        err instanceof Error ? err.message : err
+      );
+    });
+
   // P3 — default landing is /onboarding (the guided first-five-minutes
   // flow). The `redirect=` query is still honoured for OAuth-style flows.
   const redirect = c.req.query("redirect") || "/onboarding?welcome=1";
@@ -551,17 +564,47 @@ auth.get("/login", softAuth, async (c) => {
   );
 });
 
+// ── Account lockout constants (SOC 2 CC6.1) ─────────────────────────────
+const LOGIN_FAIL_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+const LOGIN_FAIL_LIMIT = 10;
+const LOGIN_LOCKOUT_MS = 15 * 60 * 1000; // 15 minutes
+
+/**
+ * Returns the number of failed login attempts for `email` in the last
+ * `LOGIN_FAIL_WINDOW_MS` milliseconds.
+ */
+async function countRecentFailures(email: string): Promise<number> {
+  const since = new Date(Date.now() - LOGIN_FAIL_WINDOW_MS);
+  const [row] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(loginAttempts)
+    .where(
+      and(
+        eq(loginAttempts.email, email.toLowerCase()),
+        eq(loginAttempts.success, false),
+        gte(loginAttempts.createdAt, since)
+      )
+    );
+  return row?.count ?? 0;
+}
+
 auth.post("/login", async (c) => {
   const body = await c.req.parseBody();
   const identifier = String(body.username || "").trim();
   const password = String(body.password || "");
   const redirect = c.req.query("redirect") || "/";
+  const ip =
+    c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ||
+    c.req.header("x-real-ip") ||
+    "unknown";
+  const ua = c.req.header("user-agent") || "";
 
   if (!identifier || !password) {
     return c.redirect("/login?error=All+fields+are+required");
   }
 
-  // Find user by username or email
+  // Resolve the canonical email for lockout checks regardless of whether
+  // the user typed username or email.
   const isEmail = identifier.includes("@");
   const [user] = await db
     .select()
@@ -573,14 +616,78 @@ auth.post("/login", async (c) => {
     )
     .limit(1);
 
+  // Determine the email key for lockout (use identifier if user not found
+  // so we still record the attempt without leaking account existence).
+  const emailKey = (user?.email ?? identifier).toLowerCase();
+
+  // ── Lockout check ───────────────────────────────────────────────────
+  // Check whether this email is currently locked out (≥ LOGIN_FAIL_LIMIT
+  // failures in the last LOGIN_FAIL_WINDOW_MS). We check before password
+  // verification so brute-forcers can't time-diff their way around it.
+  const recentFailures = await countRecentFailures(emailKey);
+  if (recentFailures >= LOGIN_FAIL_LIMIT) {
+    // Record that we blocked this attempt (success=false) so the window
+    // keeps rolling while the attacker keeps trying.
+    await db
+      .insert(loginAttempts)
+      .values({ email: emailKey, ip, success: false })
+      .catch(() => {});
+    await audit({
+      userId: user?.id ?? null,
+      action: "auth.login.locked",
+      ip,
+      userAgent: ua,
+      metadata: { email: emailKey, recentFailures },
+    });
+    return c.redirect(
+      "/login?error=Account+temporarily+locked+due+to+too+many+failed+login+attempts.+Please+try+again+in+15+minutes."
+    );
+  }
+
   if (!user) {
+    // Record failed attempt (unknown user) and return generic error.
+    await db
+      .insert(loginAttempts)
+      .values({ email: emailKey, ip, success: false })
+      .catch(() => {});
     return c.redirect("/login?error=Invalid+credentials");
   }
 
   const valid = await verifyPassword(password, user.passwordHash);
   if (!valid) {
+    // Record failed attempt.
+    await db
+      .insert(loginAttempts)
+      .values({ email: emailKey, ip, success: false })
+      .catch(() => {});
+    await audit({
+      userId: user.id,
+      action: "auth.login.failed",
+      ip,
+      userAgent: ua,
+      metadata: { email: emailKey, attempt: recentFailures + 1 },
+    });
+    // Check if this failure just crossed the threshold.
+    if (recentFailures + 1 >= LOGIN_FAIL_LIMIT) {
+      await audit({
+        userId: user.id,
+        action: "auth.login.locked",
+        ip,
+        userAgent: ua,
+        metadata: { email: emailKey, recentFailures: recentFailures + 1 },
+      });
+      return c.redirect(
+        "/login?error=Account+temporarily+locked+due+to+too+many+failed+login+attempts.+Please+try+again+in+15+minutes."
+      );
+    }
     return c.redirect("/login?error=Invalid+credentials");
   }
+
+  // Successful login — record success and clear old failure window.
+  await db
+    .insert(loginAttempts)
+    .values({ email: emailKey, ip, success: true })
+    .catch(() => {});
 
   // B4: if the user has TOTP enabled, issue a pending-2fa session and
   // redirect to the code prompt.
@@ -597,6 +704,9 @@ auth.post("/login", async (c) => {
     token,
     expiresAt: sessionExpiry(),
     requires2fa: needs2fa,
+    ip,
+    userAgent: ua,
+    lastSeenAt: new Date(),
   });
 
   setCookie(c, "session", token, sessionCookieOptions());

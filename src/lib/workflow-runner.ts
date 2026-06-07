@@ -31,6 +31,7 @@ import {
   loadSecretsContext,
   substituteSecrets,
 } from "./workflow-secrets";
+import { saveCacheEntry } from "./actions/cache-action";
 
 // ---------------------------------------------------------------------------
 // Tunables
@@ -479,6 +480,7 @@ async function executeJob(opts: {
   job: ParsedJob;
   jobOrder: number;
   checkoutDir: string;
+  repoId?: string;
   /** Per-run plaintext secrets. Default `{}` preserves the v1 contract
    *  for callers that haven't been updated to plumb secrets through. */
   secrets?: Record<string, string>;
@@ -554,6 +556,45 @@ async function executeJob(opts: {
 
   const combinedLogs = truncate(logParts.join("\n"), JOB_LOG_CAP_BYTES);
   const status = anyFailed ? "failure" : "success";
+
+  // Post-job cache save: mirrors GitHub Actions' post-job hook behaviour.
+  // Only runs when every step succeeded — partial saves are useless and could
+  // poison future restores with an incomplete workspace snapshot.
+  if (!anyFailed && opts.repoId) {
+    for (const step of steps) {
+      const uses = typeof step.uses === "string" ? step.uses : "";
+      const isCacheStep =
+        uses === "actions/cache@v3" ||
+        uses === "actions/cache@v2" ||
+        uses === "actions/cache@v1" ||
+        uses === "actions/cache" ||
+        uses.startsWith("gluecron/cache");
+      if (!isCacheStep) continue;
+
+      const w = step.with && typeof step.with === "object" && !Array.isArray(step.with)
+        ? (step.with as Record<string, unknown>)
+        : {};
+      const cacheKey = typeof w.key === "string" ? w.key : "";
+      const rawPath = w.path ?? w.paths;
+      const cachePaths = Array.isArray(rawPath)
+        ? rawPath.filter((p): p is string => typeof p === "string")
+        : typeof rawPath === "string"
+          ? [rawPath]
+          : [];
+
+      if (!cacheKey || cachePaths.length === 0) continue;
+
+      try {
+        await saveCacheEntry(opts.repoId, cacheKey, cachePaths, checkoutDir);
+      } catch (err) {
+        // Fail-open: log but never let a save failure surface as a job failure.
+        console.warn(
+          `[workflow-runner] cache save failed for key=${cacheKey}:`,
+          err instanceof Error ? err.message : err
+        );
+      }
+    }
+  }
 
   if (jobId) {
     try {
@@ -747,6 +788,7 @@ export async function executeRun(runId: string): Promise<void> {
           job,
           jobOrder: i,
           checkoutDir,
+          repoId: run.repositoryId,
           secrets: runSecrets,
         });
         if (!result.success) {

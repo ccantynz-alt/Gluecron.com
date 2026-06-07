@@ -8,7 +8,7 @@
 
 import { Hono } from "hono";
 import { join } from "path";
-import { eq, and, desc, asc, sql, like, or } from "drizzle-orm";
+import { eq, and, desc, asc, sql, like, or, gte, lte, gt } from "drizzle-orm";
 import { deflateRawSync } from "node:zlib";
 import { db } from "../db";
 import {
@@ -27,6 +27,7 @@ import {
   workflows,
   workflowRuns,
   workflowJobs,
+  auditLog,
 } from "../db/schema";
 import { enqueueRun } from "../lib/workflow-runner";
 import {
@@ -3171,6 +3172,192 @@ apiv2.get("/", (c) => {
       auth: "10 requests/minute",
     },
   });
+});
+
+// ─── SIEM Audit Log Export ──────────────────────────────────────────────────
+//
+// GET /api/v2/audit
+//
+// Export the platform audit log in JSON format for SIEM ingestion.
+//
+// Authentication
+//   Bearer token required. The token must belong to a site-admin
+//   (users.isAdmin = true) OR the request is scoped to the caller's own
+//   org (future: orgAdmin scope). Session-cookie callers with isAdmin also pass.
+//
+// Query parameters
+//   since=<ISO 8601>    — include only events at or after this timestamp
+//   until=<ISO 8601>    — include only events before or at this timestamp
+//   limit=<number>      — max rows to return; capped at 1000, default 100
+//   cursor=<uuid>       — pagination cursor: start after this event id (exclusive)
+//   actor=<username>    — filter by actor username
+//   action=<prefix>     — filter by action prefix (e.g. "repo.", "token.")
+//   resource_type=<str> — filter by target_type field
+//   format=json         — (reserved; currently only JSON is supported)
+//
+// Response
+//   200 { events: AuditEvent[], nextCursor: string | null, hasMore: boolean }
+//   X-Total-Count: <approximate total for the current filter set>
+//
+// Each AuditEvent
+//   { id, action, actor_id, actor_username, resource_type, resource_id,
+//     metadata, created_at, ip_address }
+//
+// Example
+//   GET /api/v2/audit?since=2026-01-01T00:00:00Z&limit=50
+//   Authorization: Bearer glc_<token>
+
+apiv2.get("/audit", requireApiAuth, async (c) => {
+  const caller = c.get("user")!;
+
+  // Only site-admins may export the full audit log.
+  if (!caller.isAdmin) {
+    return c.json({ error: "Admin scope required to export audit log" }, 403);
+  }
+
+  // Parse query params ---------------------------------------------------
+  const q = c.req.query;
+
+  const sinceRaw = q("since");
+  const untilRaw = q("until");
+  const limitRaw = q("limit");
+  const cursor   = q("cursor");
+  const actorQ   = q("actor");
+  const actionQ  = q("action");
+  const resTypeQ = q("resource_type");
+
+  const limit = Math.min(1000, Math.max(1, parseInt(limitRaw ?? "100", 10) || 100));
+
+  const since = sinceRaw ? new Date(sinceRaw) : null;
+  const until = untilRaw ? new Date(untilRaw) : null;
+
+  if (since && isNaN(since.getTime())) {
+    return c.json({ error: "Invalid `since` timestamp" }, 400);
+  }
+  if (until && isNaN(until.getTime())) {
+    return c.json({ error: "Invalid `until` timestamp" }, 400);
+  }
+
+  try {
+    // Build WHERE clauses --------------------------------------------------
+    // We always join users to get the actor username.
+    // Conditions are accumulated so we can add them based on query params.
+    const conditions = [];
+
+    if (since) conditions.push(gte(auditLog.createdAt, since));
+    if (until) conditions.push(lte(auditLog.createdAt, until));
+
+    // cursor-based pagination: skip rows with createdAt < cursorRow.createdAt,
+    // or equal createdAt but id <= cursorRow.id (stable ordering).
+    // For simplicity we use id-based pagination with UUID ordering via
+    // a sub-query on the audit_log table itself.
+    let cursorCondition = null;
+    if (cursor) {
+      const [cursorRow] = await db
+        .select({ createdAt: auditLog.createdAt })
+        .from(auditLog)
+        .where(eq(auditLog.id, cursor))
+        .limit(1);
+      if (cursorRow) {
+        cursorCondition = lte(auditLog.createdAt, cursorRow.createdAt);
+      }
+    }
+    if (cursorCondition) conditions.push(cursorCondition);
+
+    if (actionQ) {
+      conditions.push(like(auditLog.action, `${actionQ}%`));
+    }
+    if (resTypeQ) {
+      conditions.push(eq(auditLog.targetType, resTypeQ));
+    }
+
+    // Actor filter: resolve username → userId
+    let actorUserId: string | null = null;
+    if (actorQ) {
+      const [actorRow] = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.username, actorQ))
+        .limit(1);
+      if (!actorRow) {
+        // Unknown actor — return empty result
+        return c.json({ events: [], nextCursor: null, hasMore: false }, 200, {
+          "X-Total-Count": "0",
+        });
+      }
+      actorUserId = actorRow.id;
+    }
+    if (actorUserId) {
+      conditions.push(eq(auditLog.userId, actorUserId));
+    }
+
+    const where = conditions.length > 0 ? and(...conditions) : undefined;
+
+    // Approximate total count — intentionally approximate (not locking)
+    const [countRow] = await db
+      .select({ cnt: sql<number>`count(*)::int` })
+      .from(auditLog)
+      .where(where);
+    const totalCount = countRow?.cnt ?? 0;
+
+    // Fetch limit+1 rows to detect hasMore
+    const rows = await db
+      .select({
+        id: auditLog.id,
+        action: auditLog.action,
+        actorId: auditLog.userId,
+        targetType: auditLog.targetType,
+        targetId: auditLog.targetId,
+        metadata: auditLog.metadata,
+        createdAt: auditLog.createdAt,
+        ip: auditLog.ip,
+      })
+      .from(auditLog)
+      .where(where)
+      .orderBy(desc(auditLog.createdAt))
+      .limit(limit + 1);
+
+    // Skip rows before the cursor (same createdAt bucket with id after cursor)
+    let sliced = rows;
+    if (cursor && rows.length > 0 && rows[0].id === cursor) {
+      sliced = rows.slice(1);
+    }
+
+    const hasMore = sliced.length > limit;
+    const page = sliced.slice(0, limit);
+    const nextCursor = hasMore ? page[page.length - 1]?.id ?? null : null;
+
+    // Resolve actor usernames in one batch query
+    const actorIds = [...new Set(page.map((r) => r.actorId).filter(Boolean))] as string[];
+    const actorMap: Record<string, string> = {};
+    if (actorIds.length > 0) {
+      const actorRows = await db
+        .select({ id: users.id, username: users.username })
+        .from(users)
+        .where(sql`${users.id} = ANY(ARRAY[${sql.join(actorIds.map((id) => sql`${id}::uuid`), sql`, `)}])`);
+      for (const a of actorRows) {
+        actorMap[a.id] = a.username;
+      }
+    }
+
+    const events = page.map((row) => ({
+      id: row.id,
+      action: row.action,
+      actor_id: row.actorId ?? null,
+      actor_username: row.actorId ? (actorMap[row.actorId] ?? null) : null,
+      resource_type: row.targetType ?? null,
+      resource_id: row.targetId ?? null,
+      metadata: row.metadata ? (() => { try { return JSON.parse(row.metadata!); } catch { return row.metadata; } })() : null,
+      created_at: row.createdAt.toISOString(),
+      ip_address: row.ip ?? null,
+    }));
+
+    c.header("X-Total-Count", String(totalCount));
+    return c.json({ events, nextCursor, hasMore });
+  } catch (err) {
+    console.error("[api/v2/audit] error:", err);
+    return c.json({ error: "Service unavailable" }, 503);
+  }
 });
 
 export default apiv2;

@@ -84,6 +84,7 @@ const PricingPage: FC = () => (
             "Priority AI queue",
             "Custom domains",
             "Advanced analytics",
+            "EU data residency (Frankfurt)",
             "Email support",
           ]}
           cta="Go Pro"
@@ -194,6 +195,10 @@ const PricingPage: FC = () => (
           <FaqItem
             q="How do I migrate off Gluecron?"
             a="Same way you migrate off GitHub: git remote set-url and push. We're git-compatible to the byte. No vendor lock, no migration tax."
+          />
+          <FaqItem
+            q="Is EU data residency available?"
+            a="Yes. Pro plan and above can choose the EU (Frankfurt) data region when creating a repository. All repository data — git objects, issues, PRs — is stored and processed in the EU region. The region is set at creation time and cannot be changed afterwards. You can configure it in the New Repository form or see the current region on your repository Settings page."
           />
         </div>
       </section>

@@ -17,6 +17,8 @@ import {
   alreadyTrioReviewed,
   runTrioReview,
 } from "./ai-review-trio";
+import { assertAiQuota, AiQuotaExceededError } from "./billing";
+import { getBotUserIdOrFallback } from "./bot-user";
 
 interface ReviewComment {
   filePath: string;
@@ -304,6 +306,29 @@ export async function triggerAiReview(
       .limit(1);
     if (!pr) return;
 
+    // Hard quota gate — post a comment and bail if the user's AI budget is
+    // exhausted. This runs after loading the PR so we have authorId for the
+    // comment insert.
+    try {
+      await assertAiQuota(pr.authorId);
+    } catch (err) {
+      if (err instanceof AiQuotaExceededError) {
+        await db
+          .insert(prComments)
+          .values({
+            pullRequestId: prId,
+            authorId: pr.authorId,
+            isAiReview: true,
+            body: `${AI_REVIEW_MARKER}\n## AI review skipped\n\nYour monthly AI token budget has been reached. Upgrade at [/settings/billing](/settings/billing) to re-enable AI code review.`,
+          })
+          .catch(() => {});
+        return;
+      }
+      // Any other error from assertAiQuota is unexpected — log and proceed
+      // (fail open so a billing glitch never silently kills reviews).
+      console.warn("[ai-review] assertAiQuota failed unexpectedly:", err);
+    }
+
     let diffText = await diffBetweenBranches(
       ownerName,
       repoName,
@@ -334,6 +359,10 @@ export async function triggerAiReview(
       return;
     }
 
+    // Resolve the bot user id once; fall back to the PR author so that
+    // comment insertion never fails even before migration 0078 has run.
+    const commentAuthorId = await getBotUserIdOrFallback(pr.authorId);
+
     let result: ReviewResult;
     try {
       result = await reviewDiff(
@@ -352,7 +381,7 @@ export async function triggerAiReview(
         .insert(prComments)
         .values({
           pullRequestId: prId,
-          authorId: pr.authorId,
+          authorId: commentAuthorId,
           isAiReview: true,
           body: `${AI_REVIEW_MARKER}\n## AI review unavailable\n\nThe AI review attempt failed: ${reason}. The PR is otherwise unchanged.`,
         })
@@ -376,7 +405,7 @@ export async function triggerAiReview(
       .insert(prComments)
       .values({
         pullRequestId: prId,
-        authorId: pr.authorId,
+        authorId: commentAuthorId,
         isAiReview: true,
         body: summaryBody,
       })
@@ -399,7 +428,7 @@ export async function triggerAiReview(
         .insert(prComments)
         .values({
           pullRequestId: prId,
-          authorId: pr.authorId,
+          authorId: commentAuthorId,
           isAiReview: true,
           body: c.body,
           filePath,

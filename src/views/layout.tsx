@@ -279,6 +279,7 @@ export const Layout: FC<
                       <a href="/issues" role="menuitem" class="nav-user-item">Issues</a>
                       <a href="/activity" role="menuitem" class="nav-user-item">Activity</a>
                       <a href="/import" role="menuitem" class="nav-user-item">Import from GitHub</a>
+                      <a href="/import/actions" role="menuitem" class="nav-user-item">Actions importer</a>
                       <div class="nav-user-menu-sep" />
                       <a href={`/${user.username}`} role="menuitem" class="nav-user-item">Your profile</a>
                       <a href="/settings" role="menuitem" class="nav-user-item">Settings</a>
@@ -297,6 +298,9 @@ export const Layout: FC<
                   <a href="/theme/toggle" class="nav-link nav-theme" title="Toggle theme" aria-label="Toggle theme">
                     <span class="theme-icon-dark">{"☾"}</span>
                     <span class="theme-icon-light">{"☀"}</span>
+                  </a>
+                  <a href="/import" class="nav-link nav-migrate" title="Migrate your GitHub repos to Gluecron">
+                    Migrate from GitHub
                   </a>
                   <a href="/login" class="nav-link">Sign in</a>
                   <a href="/register" class="btn btn-sm btn-primary">Register</a>
@@ -329,11 +333,15 @@ export const Layout: FC<
                 <div class="footer-col-title">Product</div>
                 <a href="/features">Features</a>
                 <a href="/pricing">Pricing</a>
+                <a href="/enterprise">Enterprise</a>
+                <a href="/changelog">Changelog</a>
                 <a href="/explore">Explore</a>
                 <a href="/marketplace">Marketplace</a>
+                <a href="/developer-program">Developer Program</a>
               </div>
               <div class="footer-col">
                 <div class="footer-col-title">Platform</div>
+                <a href="/docs">Docs</a>
                 <a href="/help">Quickstart</a>
                 <a href="/status">Status</a>
                 <a href="/api/graphql">GraphQL</a>
@@ -342,6 +350,7 @@ export const Layout: FC<
               <div class="footer-col">
                 <div class="footer-col-title">Company</div>
                 <a href="/about">About</a>
+                <a href="/blog">Blog</a>
                 <a href="/terms">Terms</a>
                 <a href="/privacy">Privacy</a>
                 <a href="/acceptable-use">Acceptable use</a>
@@ -1619,6 +1628,21 @@ const css = `
     background: var(--accent-gradient);
     border-radius: 2px;
   }
+  /* "Migrate from GitHub" nav link — logged-out only, slightly accented
+     so it reads as an action affordance rather than a passive link. */
+  .nav-migrate {
+    color: var(--accent);
+    font-weight: 600;
+    border: 1px solid rgba(140,109,255,0.22);
+    background: rgba(140,109,255,0.07);
+  }
+  .nav-migrate:hover {
+    color: var(--accent-hover);
+    background: rgba(140,109,255,0.13);
+    border-color: rgba(140,109,255,0.40);
+  }
+  @media (max-width: 780px) { .nav-migrate { display: none; } }
+
   .nav-user {
     color: var(--text-strong);
     font-weight: 600;
@@ -2346,6 +2370,44 @@ const css = `
     border: 1px solid rgba(140,109,255,0.30);
   }
   .repo-header-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+
+  /* Push Watch discoverability — live/recent indicator in the repo header */
+  @keyframes pushWatchPulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.3; }
+  }
+  .repo-header-live-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 9px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-decoration: none !important;
+    vertical-align: 3px;
+    transition: filter 140ms ease, opacity 140ms ease;
+  }
+  .repo-header-live-badge:hover { filter: brightness(1.15); text-decoration: none !important; }
+  .repo-header-live-badge--live {
+    background: rgba(218, 54, 51, 0.12);
+    color: #f97171;
+    border: 1px solid rgba(218, 54, 51, 0.35);
+  }
+  .repo-header-live-badge--live .repo-header-live-dot {
+    animation: pushWatchPulse 1.2s ease-in-out infinite;
+    display: inline-block;
+  }
+  .repo-header-live-badge--recent {
+    background: rgba(140, 109, 255, 0.08);
+    color: var(--text-muted);
+    border: 1px solid rgba(140, 109, 255, 0.22);
+  }
+  .repo-header-live-badge--recent:hover { color: var(--accent); }
+  @media (prefers-reduced-motion: reduce) {
+    .repo-header-live-badge--live .repo-header-live-dot { animation: none; }
+  }
 
   .repo-nav {
     display: flex;

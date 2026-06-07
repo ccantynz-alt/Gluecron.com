@@ -475,10 +475,10 @@ export async function sendSleepModeDigestForUser(
       try {
         await db
           .update(users)
-          .set({ lastDigestSentAt: new Date() })
+          .set({ lastSleepDigestSentAt: new Date() })
           .where(eq(users.id, userId));
       } catch (err) {
-        console.error("[sleep-mode] lastDigestSentAt update failed:", err);
+        console.error("[sleep-mode] lastSleepDigestSentAt update failed:", err);
       }
       return { ok: true };
     }

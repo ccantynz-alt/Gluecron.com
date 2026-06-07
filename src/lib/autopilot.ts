@@ -160,6 +160,14 @@ let _lastPrSandboxCleanupAt = 0;
 const DEV_ENV_IDLE_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
 let _lastDevEnvIdleSweepAt = 0;
 /**
+ * AI dependency auto-updater cadence (migration 0077). Once per day is
+ * plenty — the task itself caps at 10 repos and 2 candidates per repo,
+ * keeping npm registry traffic low. Skips when DEP_UPDATER_ENABLED env
+ * flag is not set to "1".
+ */
+const DEP_UPDATE_SWEEP_INTERVAL_MS = 24 * 60 * 60 * 1000;
+let _lastDepUpdateSweepAt = 0;
+/**
  * Advancement scanner cadence. Designed to run weekly on Mondays at
  * 08:00 UTC. The task itself is the cheap gate (checks both day-of-week
  * and minimum interval since last run) so we don't bake any cron-style

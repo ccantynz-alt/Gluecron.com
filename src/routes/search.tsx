@@ -943,10 +943,12 @@ search.get("/shortcuts", async (c) => {
   const unread = user ? await getUnreadCount(user.id) : 0;
   const shortcuts: Array<{ keys: string; desc: string; section?: string }> = [
     { keys: "/", desc: "Focus global search", section: "Global" },
-    { keys: "Cmd/Ctrl + K", desc: "Open command palette / AI assistant" },
+    { keys: "Cmd/Ctrl + K", desc: "Open command palette (merges repo-context commands on repo pages)" },
     { keys: "?", desc: "Show keyboard shortcuts" },
-    { keys: "n", desc: "New repository" },
-    { keys: "g d", desc: "Go to dashboard" },
+    { keys: "n", desc: "New repository (or wait for chord)" },
+    { keys: "n i", desc: "New issue in current repo (on repo pages)", section: "Repo chords" },
+    { keys: "n p", desc: "New pull request in current repo (on repo pages)" },
+    { keys: "g d", desc: "Go to dashboard", section: "Global" },
     { keys: "g n", desc: "Go to notifications" },
     { keys: "g e", desc: "Go to explore" },
     { keys: "g a", desc: "Go to AI ask" },
@@ -954,6 +956,15 @@ search.get("/shortcuts", async (c) => {
     { keys: "k", desc: "Move selection up on list pages" },
     { keys: "Enter", desc: "Open selected item" },
     { keys: "x", desc: "Toggle select on focused item" },
+    { keys: "c", desc: "Focus comment textarea", section: "Pull requests" },
+    { keys: "e", desc: "Edit PR title" },
+    { keys: "m", desc: "Focus merge button" },
+    { keys: "a", desc: "Approve (navigate to review page with approve action)" },
+    { keys: "r", desc: "Request changes (navigate to review page)" },
+    { keys: "Escape", desc: "Blur current focus" },
+    { keys: "c", desc: "Focus comment textarea", section: "Issues" },
+    { keys: "e", desc: "Scroll to issue title" },
+    { keys: "x", desc: "Close/reopen issue (with confirm)" },
   ];
 
   const sections = [...new Set(shortcuts.map((s) => s.section ?? "Global"))];

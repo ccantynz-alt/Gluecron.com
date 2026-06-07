@@ -166,7 +166,7 @@ export async function readDevYml(
 }
 
 /**
- * Ask Claude (Haiku) to draft a `.gluecron/dev.yml` for a repo. Used when
+ * Ask Claude (Sonnet) to draft a `.gluecron/dev.yml` for a repo. Used when
  * the repo hasn't committed one. Returns the YAML body, or
  * `DEFAULT_DEV_YML` if AI is unavailable / errors. Never throws.
  */
@@ -175,7 +175,7 @@ export async function generateDevYml(repoHint: string): Promise<string> {
   try {
     const client = getAnthropic();
     const message = await client.messages.create({
-      model: MODEL_HAIKU,
+      model: MODEL_SONNET,
       max_tokens: 800,
       messages: [
         {

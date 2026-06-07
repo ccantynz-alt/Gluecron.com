@@ -37,7 +37,7 @@ services:
   gluecron:
     build: .
     environment:
-      - DATABASE_URL=postgres://gluecron:${POSTGRES_PASSWORD}@postgres:5432/gluecron
+      - DATABASE_URL=${DATABASE_URL:-}
       - GIT_REPOS_PATH=/data/repos
       - PORT=3000
       - NODE_ENV=production

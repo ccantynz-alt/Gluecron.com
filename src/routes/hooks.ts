@@ -33,6 +33,7 @@ import { db } from "../db";
 import {
   apiTokens,
   gateRuns,
+  prComments,
   pullRequests,
   repositories,
   users,
@@ -43,6 +44,7 @@ import {
   severityAtOrAboveMedium,
   type GateTestFinding,
 } from "../lib/ai-patch-generator";
+import { triggerCiAutofix, applyAutofix } from "../lib/ci-autofix";
 import { config } from "../lib/config";
 
 const hooks = new Hono();
@@ -307,6 +309,17 @@ hooks.post("/api/hooks/gatetest", async (c) => {
     }
   }
 
+  // CI auto-fix — if the gate failed on a PR, post a ready-to-apply patch
+  // comment. Fire-and-forget; never blocks the webhook response.
+  if (normalisedStatus === "failed" && gateRunId && pullRequestId) {
+    triggerCiAutofix(gateRunId).catch((err) =>
+      console.error(
+        "[hooks/gatetest] ci-autofix crashed:",
+        err instanceof Error ? err.message : err
+      )
+    );
+  }
+
   return c.json({ ok: true, gateRunId });
 });
 
@@ -555,6 +568,16 @@ hooks.post("/api/v1/gate-runs", async (c) => {
     }
   }
 
+  // CI auto-fix — post a ready-to-apply patch comment on the PR.
+  if (normalisedStatus === "failed" && gateRunId && pullRequestId) {
+    triggerCiAutofix(gateRunId).catch((err) =>
+      console.error(
+        "[hooks/backup] ci-autofix crashed:",
+        err instanceof Error ? err.message : err
+      )
+    );
+  }
+
   return c.json({ ok: true, gateRunId });
 });
 
@@ -591,6 +614,71 @@ hooks.get("/api/v1/gate-runs", async (c) => {
   } catch {
     return c.json({ ok: false, error: "DB error" }, 500);
   }
+});
+
+/**
+ * POST /api/pr-comments/:commentId/apply-autofix
+ *
+ * Applies the patch embedded in a CI autofix comment to a new branch, then
+ * redirects to the compare view. Authenticated via a personal access token
+ * (same mechanism as /api/v1/gate-runs).
+ *
+ * Response on success (JSON): { ok: true, branchName, compareUrl }
+ * Response on failure (JSON): { ok: false, error }
+ */
+hooks.post("/api/pr-comments/:commentId/apply-autofix", async (c) => {
+  const auth = await verifyPatAuth(c);
+  if (!auth.ok || !auth.userId) {
+    return c.json({ ok: false, error: auth.error || "Unauthorized" }, 401);
+  }
+
+  const { commentId } = c.req.param();
+  if (!commentId) {
+    return c.json({ ok: false, error: "commentId param required" }, 400);
+  }
+
+  let result: { branchName: string };
+  try {
+    result = await applyAutofix(commentId, auth.userId);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Unknown error";
+    return c.json({ ok: false, error: msg }, 400);
+  }
+
+  // Look up the PR to build the compare URL
+  const commentRows = await db
+    .select({ pullRequestId: prComments.pullRequestId })
+    .from(prComments)
+    .where(eq(prComments.id, commentId))
+    .limit(1);
+
+  let compareUrl: string | null = null;
+  if (commentRows[0]) {
+    const prRows = await db
+      .select({
+        repositoryId: pullRequests.repositoryId,
+        number: pullRequests.number,
+        baseBranch: pullRequests.baseBranch,
+      })
+      .from(pullRequests)
+      .where(eq(pullRequests.id, commentRows[0].pullRequestId))
+      .limit(1);
+
+    if (prRows[0]) {
+      const repoRows = await db
+        .select({ name: repositories.name, ownerUsername: users.username })
+        .from(repositories)
+        .innerJoin(users, eq(repositories.ownerId, users.id))
+        .where(eq(repositories.id, prRows[0].repositoryId))
+        .limit(1);
+
+      if (repoRows[0]) {
+        compareUrl = `/${repoRows[0].ownerUsername}/${repoRows[0].name}/compare/${result.branchName}`;
+      }
+    }
+  }
+
+  return c.json({ ok: true, branchName: result.branchName, compareUrl });
 });
 
 export default hooks;

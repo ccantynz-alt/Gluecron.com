@@ -282,6 +282,7 @@ export const Layout: FC<
                       <a href="/pulls" role="menuitem" class="nav-user-item">Pull requests</a>
                       <a href="/issues" role="menuitem" class="nav-user-item">Issues</a>
                       <a href="/activity" role="menuitem" class="nav-user-item">Activity</a>
+                      <a href="/insights" role="menuitem" class="nav-user-item">Insights</a>
                       <a href="/import" role="menuitem" class="nav-user-item">Import from GitHub</a>
                       <a href="/import/actions" role="menuitem" class="nav-user-item">Actions importer</a>
                       <div class="nav-user-menu-sep" />
@@ -431,6 +432,13 @@ export const Layout: FC<
         <script dangerouslySetInnerHTML={{ __html: toastScript }} />
         <script dangerouslySetInnerHTML={{ __html: navScript }} />
         <script dangerouslySetInnerHTML={{ __html: navAiDropdownScript }} />
+        {/* Bell badge poller — only rendered for authenticated users.
+            Polls /api/notifications/count every 60 s and updates the badge
+            on the inbox bell icon. Falls back gracefully if the endpoint is
+            unavailable or the user signs out mid-session. */}
+        {user && (
+          <script dangerouslySetInnerHTML={{ __html: bellPollerScript }} />
+        )}
       </body>
     </html>
   );
@@ -812,6 +820,13 @@ const navScript = `
       list.innerHTML = html;
     }
 
+    function getAllCommands(){
+      // Merge global COMMANDS with repo-context commands injected by repo pages.
+      var extra = (window.__CMDK_REPO_COMMANDS && Array.isArray(window.__CMDK_REPO_COMMANDS))
+        ? window.__CMDK_REPO_COMMANDS : [];
+      return COMMANDS.concat(extra);
+    }
+
     function openPalette(){
       backdrop = document.getElementById('cmdk-backdrop');
       panel = document.getElementById('cmdk-panel');
@@ -822,7 +837,7 @@ const navScript = `
       panel.style.display = 'block';
       input.value = '';
       selected = 0;
-      filtered = COMMANDS.slice();
+      filtered = getAllCommands();
       render();
       input.focus();
     }
@@ -842,7 +857,7 @@ const navScript = `
     document.addEventListener('input', function(e){
       if (e.target && e.target.id === 'cmdk-input') {
         var q = e.target.value;
-        filtered = COMMANDS.filter(function(c){ return fuzzyMatch(c, q); });
+        filtered = getAllCommands().filter(function(c){ return fuzzyMatch(c, q); });
         selected = 0;
         render();
       }
@@ -888,7 +903,15 @@ const navScript = `
         e.preventDefault(); window.location.href = '/shortcuts'; return;
       }
       if (e.key === 'n' && !e.ctrlKey && !e.metaKey) {
-        e.preventDefault(); window.location.href = '/new'; return;
+        // Start 'n' chord — wait 1.2s for next key (i → issue, p → PR).
+        // If no second key arrives, navigate to /new (create repo).
+        chord = 'n';
+        clearTimeout(chordTimer);
+        chordTimer = setTimeout(function(){
+          if (chord === 'n') { window.location.href = '/new'; }
+          chord = null;
+        }, 1200);
+        return;
       }
       // "g" chord
       if (e.key === 'g' && !e.ctrlKey && !e.metaKey) {
@@ -903,6 +926,22 @@ const navScript = `
         else if (e.key === 'e') { e.preventDefault(); window.location.href = '/explore'; }
         else if (e.key === 'a') { e.preventDefault(); window.location.href = '/ask'; }
         chord = null;
+      }
+      // "n" chord — new issue / new PR (repo-context-aware)
+      if (chord === 'n') {
+        var repoCtx = window.__CMDK_REPO_COMMANDS;
+        var newIssuePath = repoCtx && repoCtx.length ? repoCtx[0].href.replace('/issues/new', '/issues/new') : null;
+        // Find the "new issue" and "new PR" hrefs from repo context commands
+        var issueCmd = repoCtx && repoCtx.find(function(c){ return c.href && c.href.indexOf('/issues/new') !== -1; });
+        var prCmd    = repoCtx && repoCtx.find(function(c){ return c.href && c.href.indexOf('/pulls/new') !== -1; });
+        if (e.key === 'i' && issueCmd) {
+          e.preventDefault(); clearTimeout(chordTimer); chord = null;
+          window.location.href = issueCmd.href; return;
+        }
+        if (e.key === 'p' && prCmd) {
+          e.preventDefault(); clearTimeout(chordTimer); chord = null;
+          window.location.href = prCmd.href; return;
+        }
       }
       // j/k list navigation — move through .prs-row, .issue-row, .notif-item rows
       if (e.key === 'j' || e.key === 'k') {
@@ -933,6 +972,52 @@ const navScript = `
       }
     });
   })();
+`;
+
+// Bell poller — updates the inbox badge count every 60 s via /api/notifications/count.
+// Only injected when a user is logged in (checked in the JSX above). Uses the
+// `.nav-inbox-badge` element that the server renders inside `.nav-inbox-btn`.
+// If the badge element is absent (user not logged in, DOM mismatch) it exits
+// cleanly without error.
+export const bellPollerScript = `
+(function() {
+  var badge = document.querySelector('.nav-inbox-btn .nav-inbox-badge');
+  var btn   = document.querySelector('.nav-inbox-btn');
+  function updateBadge(n) {
+    if (!btn) return;
+    if (n > 0) {
+      var label = n > 99 ? '99+' : String(n);
+      if (!badge) {
+        badge = document.createElement('span');
+        badge.className = 'nav-inbox-badge';
+        badge.setAttribute('aria-hidden', 'true');
+        btn.appendChild(badge);
+      }
+      badge.textContent = label;
+      badge.style.display = '';
+      btn.setAttribute('aria-label', 'Inbox — ' + n + ' unread');
+    } else {
+      if (badge) badge.style.display = 'none';
+      btn.setAttribute('aria-label', 'Inbox');
+    }
+  }
+  function poll() {
+    fetch('/api/notifications/count', { credentials: 'same-origin', cache: 'no-store' })
+      .then(function(r) { return r.ok ? r.json() : null; })
+      .then(function(d) {
+        if (!d) return;
+        var n = typeof d.unread === 'number' ? d.unread : (typeof d.count === 'number' ? d.count : 0);
+        updateBadge(n);
+      })
+      .catch(function() {});
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function() { poll(); setInterval(poll, 60000); });
+  } else {
+    poll();
+    setInterval(poll, 60000);
+  }
+})();
 `;
 
 // AI dropdown — keyboard- and click-accessible menu in the top nav.

@@ -36,6 +36,8 @@ import {
   startDeployRow,
 } from "../lib/server-target-store";
 import { deployToTarget } from "../lib/server-targets";
+import { fireCloudDeploys } from "../lib/cloud-deploy";
+import { ensureRepoOnboarding } from "../lib/repo-onboarding";
 
 interface PushRef {
   oldSha: string;
@@ -160,6 +162,15 @@ export async function onPostReceive(
     console.warn("[ai-doc-updater] dispatch error:", err)
   );
 
+  // 4g. Smart empty states — repo onboarding. On the very first push to a
+  //     repo's default branch (oldSha all-zeros), generate a README draft,
+  //     suggested labels, and gates.yml starter using Claude Sonnet.
+  //     Idempotent: ensureRepoOnboarding skips if a row already exists.
+  //     Fire-and-forget; never blocks the push path.
+  void fireRepoOnboarding(owner, repo, refs).catch((err) =>
+    console.warn("[repo-onboarding] dispatch error:", err)
+  );
+
   // 5. Crontech deploy (BLK-016) — only fires for the configured Crontech repo
   //    (CRONTECH_REPO, default `ccantynz-alt/crontech`) on a push to its
   //    default branch. The branch case (`Main` vs `main`) is determined by
@@ -211,6 +222,15 @@ export async function onPostReceive(
   //     and the UI at /admin/servers/:id surfaces them.
   void fireServerTargetDeploys(owner, repo, refs).catch((err) =>
     console.warn("[server-targets] dispatch error:", err)
+  );
+
+  // 5c. Cloud deploy integrations (migration 0077). Fire push-triggered
+  //     deploys to Fly.io, Railway, Render, Vercel, Netlify, or a generic
+  //     webhook for any cloud_deploy_configs rows matching the pushed branch.
+  //     Fire-and-forget; all failures are swallowed so the push path is
+  //     never blocked.
+  void fireCloudDeploys(owner, repo, refs).catch((err) =>
+    console.warn("[cloud-deploy] dispatch error:", err)
   );
 
   // 6. BLOCK W — Self-host. When Gluecron.com itself receives a push to
@@ -780,6 +800,41 @@ async function fireDependencyScan(
   }
 }
 
+/**
+ * Migration 0088 — trigger repo onboarding on first push to the default branch.
+ * Detects "first push" by checking whether oldSha is all-zeros on a push to
+ * the repo's default branch (or any branch for a repo with no prior history).
+ * Resolves the repo DB id, then calls ensureRepoOnboarding which is idempotent.
+ * Never throws.
+ */
+async function fireRepoOnboarding(
+  owner: string,
+  repo: string,
+  refs: PushRef[]
+): Promise<void> {
+  // Only fire on first push — oldSha all-zeros means the branch is brand-new.
+  const firstPushRefs = refs.filter(
+    (r) => r.refName.startsWith("refs/heads/") && /^0+$/.test(r.oldSha) && !r.newSha.startsWith("0000")
+  );
+  if (firstPushRefs.length === 0) return;
+
+  let repositoryId = "";
+  try {
+    const [row] = await db
+      .select({ id: repositories.id })
+      .from(repositories)
+      .innerJoin(users, eq(repositories.ownerId, users.id))
+      .where(and(eq(users.username, owner), eq(repositories.name, repo)))
+      .limit(1);
+    repositoryId = row?.id || "";
+  } catch {
+    return;
+  }
+  if (!repositoryId) return;
+
+  await ensureRepoOnboarding(repositoryId, owner, repo);
+}
+
 /** Test-only access to internal helpers. */
 export const __test = {
   triggerCrontechDeploy,
@@ -792,4 +847,6 @@ export const __test = {
   fireDocDriftCheck,
   fireServerTargetDeploys,
   fireDependencyScan,
+  fireCloudDeploys,
+  fireRepoOnboarding,
 };

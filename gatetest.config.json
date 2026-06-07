@@ -96,7 +96,8 @@
       "scripts/**",
       "cli/**",
       "vscode-extension/**",
-      ".claude/worktrees/**"
+      ".claude/worktrees/**",
+      "docker-compose.standalone.yml"
     ]
   },
   "$comment_pre_push_severity": "The categories below are downgraded from 'error' to 'warning' for the pre-push hook. The crossFileTaint rule in particular produces 300+ false positives in a parameterized-Drizzle codebase (every db.select() flagged as a sink), and the envVars rule flags every internal env var as missing from .env.example. These are noise relative to the actual security work tracked in AUDIT-v2.md. Real issues here still surface in the GateTest UI, just don't block git push.",

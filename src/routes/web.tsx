@@ -19,6 +19,7 @@ import {
   issues,
   labels,
   issueLabels,
+  repoOnboardingData,
 } from "../db/schema";
 import { Layout } from "../views/layout";
 import { PendingCommentsBanner as RepoHomePendingBanner } from "../views/pending-comments-banner";
@@ -58,6 +59,8 @@ import { computeHealthScore } from "../lib/health-score";
 import type { HealthScore } from "../lib/health-score";
 import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
+import { claudeSemanticSearch } from "../lib/claude-semantic-search";
+import { isAiAvailable } from "../lib/ai-client";
 import { trackByName } from "../lib/traffic";
 import { LandingPage, type LandingLiveFeed } from "../views/landing";
 import { Landing2030Page } from "../views/landing-2030";
@@ -2347,6 +2350,383 @@ web.post("/:owner/:repo/star", requireAuth, async (c) => {
   return c.redirect(`/${ownerName}/${repoName}`);
 });
 
+// ---------------------------------------------------------------------------
+// Onboarding card CSS (injected inline on repo home, scoped to .ob-*)
+// ---------------------------------------------------------------------------
+const obCss = `
+  .ob-card {
+    position: relative;
+    margin: 14px 0 18px;
+    background: linear-gradient(135deg, rgba(140,109,255,0.08), rgba(54,197,214,0.05));
+    border: 1px solid rgba(140,109,255,0.30);
+    border-radius: 14px;
+    overflow: hidden;
+  }
+  .ob-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent 0%, #8c6dff 30%, #36c5d6 70%, transparent 100%);
+    pointer-events: none;
+  }
+  .ob-header {
+    padding: 16px 20px 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  .ob-header h3 {
+    font-size: 16px;
+    font-weight: 700;
+    margin: 0 0 4px;
+    color: var(--text-strong);
+  }
+  .ob-header p {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin: 0;
+  }
+  .ob-sections {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0;
+  }
+  @media (max-width: 760px) {
+    .ob-sections { grid-template-columns: 1fr; }
+  }
+  .ob-section {
+    padding: 14px 20px;
+    border-right: 1px solid var(--border);
+  }
+  .ob-section:last-child { border-right: none; }
+  .ob-section h4 {
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    margin: 0 0 8px;
+  }
+  .ob-preview {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    color: var(--text-muted);
+    line-height: 1.55;
+    margin-bottom: 8px;
+    white-space: pre-wrap;
+    overflow: hidden;
+    max-height: 80px;
+    position: relative;
+  }
+  .ob-preview::after {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 24px;
+    background: linear-gradient(transparent, var(--bg));
+    pointer-events: none;
+  }
+  .ob-labels {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-bottom: 8px;
+  }
+  .ob-label-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 9999px;
+    font-size: 11.5px;
+    font-weight: 600;
+    line-height: 1.5;
+    border: 1px solid transparent;
+  }
+  .ob-section ul {
+    margin: 0;
+    padding: 0 0 0 16px;
+    font-size: 13px;
+    color: var(--text-muted);
+    line-height: 1.7;
+  }
+  .ob-section ul li { margin-bottom: 2px; }
+  .ob-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding: 10px 20px;
+    border-top: 1px solid var(--border);
+    gap: 10px;
+  }
+  .ob-dismiss {
+    appearance: none;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    border-radius: 6px;
+    padding: 5px 12px;
+    font-size: 12.5px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background var(--t-fast), color var(--t-fast);
+  }
+  .ob-dismiss:hover { background: var(--bg-hover); color: var(--text); }
+  .btn-sm {
+    appearance: none;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    color: var(--text-strong);
+    border-radius: 6px;
+    padding: 5px 12px;
+    font-size: 12.5px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    transition: background var(--t-fast);
+  }
+  .btn-sm:hover { background: var(--bg-hover); }
+  .btn-sm.btn-primary {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+  }
+  .btn-sm.btn-primary:hover { background: var(--accent-hover); }
+`;
+
+// Onboarding card component — shown to repo owner until dismissed
+function RepoOnboardingCard({
+  owner,
+  repo,
+  data,
+}: {
+  owner: string;
+  repo: string;
+  data: typeof repoOnboardingData.$inferSelect;
+}) {
+  const labels = (data.suggestedLabels ?? []) as Array<{
+    name: string;
+    color: string;
+    description: string;
+  }>;
+  const suggestions = (data.firstCommitSuggestions ?? []) as string[];
+  const readmePreview = (data.suggestedReadme ?? "").slice(0, 200);
+
+  return (
+    <>
+      <style dangerouslySetInnerHTML={{ __html: obCss }} />
+      <div class="ob-card" id="repo-onboarding">
+        <div class="ob-header">
+          <h3>Get started with {owner}/{repo}</h3>
+          <p>
+            Detected: {data.detectedLanguage ?? "Unknown"}
+            {data.detectedFramework ? ` / ${data.detectedFramework}` : ""}.
+            Here&rsquo;s what we suggest to hit the ground running.
+          </p>
+        </div>
+        <div class="ob-sections">
+          <div class="ob-section">
+            <h4>Suggested README</h4>
+            <div class="ob-preview">{readmePreview}</div>
+            <button
+              class="btn-sm"
+              type="button"
+              onclick={`(function(){var t=${JSON.stringify(data.suggestedReadme ?? "")};try{navigator.clipboard.writeText(t).then(function(){var b=document.querySelector('.ob-copy-btn');if(b){b.textContent='Copied!';setTimeout(function(){b.textContent='Copy to clipboard';},2000);}});}catch(_){};})()`}
+              aria-label="Copy suggested README to clipboard"
+            >
+              Copy to clipboard
+            </button>
+          </div>
+          <div class="ob-section">
+            <h4>Suggested labels ({labels.length})</h4>
+            <div class="ob-labels">
+              {labels.slice(0, 6).map((l) => (
+                <span
+                  class="ob-label-chip"
+                  style={`background:#${l.color}22;color:#${l.color};border-color:#${l.color}55`}
+                  title={l.description}
+                >
+                  {l.name}
+                </span>
+              ))}
+            </div>
+            <form method="post" action={`/${owner}/${repo}/setup/labels`}>
+              <button class="btn-sm btn-primary" type="submit">
+                Create all labels
+              </button>
+            </form>
+          </div>
+          <div class="ob-section">
+            <h4>First steps</h4>
+            <ul>
+              {suggestions.map((s) => (
+                <li>{s}</li>
+              ))}
+            </ul>
+          </div>
+        </div>
+        <div class="ob-footer">
+          <form method="post" action={`/${owner}/${repo}/setup/dismiss`}>
+            <button class="ob-dismiss" type="submit">
+              Dismiss
+            </button>
+          </form>
+        </div>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function(){
+                var card = document.getElementById('repo-onboarding');
+                if (!card) return;
+                document.addEventListener('keydown', function(e){
+                  if (e.key === 'Escape' && card && card.style.display !== 'none') {
+                    card.style.display = 'none';
+                  }
+                });
+              })();
+            `,
+          }}
+        />
+      </div>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Setup routes — create suggested labels + dismiss onboarding
+// ---------------------------------------------------------------------------
+
+// POST /:owner/:repo/setup/labels — creates all suggested labels for the repo.
+// requireAuth + write access. Idempotent (label UPSERT by name).
+web.post("/:owner/:repo/setup/labels", softAuth, requireAuth, async (c) => {
+  const { owner, repo } = c.req.param();
+  const user = c.get("user")!;
+
+  // Resolve repo + verify write access
+  let repoRow: { id: string; ownerId: string } | null = null;
+  try {
+    const [ownerUser] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.username, owner))
+      .limit(1);
+    if (!ownerUser) return c.redirect(`/${owner}/${repo}?error=Not+found`);
+    const [r] = await db
+      .select({ id: repositories.id, ownerId: repositories.ownerId })
+      .from(repositories)
+      .where(
+        and(
+          eq(repositories.ownerId, ownerUser.id),
+          eq(repositories.name, repo)
+        )
+      )
+      .limit(1);
+    repoRow = r ?? null;
+  } catch {
+    return c.redirect(`/${owner}/${repo}?error=Database+error`);
+  }
+  if (!repoRow) return c.redirect(`/${owner}/${repo}?error=Not+found`);
+  if (repoRow.ownerId !== user.id) {
+    return c.redirect(`/${owner}/${repo}?error=Forbidden`);
+  }
+
+  // Fetch the onboarding data
+  let obRow: (typeof repoOnboardingData.$inferSelect) | null = null;
+  try {
+    const [r] = await db
+      .select()
+      .from(repoOnboardingData)
+      .where(eq(repoOnboardingData.repositoryId, repoRow.id))
+      .limit(1);
+    obRow = r ?? null;
+  } catch {
+    return c.redirect(`/${owner}/${repo}?error=Onboarding+data+not+found`);
+  }
+  if (!obRow) {
+    return c.redirect(`/${owner}/${repo}?toast=info:No+onboarding+data+found`);
+  }
+
+  const suggestedLabels = (obRow.suggestedLabels ?? []) as Array<{
+    name: string;
+    color: string;
+    description: string;
+  }>;
+
+  // Create labels — import the labels table which was already imported
+  let created = 0;
+  for (const l of suggestedLabels) {
+    try {
+      await db
+        .insert(labels)
+        .values({
+          repositoryId: repoRow.id,
+          name: l.name,
+          color: l.color,
+          description: l.description ?? "",
+        })
+        .onConflictDoNothing();
+      created++;
+    } catch {
+      /* skip duplicates */
+    }
+  }
+
+  // Mark onboarding dismissed
+  try {
+    await db
+      .update(repositories)
+      .set({ onboardingShown: true })
+      .where(eq(repositories.id, repoRow.id));
+  } catch {
+    /* ignore */
+  }
+
+  return c.redirect(
+    `/${owner}/${repo}?success=${encodeURIComponent(`Created ${created} labels`)}`
+  );
+});
+
+// POST /:owner/:repo/setup/dismiss — marks onboarding as shown.
+web.post("/:owner/:repo/setup/dismiss", softAuth, requireAuth, async (c) => {
+  const { owner, repo } = c.req.param();
+  const user = c.get("user")!;
+
+  try {
+    const [ownerUser] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.username, owner))
+      .limit(1);
+    if (ownerUser) {
+      const [r] = await db
+        .select({ id: repositories.id, ownerId: repositories.ownerId })
+        .from(repositories)
+        .where(
+          and(
+            eq(repositories.ownerId, ownerUser.id),
+            eq(repositories.name, repo)
+          )
+        )
+        .limit(1);
+      if (r && r.ownerId === user.id) {
+        await db
+          .update(repositories)
+          .set({ onboardingShown: true })
+          .where(eq(repositories.id, r.id));
+      }
+    }
+  } catch {
+    /* swallow — dismiss should never fail visibly */
+  }
+
+  return c.redirect(`/${owner}/${repo}`);
+});
+
 // Repository overview — file tree at HEAD
 web.get("/:owner/:repo", async (c) => {
   const { owner, repo } = c.req.param();
@@ -2581,6 +2961,32 @@ web.get("/:owner/:repo", async (c) => {
       aiStats = await getRepoAiStats(repoId);
     } catch {
       /* swallow — show zero values */
+    }
+  }
+
+  // Onboarding card — shown to repo owner until dismissed. Best-effort;
+  // if the DB is down the card simply won't appear. Only the owner sees it.
+  let onboardingRow: (typeof repoOnboardingData.$inferSelect) | null = null;
+  let showOnboarding = false;
+  if (repoId && user && repoOwnerId && user.id === repoOwnerId) {
+    try {
+      // Check if onboarding_shown is still false (not yet dismissed)
+      const [repoRow2] = await db
+        .select({ onboardingShown: repositories.onboardingShown })
+        .from(repositories)
+        .where(eq(repositories.id, repoId))
+        .limit(1);
+      if (repoRow2 && !repoRow2.onboardingShown) {
+        const [obRow] = await db
+          .select()
+          .from(repoOnboardingData)
+          .where(eq(repoOnboardingData.repositoryId, repoId))
+          .limit(1);
+        onboardingRow = obRow ?? null;
+        showOnboarding = !!onboardingRow;
+      }
+    } catch {
+      /* swallow — onboarding is optional */
     }
   }
 
@@ -3341,6 +3747,24 @@ web.get("/:owner/:repo", async (c) => {
       twitterCard="summary"
     >
       <style dangerouslySetInnerHTML={{ __html: repoHomeCss }} />
+      {/* Repo-context commands for the command palette (Feature 2) */}
+      <script
+        id="cmdk-repo-context"
+        dangerouslySetInnerHTML={{
+          __html: `window.__CMDK_REPO_COMMANDS = ${JSON.stringify([
+            { label: `New issue in ${repo}`, href: `/${owner}/${repo}/issues/new`, kw: "create add bug" },
+            { label: `New pull request in ${repo}`, href: `/${owner}/${repo}/pulls/new`, kw: "pr branch merge" },
+            { label: `Browse code — ${owner}/${repo}`, href: `/${owner}/${repo}`, kw: "files tree" },
+            { label: `View commits — ${owner}/${repo}`, href: `/${owner}/${repo}/commits`, kw: "history log" },
+            { label: `Search code — ${owner}/${repo}`, href: `/${owner}/${repo}/search`, kw: "grep find" },
+            { label: `AI explain codebase — ${owner}/${repo}`, href: `/${owner}/${repo}/explain`, kw: "understand" },
+            { label: `Debt map — ${owner}/${repo}`, href: `/${owner}/${repo}/debt-map`, kw: "technical debt" },
+            { label: `Repo settings — ${owner}/${repo}`, href: `/${owner}/${repo}/settings`, kw: "config" },
+            { label: `Issues — ${owner}/${repo}`, href: `/${owner}/${repo}/issues`, kw: "bugs tasks" },
+            { label: `Pull requests — ${owner}/${repo}`, href: `/${owner}/${repo}/pulls`, kw: "prs reviews" },
+          ])};`,
+        }}
+      />
       <div class="repo-home-hero">
         <div class="repo-home-hero-orb-wrap" aria-hidden="true">
           <div class="repo-home-hero-orb" />
@@ -3451,6 +3875,13 @@ web.get("/:owner/:repo", async (c) => {
         repo={repo}
         count={repoHomePendingCount}
       />
+      {showOnboarding && onboardingRow && (
+        <RepoOnboardingCard
+          owner={owner}
+          repo={repo}
+          data={onboardingRow}
+        />
+      )}
       {/* ─── Per-repo AI surfaces — RepoNav is locked, so the discovery
           row sits just below the nav as a slim CTA strip. Scoped under
           `.repo-ai-cta-` so the styles can't bleed onto other pages. ─── */}
@@ -3534,9 +3965,9 @@ web.get("/:owner/:repo", async (c) => {
           <span class="repo-ai-cta-icon" aria-hidden="true">{"⛁"}</span>
           Migrations
         </a>
-        <a class="repo-ai-cta" href={`/${owner}/${repo}/semantic-search`} title="Embedding-backed code search">
+        <a class="repo-ai-cta" href={`/${owner}/${repo}/search?mode=semantic`} title="AI-powered semantic code search — ask in plain English">
           <span class="repo-ai-cta-icon" aria-hidden="true">{"✨"}</span>
-          Semantic search
+          AI Search
         </a>
         <a class="repo-ai-cta" href={`/${owner}/${repo}/releases/new`} title="Draft release notes with AI">
           <span class="repo-ai-cta-icon" aria-hidden="true">{"\u{1F3F7}"}</span>
@@ -5282,24 +5713,212 @@ web.get("/:owner/:repo/blame/:ref{.+$}", async (c) => {
   );
 });
 
-// Search
+// Search — keyword + optional Claude semantic mode
 web.get("/:owner/:repo/search", async (c) => {
   const { owner, repo } = c.req.param();
   const user = c.get("user");
   const q = c.req.query("q") || "";
+  const aiAvailable = isAiAvailable();
+  // Default to semantic when Claude is available and no explicit mode set.
+  const modeParam = c.req.query("mode");
+  const mode: "semantic" | "keyword" =
+    modeParam === "keyword"
+      ? "keyword"
+      : modeParam === "semantic"
+        ? "semantic"
+        : aiAvailable
+          ? "semantic"
+          : "keyword";
+  const isSemantic = mode === "semantic" && aiAvailable;
 
   if (!(await repoExists(owner, repo))) return c.notFound();
 
   const defaultBranch = (await getDefaultBranch(owner, repo)) || "main";
-  let results: Array<{ file: string; lineNum: number; line: string }> = [];
+
+  // Keyword results (always available as fallback / when in keyword mode)
+  let keywordResults: Array<{ file: string; lineNum: number; line: string }> = [];
+  // Semantic results (Claude-powered)
+  type SemanticHit = import("../lib/claude-semantic-search").SemanticSearchResult;
+  let semanticHits: SemanticHit[] = [];
+  let semanticMode: "semantic" | "keyword" = "semantic";
+  let quotaExceeded = false;
 
   if (q.trim()) {
-    results = await searchCode(owner, repo, defaultBranch, q.trim());
+    if (isSemantic) {
+      // Resolve repo DB id for caching
+      const [ownerRow] = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.username, owner))
+        .limit(1);
+      const [repoRow] = ownerRow
+        ? await db
+            .select({ id: repositories.id })
+            .from(repositories)
+            .where(
+              and(
+                eq(repositories.ownerId, ownerRow.id),
+                eq(repositories.name, repo)
+              )
+            )
+            .limit(1)
+        : [];
+
+      const rateLimitKey = user
+        ? `user:${user.id}`
+        : (c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? "anon");
+
+      const searchResult = await claudeSemanticSearch(
+        owner,
+        repo,
+        repoRow?.id ?? `${owner}/${repo}`,
+        q.trim(),
+        { branch: defaultBranch, rateLimitKey }
+      );
+      semanticHits = searchResult.results;
+      semanticMode = searchResult.mode;
+      quotaExceeded = searchResult.quotaExceeded;
+    } else {
+      keywordResults = await searchCode(owner, repo, defaultBranch, q.trim());
+    }
   }
+
+  const aiSearchCss = `
+    /* ─── Semantic search mode toggle ─── */
+    .search-mode-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 14px;
+      flex-wrap: wrap;
+    }
+    .search-mode-label {
+      font-size: 12.5px;
+      color: var(--text-muted);
+      font-weight: 500;
+    }
+    .search-mode-toggle {
+      display: inline-flex;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-radius: 9999px;
+      padding: 3px;
+      gap: 2px;
+    }
+    .search-mode-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 5px 12px;
+      border-radius: 9999px;
+      font-size: 12.5px;
+      font-weight: 500;
+      color: var(--text-muted);
+      text-decoration: none;
+      transition: color 120ms ease, background 120ms ease;
+      cursor: pointer;
+      border: none;
+      background: none;
+      font: inherit;
+    }
+    .search-mode-btn:hover { color: var(--text-strong); text-decoration: none; }
+    .search-mode-btn.active {
+      background: rgba(140,109,255,0.15);
+      color: var(--text-strong);
+    }
+    .search-mode-ai-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 8px;
+      border-radius: 9999px;
+      font-size: 11px;
+      font-weight: 600;
+      background: linear-gradient(135deg, rgba(140,109,255,0.20), rgba(54,197,214,0.15));
+      color: #c4b5fd;
+      border: 1px solid rgba(140,109,255,0.30);
+      margin-left: 2px;
+    }
+    .search-quota-warn {
+      font-size: 12.5px;
+      color: var(--text-muted);
+      padding: 6px 12px;
+      background: rgba(255,200,0,0.06);
+      border: 1px solid rgba(255,200,0,0.20);
+      border-radius: 8px;
+    }
+
+    /* ─── Semantic result cards ─── */
+    .sem-results { display: flex; flex-direction: column; gap: 10px; }
+    .sem-result {
+      padding: 14px 16px;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      transition: border-color 120ms ease;
+    }
+    .sem-result:hover { border-color: var(--border-strong); }
+    .sem-result-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 6px;
+    }
+    .sem-result-path {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-strong);
+      text-decoration: none;
+      word-break: break-all;
+    }
+    .sem-result-path:hover { color: #c4b5fd; text-decoration: none; }
+    .sem-result-conf {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 9px;
+      border-radius: 9999px;
+      font-size: 11.5px;
+      font-weight: 600;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .sem-conf-strong { background: rgba(52,211,153,0.12); color: #34d399; border: 1px solid rgba(52,211,153,0.30); }
+    .sem-conf-possible { background: rgba(140,109,255,0.12); color: #b69dff; border: 1px solid rgba(140,109,255,0.30); }
+    .sem-conf-weak { background: rgba(255,255,255,0.04); color: var(--text-muted); border: 1px solid var(--border); }
+    .sem-result-reason {
+      font-size: 12.5px;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+      line-height: 1.5;
+    }
+    .sem-result-snippet {
+      margin: 0;
+      padding: 10px 12px;
+      background: rgba(0,0,0,0.22);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      line-height: 1.55;
+      color: var(--text);
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: 240px;
+      overflow-y: auto;
+    }
+  `;
+
+  const semanticBaseUrl = `/${owner}/${repo}/search?mode=semantic`;
+  const keywordBaseUrl = `/${owner}/${repo}/search?mode=keyword`;
 
   return c.html(
     <Layout title={`Search — ${owner}/${repo}`} user={user}>
-      <style dangerouslySetInnerHTML={{ __html: codeBrowseCss }} />
+      <style dangerouslySetInnerHTML={{ __html: codeBrowseCss + aiSearchCss }} />
       <RepoHeader owner={owner} repo={repo} />
       <RepoNav owner={owner} repo={repo} active="code" />
       <div class="search-hero">
@@ -5307,7 +5926,11 @@ web.get("/:owner/:repo/search", async (c) => {
           <strong>Search</strong> · {owner}/{repo}
         </div>
         <h1 class="search-title">
-          Find any line in <span class="gradient-text">{repo}</span>
+          {isSemantic ? (
+            <>{"Ask "}<span class="gradient-text">{repo}</span>{" anything."}</>
+          ) : (
+            <>{"Find any line in "}<span class="gradient-text">{repo}</span></>
+          )}
         </h1>
         <form
           method="get"
@@ -5315,13 +5938,18 @@ web.get("/:owner/:repo/search", async (c) => {
           class="search-form"
           role="search"
         >
+          <input type="hidden" name="mode" value={mode} />
           <div class="search-input-wrap">
             <span class="search-input-icon" aria-hidden="true">{"⌕"}</span>
             <input
               type="text"
               name="q"
               value={q}
-              placeholder="Search code on the default branch…"
+              placeholder={
+                isSemantic
+                  ? "Ask a question or describe what you're looking for…"
+                  : "Search code on the default branch…"
+              }
               aria-label="Search code"
               class="search-input"
               autocomplete="off"
@@ -5333,67 +5961,187 @@ web.get("/:owner/:repo/search", async (c) => {
           </button>
         </form>
       </div>
-      {q && (
-        <div class="search-results-head">
-          <span class="search-results-count">
-            <strong>{results.length}</strong> result
-            {results.length !== 1 ? "s" : ""}
-          </span>
-          <span class="search-results-query">
-            for <span class="search-results-q">"{q}"</span> on{" "}
-            <code>{defaultBranch}</code>
-          </span>
+
+      {/* Mode toggle */}
+      <div class="search-mode-bar">
+        <span class="search-mode-label">Mode:</span>
+        <div class="search-mode-toggle" role="group" aria-label="Search mode">
+          {aiAvailable ? (
+            <a
+              href={q ? `${semanticBaseUrl}&q=${encodeURIComponent(q)}` : semanticBaseUrl}
+              class={`search-mode-btn${isSemantic ? " active" : ""}`}
+              aria-pressed={isSemantic ? "true" : "false"}
+            >
+              {"✨"} Semantic AI
+              <span class="search-mode-ai-badge">AI-powered</span>
+            </a>
+          ) : null}
+          <a
+            href={q ? `${keywordBaseUrl}&q=${encodeURIComponent(q)}` : keywordBaseUrl}
+            class={`search-mode-btn${!isSemantic ? " active" : ""}`}
+            aria-pressed={!isSemantic ? "true" : "false"}
+          >
+            {"⌕"} Keyword
+          </a>
         </div>
-      )}
-      {q && results.length === 0 ? (
-        <div class="search-empty">
-          <p>
-            No matches for <strong>"{q}"</strong>. Try a shorter query or check
-            you're on the right branch.
-          </p>
-        </div>
-      ) : results.length > 0 ? (
-        <div class="search-results">
-          {(() => {
-            // Group by file
-            const grouped: Record<
-              string,
-              Array<{ lineNum: number; line: string }>
-            > = {};
-            for (const r of results) {
-              if (!grouped[r.file]) grouped[r.file] = [];
-              grouped[r.file].push({ lineNum: r.lineNum, line: r.line });
-            }
-            return Object.entries(grouped).map(([file, matches]) => (
-              <div class="search-file diff-file">
-                <div class="search-file-head diff-file-header">
-                  <a
-                    href={`/${owner}/${repo}/blob/${defaultBranch}/${file}`}
-                    class="search-file-link"
-                  >
-                    {file}
-                  </a>
-                  <span class="search-file-count">
-                    {matches.length} match{matches.length === 1 ? "" : "es"}
-                  </span>
-                </div>
-                <div class="blob-code">
-                  <table>
-                    <tbody>
-                      {matches.map((m) => (
-                        <tr>
-                          <td class="line-num">{m.lineNum}</td>
-                          <td class="line-content">{m.line}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+        {isSemantic && aiAvailable && (
+          <span style="font-size:12px;color:var(--text-muted)">
+            Ask in plain English — finds code by meaning, not just exact words
+          </span>
+        )}
+        {quotaExceeded && (
+          <span class="search-quota-warn">
+            Semantic search quota reached — showing keyword results
+          </span>
+        )}
+      </div>
+
+      {/* ─── Semantic results ─── */}
+      {isSemantic && q && (
+        <>
+          {semanticMode === "keyword" && !quotaExceeded && semanticHits.length > 0 && (
+            <div class="search-quota-warn" style="margin-bottom:10px">
+              Falling back to keyword search — Claude found no relevant files.
+            </div>
+          )}
+          {semanticHits.length === 0 ? (
+            <div class="search-empty">
+              <p>
+                No matches for <strong>"{q}"</strong>.{" "}
+                Try a different phrasing or{" "}
+                <a href={`${keywordBaseUrl}&q=${encodeURIComponent(q)}`}>
+                  switch to keyword search
+                </a>.
+              </p>
+            </div>
+          ) : (
+            <>
+              <div class="search-results-head">
+                <span class="search-results-count">
+                  <strong>{semanticHits.length}</strong> result
+                  {semanticHits.length !== 1 ? "s" : ""}
+                </span>
+                <span class="search-results-query">
+                  {semanticMode === "semantic" ? "AI-ranked files for" : "keyword matches for"}{" "}
+                  <span class="search-results-q">"{q}"</span>
+                </span>
               </div>
-            ));
-          })()}
-        </div>
-      ) : null}
+              <div class="sem-results">
+                {semanticHits.map((h) => {
+                  const confClass =
+                    h.confidence > 0.7
+                      ? "sem-conf-strong"
+                      : h.confidence > 0.4
+                        ? "sem-conf-possible"
+                        : "sem-conf-weak";
+                  const confLabel =
+                    h.confidence > 0.7
+                      ? "Strong match"
+                      : h.confidence > 0.4
+                        ? "Possible match"
+                        : "Weak match";
+                  const href = `/${owner}/${repo}/blob/${defaultBranch}/${h.file}${h.lineNumber ? `#L${h.lineNumber}` : ""}`;
+                  const preview =
+                    h.snippet.length > 800
+                      ? h.snippet.slice(0, 800) + "\n…"
+                      : h.snippet;
+                  return (
+                    <div class="sem-result">
+                      <div class="sem-result-head">
+                        <a href={href} class="sem-result-path">
+                          {h.file}
+                          {h.lineNumber ? (
+                            <span style="color:var(--text-muted);font-weight:500">
+                              :{h.lineNumber}
+                            </span>
+                          ) : null}
+                        </a>
+                        <span class={`sem-result-conf ${confClass}`}>
+                          {confLabel}
+                        </span>
+                      </div>
+                      {h.reason && (
+                        <p class="sem-result-reason">{h.reason}</p>
+                      )}
+                      {preview && (
+                        <pre class="sem-result-snippet">{preview}</pre>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </>
+      )}
+
+      {/* ─── Keyword results ─── */}
+      {!isSemantic && q && (
+        <>
+          <div class="search-results-head">
+            <span class="search-results-count">
+              <strong>{keywordResults.length}</strong> result
+              {keywordResults.length !== 1 ? "s" : ""}
+            </span>
+            <span class="search-results-query">
+              for <span class="search-results-q">"{q}"</span> on{" "}
+              <code>{defaultBranch}</code>
+            </span>
+          </div>
+          {keywordResults.length === 0 ? (
+            <div class="search-empty">
+              <p>
+                No matches for <strong>"{q}"</strong>. Try a shorter query or{" "}
+                {aiAvailable && (
+                  <a href={`${semanticBaseUrl}&q=${encodeURIComponent(q)}`}>
+                    try AI semantic search
+                  </a>
+                )}.
+              </p>
+            </div>
+          ) : (
+            <div class="search-results">
+              {(() => {
+                const grouped: Record<
+                  string,
+                  Array<{ lineNum: number; line: string }>
+                > = {};
+                for (const r of keywordResults) {
+                  if (!grouped[r.file]) grouped[r.file] = [];
+                  grouped[r.file].push({ lineNum: r.lineNum, line: r.line });
+                }
+                return Object.entries(grouped).map(([file, matches]) => (
+                  <div class="search-file diff-file">
+                    <div class="search-file-head diff-file-header">
+                      <a
+                        href={`/${owner}/${repo}/blob/${defaultBranch}/${file}`}
+                        class="search-file-link"
+                      >
+                        {file}
+                      </a>
+                      <span class="search-file-count">
+                        {matches.length} match{matches.length === 1 ? "" : "es"}
+                      </span>
+                    </div>
+                    <div class="blob-code">
+                      <table>
+                        <tbody>
+                          {matches.map((m) => (
+                            <tr>
+                              <td class="line-num">{m.lineNum}</td>
+                              <td class="line-content">{m.line}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ));
+              })()}
+            </div>
+          )}
+        </>
+      )}
     </Layout>
   );
 });

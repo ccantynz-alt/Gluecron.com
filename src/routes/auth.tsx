@@ -10,6 +10,7 @@ import {
   users,
   sessions,
   organizations,
+  orgSsoConfigs,
   userTotp,
   userRecoveryCodes,
   loginAttempts,
@@ -397,7 +398,32 @@ auth.get("/login", softAuth, async (c) => {
           <Button type="submit" variant="primary">
             Sign in
           </Button>
+          {/* SSO domain hint — shown dynamically when the typed email domain
+              matches a known org SSO config. JS fetches /api/sso/domain-hint. */}
+          <div id="sso-domain-hint" style="display:none;margin-top:10px;padding:10px 12px;background:rgba(140,109,255,0.10);border:1px solid rgba(140,109,255,0.30);border-radius:8px;font-size:13px;color:var(--text)" aria-live="polite">
+            Your organization uses SSO. You'll be redirected to sign in.
+          </div>
         </Form>
+        <script dangerouslySetInnerHTML={{__html: /* js */`
+          (function(){
+            var inp = document.querySelector('input[name="username"]');
+            var hint = document.getElementById('sso-domain-hint');
+            if(!inp || !hint) return;
+            var last = '';
+            inp.addEventListener('input', function(){
+              var val = inp.value.trim();
+              var at = val.indexOf('@');
+              if(at < 0) { hint.style.display='none'; return; }
+              var domain = val.slice(at+1).toLowerCase();
+              if(!domain || domain === last) return;
+              last = domain;
+              fetch('/api/sso/domain-hint?domain='+encodeURIComponent(domain))
+                .then(function(r){ return r.ok ? r.json() : null; })
+                .then(function(d){ hint.style.display = (d && d.sso) ? '' : 'none'; })
+                .catch(function(){ hint.style.display='none'; });
+            });
+          })();
+        `}} />
         {/* Provider buttons (Google + GitHub) — only rendered when the
             admin has configured + enabled them via /admin/google-oauth or
             /admin/github-oauth. The "or" divider above the first available
@@ -603,9 +629,41 @@ auth.post("/login", async (c) => {
     return c.redirect("/login?error=All+fields+are+required");
   }
 
-  // Resolve the canonical email for lockout checks regardless of whether
+  // Enterprise SSO domain-hint routing: if the identifier is an email and the
+  // domain matches an org's `domain_hint`, redirect to that org's SSO flow
+  // instead of checking the password.
+  // Also: resolve the canonical email for lockout checks regardless of whether
   // the user typed username or email.
   const isEmail = identifier.includes("@");
+  if (isEmail) {
+    const emailDomain = identifier.split("@")[1]?.toLowerCase();
+    if (emailDomain) {
+      const [ssoHint] = await db
+        .select({
+          provider: orgSsoConfigs.provider,
+          orgId: orgSsoConfigs.orgId,
+        })
+        .from(orgSsoConfigs)
+        .where(eq(orgSsoConfigs.domainHint, emailDomain))
+        .limit(1);
+
+      if (ssoHint) {
+        // Resolve org slug from org ID
+        const [orgRow] = await db
+          .select({ slug: organizations.slug })
+          .from(organizations)
+          .where(eq(organizations.id, ssoHint.orgId))
+          .limit(1);
+
+        if (orgRow) {
+          const protocol = ssoHint.provider === "oidc" ? "oidc" : "saml";
+          return c.redirect(`/sso/${protocol}/${orgRow.slug}/login`);
+        }
+      }
+    }
+  }
+
+  // Find user by username or email
   const [user] = await db
     .select()
     .from(users)
@@ -965,6 +1023,21 @@ auth.post("/api/auth/login", async (c) => {
     user: { id: user.id, username: user.username, email: user.email },
     token,
   });
+});
+
+// --- SSO domain-hint API (used by the login form JS) ---
+
+auth.get("/api/sso/domain-hint", async (c) => {
+  const domain = String(c.req.query("domain") || "").toLowerCase().trim();
+  if (!domain || domain.length > 253) {
+    return c.json({ sso: false });
+  }
+  const [row] = await db
+    .select({ orgId: orgSsoConfigs.orgId, provider: orgSsoConfigs.provider })
+    .from(orgSsoConfigs)
+    .where(eq(orgSsoConfigs.domainHint, domain))
+    .limit(1);
+  return c.json({ sso: !!row, provider: row?.provider ?? null });
 });
 
 /**

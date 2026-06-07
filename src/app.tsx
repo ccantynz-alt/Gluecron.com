@@ -164,6 +164,9 @@ import semanticSearchRoutes from "./routes/semantic-search";
 import signingKeysRoutes from "./routes/signing-keys";
 import sponsorsRoutes from "./routes/sponsors";
 import ssoRoutes from "./routes/sso";
+import samlSsoRoutes from "./routes/saml-sso";
+import scimRoutes from "./routes/scim";
+import orgSsoSettingsRoutes from "./routes/org-sso-settings";
 import githubOauthRoutes from "./routes/github-oauth";
 import googleOauthRoutes from "./routes/google-oauth";
 import symbolsRoutes from "./routes/symbols";
@@ -738,6 +741,12 @@ app.route("/", semanticSearchRoutes);
 app.route("/", signingKeysRoutes);
 app.route("/", sponsorsRoutes);
 app.route("/", ssoRoutes);
+// Enterprise per-org SAML 2.0 + OIDC SSO routes
+app.route("/", samlSsoRoutes);
+// SCIM 2.0 user provisioning endpoints
+app.route("/", scimRoutes);
+// Per-org SSO + SCIM admin settings UI
+app.route("/", orgSsoSettingsRoutes);
 app.route("/", githubOauthRoutes);
 app.route("/", googleOauthRoutes);
 app.route("/", symbolsRoutes);

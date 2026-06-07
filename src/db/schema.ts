@@ -4291,3 +4291,83 @@ export const prPreviews = pgTable(
 
 export type PrPreview = typeof prPreviews.$inferSelect;
 export type NewPrPreview = typeof prPreviews.$inferInsert;
+
+// ----------------------------------------------------------------------------
+// Migration 0092 — Enterprise SSO (SAML 2.0 + OIDC per-org) + SCIM
+// ----------------------------------------------------------------------------
+
+/**
+ * Per-org SSO configuration. One row per org. Supports both SAML 2.0 and OIDC.
+ * Distinct from the site-wide `sso_config` table (Block I10 / OIDC-only).
+ */
+export const orgSsoConfigs = pgTable("org_sso_configs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  orgId: uuid("org_id")
+    .notNull()
+    .unique()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  provider: text("provider").notNull().default("saml"), // 'saml' | 'oidc'
+  // SAML fields
+  idpEntityId: text("idp_entity_id"),
+  idpSsoUrl: text("idp_sso_url"),
+  idpCertificate: text("idp_certificate"), // PEM cert from IdP
+  spEntityId: text("sp_entity_id"),         // our SP entity ID
+  // OIDC fields
+  oidcClientId: text("oidc_client_id"),
+  oidcClientSecret: text("oidc_client_secret"),
+  oidcDiscoveryUrl: text("oidc_discovery_url"),
+  // Common
+  domainHint: text("domain_hint"), // e.g. "acme.com" — auto-routes users from this domain
+  attributeMapping: jsonb("attribute_mapping")
+    .$type<Record<string, string>>()
+    .default({ email: "email", name: "name", username: "preferred_username" }),
+  enabled: boolean("enabled").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+/**
+ * SCIM provisioning tokens. Hashed SHA-256 bearer tokens issued per-org.
+ * Identity providers (Okta, Azure AD) use these to provision/deprovision users.
+ */
+export const scimTokens = pgTable("scim_tokens", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  orgId: uuid("org_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  tokenHash: text("token_hash").notNull().unique(), // SHA-256 of the token
+  createdBy: uuid("created_by")
+    .notNull()
+    .references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  lastUsedAt: timestamp("last_used_at"),
+});
+
+/**
+ * Tracks active IdP-initiated SSO sessions per org. Allows per-org
+ * SLO (Single Logout) and session audit.
+ */
+export const orgSsoSessions = pgTable(
+  "org_sso_sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    idpSessionId: text("idp_session_id"),
+    createdAt: timestamp("created_at").defaultNow(),
+    expiresAt: timestamp("expires_at").notNull(),
+  },
+  (table) => [
+    index("org_sso_sessions_user").on(table.userId),
+    index("org_sso_sessions_expires").on(table.expiresAt),
+  ]
+);
+
+export type OrgSsoConfig = typeof orgSsoConfigs.$inferSelect;
+export type NewOrgSsoConfig = typeof orgSsoConfigs.$inferInsert;
+export type ScimToken = typeof scimTokens.$inferSelect;
+export type OrgSsoSession = typeof orgSsoSessions.$inferSelect;

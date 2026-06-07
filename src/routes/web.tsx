@@ -19,6 +19,7 @@ import {
   issues,
   labels,
   issueLabels,
+  repoOnboardingData,
 } from "../db/schema";
 import { Layout } from "../views/layout";
 import { PendingCommentsBanner as RepoHomePendingBanner } from "../views/pending-comments-banner";
@@ -2349,6 +2350,383 @@ web.post("/:owner/:repo/star", requireAuth, async (c) => {
   return c.redirect(`/${ownerName}/${repoName}`);
 });
 
+// ---------------------------------------------------------------------------
+// Onboarding card CSS (injected inline on repo home, scoped to .ob-*)
+// ---------------------------------------------------------------------------
+const obCss = `
+  .ob-card {
+    position: relative;
+    margin: 14px 0 18px;
+    background: linear-gradient(135deg, rgba(140,109,255,0.08), rgba(54,197,214,0.05));
+    border: 1px solid rgba(140,109,255,0.30);
+    border-radius: 14px;
+    overflow: hidden;
+  }
+  .ob-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent 0%, #8c6dff 30%, #36c5d6 70%, transparent 100%);
+    pointer-events: none;
+  }
+  .ob-header {
+    padding: 16px 20px 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  .ob-header h3 {
+    font-size: 16px;
+    font-weight: 700;
+    margin: 0 0 4px;
+    color: var(--text-strong);
+  }
+  .ob-header p {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin: 0;
+  }
+  .ob-sections {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0;
+  }
+  @media (max-width: 760px) {
+    .ob-sections { grid-template-columns: 1fr; }
+  }
+  .ob-section {
+    padding: 14px 20px;
+    border-right: 1px solid var(--border);
+  }
+  .ob-section:last-child { border-right: none; }
+  .ob-section h4 {
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    margin: 0 0 8px;
+  }
+  .ob-preview {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    color: var(--text-muted);
+    line-height: 1.55;
+    margin-bottom: 8px;
+    white-space: pre-wrap;
+    overflow: hidden;
+    max-height: 80px;
+    position: relative;
+  }
+  .ob-preview::after {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 24px;
+    background: linear-gradient(transparent, var(--bg));
+    pointer-events: none;
+  }
+  .ob-labels {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-bottom: 8px;
+  }
+  .ob-label-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 9999px;
+    font-size: 11.5px;
+    font-weight: 600;
+    line-height: 1.5;
+    border: 1px solid transparent;
+  }
+  .ob-section ul {
+    margin: 0;
+    padding: 0 0 0 16px;
+    font-size: 13px;
+    color: var(--text-muted);
+    line-height: 1.7;
+  }
+  .ob-section ul li { margin-bottom: 2px; }
+  .ob-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding: 10px 20px;
+    border-top: 1px solid var(--border);
+    gap: 10px;
+  }
+  .ob-dismiss {
+    appearance: none;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    border-radius: 6px;
+    padding: 5px 12px;
+    font-size: 12.5px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background var(--t-fast), color var(--t-fast);
+  }
+  .ob-dismiss:hover { background: var(--bg-hover); color: var(--text); }
+  .btn-sm {
+    appearance: none;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    color: var(--text-strong);
+    border-radius: 6px;
+    padding: 5px 12px;
+    font-size: 12.5px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    transition: background var(--t-fast);
+  }
+  .btn-sm:hover { background: var(--bg-hover); }
+  .btn-sm.btn-primary {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+  }
+  .btn-sm.btn-primary:hover { background: var(--accent-hover); }
+`;
+
+// Onboarding card component — shown to repo owner until dismissed
+function RepoOnboardingCard({
+  owner,
+  repo,
+  data,
+}: {
+  owner: string;
+  repo: string;
+  data: typeof repoOnboardingData.$inferSelect;
+}) {
+  const labels = (data.suggestedLabels ?? []) as Array<{
+    name: string;
+    color: string;
+    description: string;
+  }>;
+  const suggestions = (data.firstCommitSuggestions ?? []) as string[];
+  const readmePreview = (data.suggestedReadme ?? "").slice(0, 200);
+
+  return (
+    <>
+      <style dangerouslySetInnerHTML={{ __html: obCss }} />
+      <div class="ob-card" id="repo-onboarding">
+        <div class="ob-header">
+          <h3>Get started with {owner}/{repo}</h3>
+          <p>
+            Detected: {data.detectedLanguage ?? "Unknown"}
+            {data.detectedFramework ? ` / ${data.detectedFramework}` : ""}.
+            Here&rsquo;s what we suggest to hit the ground running.
+          </p>
+        </div>
+        <div class="ob-sections">
+          <div class="ob-section">
+            <h4>Suggested README</h4>
+            <div class="ob-preview">{readmePreview}</div>
+            <button
+              class="btn-sm"
+              type="button"
+              onclick={`(function(){var t=${JSON.stringify(data.suggestedReadme ?? "")};try{navigator.clipboard.writeText(t).then(function(){var b=document.querySelector('.ob-copy-btn');if(b){b.textContent='Copied!';setTimeout(function(){b.textContent='Copy to clipboard';},2000);}});}catch(_){};})()`}
+              aria-label="Copy suggested README to clipboard"
+            >
+              Copy to clipboard
+            </button>
+          </div>
+          <div class="ob-section">
+            <h4>Suggested labels ({labels.length})</h4>
+            <div class="ob-labels">
+              {labels.slice(0, 6).map((l) => (
+                <span
+                  class="ob-label-chip"
+                  style={`background:#${l.color}22;color:#${l.color};border-color:#${l.color}55`}
+                  title={l.description}
+                >
+                  {l.name}
+                </span>
+              ))}
+            </div>
+            <form method="post" action={`/${owner}/${repo}/setup/labels`}>
+              <button class="btn-sm btn-primary" type="submit">
+                Create all labels
+              </button>
+            </form>
+          </div>
+          <div class="ob-section">
+            <h4>First steps</h4>
+            <ul>
+              {suggestions.map((s) => (
+                <li>{s}</li>
+              ))}
+            </ul>
+          </div>
+        </div>
+        <div class="ob-footer">
+          <form method="post" action={`/${owner}/${repo}/setup/dismiss`}>
+            <button class="ob-dismiss" type="submit">
+              Dismiss
+            </button>
+          </form>
+        </div>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function(){
+                var card = document.getElementById('repo-onboarding');
+                if (!card) return;
+                document.addEventListener('keydown', function(e){
+                  if (e.key === 'Escape' && card && card.style.display !== 'none') {
+                    card.style.display = 'none';
+                  }
+                });
+              })();
+            `,
+          }}
+        />
+      </div>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Setup routes — create suggested labels + dismiss onboarding
+// ---------------------------------------------------------------------------
+
+// POST /:owner/:repo/setup/labels — creates all suggested labels for the repo.
+// requireAuth + write access. Idempotent (label UPSERT by name).
+web.post("/:owner/:repo/setup/labels", softAuth, requireAuth, async (c) => {
+  const { owner, repo } = c.req.param();
+  const user = c.get("user")!;
+
+  // Resolve repo + verify write access
+  let repoRow: { id: string; ownerId: string } | null = null;
+  try {
+    const [ownerUser] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.username, owner))
+      .limit(1);
+    if (!ownerUser) return c.redirect(`/${owner}/${repo}?error=Not+found`);
+    const [r] = await db
+      .select({ id: repositories.id, ownerId: repositories.ownerId })
+      .from(repositories)
+      .where(
+        and(
+          eq(repositories.ownerId, ownerUser.id),
+          eq(repositories.name, repo)
+        )
+      )
+      .limit(1);
+    repoRow = r ?? null;
+  } catch {
+    return c.redirect(`/${owner}/${repo}?error=Database+error`);
+  }
+  if (!repoRow) return c.redirect(`/${owner}/${repo}?error=Not+found`);
+  if (repoRow.ownerId !== user.id) {
+    return c.redirect(`/${owner}/${repo}?error=Forbidden`);
+  }
+
+  // Fetch the onboarding data
+  let obRow: (typeof repoOnboardingData.$inferSelect) | null = null;
+  try {
+    const [r] = await db
+      .select()
+      .from(repoOnboardingData)
+      .where(eq(repoOnboardingData.repositoryId, repoRow.id))
+      .limit(1);
+    obRow = r ?? null;
+  } catch {
+    return c.redirect(`/${owner}/${repo}?error=Onboarding+data+not+found`);
+  }
+  if (!obRow) {
+    return c.redirect(`/${owner}/${repo}?toast=info:No+onboarding+data+found`);
+  }
+
+  const suggestedLabels = (obRow.suggestedLabels ?? []) as Array<{
+    name: string;
+    color: string;
+    description: string;
+  }>;
+
+  // Create labels — import the labels table which was already imported
+  let created = 0;
+  for (const l of suggestedLabels) {
+    try {
+      await db
+        .insert(labels)
+        .values({
+          repositoryId: repoRow.id,
+          name: l.name,
+          color: l.color,
+          description: l.description ?? "",
+        })
+        .onConflictDoNothing();
+      created++;
+    } catch {
+      /* skip duplicates */
+    }
+  }
+
+  // Mark onboarding dismissed
+  try {
+    await db
+      .update(repositories)
+      .set({ onboardingShown: true })
+      .where(eq(repositories.id, repoRow.id));
+  } catch {
+    /* ignore */
+  }
+
+  return c.redirect(
+    `/${owner}/${repo}?success=${encodeURIComponent(`Created ${created} labels`)}`
+  );
+});
+
+// POST /:owner/:repo/setup/dismiss — marks onboarding as shown.
+web.post("/:owner/:repo/setup/dismiss", softAuth, requireAuth, async (c) => {
+  const { owner, repo } = c.req.param();
+  const user = c.get("user")!;
+
+  try {
+    const [ownerUser] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.username, owner))
+      .limit(1);
+    if (ownerUser) {
+      const [r] = await db
+        .select({ id: repositories.id, ownerId: repositories.ownerId })
+        .from(repositories)
+        .where(
+          and(
+            eq(repositories.ownerId, ownerUser.id),
+            eq(repositories.name, repo)
+          )
+        )
+        .limit(1);
+      if (r && r.ownerId === user.id) {
+        await db
+          .update(repositories)
+          .set({ onboardingShown: true })
+          .where(eq(repositories.id, r.id));
+      }
+    }
+  } catch {
+    /* swallow — dismiss should never fail visibly */
+  }
+
+  return c.redirect(`/${owner}/${repo}`);
+});
+
 // Repository overview — file tree at HEAD
 web.get("/:owner/:repo", async (c) => {
   const { owner, repo } = c.req.param();
@@ -2583,6 +2961,32 @@ web.get("/:owner/:repo", async (c) => {
       aiStats = await getRepoAiStats(repoId);
     } catch {
       /* swallow — show zero values */
+    }
+  }
+
+  // Onboarding card — shown to repo owner until dismissed. Best-effort;
+  // if the DB is down the card simply won't appear. Only the owner sees it.
+  let onboardingRow: (typeof repoOnboardingData.$inferSelect) | null = null;
+  let showOnboarding = false;
+  if (repoId && user && repoOwnerId && user.id === repoOwnerId) {
+    try {
+      // Check if onboarding_shown is still false (not yet dismissed)
+      const [repoRow2] = await db
+        .select({ onboardingShown: repositories.onboardingShown })
+        .from(repositories)
+        .where(eq(repositories.id, repoId))
+        .limit(1);
+      if (repoRow2 && !repoRow2.onboardingShown) {
+        const [obRow] = await db
+          .select()
+          .from(repoOnboardingData)
+          .where(eq(repoOnboardingData.repositoryId, repoId))
+          .limit(1);
+        onboardingRow = obRow ?? null;
+        showOnboarding = !!onboardingRow;
+      }
+    } catch {
+      /* swallow — onboarding is optional */
     }
   }
 
@@ -3343,6 +3747,24 @@ web.get("/:owner/:repo", async (c) => {
       twitterCard="summary"
     >
       <style dangerouslySetInnerHTML={{ __html: repoHomeCss }} />
+      {/* Repo-context commands for the command palette (Feature 2) */}
+      <script
+        id="cmdk-repo-context"
+        dangerouslySetInnerHTML={{
+          __html: `window.__CMDK_REPO_COMMANDS = ${JSON.stringify([
+            { label: `New issue in ${repo}`, href: `/${owner}/${repo}/issues/new`, kw: "create add bug" },
+            { label: `New pull request in ${repo}`, href: `/${owner}/${repo}/pulls/new`, kw: "pr branch merge" },
+            { label: `Browse code — ${owner}/${repo}`, href: `/${owner}/${repo}`, kw: "files tree" },
+            { label: `View commits — ${owner}/${repo}`, href: `/${owner}/${repo}/commits`, kw: "history log" },
+            { label: `Search code — ${owner}/${repo}`, href: `/${owner}/${repo}/search`, kw: "grep find" },
+            { label: `AI explain codebase — ${owner}/${repo}`, href: `/${owner}/${repo}/explain`, kw: "understand" },
+            { label: `Debt map — ${owner}/${repo}`, href: `/${owner}/${repo}/debt-map`, kw: "technical debt" },
+            { label: `Repo settings — ${owner}/${repo}`, href: `/${owner}/${repo}/settings`, kw: "config" },
+            { label: `Issues — ${owner}/${repo}`, href: `/${owner}/${repo}/issues`, kw: "bugs tasks" },
+            { label: `Pull requests — ${owner}/${repo}`, href: `/${owner}/${repo}/pulls`, kw: "prs reviews" },
+          ])};`,
+        }}
+      />
       <div class="repo-home-hero">
         <div class="repo-home-hero-orb-wrap" aria-hidden="true">
           <div class="repo-home-hero-orb" />
@@ -3453,6 +3875,13 @@ web.get("/:owner/:repo", async (c) => {
         repo={repo}
         count={repoHomePendingCount}
       />
+      {showOnboarding && onboardingRow && (
+        <RepoOnboardingCard
+          owner={owner}
+          repo={repo}
+          data={onboardingRow}
+        />
+      )}
       {/* ─── Per-repo AI surfaces — RepoNav is locked, so the discovery
           row sits just below the nav as a slim CTA strip. Scoped under
           `.repo-ai-cta-` so the styles can't bleed onto other pages. ─── */}

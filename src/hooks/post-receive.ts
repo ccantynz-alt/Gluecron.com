@@ -37,6 +37,7 @@ import {
 } from "../lib/server-target-store";
 import { deployToTarget } from "../lib/server-targets";
 import { fireCloudDeploys } from "../lib/cloud-deploy";
+import { ensureRepoOnboarding } from "../lib/repo-onboarding";
 
 interface PushRef {
   oldSha: string;
@@ -159,6 +160,15 @@ export async function onPostReceive(
   //     or empty doc_tracking table never breaks the push.
   void fireDocDriftCheck(owner, repo).catch((err) =>
     console.warn("[ai-doc-updater] dispatch error:", err)
+  );
+
+  // 4g. Smart empty states — repo onboarding. On the very first push to a
+  //     repo's default branch (oldSha all-zeros), generate a README draft,
+  //     suggested labels, and gates.yml starter using Claude Sonnet.
+  //     Idempotent: ensureRepoOnboarding skips if a row already exists.
+  //     Fire-and-forget; never blocks the push path.
+  void fireRepoOnboarding(owner, repo, refs).catch((err) =>
+    console.warn("[repo-onboarding] dispatch error:", err)
   );
 
   // 5. Crontech deploy (BLK-016) — only fires for the configured Crontech repo
@@ -790,6 +800,41 @@ async function fireDependencyScan(
   }
 }
 
+/**
+ * Migration 0088 — trigger repo onboarding on first push to the default branch.
+ * Detects "first push" by checking whether oldSha is all-zeros on a push to
+ * the repo's default branch (or any branch for a repo with no prior history).
+ * Resolves the repo DB id, then calls ensureRepoOnboarding which is idempotent.
+ * Never throws.
+ */
+async function fireRepoOnboarding(
+  owner: string,
+  repo: string,
+  refs: PushRef[]
+): Promise<void> {
+  // Only fire on first push — oldSha all-zeros means the branch is brand-new.
+  const firstPushRefs = refs.filter(
+    (r) => r.refName.startsWith("refs/heads/") && /^0+$/.test(r.oldSha) && !r.newSha.startsWith("0000")
+  );
+  if (firstPushRefs.length === 0) return;
+
+  let repositoryId = "";
+  try {
+    const [row] = await db
+      .select({ id: repositories.id })
+      .from(repositories)
+      .innerJoin(users, eq(repositories.ownerId, users.id))
+      .where(and(eq(users.username, owner), eq(repositories.name, repo)))
+      .limit(1);
+    repositoryId = row?.id || "";
+  } catch {
+    return;
+  }
+  if (!repositoryId) return;
+
+  await ensureRepoOnboarding(repositoryId, owner, repo);
+}
+
 /** Test-only access to internal helpers. */
 export const __test = {
   triggerCrontechDeploy,
@@ -803,4 +848,5 @@ export const __test = {
   fireServerTargetDeploys,
   fireDependencyScan,
   fireCloudDeploys,
+  fireRepoOnboarding,
 };

@@ -30,7 +30,8 @@ import { isAiAvailable } from "./ai-client";
 import { performMerge } from "./pr-merge";
 import { triggerCiAutofix } from "./ci-autofix";
 import { getBotUserIdOrFallback } from "./bot-user";
-import { AI_BUILD_MARKER } from "./ai-build-tasks";
+// Local copy to avoid import cycle with ai-build-tasks.ts
+const AI_BUILD_MARKER = "<!-- gluecron:ai-build:v1 -->";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -53,7 +54,7 @@ export const AI_LOOP_MARKER = "<!-- gluecron:ai-loop:v1 -->";
 const AI_LOOP_ATTEMPT_PREFIX = "<!-- gluecron:ai-loop:attempt:";
 
 /** Maximum fix-and-retry cycles before giving up. */
-const MAX_ATTEMPTS = 3;
+const MAX_ATTEMPTS: number = 3;
 
 /** How long to poll for a new gate run after triggering autofix (ms). */
 const POLL_TIMEOUT_MS = 2 * 60 * 1000;

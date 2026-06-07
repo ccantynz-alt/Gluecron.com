@@ -584,10 +584,8 @@ orgSsoSettings.post(
 
     const { user, org } = ctx;
 
-    // Generate a random bearer token for SCIM provisioning.
-    // Prefix "gscim1_" identifies the token type in logs without embedding a secret.
-    const tokenPrefix = "gscim1_";
-    const rawToken = tokenPrefix + crypto.randomBytes(30).toString("hex");
+    // Generate a 40-byte random token
+    const rawToken = "glue_scim_" + crypto.randomBytes(30).toString("hex");
     const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
 
     await db.insert(scimTokens).values({

@@ -4358,6 +4358,9 @@ export const orgSsoSessions = pgTable(
 export const incidentHookConfigs = pgTable(
   "incident_hook_configs",
 >>>>>>> 9953332 (feat: production incident auto-fix — PagerDuty/Datadog webhook → AI-generated fix PR)
+
+
+>>>>>>> 3a845e4 (feat: enterprise SSO (SAML 2.0 + OIDC) and SCIM user provisioning)
   {
     id: uuid("id").primaryKey().defaultRandom(),
     userId: uuid("user_id")
@@ -4402,3 +4405,6 @@ export type OrgSsoSession = typeof orgSsoSessions.$inferSelect;
 export type IncidentHookConfig = typeof incidentHookConfigs.$inferSelect;
 export type NewIncidentHookConfig = typeof incidentHookConfigs.$inferInsert;
 >>>>>>> 9953332 (feat: production incident auto-fix — PagerDuty/Datadog webhook → AI-generated fix PR)
+
+
+>>>>>>> 3a845e4 (feat: enterprise SSO (SAML 2.0 + OIDC) and SCIM user provisioning)

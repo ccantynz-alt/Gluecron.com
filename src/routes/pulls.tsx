@@ -66,6 +66,7 @@ import {
 import { triggerPrTriage } from "../lib/pr-triage";
 import { generatePrSummary } from "../lib/ai-generators";
 import { isAiAvailable } from "../lib/ai-client";
+import { getReviewContext, recordPrVisit, type ReviewContext } from "../lib/review-context";
 import {
   computePrRiskForPullRequest,
   getCachedPrRisk,
@@ -3594,6 +3595,20 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
     prCommits = await commitsBetween(ownerName, repoName, pr.baseBranch, pr.headBranch).catch(() => []);
   }
 
+  // Review context restore — compute BEFORE recording the visit so the
+  // previous timestamp is available for the delta calculation.
+  let reviewCtx: ReviewContext | null = null;
+  if (user) {
+    reviewCtx = await getReviewContext(pr.id, user.id, {
+      ownerName,
+      repoName,
+      baseBranch: pr.baseBranch,
+      headBranch: pr.headBranch,
+    });
+    // Fire-and-forget: record the visit AFTER computing context
+    void recordPrVisit(pr.id, user.id);
+  }
+
   return c.html(
     <Layout
       title={`${pr.title} #${pr.number} — ${ownerName}/${repoName}`}
@@ -3625,6 +3640,39 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
           }),
         }}
       />
+
+      {/* Review context restore banner — shown when returning after changes */}
+      {reviewCtx && (
+        <div
+          class="context-restore-banner"
+          id="review-context"
+          style="display:flex;align-items:flex-start;gap:12px;padding:12px 16px;margin:0 0 12px;background:var(--bg-elevated,#f8f9fa);border:1px solid var(--border,#e1e4e8);border-left:3px solid var(--accent,#0070f3);border-radius:10px"
+        >
+          <span class="context-icon" style="font-size:18px;flex-shrink:0;margin-top:2px" aria-hidden="true">{"↩"}</span>
+          <div style="flex:1;min-width:0">
+            <strong style="font-size:13.5px;color:var(--text-strong,#111)">Welcome back</strong>
+            <p style="margin:4px 0 0;font-size:13px;color:var(--text,#333);line-height:1.5">{reviewCtx.summary}</p>
+            <small style="font-size:11.5px;color:var(--text-muted,#777)">
+              Last visited {formatRelative(new Date(reviewCtx.lastVisitedAt))}
+              {reviewCtx.commitsSince > 0 && ` · ${reviewCtx.commitsSince} new commit${reviewCtx.commitsSince === 1 ? "" : "s"}`}
+              {reviewCtx.newComments > 0 && ` · ${reviewCtx.newComments} new comment${reviewCtx.newComments === 1 ? "" : "s"}`}
+            </small>
+            {reviewCtx.suggestedStartLine && (
+              <p style="margin:6px 0 0;font-size:12px;color:var(--accent,#0070f3)">
+                Start at: <code style="font-size:11px">{reviewCtx.suggestedStartLine}</code>
+              </p>
+            )}
+          </div>
+          <button
+            type="button"
+            onclick="this.closest('.context-restore-banner').remove()"
+            style="flex-shrink:0;background:none;border:none;cursor:pointer;font-size:18px;color:var(--text-muted,#777);padding:0;line-height:1"
+            aria-label="Dismiss"
+          >
+            {"×"}
+          </button>
+        </div>
+      )}
 
       <div class="prs-detail-hero">
         <div class="prs-edit-title-wrap">

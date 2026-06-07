@@ -235,6 +235,10 @@ export const Layout: FC<
                       </a>
                     </div>
                   </div>
+                  {/* Smart morning digest link */}
+                  <a href="/digest" class="nav-link" title="Morning Digest" aria-label="Morning Digest">
+                    {"☀"}
+                  </a>
                   {/* Inbox bell with unread badge */}
                   <a
                     href="/inbox"

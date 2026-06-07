@@ -42,7 +42,7 @@ import {
 } from "./dep-updater";
 import { getBlob, getDefaultBranch } from "../git/repository";
 import { config } from "./config";
-import { getAnthropic, MODEL_HAIKU, extractText, isAiAvailable } from "./ai-client";
+import { getAnthropic, MODEL_SONNET, extractText, isAiAvailable } from "./ai-client";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -127,7 +127,7 @@ async function generateMigrationGuide(
   try {
     const client = getAnthropic();
     const message = await client.messages.create({
-      model: MODEL_HAIKU,
+      model: MODEL_SONNET,
       max_tokens: 512,
       messages: [
         {

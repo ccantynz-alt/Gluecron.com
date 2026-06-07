@@ -41,6 +41,7 @@ import pullRoutes from "./routes/pulls";
 import prSandboxRoutes from "./routes/pr-sandbox";
 import devEnvRoutes from "./routes/dev-env";
 import editorRoutes from "./routes/editor";
+import aiEditorRoutes from "./routes/ai-editor";
 import forkRoutes from "./routes/fork";
 import webhookRoutes from "./routes/webhooks";
 import exploreRoutes from "./routes/explore";
@@ -510,6 +511,9 @@ app.route("/", forkRoutes);
 
 // Web file editor
 app.route("/", editorRoutes);
+
+// AI editor API routes (inline suggestions, explain, fix)
+app.route("/", aiEditorRoutes);
 
 // Contributors
 app.route("/", contributorRoutes);

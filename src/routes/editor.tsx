@@ -355,6 +355,332 @@ function CODEMIRROR_INIT_SCRIPT(args: {
 `;
 }
 
+/**
+ * AI inline suggestion + explain + fix script.
+ *
+ * Ghost-text suggestions: debounced 800ms after typing stops, sends
+ * the content before the cursor to /api/ai/suggest, shows the result
+ * as dimmed italic text after the cursor inside the textarea.
+ * Tab = accept, Escape = dismiss.
+ *
+ * Explain: sends selected text (or full content) to /api/ai/explain
+ * and shows a panel below the editor.
+ *
+ * Fix: sends error from ?error= query param + code to /api/ai/fix and
+ * shows a panel with an Apply button.
+ *
+ * Only wires up if window.__aiEditorEnabled === true (set by the server
+ * when ANTHROPIC_API_KEY is configured).
+ */
+function AI_EDITOR_SCRIPT(args: {
+  lang: string;
+  gateError: string; // JSON-safe error string, may be empty
+}): string {
+  const safe = (v: string) =>
+    JSON.stringify(v)
+      .split("<").join("\\u003C")
+      .split(">").join("\\u003E")
+      .split("&").join("\\u0026");
+
+  const lang = safe(args.lang);
+  const gateError = safe(args.gateError);
+
+  return `
+(function() {
+  try {
+    if (!window.__aiEditorEnabled) return;
+
+    var lang = ${lang};
+    var gateError = ${gateError};
+
+    // ── Find DOM elements ──────────────────────────────────────────────
+    // Works for both new-file (...-new) and edit (...-edit) pages.
+    var ta = document.querySelector('textarea[name="content"]');
+    if (!ta) return;
+
+    var taField = ta.closest('.editor-field');
+    if (!taField) return;
+
+    // Ensure the textarea is wrapped in .editor-wrapper for positioning
+    if (!ta.parentElement || !ta.parentElement.classList.contains('editor-wrapper')) {
+      var wrapper = document.createElement('div');
+      wrapper.className = 'editor-wrapper';
+      wrapper.style.position = 'relative';
+      ta.parentNode.insertBefore(wrapper, ta);
+      wrapper.appendChild(ta);
+    }
+
+    var editorWrapper = ta.parentElement;
+
+    // Loading spinner
+    var spinner = document.createElement('div');
+    spinner.className = 'ai-loading';
+    spinner.innerHTML = '<div class="ai-spinner"></div><span>AI</span>';
+    editorWrapper.appendChild(spinner);
+
+    // Suggestion hint line
+    var hint = document.createElement('div');
+    hint.className = 'ai-suggestion-hint';
+    hint.textContent = 'Tab to accept suggestion  ·  Esc to dismiss';
+    taField.appendChild(hint);
+
+    // Explain panel
+    var explainPanel = document.createElement('div');
+    explainPanel.className = 'ai-explain-panel';
+    explainPanel.innerHTML = '<div class="ai-explain-panel-header"><span class="ai-explain-panel-title">✨ Code Explanation</span><button class="ai-explain-panel-close" type="button" title="Close">✕</button></div><div class="ai-explain-panel-body"></div>';
+    taField.appendChild(explainPanel);
+
+    // Fix panel (only when there's a gate error)
+    var fixPanel = null;
+    var fixCode = '';
+    if (gateError) {
+      fixPanel = document.createElement('div');
+      fixPanel.className = 'ai-fix-panel';
+      fixPanel.innerHTML = '<div class="ai-fix-panel-header"><span class="ai-fix-panel-title">⚡ AI Fix Suggestion</span></div><div class="ai-fix-panel-explanation"></div><button class="ai-fix-panel-apply" type="button">Apply fix</button>';
+      taField.appendChild(fixPanel);
+    }
+
+    // ── State ──────────────────────────────────────────────────────────
+    var currentSuggestion = '';
+    var suggestionPos = 0; // cursor position when suggestion was fetched
+    var debounceTimer = null;
+    var abortController = null;
+
+    // ── Ghost text rendering via textarea mirror technique ─────────────
+    // We render ghost text as a ::after-like element via a positioned div
+    // that mirrors the textarea's scroll position and font metrics.
+    // This is simpler than a full overlay mirror.
+    var ghost = document.createElement('div');
+    ghost.style.cssText = [
+      'position:absolute',
+      'left:0','top:0','right:0','bottom:0',
+      'pointer-events:none',
+      'overflow:hidden',
+      'white-space:pre-wrap',
+      'word-wrap:break-word',
+      'box-sizing:border-box',
+      'padding:12px 14px',
+      'font-family:var(--font-mono)',
+      'font-size:13px',
+      'line-height:1.55',
+      'color:transparent',
+      'z-index:2',
+    ].join(';');
+    editorWrapper.appendChild(ghost);
+
+    function renderGhost() {
+      if (!currentSuggestion) {
+        ghost.innerHTML = '';
+        hint.classList.remove('visible');
+        return;
+      }
+      var before = ta.value.slice(0, suggestionPos);
+      // Escape HTML
+      var esc = function(s) {
+        return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      };
+      ghost.innerHTML = esc(before) +
+        '<span style="color:#666;font-style:italic">' + esc(currentSuggestion) + '</span>';
+      hint.classList.add('visible');
+    }
+
+    function clearSuggestion() {
+      currentSuggestion = '';
+      suggestionPos = 0;
+      renderGhost();
+    }
+
+    // ── Sync ghost scroll with textarea ───────────────────────────────
+    ta.addEventListener('scroll', function() {
+      ghost.scrollTop = ta.scrollTop;
+      ghost.scrollLeft = ta.scrollLeft;
+    });
+
+    // ── Fetch suggestion ──────────────────────────────────────────────
+    function fetchSuggestion() {
+      if (abortController) abortController.abort();
+      abortController = new AbortController();
+
+      var cursor = ta.selectionStart;
+      var code = ta.value;
+      var before = code.slice(0, cursor);
+
+      // Skip if the before-cursor content is too short or ends in whitespace-only
+      if (before.trim().length < 3) return;
+
+      spinner.classList.add('visible');
+
+      fetch('/api/ai/suggest', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        credentials: 'same-origin',
+        signal: abortController.signal,
+        body: JSON.stringify({ code: before, language: lang, cursor: before.length }),
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(j) {
+        spinner.classList.remove('visible');
+        if (j && typeof j.suggestion === 'string' && j.suggestion.trim()) {
+          currentSuggestion = j.suggestion;
+          suggestionPos = ta.selectionStart;
+          renderGhost();
+        }
+        if (j && j.error && j.error.includes('quota')) {
+          // Show quota message briefly in hint
+          hint.textContent = j.error;
+          hint.classList.add('visible');
+          setTimeout(function() {
+            hint.textContent = 'Tab to accept suggestion  ·  Esc to dismiss';
+            hint.classList.remove('visible');
+          }, 4000);
+        }
+      })
+      .catch(function(e) {
+        spinner.classList.remove('visible');
+        if (e && e.name !== 'AbortError') {
+          console.debug('[ai-editor] suggest error', e);
+        }
+      });
+    }
+
+    // ── Debounce typing ───────────────────────────────────────────────
+    ta.addEventListener('input', function() {
+      clearSuggestion();
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(fetchSuggestion, 800);
+    });
+
+    // ── Key handling: Tab = accept, Escape = dismiss ──────────────────
+    ta.addEventListener('keydown', function(ev) {
+      if (currentSuggestion) {
+        if (ev.key === 'Tab') {
+          ev.preventDefault();
+          // Insert suggestion at cursor
+          var start = ta.selectionStart;
+          var end = ta.selectionEnd;
+          var before = ta.value.slice(0, start);
+          var after = ta.value.slice(end);
+          ta.value = before + currentSuggestion + after;
+          var newPos = start + currentSuggestion.length;
+          ta.selectionStart = ta.selectionEnd = newPos;
+          // Trigger input event so the form stays in sync
+          ta.dispatchEvent(new Event('input', { bubbles: true }));
+          clearSuggestion();
+          return;
+        }
+        if (ev.key === 'Escape') {
+          ev.preventDefault();
+          clearSuggestion();
+          return;
+        }
+        // Any other key: discard suggestion
+        clearSuggestion();
+      }
+    });
+
+    // Dismiss on click (cursor moved)
+    ta.addEventListener('click', clearSuggestion);
+
+    // ── Explain panel ──────────────────────────────────────────────────
+    var explainBody = explainPanel.querySelector('.ai-explain-panel-body');
+    var explainClose = explainPanel.querySelector('.ai-explain-panel-close');
+    if (explainClose) {
+      explainClose.addEventListener('click', function() {
+        explainPanel.classList.remove('visible');
+      });
+    }
+
+    var explainBtn = document.getElementById('ai-explain-btn');
+    if (explainBtn) {
+      explainBtn.addEventListener('click', function(ev) {
+        ev.preventDefault();
+        var selected = ta.value.slice(ta.selectionStart, ta.selectionEnd);
+        var code = selected.trim() || ta.value;
+        if (!code.trim()) return;
+        explainBtn.disabled = true;
+        explainBody.textContent = 'Asking Claude…';
+        explainPanel.classList.add('visible');
+        fetch('/api/ai/explain', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ code: code.slice(0, 4000), language: lang }),
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(j) {
+          explainBtn.disabled = false;
+          if (j && j.explanation) {
+            explainBody.textContent = j.explanation;
+          } else {
+            explainBody.textContent = (j && j.error) || 'No explanation returned.';
+          }
+        })
+        .catch(function() {
+          explainBtn.disabled = false;
+          explainBody.textContent = 'Network error — please try again.';
+        });
+      });
+    }
+
+    // ── Fix panel ─────────────────────────────────────────────────────
+    if (fixPanel && gateError) {
+      var fixBtn = document.getElementById('ai-fix-btn');
+      var fixExplanation = fixPanel.querySelector('.ai-fix-panel-explanation');
+      var fixApply = fixPanel.querySelector('.ai-fix-panel-apply');
+
+      if (fixBtn) {
+        fixBtn.addEventListener('click', function(ev) {
+          ev.preventDefault();
+          fixBtn.disabled = true;
+          fixExplanation.textContent = 'Analyzing error and generating fix…';
+          fixPanel.classList.add('visible');
+          fetch('/api/ai/fix', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ code: ta.value.slice(0, 4000), error: gateError, language: lang }),
+          })
+          .then(function(r) { return r.json(); })
+          .then(function(j) {
+            fixBtn.disabled = false;
+            if (j && j.fix) {
+              fixCode = j.fix;
+              fixExplanation.textContent = j.explanation || 'Fix ready.';
+              fixApply.style.display = 'inline-flex';
+            } else {
+              fixExplanation.textContent = (j && j.error) || 'Could not generate fix.';
+              fixApply.style.display = 'none';
+            }
+          })
+          .catch(function() {
+            fixBtn.disabled = false;
+            fixExplanation.textContent = 'Network error — please try again.';
+          });
+        });
+
+        // Auto-trigger if gate error is present and editor just loaded
+        setTimeout(function() { fixBtn.click(); }, 600);
+      }
+
+      if (fixApply) {
+        fixApply.addEventListener('click', function() {
+          if (!fixCode) return;
+          if (confirm('Apply the AI fix? This will replace the current editor content.')) {
+            ta.value = fixCode;
+            ta.dispatchEvent(new Event('input', { bubbles: true }));
+            fixPanel.classList.remove('visible');
+          }
+        });
+      }
+    }
+
+  } catch(e) {
+    console.debug('[ai-editor] init error', e);
+  }
+})();
+`;
+}
+
 // ─── Scoped CSS (.editor-*) ─────────────────────────────────────────────────
 // Every selector is prefixed `.editor-*` so this surface can't bleed into
 // the repo header / nav above. Tokens reused from layout (--bg-elevated,
@@ -626,6 +952,160 @@ const editorStyles = `
   .editor-field .cm-editor .cm-scroller {
     font-family: var(--font-mono);
   }
+
+  /* ─── AI inline suggestion overlay ─── */
+  .editor-wrapper {
+    position: relative;
+  }
+  .ai-suggestion {
+    position: absolute;
+    color: #555;
+    font-style: italic;
+    pointer-events: none;
+    white-space: pre;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 1.55;
+  }
+  .ai-loading {
+    position: absolute;
+    right: 10px;
+    top: 10px;
+    font-size: 11px;
+    color: #888;
+    display: none;
+    align-items: center;
+    gap: 5px;
+    pointer-events: none;
+    z-index: 10;
+  }
+  .ai-loading.visible { display: flex; }
+  .ai-spinner {
+    width: 10px;
+    height: 10px;
+    border: 1.5px solid rgba(164,139,255,0.3);
+    border-top-color: #a48bff;
+    border-radius: 50%;
+    animation: ai-spin 0.7s linear infinite;
+  }
+  @keyframes ai-spin {
+    to { transform: rotate(360deg); }
+  }
+
+  /* ─── AI explain panel ─── */
+  .ai-explain-panel {
+    background: #1a1a2e;
+    border: 1px solid #2a2a4a;
+    border-radius: 8px;
+    padding: 14px 16px;
+    margin-top: 10px;
+    display: none;
+    position: relative;
+  }
+  .ai-explain-panel.visible { display: block; }
+  .ai-explain-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+  }
+  .ai-explain-panel-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #a48bff;
+  }
+  .ai-explain-panel-close {
+    background: none;
+    border: none;
+    color: var(--text-faint);
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    padding: 2px 5px;
+    border-radius: 4px;
+  }
+  .ai-explain-panel-close:hover { color: var(--text); background: rgba(255,255,255,0.06); }
+  .ai-explain-panel-body {
+    font-size: 13px;
+    color: var(--text-muted);
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  /* ─── AI fix panel ─── */
+  .ai-fix-panel {
+    background: #1a1a2e;
+    border: 1px solid #2a2a4a;
+    border-left: 3px solid #f59e0b;
+    border-radius: 8px;
+    padding: 14px 16px;
+    margin-top: 10px;
+    display: none;
+  }
+  .ai-fix-panel.visible { display: block; }
+  .ai-fix-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+  }
+  .ai-fix-panel-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #f59e0b;
+  }
+  .ai-fix-panel-explanation {
+    font-size: 12.5px;
+    color: var(--text-muted);
+    margin-bottom: 10px;
+    line-height: 1.5;
+  }
+  .ai-fix-panel-apply {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 6px 12px;
+    background: rgba(245,158,11,0.12);
+    border: 1px solid rgba(245,158,11,0.35);
+    border-radius: 6px;
+    color: #f59e0b;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    font: inherit;
+    transition: background 100ms ease;
+  }
+  .ai-fix-panel-apply:hover { background: rgba(245,158,11,0.22); }
+
+  /* ─── AI badge ─── */
+  .ai-powered-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    color: #a48bff;
+    background: rgba(140,109,255,0.08);
+    border: 1px solid rgba(140,109,255,0.20);
+    border-radius: 999px;
+    padding: 3px 8px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    white-space: nowrap;
+  }
+
+  /* ─── AI suggestion hint ─── */
+  .ai-suggestion-hint {
+    font-size: 11px;
+    color: var(--text-faint);
+    margin-top: 5px;
+    display: none;
+  }
+  .ai-suggestion-hint.visible { display: block; }
 `;
 
 function IconBranch() {
@@ -644,6 +1124,7 @@ editor.get("/:owner/:repo/new/:ref{.+$}", requireAuth, requireRepoAccess("write"
   const { owner, repo } = c.req.param();
   const user = c.get("user")!;
   const refAndPath = c.req.param("ref");
+  const aiEnabled = isAiAvailable();
 
   // Parse ref — use first segment
   const slashIdx = refAndPath.indexOf("/");
@@ -682,10 +1163,17 @@ editor.get("/:owner/:repo/new/:ref{.+$}", requireAuth, requireRepoAccess("write"
             <span class="editor-path-sep">/</span>
             <span class="editor-path-name">new file…</span>
           </div>
-          <span class="editor-branch-pill" title="Target branch">
-            <IconBranch />
-            {ref}
-          </span>
+          <div style="display:flex;align-items:center;gap:8px">
+            {aiEnabled && (
+              <span class="ai-powered-badge" title="Claude-powered inline suggestions">
+                ✨ AI-powered editor
+              </span>
+            )}
+            <span class="editor-branch-pill" title="Target branch">
+              <IconBranch />
+              {ref}
+            </span>
+          </div>
         </div>
 
         <form
@@ -742,6 +1230,16 @@ editor.get("/:owner/:repo/new/:ref{.+$}", requireAuth, requireRepoAccess("write"
             <button type="submit" class="editor-btn editor-btn-primary">
               Commit new file
             </button>
+            {aiEnabled && (
+              <button
+                type="button"
+                id="ai-explain-btn"
+                class="editor-btn editor-btn-ai"
+                title="Explain selected code (or full file) with Claude"
+              >
+                Explain code
+              </button>
+            )}
             <a href={`/${owner}/${repo}`} class="editor-btn editor-btn-ghost">
               Cancel
             </a>
@@ -756,6 +1254,15 @@ editor.get("/:owner/:repo/new/:ref{.+$}", requireAuth, requireRepoAccess("write"
               }),
             }}
           />
+          {aiEnabled && (
+            <script
+              dangerouslySetInnerHTML={{
+                __html:
+                  `window.__aiEditorEnabled = true;\n` +
+                  AI_EDITOR_SCRIPT({ lang: "plaintext", gateError: "" }),
+              }}
+            />
+          )}
         </form>
       </div>
       <style dangerouslySetInnerHTML={{ __html: editorStyles }} />
@@ -865,6 +1372,7 @@ editor.get("/:owner/:repo/edit/:ref{.+$}", requireAuth, requireRepoAccess("write
   const { owner, repo } = c.req.param();
   const user = c.get("user")!;
   const refAndPath = c.req.param("ref");
+  const aiEnabled = isAiAvailable();
 
   // Parse ref/path
   const slashIdx = refAndPath.indexOf("/");
@@ -884,6 +1392,10 @@ editor.get("/:owner/:repo/edit/:ref{.+$}", requireAuth, requireRepoAccess("write
 
   const fileName = filePath.split("/").pop() || filePath;
   const dirParts = filePath.split("/").slice(0, -1);
+  const lang = detectEditorLang(filePath);
+
+  // GateTest error from query param (e.g. redirect after failed push gate)
+  const gateError = String(c.req.query("error") ?? "").slice(0, 500);
 
   return c.html(
     <Layout title={`Editing ${filePath} — ${owner}/${repo}`} user={user}>
@@ -933,11 +1445,24 @@ editor.get("/:owner/:repo/edit/:ref{.+$}", requireAuth, requireRepoAccess("write
             <span class="editor-path-sep">/</span>
             <span class="editor-path-name">{fileName}</span>
           </div>
-          <span class="editor-branch-pill" title="Target branch">
-            <IconBranch />
-            {ref}
-          </span>
+          <div style="display:flex;align-items:center;gap:8px">
+            {aiEnabled && (
+              <span class="ai-powered-badge" title="Claude-powered inline suggestions, explain, and fix">
+                ✨ AI-powered editor
+              </span>
+            )}
+            <span class="editor-branch-pill" title="Target branch">
+              <IconBranch />
+              {ref}
+            </span>
+          </div>
         </div>
+
+        {gateError && (
+          <div style="margin-bottom:var(--space-3);padding:10px 14px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.35);border-radius:10px;font-size:13px;color:#f59e0b;line-height:1.5">
+            <strong>GateTest error:</strong>{" "}{gateError}
+          </div>
+        )}
 
         <form
           method="post"
@@ -955,7 +1480,7 @@ editor.get("/:owner/:repo/edit/:ref{.+$}", requireAuth, requireRepoAccess("write
                 name="content"
                 rows={25}
                 spellcheck={false}
-                data-lang={detectEditorLang(filePath)}
+                data-lang={lang}
               >{blob.content}</textarea>
             </div>
             <div class="editor-field" style="margin-bottom:0">
@@ -982,6 +1507,27 @@ editor.get("/:owner/:repo/edit/:ref{.+$}", requireAuth, requireRepoAccess("write
             >
               {"✨"} Suggest with AI
             </button>
+            {aiEnabled && (
+              <button
+                type="button"
+                id="ai-explain-btn"
+                class="editor-btn editor-btn-ai"
+                title="Explain selected code (or full file) with Claude"
+              >
+                Explain code
+              </button>
+            )}
+            {aiEnabled && gateError && (
+              <button
+                type="button"
+                id="ai-fix-btn"
+                class="editor-btn editor-btn-ai"
+                title="Ask Claude to fix the GateTest error"
+                style="border-color:rgba(245,158,11,0.45);color:#f59e0b"
+              >
+                ⚡ Fix error
+              </button>
+            )}
             <a
               href={`/${owner}/${repo}/blob/${ref}/${filePath}`}
               class="editor-btn editor-btn-ghost"
@@ -1005,10 +1551,19 @@ editor.get("/:owner/:repo/edit/:ref{.+$}", requireAuth, requireRepoAccess("write
               __html: CODEMIRROR_INIT_SCRIPT({
                 textareaId: "editor-content-edit",
                 wrapperId: "editor-cm-edit",
-                lang: detectEditorLang(filePath),
+                lang,
               }),
             }}
           />
+          {aiEnabled && (
+            <script
+              dangerouslySetInnerHTML={{
+                __html:
+                  `window.__aiEditorEnabled = true;\n` +
+                  AI_EDITOR_SCRIPT({ lang, gateError }),
+              }}
+            />
+          )}
         </form>
       </div>
       <style dangerouslySetInnerHTML={{ __html: editorStyles }} />

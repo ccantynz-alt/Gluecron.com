@@ -4545,6 +4545,19 @@ pulls.post(
       } catch {
         /* SSE is best-effort */
       }
+      // Notify the PR author — fire-and-forget, never blocks the response.
+      if (pr.authorId && pr.authorId !== user.id) {
+        void import("../lib/notify").then(({ createNotification }) =>
+          createNotification({
+            userId: pr.authorId,
+            type: "pr_comment",
+            title: `New comment on "${pr.title}"`,
+            body: commentBody.length > 200 ? commentBody.slice(0, 200) + "…" : commentBody,
+            url: `/${ownerName}/${repoName}/pulls/${prNum}`,
+            repoId: resolved.repo.id,
+          })
+        ).catch(() => { /* never block the response */ });
+      }
     }
 
     if (decision.status === "pending") {

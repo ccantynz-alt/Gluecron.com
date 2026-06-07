@@ -1699,6 +1699,19 @@ issueRoutes.post(
       } catch {
         /* SSE is best-effort */
       }
+      // Notify the issue author — fire-and-forget, never blocks the response.
+      if (issue.authorId && issue.authorId !== user.id) {
+        void import("../lib/notify").then(({ createNotification }) =>
+          createNotification({
+            userId: issue.authorId,
+            type: "issue_comment",
+            title: `New comment on "${issue.title}"`,
+            body: commentBody.length > 200 ? commentBody.slice(0, 200) + "…" : commentBody,
+            url: `/${ownerName}/${repoName}/issues/${issueNum}`,
+            repoId: resolved.repo.id,
+          })
+        ).catch(() => { /* never block the response */ });
+      }
     }
 
     if (decision.status === "pending") {

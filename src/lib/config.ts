@@ -121,4 +121,13 @@ export const config = {
   get redisUrl() {
     return process.env.REDIS_URL || process.env.VALKEY_URL || "";
   },
+  /**
+   * AI Auto-Issue Opener (src/lib/ai-auto-issues.ts). When set to "1",
+   * every git push is scanned for TODOs, hardcoded secrets, SQL injection
+   * patterns, and debug console.log calls; matching findings automatically
+   * open issues in the repository. Off by default.
+   */
+  get aiAutoIssues() {
+    return process.env.AI_AUTO_ISSUES === "1";
+  },
 };

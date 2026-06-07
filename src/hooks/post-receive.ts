@@ -25,6 +25,7 @@ import {
   getRepoPath,
 } from "../git/repository";
 import { indexChangedFiles } from "../lib/semantic-index";
+import { scanDiffForIssues } from "../lib/ai-auto-issues";
 import { enqueuePreviewBuild } from "../lib/branch-previews";
 import { runDocDriftCheckForRepo } from "../lib/ai-doc-updater";
 import {
@@ -44,7 +45,8 @@ interface PushRef {
 export async function onPostReceive(
   owner: string,
   repo: string,
-  refs: PushRef[]
+  refs: PushRef[],
+  pusherUserId: string = ""
 ): Promise<void> {
   for (const ref of refs) {
     if (ref.newSha.startsWith("0000")) continue; // Branch deletion
@@ -123,6 +125,18 @@ export async function onPostReceive(
   void firePreviewBuilds(owner, repo, refs).catch((err) =>
     console.warn("[branch-previews] dispatch error:", err)
   );
+
+  // 4e. AI Auto-Issue Opener. Scans the diff for each pushed ref for
+  //     TODO/FIXME/HACK comments, hardcoded secrets, SQL injection patterns,
+  //     and debug console.log calls. Opens one issue per finding type per
+  //     file (capped at MAX_ISSUES_PER_PUSH). Gated on AI_AUTO_ISSUES=1.
+  //     Fire-and-forget; never blocks the push path.
+  for (const ref of refs) {
+    if (ref.newSha.startsWith("0000")) continue;
+    scanDiffForIssues(owner, repo, ref.oldSha, ref.newSha, pusherUserId).catch(
+      (err) => console.warn("[ai-auto-issues] dispatch error:", err)
+    );
+  }
 
   // 4d. AI-tracked documentation drift check (migration 0068). Walks the
   //     repo's markdown files for `<!-- gluecron:doc-track ... -->`

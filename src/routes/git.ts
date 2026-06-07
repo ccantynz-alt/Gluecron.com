@@ -93,6 +93,16 @@ git.post("/:owner/:repo.git/git-receive-pack", async (c) => {
   const bodyBuffer = await c.req.arrayBuffer();
   const refs = parseReceivePackRefs(new Uint8Array(bodyBuffer));
 
+  // Resolve the pusher early so we can pass it to both the policy gate and
+  // the post-receive hook (e.g. for AI auto-issue attribution).
+  let pusherUserId = "";
+  try {
+    const pusher = await resolvePusher(c.req.header("authorization"));
+    pusherUserId = pusher?.userId || "";
+  } catch {
+    // Fail open — policy gate and post-receive handle missing pushers fine.
+  }
+
   // Pre-receive policy: protected tags + ruleset name patterns. Fail-open
   // on any DB hiccup (the helper returns {allowed:true} in that case).
   // We also retain the repoRow so the pack-inspection hook below can reuse it.
@@ -102,18 +112,17 @@ git.post("/:owner/:repo.git/git-receive-pack", async (c) => {
       const repoRow = await loadRepoRow(owner, repo);
       if (repoRow) {
         cachedRepoId = repoRow.id;
-        const pusher = await resolvePusher(c.req.header("authorization"));
         const decision = await evaluatePushPolicy({
           repositoryId: repoRow.id,
           refs,
-          pusherUserId: pusher?.userId || null,
+          pusherUserId: pusherUserId || null,
         });
         if (!decision.allowed) {
           // Audit the rejection so owners can see blocked-push attempts
           // even though the request never reached the post-receive hook.
           // Fire-and-forget — never block the 403.
           audit({
-            userId: pusher?.userId || null,
+            userId: pusherUserId || null,
             repositoryId: repoRow.id,
             action: "push.rejected",
             targetType: "repository",
@@ -126,7 +135,7 @@ git.post("/:owner/:repo.git/git-receive-pack", async (c) => {
             metadata: {
               violations: decision.violations,
               refs: refs.map((r) => r.refName),
-              pusherSource: pusher?.source || "anonymous",
+              pusherSource: pusherUserId ? "user" : "anonymous",
             },
           }).catch((err) => {
             console.warn(
@@ -182,7 +191,7 @@ git.post("/:owner/:repo.git/git-receive-pack", async (c) => {
 
   // Fire post-receive hooks asynchronously (don't block response).
   if (refs.length > 0) {
-    onPostReceive(owner, repo, refs).catch((err) =>
+    onPostReceive(owner, repo, refs, pusherUserId).catch((err) =>
       console.error("[post-receive] hook error:", err)
     );
   }

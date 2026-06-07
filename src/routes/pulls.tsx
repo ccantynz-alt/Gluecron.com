@@ -20,6 +20,7 @@ import {
   pullRequests,
   prComments,
   prReviews,
+  prReviewRequests,
   repositories,
   users,
   issues,
@@ -123,6 +124,11 @@ import {
 import { suggestReviewers, type ReviewerCandidate } from "../lib/reviewer-suggest";
 import { computePrSize, type PrSizeInfo } from "../lib/pr-size";
 import { BOT_USERNAME } from "../lib/bot-user";
+import {
+  getCodeownersForRepo,
+  reviewersForChangedFiles,
+} from "../lib/codeowners";
+import { checkMergeEligible } from "../lib/branch-rules";
 
 const pulls = new Hono<AuthEnv>();
 
@@ -3183,6 +3189,81 @@ pulls.post(
       })
       .returning();
 
+    // CODEOWNERS — auto-request reviewers based on changed files.
+    // Fire-and-forget; errors never block PR creation.
+    (async () => {
+      try {
+        const repoDir = getRepoPath(ownerName, repoName);
+        // Get list of changed files between base and head
+        const diffProc = Bun.spawn(
+          ["git", "diff", "--name-only", `${baseBranch}...${headBranch}`],
+          { cwd: repoDir, stdout: "pipe", stderr: "pipe" }
+        );
+        const rawDiff = await new Response(diffProc.stdout).text();
+        await diffProc.exited;
+        const changedFiles = rawDiff.trim().split("\n").filter(Boolean);
+
+        if (changedFiles.length > 0) {
+          // Get CODEOWNERS from the default branch of the repo
+          const rules = await getCodeownersForRepo(
+            ownerName,
+            repoName,
+            resolved.repo.defaultBranch
+          );
+          if (rules.length > 0) {
+            const ownerUsernames = await reviewersForChangedFiles(
+              resolved.repo.id,
+              changedFiles
+            );
+            // Filter out the PR author
+            const filteredOwners = ownerUsernames.filter(
+              (u) => u !== resolved.owner.username
+            );
+
+            if (filteredOwners.length > 0) {
+              // Look up user IDs for the owner usernames
+              const reviewerUsers = await db
+                .select({ id: users.id, username: users.username })
+                .from(users)
+                .where(
+                  inArray(
+                    users.username,
+                    filteredOwners
+                  )
+                );
+
+              // Create review request rows (UNIQUE constraint prevents dupes)
+              if (reviewerUsers.length > 0) {
+                await db
+                  .insert(prReviewRequests)
+                  .values(
+                    reviewerUsers.map((u) => ({
+                      prId: pr.id,
+                      reviewerId: u.id,
+                      requestedBy: null as string | null,
+                    }))
+                  )
+                  .onConflictDoNothing();
+
+                // Add a PR comment announcing the auto-assigned reviewers
+                const mentionList = reviewerUsers
+                  .map((u) => `@${u.username}`)
+                  .join(", ");
+                await db.insert(prComments).values({
+                  pullRequestId: pr.id,
+                  authorId: user.id,
+                  body: `AI: Requested review from ${mentionList} based on CODEOWNERS`,
+                  isAiReview: true,
+                });
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("[codeowners] auto-assign failed:", err instanceof Error ? err.message : err);
+      }
+    })();
+
     // Skip AI review on drafts — it runs again when the PR is marked ready.
     if (!isDraft && isAiReviewEnabled()) {
       triggerAiReview(ownerName, repoName, pr.id, title, prBody, baseBranch, headBranch).catch(
@@ -3339,6 +3420,19 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
   const approvals = [...latestReviewByReviewer.values()].filter(r => r.state === "approved");
   const changesRequested = [...latestReviewByReviewer.values()].filter(r => r.state === "changes_requested");
   const viewerHasReviewed = user ? latestReviewByReviewer.has(user.id) : false;
+
+  // Requested reviewers from CODEOWNERS auto-assign (migration 0077).
+  const requestedReviewerRows = await db
+    .select({
+      reviewerUsername: users.username,
+      reviewerId: prReviewRequests.reviewerId,
+      createdAt: prReviewRequests.createdAt,
+    })
+    .from(prReviewRequests)
+    .innerJoin(users, eq(prReviewRequests.reviewerId, users.id))
+    .where(eq(prReviewRequests.prId, pr.id))
+    .orderBy(asc(prReviewRequests.createdAt))
+    .catch(() => [] as { reviewerUsername: string; reviewerId: string; createdAt: Date }[]);
 
   // Suggested reviewers — best-effort, never throws
   let reviewerSuggestions: ReviewerCandidate[] = [];
@@ -4001,6 +4095,39 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
 
           {pr.state === "open" && (prRisk || prRiskCalculating) && (
             <PrRiskCard risk={prRisk} calculating={prRiskCalculating} />
+          )}
+
+          {/* ─── Requested reviewers (CODEOWNERS auto-assign, migration 0077) ─── */}
+          {requestedReviewerRows.length > 0 && (
+            <div class="prs-review-summary" style="margin-top:14px">
+              <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);font-weight:700;margin-bottom:4px">
+                Review requested
+              </div>
+              {requestedReviewerRows.map((rr) => {
+                const hasReviewed = latestReviewByReviewer.has(rr.reviewerId);
+                const review = latestReviewByReviewer.get(rr.reviewerId);
+                const statusIcon = !hasReviewed ? "⏳" : review?.state === "approved" ? "✓" : "✗";
+                const statusColor = !hasReviewed
+                  ? "var(--text-muted)"
+                  : review?.state === "approved"
+                    ? "#34d399"
+                    : "#f87171";
+                return (
+                  <div class="prs-review-row" style={`gap:8px`}>
+                    <span class="prs-reviewer-avatar">
+                      {rr.reviewerUsername.slice(0, 1).toUpperCase()}
+                    </span>
+                    <a href={`/${rr.reviewerUsername}`}
+                       style="flex:1;font-size:13px;color:var(--text);font-weight:600;text-decoration:none">
+                      {rr.reviewerUsername}
+                    </a>
+                    <span style={`font-size:12px;font-weight:600;color:${statusColor}`}>
+                      {statusIcon} {!hasReviewed ? "Pending" : review?.state === "approved" ? "Approved" : "Changes requested"}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
           )}
 
           {/* ─── Review summary ─────────────────────────────────── */}
@@ -4846,6 +4973,17 @@ pulls.post(
           "This PR is a draft. Mark it as ready for review before merging."
         )}`
       );
+    }
+
+    // Required reviews check — branch-protection `required_approvals` gate.
+    // Evaluated before running expensive gate checks so the feedback is fast.
+    {
+      const eligibility = await checkMergeEligible(pr.id, resolved.repo.id, pr.baseBranch);
+      if (!eligibility.eligible && eligibility.reason) {
+        return c.redirect(
+          `/${ownerName}/${repoName}/pulls/${prNum}?error=${encodeURIComponent(eligibility.reason)}`
+        );
+      }
     }
 
     // Resolve head SHA

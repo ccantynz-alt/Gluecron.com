@@ -5,7 +5,7 @@
 import { Hono } from "hono";
 import { eq, and } from "drizzle-orm";
 import { db } from "../db";
-import { repositories, users, repoTransfers } from "../db/schema";
+import { repositories, users, repoTransfers, branchProtection } from "../db/schema";
 import { Layout } from "../views/layout";
 import { RepoHeader } from "../views/components";
 import { softAuth, requireAuth } from "../middleware/auth";
@@ -583,6 +583,13 @@ repoSettings.get("/:owner/:repo/settings", requireAuth, requireRepoAccess("admin
 
   const branches = await listBranches(ownerName, repoName);
 
+  // Branch protection rules for the "Branch protection" settings section.
+  const existingBranchRules = await db
+    .select()
+    .from(branchProtection)
+    .where(eq(branchProtection.repositoryId, repo.id))
+    .catch(() => [] as typeof branchProtection.$inferSelect[]);
+
   return c.html(
     <Layout title={`Settings — ${ownerName}/${repoName}`} user={user}>
       <RepoHeader owner={ownerName} repo={repoName} />
@@ -1091,6 +1098,133 @@ repoSettings.get("/:owner/:repo/settings", requireAuth, requireRepoAccess("admin
           </form>
         </section>
 
+        {/* ─── Branch protection ─── */}
+        <section class="repo-settings-section" id="branch-protection">
+          <div class="repo-settings-section-head">
+            <div class="repo-settings-section-eyebrow">Branch protection</div>
+            <h2 class="repo-settings-section-title">Required reviews before merge</h2>
+            <p class="repo-settings-section-desc">
+              Protect branches by requiring a minimum number of human approvals before
+              a pull request can be merged. Patterns support wildcards (e.g.{" "}
+              <code>release/*</code>). CODEOWNERS auto-assignment applies independently.
+            </p>
+          </div>
+
+          {/* Existing rules list */}
+          {existingBranchRules.length > 0 && (
+            <div style="padding: var(--space-3) var(--space-5) 0">
+              {existingBranchRules.map((rule) => (
+                <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+                  <span style="flex:1;font-family:var(--font-mono);font-size:13px;color:var(--text-strong)">
+                    {rule.pattern}
+                  </span>
+                  <span style="font-size:12.5px;color:var(--text-muted)">
+                    {rule.requiredApprovals} required approval{rule.requiredApprovals !== 1 ? "s" : ""}
+                  </span>
+                  {rule.requireHumanReview && (
+                    <span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:9999px;background:rgba(140,109,255,0.12);color:#b69dff">
+                      codeowner review required
+                    </span>
+                  )}
+                  {rule.dismissStaleReviews && (
+                    <span style="font-size:11px;color:var(--text-muted)">
+                      dismiss stale
+                    </span>
+                  )}
+                  <form method="post" action={`/${ownerName}/${repoName}/settings/branch-protection/${rule.id}/delete`}>
+                    <button type="submit"
+                      class="repo-settings-cta-secondary"
+                      style="padding:4px 10px;font-size:12px;color:var(--red,#f87171)"
+                      onclick="return confirm('Delete this branch protection rule?')"
+                    >
+                      Delete
+                    </button>
+                  </form>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Add new rule form */}
+          <form
+            method="post"
+            action={`/${ownerName}/${repoName}/settings/branch-protection`}
+          >
+            <div class="repo-settings-section-body">
+              <div style="display:grid;grid-template-columns:1fr 120px;gap:var(--space-3);align-items:end">
+                <div class="repo-settings-field" style="margin-bottom:0">
+                  <label class="repo-settings-field-label" for="bp_pattern">
+                    Branch name pattern
+                  </label>
+                  <input
+                    class="repo-settings-input"
+                    name="pattern"
+                    id="bp_pattern"
+                    placeholder="main"
+                    required
+                    aria-label="Branch name pattern"
+                  />
+                  <div class="repo-settings-field-hint">
+                    Exact name or glob like <code>release/*</code>
+                  </div>
+                </div>
+                <div class="repo-settings-field" style="margin-bottom:0">
+                  <label class="repo-settings-field-label" for="bp_required">
+                    Required approvals
+                  </label>
+                  <input
+                    class="repo-settings-input"
+                    name="required_approvals"
+                    id="bp_required"
+                    type="number"
+                    min="0"
+                    max="10"
+                    value="1"
+                    aria-label="Number of required approvals"
+                  />
+                </div>
+              </div>
+              <div style="margin-top:var(--space-3);display:flex;flex-direction:column;gap:8px">
+                <label class="repo-settings-toggle-row" aria-label="Require codeowner review">
+                  <input
+                    type="checkbox"
+                    name="require_codeowner_review"
+                    value="1"
+                  />
+                  <span class="repo-settings-toggle-text">
+                    <span class="repo-settings-toggle-text-title">
+                      Require codeowner review
+                    </span>
+                    <span class="repo-settings-toggle-text-hint">
+                      At least one CODEOWNERS-matched reviewer must approve before merging.
+                    </span>
+                  </span>
+                </label>
+                <label class="repo-settings-toggle-row" aria-label="Dismiss stale reviews">
+                  <input
+                    type="checkbox"
+                    name="dismiss_stale_reviews"
+                    value="1"
+                  />
+                  <span class="repo-settings-toggle-text">
+                    <span class="repo-settings-toggle-text-title">
+                      Dismiss stale reviews on new push
+                    </span>
+                    <span class="repo-settings-toggle-text-hint">
+                      Prior approvals are dismissed when the head branch receives a new commit.
+                    </span>
+                  </span>
+                </label>
+              </div>
+            </div>
+            <div class="repo-settings-section-foot">
+              <button type="submit" class="repo-settings-cta">
+                Add rule <span class="arrow">→</span>
+              </button>
+            </div>
+          </form>
+        </section>
+
         {/* ─── Danger zone ─── */}
         <section class="repo-settings-danger">
           <div class="repo-settings-danger-head">
@@ -1581,6 +1715,132 @@ repoSettings.post(
 
     return c.redirect(
       `/${ownerName}/${repoName}/settings?success=Preview+build+settings+saved`
+    );
+  }
+);
+
+// ─── Branch protection: add rule ───────────────────────────────────────────
+repoSettings.post(
+  "/:owner/:repo/settings/branch-protection",
+  requireAuth,
+  requireRepoAccess("admin"),
+  async (c) => {
+    const { owner: ownerName, repo: repoName } = c.req.param();
+    const user = c.get("user")!;
+    const body = await c.req.parseBody();
+
+    const [owner] = await db
+      .select()
+      .from(users)
+      .where(eq(users.username, ownerName))
+      .limit(1);
+    if (!owner || owner.id !== user.id) {
+      return c.redirect(`/${ownerName}/${repoName}`);
+    }
+
+    const [repo] = await db
+      .select()
+      .from(repositories)
+      .where(and(eq(repositories.ownerId, owner.id), eq(repositories.name, repoName)))
+      .limit(1);
+    if (!repo) return c.notFound();
+
+    const pattern = String(body.pattern || "").trim();
+    if (!pattern) {
+      return c.redirect(
+        `/${ownerName}/${repoName}/settings?error=Pattern+is+required#branch-protection`
+      );
+    }
+
+    const requiredApprovals = Math.max(0, parseInt(String(body.required_approvals || "1"), 10) || 0);
+    const requireHumanReview = body.require_codeowner_review === "1";
+    const dismissStaleReviews = body.dismiss_stale_reviews === "1";
+
+    try {
+      await db
+        .insert(branchProtection)
+        .values({
+          repositoryId: repo.id,
+          pattern,
+          requiredApprovals,
+          requireHumanReview,
+          dismissStaleReviews,
+        })
+        .onConflictDoUpdate({
+          target: [branchProtection.repositoryId, branchProtection.pattern],
+          set: {
+            requiredApprovals,
+            requireHumanReview,
+            dismissStaleReviews,
+            updatedAt: new Date(),
+          },
+        });
+
+      await audit({
+        userId: user.id,
+        repositoryId: repo.id,
+        action: "branch_protection.updated",
+        targetType: "repository",
+        targetId: repo.id,
+        metadata: { pattern, requiredApprovals, requireHumanReview, dismissStaleReviews },
+      });
+    } catch (err) {
+      return c.redirect(
+        `/${ownerName}/${repoName}/settings?error=${encodeURIComponent("Failed to save rule: " + String(err instanceof Error ? err.message : err))}#branch-protection`
+      );
+    }
+
+    return c.redirect(
+      `/${ownerName}/${repoName}/settings?success=Branch+protection+rule+saved#branch-protection`
+    );
+  }
+);
+
+// ─── Branch protection: delete rule ────────────────────────────────────────
+repoSettings.post(
+  "/:owner/:repo/settings/branch-protection/:ruleId/delete",
+  requireAuth,
+  requireRepoAccess("admin"),
+  async (c) => {
+    const { owner: ownerName, repo: repoName, ruleId } = c.req.param();
+    const user = c.get("user")!;
+
+    const [owner] = await db
+      .select()
+      .from(users)
+      .where(eq(users.username, ownerName))
+      .limit(1);
+    if (!owner || owner.id !== user.id) {
+      return c.redirect(`/${ownerName}/${repoName}`);
+    }
+
+    const [repo] = await db
+      .select()
+      .from(repositories)
+      .where(and(eq(repositories.ownerId, owner.id), eq(repositories.name, repoName)))
+      .limit(1);
+    if (!repo) return c.notFound();
+
+    await db
+      .delete(branchProtection)
+      .where(
+        and(
+          eq(branchProtection.id, ruleId),
+          eq(branchProtection.repositoryId, repo.id)
+        )
+      );
+
+    await audit({
+      userId: user.id,
+      repositoryId: repo.id,
+      action: "branch_protection.deleted",
+      targetType: "repository",
+      targetId: repo.id,
+      metadata: { ruleId },
+    });
+
+    return c.redirect(
+      `/${ownerName}/${repoName}/settings?success=Branch+protection+rule+deleted#branch-protection`
     );
   }
 );

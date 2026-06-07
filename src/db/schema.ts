@@ -490,6 +490,30 @@ export const codeOwners = pgTable(
 );
 
 /**
+ * PR review requests — tracks reviewers auto-assigned via CODEOWNERS
+ * or manually requested. The UNIQUE constraint prevents duplicate requests.
+ * Migration 0077.
+ */
+export const prReviewRequests = pgTable(
+  "pr_review_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    prId: uuid("pr_id")
+      .notNull()
+      .references(() => pullRequests.id, { onDelete: "cascade" }),
+    reviewerId: uuid("reviewer_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    requestedBy: uuid("requested_by").references(() => users.id),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("pr_review_requests_pr").on(table.prId),
+    index("pr_review_requests_reviewer").on(table.reviewerId),
+  ]
+);
+
+/**
  * Per-repo AI chat sessions — conversational repo assistant.
  */
 export const aiChats = pgTable(
@@ -1001,6 +1025,7 @@ export type Milestone = typeof milestones.$inferSelect;
 export type Reaction = typeof reactions.$inferSelect;
 export type PrReview = typeof prReviews.$inferSelect;
 export type CodeOwner = typeof codeOwners.$inferSelect;
+export type PrReviewRequest = typeof prReviewRequests.$inferSelect;
 export type AiChat = typeof aiChats.$inferSelect;
 export type AuditLogEntry = typeof auditLog.$inferSelect;
 export type Deployment = typeof deployments.$inferSelect;

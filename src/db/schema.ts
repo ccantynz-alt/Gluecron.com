@@ -12,6 +12,7 @@ import {
   jsonb,
   numeric,
   customType,
+  primaryKey,
 } from "drizzle-orm/pg-core";
 
 // Postgres `bytea` — drizzle-orm doesn't ship a first-class bytea column, so
@@ -131,6 +132,12 @@ export const users = pgTable("users", {
   // drip schedule and sends any outstanding emails. Never null — defaults to
   // an empty array at insert time.
   onboardingEmailsSent: jsonb("onboarding_emails_sent").$type<string[]>().default([]).notNull(),
+  // Migration 0089 — Smart morning digest (AI-curated daily notification queue).
+  // When true, the autopilot `smart-digest` task delivers one AI-curated
+  // digest notification per day at 07:00 UTC. Independent cooldown via
+  // `lastSmartDigestSentAt` so it doesn't interact with weekly email digest.
+  notifySmartDigest: boolean("notify_smart_digest").default(true).notNull(),
+  lastSmartDigestSentAt: timestamp("last_smart_digest_sent_at", { withTimezone: true }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -242,6 +249,9 @@ export const repositories = pgTable(
     // and auto-merges (pass) or opens a PR with an AI migration guide
     // (fail). Default false — off by default because it touches branches.
     depUpdaterEnabled: boolean("dep_updater_enabled").default(false).notNull(),
+    // Migration 0088 — smart empty states. Set to true once the onboarding
+    // card has been dismissed by the repo owner. Generated on first push.
+    onboardingShown: boolean("onboarding_shown").default(false).notNull(),
   },
   (table) => [
     // Partial: uniqueness only in the user namespace (org-owned rows exempt).
@@ -4471,3 +4481,99 @@ export type NewCloudDeployConfig = typeof cloudDeployConfigs.$inferInsert;
 export type CloudDeployment = typeof cloudDeployments.$inferSelect;
 export type NewCloudDeployment = typeof cloudDeployments.$inferInsert;
 >>>>>>> b11ffa9 (feat: multi-cloud deploy integration — push to main deploys to Fly/Railway/Render/Vercel)
+// ---------------------------------------------------------------------------
+// Recurring pattern detection (migration 0088)
+// ---------------------------------------------------------------------------
+
+export const recurringPatterns = pgTable(
+  "recurring_patterns",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    occurrences: integer("occurrences").notNull().default(1),
+    commitShas: jsonb("commit_shas").$type<string[]>().notNull().default([]),
+    rootCauseHypothesis: text("root_cause_hypothesis"),
+    suggestedFile: text("suggested_file"),
+    severity: text("severity").notNull().default("medium"),
+    detectedAt: timestamp("detected_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    index("idx_recurring_patterns_repo").on(table.repositoryId),
+    index("idx_recurring_patterns_expires").on(table.expiresAt),
+  ]
+);
+
+export type RecurringPattern = typeof recurringPatterns.$inferSelect;
+export type NewRecurringPattern = typeof recurringPatterns.$inferInsert;
+// ---------------------------------------------------------------------------
+// Bus Factor Cache — migration 0088
+// Stores per-repo knowledge concentration analysis (at-risk files where one
+// author owns >75% of commits). Refreshed on demand; 7-day soft TTL.
+// ---------------------------------------------------------------------------
+export const busFactorCache = pgTable("bus_factor_cache", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  repositoryId: uuid("repository_id")
+    .notNull()
+    .references(() => repositories.id, { onDelete: "cascade" })
+    .unique(),
+  analyzedAt: timestamp("analyzed_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  atRiskFiles: jsonb("at_risk_files").notNull().default([]),
+  totalFilesAnalyzed: integer("total_files_analyzed").notNull().default(0),
+});
+// ---------------------------------------------------------------------------
+// Migration 0088 — PR visit tracking for context-restore feature
+// ---------------------------------------------------------------------------
+
+/**
+ * pr_visits — lightweight upsert table tracking each user's last visit to a
+ * PR. Used by `src/lib/review-context.ts` to compute what changed since the
+ * reviewer was last here and generate a "Welcome back" context banner.
+ */
+export const prVisits = pgTable(
+  "pr_visits",
+  {
+    prId: uuid("pr_id")
+      .notNull()
+      .references(() => pullRequests.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    visitedAt: timestamp("visited_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.prId, t.userId] })]
+);
+
+export type PrVisit = typeof prVisits.$inferSelect;
+// ---------------------------------------------------------------------------
+// Migration 0088 — Smart empty states: repo onboarding data
+// Generated by generateRepoOnboarding() on first push to a repo.
+// ---------------------------------------------------------------------------
+export const repoOnboardingData = pgTable("repo_onboarding_data", {
+  repositoryId: uuid("repository_id")
+    .primaryKey()
+    .references(() => repositories.id, { onDelete: "cascade" }),
+  detectedLanguage: text("detected_language"),
+  detectedFramework: text("detected_framework"),
+  suggestedReadme: text("suggested_readme"),
+  suggestedLabels: jsonb("suggested_labels")
+    .notNull()
+    .default([])
+    .$type<Array<{ name: string; color: string; description: string }>>(),
+  suggestedGatesConfig: text("suggested_gates_config"),
+  firstCommitSuggestions: jsonb("first_commit_suggestions")
+    .notNull()
+    .default([])
+    .$type<string[]>(),
+  generatedAt: timestamp("generated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export type RepoOnboardingData = typeof repoOnboardingData.$inferSelect;
+export type NewRepoOnboardingData = typeof repoOnboardingData.$inferInsert;

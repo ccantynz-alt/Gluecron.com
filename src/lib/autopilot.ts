@@ -72,6 +72,7 @@ import { expireOldPreviews } from "./branch-previews";
 import { getBotUserIdOrFallback } from "./bot-user";
 import { runOnboardingDripTaskOnce } from "./onboarding-drip";
 import { runDepUpdateSweepOnce } from "./dep-updater-sweep";
+import { sendSmartDigestsToAll } from "./smart-digest";
 
 export interface AutopilotTaskResult {
   name: string;
@@ -193,6 +194,15 @@ function advancementScanDayOfWeek(): number {
   if (!Number.isFinite(n) || n < 0 || n > 6) return 1;
   return Math.floor(n);
 }
+
+/**
+ * Smart-digest cadence. Designed to run once per day at 07:00 UTC.
+ * The task itself checks `lastSmartDigestSentAt` per user (20h cooldown),
+ * so even if the outer loop fires multiple times near 07:00, only one
+ * digest is ever sent per day per user.
+ */
+const SMART_DIGEST_INTERVAL_MS = 22 * 60 * 60 * 1000; // 22h between outer checks
+let _lastSmartDigestAt = 0;
 
 /**
  * Default task set. Each task is a thin wrapper around an existing locked
@@ -692,6 +702,26 @@ export function defaultTasks(): AutopilotTask[] {
           );
         } catch (err) {
           console.error("[autopilot] dep-update-sweep: threw:", err);
+      // Smart morning digest — AI-curated daily developer queue.
+      // Fires once per day at 07:00 UTC (or whenever the 22h outer gate
+      // next opens after 07:00). Per-user 20h cooldown in sendSmartDigest
+      // ensures no user receives more than one digest per day even if the
+      // outer gate fires multiple times. Requires ANTHROPIC_API_KEY but
+      // degrades gracefully to a rule-based prioritisation when unset.
+      name: "smart-digest",
+      run: async () => {
+        const now = Date.now();
+        const nowDate = new Date(now);
+        // Only fire at hour=7 UTC or if last run was >22h ago (catch-up)
+        const isDigestHour = nowDate.getUTCHours() === 7;
+        const pastCooldown = now - _lastSmartDigestAt >= SMART_DIGEST_INTERVAL_MS;
+        if (!isDigestHour && !pastCooldown) return;
+        _lastSmartDigestAt = now;
+        try {
+          await sendSmartDigestsToAll();
+          console.log("[autopilot] smart-digest: completed");
+        } catch (err) {
+          console.error("[autopilot] smart-digest: threw:", err);
         }
       },
     },

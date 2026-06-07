@@ -67,6 +67,8 @@ import {
 import { triggerPrTriage } from "../lib/pr-triage";
 import { generatePrSummary } from "../lib/ai-generators";
 import { isAiAvailable } from "../lib/ai-client";
+import { getPatternWarning, type Pattern } from "../lib/pattern-detector";
+import { getReviewContext, recordPrVisit, type ReviewContext } from "../lib/review-context";
 import {
   computePrRiskForPullRequest,
   getCachedPrRisk,
@@ -142,6 +144,10 @@ import {
 import { upgradeWebSocket, websocket as presenceWebsocket } from "hono/bun";
 
 export { presenceWebsocket };
+import { getBusFactorWarning, type BusFactorFile } from "../lib/bus-factor";
+import { suggestPrSplit, type SplitSuggestion } from "../lib/pr-splitter";
+import { analyzeImpact, type ImpactAnalysis } from "../lib/pr-impact";
+import { getPreviewDir, isPreviewExpired } from "../lib/pr-stage";
 
 const pulls = new Hono<AuthEnv>();
 
@@ -1127,6 +1133,7 @@ const PRS_DETAIL_STYLES = `
   .slash-pill.slash-cmd-rebase { border-left-color: #f0883e; }
   .slash-pill.slash-cmd-needs-work { border-left-color: #f85149; }
   .slash-pill.slash-cmd-lgtm { border-left-color: #56d364; }
+  .slash-pill.slash-cmd-stage { border-left-color: #36c5d6; }
 
   /* ─── Branch-preview pill (migration 0062). Scoped .preview-*. */
   .preview-prpill {
@@ -1488,6 +1495,102 @@ const PRS_DETAIL_STYLES = `
   .trio-pills-wrap {
     display: inline-flex; align-items: center; gap: 4px;
   }
+
+  /* ─── Bus Factor Warning Panel ─── */
+  .busfactor-panel {
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+    padding: 14px 18px;
+    margin-bottom: 16px;
+    border-radius: 12px;
+    border: 1px solid rgba(245,158,11,0.35);
+    background: rgba(245,158,11,0.06);
+  }
+  .busfactor-critical {
+    border-color: rgba(239,68,68,0.4);
+    background: rgba(239,68,68,0.06);
+  }
+  .busfactor-high {
+    border-color: rgba(249,115,22,0.4);
+    background: rgba(249,115,22,0.06);
+  }
+  .busfactor-medium {
+    border-color: rgba(245,158,11,0.35);
+    background: rgba(245,158,11,0.06);
+  }
+  .busfactor-icon { font-size: 20px; flex-shrink: 0; margin-top: 2px; }
+  .busfactor-body { flex: 1; min-width: 0; }
+  .busfactor-body strong { font-size: 14px; font-weight: 700; color: var(--text-strong); display: block; margin-bottom: 4px; }
+  .busfactor-body p { font-size: 13px; color: var(--text-muted); margin: 0 0 8px; }
+  .busfactor-body ul { margin: 0; padding-left: 18px; }
+  .busfactor-body li { font-size: 12.5px; color: var(--text-muted); margin-bottom: 3px; font-family: var(--font-mono); }
+  .busfactor-body li strong { font-size: 12.5px; color: var(--text); display: inline; }
+
+  /* ─── PR Split Suggestion Panel ─── */
+  .split-suggestion {
+    margin-bottom: 16px;
+    border: 1px solid rgba(140,109,255,0.35);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .split-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 18px;
+    background: rgba(140,109,255,0.06);
+    flex-wrap: wrap;
+  }
+  .split-icon { font-size: 18px; flex-shrink: 0; }
+  .split-header strong { font-size: 14px; font-weight: 700; color: var(--text-strong); flex: 1; min-width: 200px; }
+  .split-stat { font-size: 12px; color: var(--text-muted); background: var(--bg-elevated); padding: 2px 9px; border-radius: 9999px; border: 1px solid var(--border); white-space: nowrap; }
+  .split-toggle {
+    background: none;
+    border: 1px solid rgba(140,109,255,0.45);
+    color: rgba(140,109,255,0.9);
+    font-size: 12.5px;
+    font-weight: 600;
+    padding: 4px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 120ms ease;
+  }
+  .split-toggle:hover { background: rgba(140,109,255,0.1); }
+  .split-body {
+    padding: 16px 18px;
+    border-top: 1px solid rgba(140,109,255,0.2);
+  }
+  .split-intro { font-size: 13.5px; color: var(--text-muted); margin: 0 0 14px; }
+  .split-pr {
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .split-pr:last-of-type { border-bottom: none; }
+  .split-pr-num {
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #8c6dff 0%, #36c5d6 130%);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 800;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+  .split-pr-body { flex: 1; min-width: 0; }
+  .split-pr-body strong { font-size: 13.5px; font-weight: 700; color: var(--text-strong); display: block; margin-bottom: 4px; }
+  .split-pr-body p { font-size: 12.5px; color: var(--text-muted); margin: 0 0 6px; }
+  .split-pr-body code { font-size: 12px; color: var(--text-muted); font-family: var(--font-mono); word-break: break-all; }
+  .split-lines { display: inline-block; margin-left: 10px; font-size: 11.5px; color: var(--text-muted); background: var(--bg-tertiary); padding: 1px 7px; border-radius: 9999px; }
+  .split-order { font-size: 13px; color: var(--text-muted); margin: 14px 0 0; }
+  .split-order strong { color: var(--text); }
 `;
 
 /* ──────────────────────────────────────────────────────────────────────
@@ -1603,6 +1706,124 @@ const PRESENCE_STYLES = `
   }
   .presence-toast.fading { opacity: 0; }
 `;
+  /* ─── Merge Impact Analysis panel (.impact-*) ─── */
+  .impact-panel {
+    margin-top: 20px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--bg-elevated);
+  }
+  .impact-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    background: var(--bg-elevated);
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    user-select: none;
+  }
+  .impact-header:hover { background: var(--bg-hover); }
+  .impact-score {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 34px;
+    height: 24px;
+    border-radius: 9999px;
+    font-size: 11.5px;
+    font-weight: 800;
+    padding: 0 8px;
+    letter-spacing: 0.01em;
+    border: 1.5px solid transparent;
+  }
+  .impact-score.score-low {
+    color: #34d399;
+    background: rgba(52,211,153,0.12);
+    border-color: rgba(52,211,153,0.35);
+  }
+  .impact-score.score-medium {
+    color: #fbbf24;
+    background: rgba(251,191,36,0.12);
+    border-color: rgba(251,191,36,0.35);
+  }
+  .impact-score.score-high {
+    color: #f87171;
+    background: rgba(248,113,113,0.12);
+    border-color: rgba(248,113,113,0.35);
+  }
+  .impact-header strong {
+    font-size: 13.5px;
+    color: var(--text-strong);
+    font-weight: 700;
+  }
+  .impact-summary {
+    font-size: 12.5px;
+    color: var(--text-muted);
+    flex: 1;
+  }
+  .impact-toggle {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 11px;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+    transition: color 120ms;
+    line-height: 1;
+  }
+  .impact-toggle:hover { color: var(--text); }
+  .impact-toggle.is-open { transform: rotate(180deg); }
+  .impact-body {
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .impact-body[hidden] { display: none; }
+  .impact-section h4 {
+    margin: 0 0 8px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .impact-file-list {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .impact-file-list li {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text);
+    padding: 3px 8px;
+    background: var(--bg-secondary);
+    border-radius: 5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .impact-downstream .impact-file-list li {
+    background: rgba(248,113,113,0.06);
+    border: 1px solid rgba(248,113,113,0.15);
+  }
+  .impact-downstream h4 {
+    color: #f87171;
+  }
+  .impact-empty {
+    font-size: 12.5px;
+    color: var(--text-muted);
+    font-style: italic;
+  }
+`;
+
 
 
 /**
@@ -2100,6 +2321,83 @@ function riskBandLabel(band: PrRiskScore["band"]): string {
     case "critical":
       return "CRITICAL";
   }
+}
+
+// ---------------------------------------------------------------------------
+// Merge Impact Analysis — collapsible panel showing affected files and
+// downstream repos. Shown on open PRs for users with write access.
+// ---------------------------------------------------------------------------
+
+function ImpactPanel({ analysis, owner }: { analysis: ImpactAnalysis; owner: string }) {
+  const score = analysis.riskScore;
+  const band = score <= 30 ? "low" : score <= 60 ? "medium" : "high";
+  const hasAny =
+    analysis.affectedTestFiles.length > 0 ||
+    analysis.affectedFiles.length > 0 ||
+    analysis.downstreamRepos.length > 0;
+
+  return (
+    <div class="impact-panel">
+      <div
+        class="impact-header"
+        onclick="(function(h){var b=h.parentElement.querySelector('.impact-body');var t=h.querySelector('.impact-toggle');if(!b)return;var hidden=b.hasAttribute('hidden');if(hidden){b.removeAttribute('hidden');t&&t.classList.add('is-open');}else{b.setAttribute('hidden','');t&&t.classList.remove('is-open');}})(this)"
+      >
+        <span class={`impact-score score-${band}`}>{score}</span>
+        <strong>Merge Impact</strong>
+        <span class="impact-summary">{analysis.riskSummary}</span>
+        <button class="impact-toggle" type="button" aria-label="Toggle impact panel">
+          ▼
+        </button>
+      </div>
+      <div class="impact-body" hidden>
+        <div class="impact-section">
+          <h4>Affected test files ({analysis.affectedTestFiles.length})</h4>
+          {analysis.affectedTestFiles.length === 0 ? (
+            <span class="impact-empty">No test files reference the changed files.</span>
+          ) : (
+            <ul class="impact-file-list">
+              {analysis.affectedTestFiles.map((f) => (
+                <li title={f}>{f}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <div class="impact-section">
+          <h4>Affected source files ({analysis.affectedFiles.length})</h4>
+          {analysis.affectedFiles.length === 0 ? (
+            <span class="impact-empty">No other source files import the changed files.</span>
+          ) : (
+            <ul class="impact-file-list">
+              {analysis.affectedFiles.map((f) => (
+                <li title={f}>{f}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+        {analysis.downstreamRepos.length > 0 && (
+          <div class="impact-section impact-downstream">
+            <h4>Downstream repos ({analysis.downstreamRepos.length})</h4>
+            <ul class="impact-file-list">
+              {analysis.downstreamRepos.map((r) => (
+                <li>
+                  <a
+                    href={`/${r.owner}/${r.repo}`}
+                    style="color:var(--text-link);text-decoration:none"
+                  >
+                    {r.owner}/{r.repo}
+                  </a>
+                  {" "}
+                  <span style="color:var(--text-muted);font-size:11px">
+                    via {r.matchedDependency}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -3886,6 +4184,45 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
     prSizeInfo = await computePrSize(ownerName, repoName, pr.baseBranch, pr.headBranch);
   } catch { /* swallow — purely cosmetic */ }
 
+  // Bus factor warning — non-blocking. Get changed files list first.
+  let busRiskFiles: BusFactorFile[] = [];
+  let splitSuggestion: SplitSuggestion | null = null;
+  try {
+    // Get names of files changed in this PR
+    const repoDir = getRepoPath(ownerName, repoName);
+    const nameOnlyProc = Bun.spawn(
+      ["git", "diff", "--name-only", `${pr.baseBranch}...${pr.headBranch}`],
+      { cwd: repoDir, stdout: "pipe", stderr: "pipe" }
+    );
+    const nameOnlyRaw = await new Response(nameOnlyProc.stdout).text();
+    await nameOnlyProc.exited;
+    const prChangedFiles = nameOnlyRaw.trim().split("\n").filter(Boolean);
+
+    // Bus factor — check cache for at-risk files that overlap changed files
+    [busRiskFiles] = await Promise.all([
+      getBusFactorWarning(resolved.repo.id, ownerName, repoName, prChangedFiles),
+    ]);
+
+    // PR Split suggestion — only when PR is large (>400 lines)
+    if (prSizeInfo && prSizeInfo.linesChanged > 400) {
+      splitSuggestion = await suggestPrSplit(
+        pr.id,
+        pr.title,
+        ownerName,
+        repoName,
+        pr.baseBranch,
+        pr.headBranch
+      );
+    }
+  } catch { /* always degrade gracefully */ }
+  // Merge impact analysis — only for open PRs with write access (cached, fast)
+  let impactAnalysis: ImpactAnalysis | null = null;
+  if (pr.state === "open" && canManage) {
+    try {
+      impactAnalysis = await analyzeImpact(resolved.repo.id, pr.id);
+    } catch { /* non-blocking */ }
+  }
+
   // Get diff for "Files changed" tab + load inline comments for that tab
   let diffRaw = "";
   let diffFiles: GitDiffFile[] = [];
@@ -3969,6 +4306,25 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
       }));
   }
 
+  // Proactive pattern warning — get changed file paths and check for recurring
+  // bug patterns. Fire-and-forget safe; returns null on any error or cache miss.
+  let patternWarning: Pattern | null = null;
+  try {
+    const repoDir = getRepoPath(ownerName, repoName);
+    const nameOnlyProc = Bun.spawn(
+      ["git", "diff", "--name-only", `${pr.baseBranch}...${pr.headBranch}`],
+      { cwd: repoDir, stdout: "pipe", stderr: "pipe" }
+    );
+    const nameOnlyRaw = await new Response(nameOnlyProc.stdout).text();
+    await nameOnlyProc.exited;
+    const prChangedFiles = nameOnlyRaw.trim().split("\n").filter(Boolean);
+    if (prChangedFiles.length > 0) {
+      patternWarning = await getPatternWarning(resolved.repo.id, prChangedFiles);
+    }
+  } catch {
+    // Non-blocking — swallow
+  }
+
   // ─── Derived visual state ───
   const stateKey =
     pr.state === "open"
@@ -4007,6 +4363,20 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
     prCommits = await commitsBetween(ownerName, repoName, pr.baseBranch, pr.headBranch).catch(() => []);
   }
 
+  // Review context restore — compute BEFORE recording the visit so the
+  // previous timestamp is available for the delta calculation.
+  let reviewCtx: ReviewContext | null = null;
+  if (user) {
+    reviewCtx = await getReviewContext(pr.id, user.id, {
+      ownerName,
+      repoName,
+      baseBranch: pr.baseBranch,
+      headBranch: pr.headBranch,
+    });
+    // Fire-and-forget: record the visit AFTER computing context
+    void recordPrVisit(pr.id, user.id);
+  }
+
   return c.html(
     <Layout
       title={`${pr.title} #${pr.number} — ${ownerName}/${repoName}`}
@@ -4038,6 +4408,39 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
           }),
         }}
       />
+
+      {/* Review context restore banner — shown when returning after changes */}
+      {reviewCtx && (
+        <div
+          class="context-restore-banner"
+          id="review-context"
+          style="display:flex;align-items:flex-start;gap:12px;padding:12px 16px;margin:0 0 12px;background:var(--bg-elevated,#f8f9fa);border:1px solid var(--border,#e1e4e8);border-left:3px solid var(--accent,#0070f3);border-radius:10px"
+        >
+          <span class="context-icon" style="font-size:18px;flex-shrink:0;margin-top:2px" aria-hidden="true">{"↩"}</span>
+          <div style="flex:1;min-width:0">
+            <strong style="font-size:13.5px;color:var(--text-strong,#111)">Welcome back</strong>
+            <p style="margin:4px 0 0;font-size:13px;color:var(--text,#333);line-height:1.5">{reviewCtx.summary}</p>
+            <small style="font-size:11.5px;color:var(--text-muted,#777)">
+              Last visited {formatRelative(new Date(reviewCtx.lastVisitedAt))}
+              {reviewCtx.commitsSince > 0 && ` · ${reviewCtx.commitsSince} new commit${reviewCtx.commitsSince === 1 ? "" : "s"}`}
+              {reviewCtx.newComments > 0 && ` · ${reviewCtx.newComments} new comment${reviewCtx.newComments === 1 ? "" : "s"}`}
+            </small>
+            {reviewCtx.suggestedStartLine && (
+              <p style="margin:6px 0 0;font-size:12px;color:var(--accent,#0070f3)">
+                Start at: <code style="font-size:11px">{reviewCtx.suggestedStartLine}</code>
+              </p>
+            )}
+          </div>
+          <button
+            type="button"
+            onclick="this.closest('.context-restore-banner').remove()"
+            style="flex-shrink:0;background:none;border:none;cursor:pointer;font-size:18px;color:var(--text-muted,#777);padding:0;line-height:1"
+            aria-label="Dismiss"
+          >
+            {"×"}
+          </button>
+        </div>
+      )}
 
       <div class="prs-detail-hero">
         <div class="prs-edit-title-wrap">
@@ -4258,6 +4661,23 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
         </a>
       </nav>
 
+      {/* Proactive pattern warning — shown when a known recurring bug pattern
+          overlaps with the files changed in this PR. */}
+      {patternWarning && (
+        <div class="pattern-warning" style="margin:0 0 16px;padding:12px 16px;border-radius:8px;background:var(--bg-elevated);border:1px solid #f59e0b;border-left:4px solid #f59e0b;font-size:13px;line-height:1.5">
+          <span style="font-size:15px;margin-right:6px" aria-hidden="true">⚠️</span>
+          <strong>Recurring pattern detected: {patternWarning.title}</strong>
+          <span style="color:var(--fg-muted)">
+            {" — "}
+            This area has had {patternWarning.occurrences} similar fix
+            {patternWarning.occurrences === 1 ? "" : "es"}.
+            {patternWarning.rootCauseHypothesis && (
+              <> Root cause may be in <code style="font-size:12px">{patternWarning.suggestedFile}</code>.</>
+            )}
+          </span>
+        </div>
+      )}
+
       {tab === "commits" ? (
         <div class="prs-commits-list">
           {prCommits.length === 0 ? (
@@ -4285,14 +4705,88 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
           )}
         </div>
       ) : tab === "files" ? (
-        <DiffView
-          raw={diffRaw}
-          files={diffFiles}
-          viewFileBase={`/${ownerName}/${repoName}/blob/${pr.headBranch}`}
-          inlineComments={diffInlineComments}
-          commentActionUrl={user ? `/${ownerName}/${repoName}/pulls/${pr.number}/comment` : undefined}
-          applySuggestionUrl={user ? `/${ownerName}/${repoName}/pulls/${pr.number}/apply-suggestion` : undefined}
-        />
+        <>
+          {/* PR Split Suggestion — shown when PR has >400 changed lines */}
+          {splitSuggestion && (
+            <div class="split-suggestion" id="pr-split-banner">
+              <div class="split-header">
+                <span class="split-icon" aria-hidden="true">✂️</span>
+                <strong>This PR may be too large to review effectively</strong>
+                <span class="split-stat">
+                  {splitSuggestion.totalLines} lines · {splitSuggestion.totalFiles} files
+                </span>
+                <button
+                  class="split-toggle"
+                  type="button"
+                  onclick="const b=document.getElementById('pr-split-body');const hidden=b.hasAttribute('hidden');b.toggleAttribute('hidden');this.textContent=hidden?'Hide split suggestion':'Show split suggestion';"
+                >
+                  Show split suggestion
+                </button>
+              </div>
+              <div class="split-body" id="pr-split-body" hidden>
+                <p class="split-intro">
+                  AI suggests splitting into {splitSuggestion.suggestedPrs.length} PRs:
+                </p>
+                {splitSuggestion.suggestedPrs.map((sp, i) => (
+                  <div class="split-pr">
+                    <div class="split-pr-num">{i + 1}</div>
+                    <div class="split-pr-body">
+                      <strong>{sp.title}</strong>
+                      <p>{sp.rationale}</p>
+                      <code>{sp.files.join(", ")}</code>
+                      <span class="split-lines">~{sp.estimatedLines} lines</span>
+                    </div>
+                  </div>
+                ))}
+                {splitSuggestion.mergeOrder.length > 0 && (
+                  <p class="split-order">
+                    Suggested merge order:{" "}
+                    <strong>{splitSuggestion.mergeOrder.join(" → ")}</strong>
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Bus Factor Warning — shown when changed files overlap at-risk files */}
+          {busRiskFiles.length > 0 && (() => {
+            const topRisk = busRiskFiles.some((f) => f.risk === "critical")
+              ? "critical"
+              : busRiskFiles.some((f) => f.risk === "high")
+                ? "high"
+                : "medium";
+            return (
+              <div class={`busfactor-panel busfactor-${topRisk}`}>
+                <span class="busfactor-icon" aria-hidden="true">⚠️</span>
+                <div class="busfactor-body">
+                  <strong>Knowledge concentration warning</strong>
+                  <p>
+                    {busRiskFiles.length} file{busRiskFiles.length !== 1 ? "s" : ""} in
+                    this PR {busRiskFiles.length !== 1 ? "are" : "is"} primarily
+                    maintained by one person. Consider pairing on this review.
+                  </p>
+                  <ul>
+                    {busRiskFiles.map((f) => (
+                      <li>
+                        <code>{f.path}</code> —{" "}
+                        <strong>{f.primaryAuthorPct}%</strong> by {f.primaryAuthor}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            );
+          })()}
+
+          <DiffView
+            raw={diffRaw}
+            files={diffFiles}
+            viewFileBase={`/${ownerName}/${repoName}/blob/${pr.headBranch}`}
+            inlineComments={diffInlineComments}
+            commentActionUrl={user ? `/${ownerName}/${repoName}/pulls/${pr.number}/comment` : undefined}
+            applySuggestionUrl={user ? `/${ownerName}/${repoName}/pulls/${pr.number}/apply-suggestion` : undefined}
+          />
+        </>
       ) : (
         <>
           {pr.body && (
@@ -4466,6 +4960,9 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
                 );
               })}
             </div>
+          {/* ─── Merge Impact Analysis panel ─────────────────────── */}
+          {impactAnalysis && pr.state === "open" && (
+            <ImpactPanel analysis={impactAnalysis} owner={ownerName} />
           )}
 
           {/* ─── Review summary ─────────────────────────────────── */}
@@ -4667,7 +5164,8 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
                   <span class="slash-hint" title="Type a slash-command as the first line">
                     Type <code>/</code> for commands —{" "}
                     <code>/help</code>, <code>/merge</code>, <code>/rebase</code>,{" "}
-                    <code>/explain</code>, <code>/test</code>, <code>/lgtm</code>
+                    <code>/explain</code>, <code>/test</code>, <code>/lgtm</code>,{" "}
+                    <code>/stage</code>
                   </span>
                 </FormGroup>
                 <div class="prs-merge-actions">
@@ -4805,6 +5303,101 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
           )}
         </>
       )}
+      {/* Keyboard hint bar — shown at the bottom of PR pages */}
+      <div class="kbd-hints" aria-label="Keyboard shortcuts for this pull request">
+        <kbd>c</kbd> comment &middot; <kbd>e</kbd> edit title &middot; <kbd>m</kbd> merge &middot; <kbd>a</kbd> approve &middot; <kbd>r</kbd> request changes &middot; <kbd>?</kbd> shortcuts
+      </div>
+      <style dangerouslySetInnerHTML={{ __html: `
+        .kbd-hints {
+          position: fixed;
+          bottom: 0;
+          left: 0;
+          right: 0;
+          z-index: 90;
+          padding: 6px 24px;
+          background: var(--bg-secondary);
+          border-top: 1px solid var(--border);
+          font-size: 12px;
+          color: var(--text-muted);
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+        .kbd-hints kbd {
+          font-family: var(--font-mono);
+          font-size: 10px;
+          background: var(--bg-elevated);
+          border: 1px solid var(--border);
+          border-bottom-width: 2px;
+          border-radius: 4px;
+          padding: 1px 5px;
+          color: var(--text);
+          line-height: 1.5;
+        }
+        /* Padding so the page footer doesn't overlap the hint bar */
+        main { padding-bottom: 40px; }
+      ` }} />
+      {/* Repo context commands for command palette */}
+      <script
+        id="cmdk-repo-context"
+        dangerouslySetInnerHTML={{
+          __html: `window.__CMDK_REPO_COMMANDS = ${JSON.stringify([
+            { label: `New issue in ${repoName}`, href: `/${ownerName}/${repoName}/issues/new`, kw: "create add bug" },
+            { label: `New pull request in ${repoName}`, href: `/${ownerName}/${repoName}/pulls/new`, kw: "pr branch merge" },
+            { label: `Browse code — ${ownerName}/${repoName}`, href: `/${ownerName}/${repoName}`, kw: "files tree" },
+            { label: `View commits — ${ownerName}/${repoName}`, href: `/${ownerName}/${repoName}/commits`, kw: "history log" },
+            { label: `Issues — ${ownerName}/${repoName}`, href: `/${ownerName}/${repoName}/issues`, kw: "bugs tasks" },
+            { label: `Pull requests — ${ownerName}/${repoName}`, href: `/${ownerName}/${repoName}/pulls`, kw: "prs reviews" },
+          ])};`,
+        }}
+      />
+      {/* PR keyboard shortcuts script */}
+      <script dangerouslySetInnerHTML={{ __html: `
+        (function(){
+          var commentBox = document.querySelector('textarea[name="body"]');
+          var mergeBtn = document.querySelector('[data-merge-btn], .prs-merge-btn, button[form*="merge"], form[action*="/merge"] button[type="submit"]');
+          var editBtn = document.getElementById('pr-edit-toggle');
+          var approveUrl = ${JSON.stringify(`/${ownerName}/${repoName}/pulls/${pr.number}/review`)};
+
+          function isTyping(t){
+            t = t || {};
+            var tag = (t.tagName || '').toLowerCase();
+            return tag === 'input' || tag === 'textarea' || t.isContentEditable;
+          }
+
+          document.addEventListener('keydown', function(e){
+            if (isTyping(e.target)) return;
+            if (e.metaKey || e.ctrlKey || e.altKey) return;
+            if (e.key === 'c') {
+              e.preventDefault();
+              if (commentBox) { commentBox.focus(); commentBox.scrollIntoView({block:'center'}); }
+            }
+            if (e.key === 'e') {
+              e.preventDefault();
+              if (editBtn) { editBtn.click(); }
+            }
+            if (e.key === 'm') {
+              e.preventDefault();
+              var mBtn = document.querySelector('.prs-merge-btn, form[action*="/merge"] button[type="submit"]');
+              if (mBtn) { mBtn.focus(); mBtn.scrollIntoView({block:'center'}); }
+            }
+            if (e.key === 'a') {
+              e.preventDefault();
+              // Navigate to approve review page
+              window.location.href = approveUrl + '?action=approve';
+            }
+            if (e.key === 'r') {
+              e.preventDefault();
+              window.location.href = approveUrl + '?action=request_changes';
+            }
+            if (e.key === 'Escape') {
+              var focused = document.activeElement;
+              if (focused) focused.blur();
+            }
+          });
+        })();
+      ` }} />
     </Layout>
   );
 });

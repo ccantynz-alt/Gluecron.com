@@ -235,6 +235,10 @@ export const Layout: FC<
                       </a>
                     </div>
                   </div>
+                  {/* Smart morning digest link */}
+                  <a href="/digest" class="nav-link" title="Morning Digest" aria-label="Morning Digest">
+                    {"☀"}
+                  </a>
                   {/* Inbox bell with unread badge */}
                   <a
                     href="/inbox"
@@ -816,6 +820,13 @@ const navScript = `
       list.innerHTML = html;
     }
 
+    function getAllCommands(){
+      // Merge global COMMANDS with repo-context commands injected by repo pages.
+      var extra = (window.__CMDK_REPO_COMMANDS && Array.isArray(window.__CMDK_REPO_COMMANDS))
+        ? window.__CMDK_REPO_COMMANDS : [];
+      return COMMANDS.concat(extra);
+    }
+
     function openPalette(){
       backdrop = document.getElementById('cmdk-backdrop');
       panel = document.getElementById('cmdk-panel');
@@ -826,7 +837,7 @@ const navScript = `
       panel.style.display = 'block';
       input.value = '';
       selected = 0;
-      filtered = COMMANDS.slice();
+      filtered = getAllCommands();
       render();
       input.focus();
     }
@@ -846,7 +857,7 @@ const navScript = `
     document.addEventListener('input', function(e){
       if (e.target && e.target.id === 'cmdk-input') {
         var q = e.target.value;
-        filtered = COMMANDS.filter(function(c){ return fuzzyMatch(c, q); });
+        filtered = getAllCommands().filter(function(c){ return fuzzyMatch(c, q); });
         selected = 0;
         render();
       }
@@ -892,7 +903,15 @@ const navScript = `
         e.preventDefault(); window.location.href = '/shortcuts'; return;
       }
       if (e.key === 'n' && !e.ctrlKey && !e.metaKey) {
-        e.preventDefault(); window.location.href = '/new'; return;
+        // Start 'n' chord — wait 1.2s for next key (i → issue, p → PR).
+        // If no second key arrives, navigate to /new (create repo).
+        chord = 'n';
+        clearTimeout(chordTimer);
+        chordTimer = setTimeout(function(){
+          if (chord === 'n') { window.location.href = '/new'; }
+          chord = null;
+        }, 1200);
+        return;
       }
       // "g" chord
       if (e.key === 'g' && !e.ctrlKey && !e.metaKey) {
@@ -907,6 +926,22 @@ const navScript = `
         else if (e.key === 'e') { e.preventDefault(); window.location.href = '/explore'; }
         else if (e.key === 'a') { e.preventDefault(); window.location.href = '/ask'; }
         chord = null;
+      }
+      // "n" chord — new issue / new PR (repo-context-aware)
+      if (chord === 'n') {
+        var repoCtx = window.__CMDK_REPO_COMMANDS;
+        var newIssuePath = repoCtx && repoCtx.length ? repoCtx[0].href.replace('/issues/new', '/issues/new') : null;
+        // Find the "new issue" and "new PR" hrefs from repo context commands
+        var issueCmd = repoCtx && repoCtx.find(function(c){ return c.href && c.href.indexOf('/issues/new') !== -1; });
+        var prCmd    = repoCtx && repoCtx.find(function(c){ return c.href && c.href.indexOf('/pulls/new') !== -1; });
+        if (e.key === 'i' && issueCmd) {
+          e.preventDefault(); clearTimeout(chordTimer); chord = null;
+          window.location.href = issueCmd.href; return;
+        }
+        if (e.key === 'p' && prCmd) {
+          e.preventDefault(); clearTimeout(chordTimer); chord = null;
+          window.location.href = prCmd.href; return;
+        }
       }
       // j/k list navigation — move through .prs-row, .issue-row, .notif-item rows
       if (e.key === 'j' || e.key === 'k') {

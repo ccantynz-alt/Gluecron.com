@@ -756,6 +756,12 @@ export const pullRequests = pgTable(
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
     closedAt: timestamp("closed_at"),
+    // AI loop columns (migration 0101). Track the autonomous issue→PR→merge loop.
+    // aiLoopAttempts: how many fix-and-retry cycles have run so far (0 = not started).
+    // aiLoopStatus: null = not started, 'running' = loop active, 'merged' = success,
+    //               'failed' = exhausted attempts or unrecoverable error.
+    aiLoopAttempts: integer("ai_loop_attempts").notNull().default(0),
+    aiLoopStatus: text("ai_loop_status"), // null | 'running' | 'merged' | 'failed'
   },
   (table) => [
     index("prs_repo_state").on(table.repositoryId, table.state),
@@ -4573,3 +4579,24 @@ export const repoOnboardingData = pgTable("repo_onboarding_data", {
 
 export type RepoOnboardingData = typeof repoOnboardingData.$inferSelect;
 export type NewRepoOnboardingData = typeof repoOnboardingData.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Migration 0102 — Cross-repo impact cache (15-min TTL, keyed on PR id)
+// ---------------------------------------------------------------------------
+export const crossRepoImpactCache = pgTable(
+  "cross_repo_impact_cache",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    prId: uuid("pr_id")
+      .notNull()
+      .references(() => pullRequests.id, { onDelete: "cascade" }),
+    report: jsonb("report").notNull(),
+    analyzedAt: timestamp("analyzed_at").defaultNow(),
+    cachedUntil: timestamp("cached_until").notNull(),
+  },
+  (table) => [
+    index("idx_cross_repo_impact_pr").on(table.prId),
+  ]
+);
+
+export type CrossRepoImpactCache = typeof crossRepoImpactCache.$inferSelect;

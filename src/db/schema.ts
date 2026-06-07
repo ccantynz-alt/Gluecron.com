@@ -236,6 +236,12 @@ export const repositories = pgTable(
     dataRegion: text("data_region").default("us").notNull(),
     previewBuildCommand: text("preview_build_command"),
     previewOutputDir: text("preview_output_dir").default("dist"),
+    // Migration 0077 — opt-in flag for the AI dependency auto-updater.
+    // When true, the autopilot dep-update-sweep task reads package.json,
+    // queries npm for patch/minor updates, applies them, runs GateTest,
+    // and auto-merges (pass) or opens a PR with an AI migration guide
+    // (fail). Default false — off by default because it touches branches.
+    depUpdaterEnabled: boolean("dep_updater_enabled").default(false).notNull(),
   },
   (table) => [
     // Partial: uniqueness only in the user namespace (org-owned rows exempt).

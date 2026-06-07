@@ -912,6 +912,63 @@ repoSettings.get("/:owner/:repo/settings", requireAuth, requireRepoAccess("admin
           </form>
         </section>
 
+        {/* ─── Dependency auto-updater ─── */}
+        <section
+          id="dep-updater"
+          class="repo-settings-section"
+        >
+          <div class="repo-settings-section-head">
+            <div class="repo-settings-section-eyebrow">AI dependency updates</div>
+            <h2 class="repo-settings-section-title">Automatic dependency updates</h2>
+            <p class="repo-settings-section-desc">
+              Once per day, Gluecron reads your <code>package.json</code>,
+              checks npm for patch and minor updates, and applies them
+              automatically. If the gate check passes, the PR is auto-merged.
+              If it fails, Gluecron opens a PR with an AI-written guide
+              explaining what broke and how to fix it. Major updates always
+              require human review and are handled separately by the migration
+              watcher. Default off.
+            </p>
+          </div>
+          <form
+            method="post"
+            action={`/${ownerName}/${repoName}/settings/dep-updater`}
+          >
+            <div class="repo-settings-section-body">
+              <label
+                class="repo-settings-toggle-row"
+                aria-label="Enable automatic dependency updates for this repo"
+              >
+                <input
+                  type="checkbox"
+                  name="dep_updater_enabled"
+                  value="1"
+                  checked={
+                    (repo as { depUpdaterEnabled?: boolean }).depUpdaterEnabled ??
+                    false
+                  }
+                />
+                <span class="repo-settings-toggle-text">
+                  <span class="repo-settings-toggle-text-title">
+                    Enable automatic dependency updates
+                  </span>
+                  <span class="repo-settings-toggle-text-hint">
+                    Patch and minor updates only. Runs once per day; max 2
+                    packages per sweep. Requires <code>DEP_UPDATER_ENABLED=1</code>{" "}
+                    on the server. Auto-merges when gate passes; opens a PR
+                    with an AI migration guide when it fails.
+                  </span>
+                </span>
+              </label>
+            </div>
+            <div class="repo-settings-section-foot">
+              <button type="submit" class="repo-settings-cta">
+                Save dependency update settings <span class="arrow">→</span>
+              </button>
+            </div>
+          </form>
+        </section>
+
         {/* ─── Cloud dev environments ─── */}
         <section
           id="dev-envs"
@@ -1623,6 +1680,62 @@ repoSettings.post(
 
     return c.redirect(
       `/${ownerName}/${repoName}/settings?success=Dev+env+settings+saved#dev-envs`
+    );
+  }
+);
+
+// Migration 0077 — toggle AI dependency auto-updater. Owner-only; audits
+// the toggle delta so the repo's audit log shows the change.
+repoSettings.post(
+  "/:owner/:repo/settings/dep-updater",
+  requireAuth,
+  requireRepoAccess("admin"),
+  async (c) => {
+    const { owner: ownerName, repo: repoName } = c.req.param();
+    const user = c.get("user")!;
+    const body = await c.req.parseBody();
+    const [owner] = await db
+      .select()
+      .from(users)
+      .where(eq(users.username, ownerName))
+      .limit(1);
+    if (!owner || owner.id !== user.id) {
+      return c.redirect(`/${ownerName}/${repoName}`);
+    }
+    const [repo] = await db
+      .select()
+      .from(repositories)
+      .where(
+        and(eq(repositories.ownerId, owner.id), eq(repositories.name, repoName))
+      )
+      .limit(1);
+    if (!repo) return c.notFound();
+
+    const next = body.dep_updater_enabled === "1";
+    const prev =
+      (repo as { depUpdaterEnabled?: boolean }).depUpdaterEnabled ?? false;
+
+    await db
+      .update(repositories)
+      .set({
+        depUpdaterEnabled: next,
+        updatedAt: new Date(),
+      })
+      .where(eq(repositories.id, repo.id));
+
+    if (next !== prev) {
+      await audit({
+        userId: user.id,
+        repositoryId: repo.id,
+        action: "repo.dep_updater_enabled.toggled",
+        targetType: "repository",
+        targetId: repo.id,
+        metadata: { from: prev, to: next },
+      });
+    }
+
+    return c.redirect(
+      `/${ownerName}/${repoName}/settings?success=Dependency+update+settings+saved#dep-updater`
     );
   }
 );

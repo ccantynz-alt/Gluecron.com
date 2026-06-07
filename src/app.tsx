@@ -191,6 +191,7 @@ import healthScoreRoutes from "./routes/health-score";
 import hotFilesRoutes from "./routes/hot-files";
 import developerProgramRoutes from "./routes/developer-program";
 import shareRoutes from "./routes/share";
+import incidentHookRoutes from "./routes/incident-hooks";
 import { authRateLimit, gitRateLimit, searchRateLimit } from "./middleware/rate-limit";
 import { csrfToken, csrfProtect } from "./middleware/csrf";
 import { noCache } from "./middleware/no-cache";
@@ -730,6 +731,8 @@ app.route("/", pulseRoutes);
 app.route("/", healthScoreRoutes);
 // Hot Files Heatmap — BLOCK M16 — /:owner/:repo/insights/hotfiles
 app.route("/", hotFilesRoutes);
+// Incident Auto-Fix — /hooks/{pagerduty,datadog,opsgenie,incident} + /settings/incident-hooks
+app.route("/", incidentHookRoutes);
 // Hosted Claude tool-use loops — paste loop, get endpoint, billing meter.
 // See src/routes/claude-deploy.tsx + src/lib/hosted-claude-loop.ts.
 app.route("/", claudeDeployRoutes);

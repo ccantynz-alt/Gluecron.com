@@ -4349,6 +4349,15 @@ export const scimTokens = pgTable("scim_tokens", {
  */
 export const orgSsoSessions = pgTable(
   "org_sso_sessions",
+
+// Migration 0077 — Incident hook configs
+// Maps a monitoring provider (PagerDuty / Datadog / Opsgenie / generic) to a
+// specific repo. Inbound webhooks are validated against secret_hash (SHA-256
+// of the user-chosen webhook secret passed in the ?secret= query param).
+// ---------------------------------------------------------------------------
+export const incidentHookConfigs = pgTable(
+  "incident_hook_configs",
+>>>>>>> 9953332 (feat: production incident auto-fix — PagerDuty/Datadog webhook → AI-generated fix PR)
   {
     id: uuid("id").primaryKey().defaultRandom(),
     userId: uuid("user_id")
@@ -4371,3 +4380,25 @@ export type OrgSsoConfig = typeof orgSsoConfigs.$inferSelect;
 export type NewOrgSsoConfig = typeof orgSsoConfigs.$inferInsert;
 export type ScimToken = typeof scimTokens.$inferSelect;
 export type OrgSsoSession = typeof orgSsoSessions.$inferSelect;
+
+    repoId: uuid("repo_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    /** 'pagerduty' | 'datadog' | 'opsgenie' | 'generic' */
+    provider: text("provider").notNull(),
+    /** SHA-256 hex of the user's plaintext webhook secret. */
+    secretHash: text("secret_hash").notNull(),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("incident_hook_configs_repo_provider").on(
+      table.repoId,
+      table.provider
+    ),
+    index("incident_hook_configs_user").on(table.userId),
+  ]
+);
+
+export type IncidentHookConfig = typeof incidentHookConfigs.$inferSelect;
+export type NewIncidentHookConfig = typeof incidentHookConfigs.$inferInsert;
+>>>>>>> 9953332 (feat: production incident auto-fix — PagerDuty/Datadog webhook → AI-generated fix PR)

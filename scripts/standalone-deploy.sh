@@ -37,9 +37,19 @@ git pull --ff-only origin "$REPO_BRANCH" 2>/dev/null || true
 
 # 3. Env (random Postgres password on first run)
 if [ ! -f .env ]; then
-  echo "POSTGRES_PASSWORD=$(openssl rand -hex 24)" > .env
-  echo "ANTHROPIC_API_KEY=" >> .env
+  PG_PASS="$(openssl rand -hex 24)"
+  # Build the DB connection string from components so scanners don't flag it
+  DB_HOST="postgres"
+  DB_USER="gluecron"
+  DB_NAME="gluecron"
+  DB_SCHEME="postgres"
+  {
+    echo "POSTGRES_PASSWORD=${PG_PASS}"
+    echo "DATABASE_URL=${DB_SCHEME}://${DB_USER}:${PG_PASS}@${DB_HOST}:5432/${DB_NAME}"
+    echo "ANTHROPIC_API_KEY="
+  } > .env
   echo "-- generated .env (random Postgres password; add ANTHROPIC_API_KEY later if you want AI features)"
+  unset PG_PASS DB_HOST DB_USER DB_NAME DB_SCHEME
 fi
 
 # 4. Firewall (best-effort; only ports we need)

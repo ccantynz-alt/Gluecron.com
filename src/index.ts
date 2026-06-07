@@ -1,6 +1,7 @@
 import { mkdir } from "fs/promises";
 import app from "./app";
 import { config } from "./lib/config";
+import { presenceWebsocket } from "./routes/pulls";
 import { startWorker } from "./lib/workflow-runner";
 import { startWebhookDeliveryWorker } from "./lib/webhook-delivery";
 import { startAutopilot } from "./lib/autopilot";
@@ -121,4 +122,9 @@ void notifySystemdReady().catch((err) => {
 export default {
   port: config.port,
   fetch: app.fetch,
+  // WebSocket handler for real-time PR presence (Figma-style diff cursors).
+  // Bun.serve forwards WS upgrade requests through the same fetch pipeline;
+  // the `upgradeWebSocket` middleware in pulls.tsx calls server.upgrade() and
+  // returns a null response. This `websocket` object handles the ws lifecycle.
+  websocket: presenceWebsocket,
 };

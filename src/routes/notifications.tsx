@@ -786,18 +786,21 @@ notificationRoutes.post("/notifications/read-all", softAuth, requireAuth, async 
 });
 
 // API: Get unread count (for bell icon polling)
+// Returns both `unread` (canonical) and `count` (legacy alias) so the nav
+// bell polling script and any older callers both work without changes.
 notificationRoutes.get("/api/notifications/count", softAuth, async (c) => {
   const user = c.get("user");
-  if (!user) return c.json({ count: 0 });
+  if (!user) return c.json({ unread: 0, count: 0 });
 
   try {
     const [result] = await db
       .select({ count: sql<number>`count(*)` })
       .from(notifications)
       .where(and(eq(notifications.userId, user.id), eq(notifications.isRead, false)));
-    return c.json({ count: result?.count ?? 0 });
+    const unread = Number(result?.count ?? 0);
+    return c.json({ unread, count: unread });
   } catch {
-    return c.json({ count: 0 });
+    return c.json({ unread: 0, count: 0 });
   }
 });
 

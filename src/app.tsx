@@ -16,6 +16,7 @@ import buildAgentSpecRoutes from "./routes/build-agent-spec";
 import pullsDashboardRoutes from "./routes/pulls-dashboard";
 import issuesDashboardRoutes from "./routes/issues-dashboard";
 import inboxRoutes from "./routes/inbox";
+import digestRoutes from "./routes/digest";
 import activityRoutes from "./routes/activity";
 import authRoutes from "./routes/auth";
 import passwordResetRoutes from "./routes/password-reset";
@@ -29,6 +30,8 @@ import integrationsChatRoutes from "./routes/integrations-chat";
 import agentsRoutes from "./routes/agents";
 import agentPipelinesRoutes from "./routes/agent-pipelines";
 import issueRoutes from "./routes/issues";
+import milestonesRoutes from "./routes/milestones";
+import shipAgentRoutes from "./routes/ship-agent";
 import commentModerationRoutes from "./routes/comment-moderation";
 import repoSettings from "./routes/repo-settings";
 import collaboratorRoutes from "./routes/collaborators";
@@ -63,6 +66,7 @@ import { platformStatus } from "./routes/platform-status";
 import publicStatsRoutes from "./routes/public-stats";
 import demoRoutes from "./routes/demo";
 import insightRoutes from "./routes/insights";
+import engineeringInsightsRoutes from "./routes/engineering-insights";
 import doraRoutes from "./routes/dora";
 import dashboardRoutes from "./routes/dashboard";
 import legalRoutes from "./routes/legal";
@@ -78,6 +82,7 @@ import migrationRoutes from "./routes/migrations";
 import migrateRoutes from "./routes/migrate";
 import specsRoutes from "./routes/specs";
 import refactorRoutes from "./routes/refactors";
+import codebaseMigratorRoutes from "./routes/codebase-migrator";
 import webRoutes from "./routes/web";
 import hookRoutes from "./routes/hooks";
 import eventsRoutes from "./routes/events";
@@ -161,6 +166,9 @@ import semanticSearchRoutes from "./routes/semantic-search";
 import signingKeysRoutes from "./routes/signing-keys";
 import sponsorsRoutes from "./routes/sponsors";
 import ssoRoutes from "./routes/sso";
+import samlSsoRoutes from "./routes/saml-sso";
+import scimRoutes from "./routes/scim";
+import orgSsoSettingsRoutes from "./routes/org-sso-settings";
 import githubOauthRoutes from "./routes/github-oauth";
 import googleOauthRoutes from "./routes/google-oauth";
 import symbolsRoutes from "./routes/symbols";
@@ -183,8 +191,11 @@ import { staleBranchRoutes } from "./routes/stale-branches";
 import pulseRoutes from "./routes/pulse";
 import healthScoreRoutes from "./routes/health-score";
 import hotFilesRoutes from "./routes/hot-files";
+import debtMapRoutes from "./routes/debt-map";
+import busFactorRoutes from "./routes/bus-factor";
 import developerProgramRoutes from "./routes/developer-program";
 import shareRoutes from "./routes/share";
+import incidentHookRoutes from "./routes/incident-hooks";
 import { authRateLimit, gitRateLimit, searchRateLimit } from "./middleware/rate-limit";
 import { csrfToken, csrfProtect } from "./middleware/csrf";
 import { noCache } from "./middleware/no-cache";
@@ -411,6 +422,8 @@ app.route("/", activityRoutes);
 app.route("/", inboxRoutes);
 // AI standup feed — daily / weekly Claude-generated team brief
 app.route("/", standupRoutes);
+// Smart morning digest — AI-curated daily developer queue (/digest)
+app.route("/", digestRoutes);
 
 // Auth routes (register, login, logout)
 app.route("/", authRoutes);
@@ -499,6 +512,13 @@ app.route("/", compareRoutes);
 // Issue tracker
 app.route("/", issueRoutes);
 
+// Milestones — group issues + PRs toward a shared goal with due dates + progress tracking.
+// Mounted after issueRoutes so /:owner/:repo/issues/* paths win before the milestone patterns.
+app.route("/", milestonesRoutes);
+
+// Ship Agent — autonomous AI feature implementation
+app.route("/", shipAgentRoutes);
+
 // Comment moderation queue — owner-only `/:owner/:repo/comments/pending`
 // + per-row approve/reject/spam actions. Mounted before `pullRoutes` so
 // the `/:owner/:repo/comments/*` paths resolve before the broader PR
@@ -507,6 +527,72 @@ app.route("/", commentModerationRoutes);
 
 // Pull requests
 app.route("/", pullRoutes);
+
+// /stage PR preview — serve built static files from .stage-previews/{jobId}/
+// Registered immediately after pullRoutes so the path `/preview/:id/*` is
+// specific enough to never clash with repo browse routes (`/:owner/:repo/*`).
+app.get("/preview/:stageJobId/*", async (c) => {
+  const { stageJobId } = c.req.param();
+  // Validate job ID format (UUID)
+  if (!/^[0-9a-f-]{32,}$/i.test(stageJobId)) {
+    return c.text("Not found", 404);
+  }
+  const { getPreviewDir, isPreviewExpired } = await import("./lib/pr-stage");
+  if (isPreviewExpired(stageJobId)) {
+    return c.html(
+      "<html><body style='font-family:sans-serif;padding:40px;color:#888'>" +
+        "<h2>Preview expired</h2><p>This stage preview has expired (48h TTL). " +
+        "Comment <code>/stage</code> on the PR to redeploy.</p></body></html>",
+      410
+    );
+  }
+  const { join } = await import("path");
+  const previewDir = getPreviewDir(stageJobId);
+  // Extract the wildcard path after /preview/:id/
+  const rawPath = c.req.path.replace(/^\/preview\/[^/]+/, "") || "/";
+  const filePath = rawPath === "/" || rawPath === "" ? "/index.html" : rawPath;
+  const fullPath = join(previewDir, filePath);
+  const file = Bun.file(fullPath);
+  if (!(await file.exists())) {
+    // Try index.html fallback (SPA behaviour)
+    const indexFile = Bun.file(join(previewDir, "index.html"));
+    if (await indexFile.exists()) {
+      const html = await indexFile.text();
+      return c.html(html);
+    }
+    return c.text("Not found", 404);
+  }
+  const content = await file.arrayBuffer();
+  const ext = fullPath.split(".").pop()?.toLowerCase() ?? "";
+  const contentTypeMap: Record<string, string> = {
+    html: "text/html; charset=utf-8",
+    htm: "text/html; charset=utf-8",
+    css: "text/css; charset=utf-8",
+    js: "application/javascript; charset=utf-8",
+    mjs: "application/javascript; charset=utf-8",
+    json: "application/json; charset=utf-8",
+    png: "image/png",
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    gif: "image/gif",
+    svg: "image/svg+xml",
+    ico: "image/x-icon",
+    webp: "image/webp",
+    woff: "font/woff",
+    woff2: "font/woff2",
+    ttf: "font/ttf",
+    txt: "text/plain; charset=utf-8",
+    xml: "application/xml",
+    webmanifest: "application/manifest+json",
+  };
+  const ct = contentTypeMap[ext] ?? "application/octet-stream";
+  return c.body(content, 200, {
+    "content-type": ct,
+    "cache-control": "public, max-age=300",
+    "x-stage-job-id": stageJobId,
+  });
+});
+
 // PR sandboxes — runnable per-PR environments. Migration 0067.
 app.route("/", prSandboxRoutes);
 
@@ -590,6 +676,9 @@ app.route("/", adminDiagnoseRoutes);
 // Insights (time-travel, dependencies, rollback)
 app.route("/", insightRoutes);
 
+// Engineering Intelligence Dashboard — /insights + /:owner/:repo/insights/engineering
+app.route("/", engineeringInsightsRoutes);
+
 // DORA metrics page (/:owner/:repo/insights/dora)
 app.route("/", doraRoutes);
 
@@ -620,6 +709,7 @@ app.route("/", migrateRoutes);
 // Spec-to-PR (experimental AI-generated draft PRs)
 app.route("/", specsRoutes);
 app.route("/", refactorRoutes);
+app.route("/", codebaseMigratorRoutes);
 
 // Explore page
 app.route("/", exploreRoutes);
@@ -714,6 +804,10 @@ app.route("/", pulseRoutes);
 app.route("/", healthScoreRoutes);
 // Hot Files Heatmap — BLOCK M16 — /:owner/:repo/insights/hotfiles
 app.route("/", hotFilesRoutes);
+// AI Technical Debt Map — /:owner/:repo/debt-map (visual debt graph + Claude analysis)
+app.route("/", debtMapRoutes);
+// Bus Factor Analysis — /:owner/:repo/insights/bus-factor
+app.route("/", busFactorRoutes);
 // Hosted Claude tool-use loops — paste loop, get endpoint, billing meter.
 // See src/routes/claude-deploy.tsx + src/lib/hosted-claude-loop.ts.
 app.route("/", claudeDeployRoutes);
@@ -725,6 +819,12 @@ app.route("/", semanticSearchRoutes);
 app.route("/", signingKeysRoutes);
 app.route("/", sponsorsRoutes);
 app.route("/", ssoRoutes);
+// Enterprise per-org SAML 2.0 + OIDC SSO routes
+app.route("/", samlSsoRoutes);
+// SCIM 2.0 user provisioning endpoints
+app.route("/", scimRoutes);
+// Per-org SSO + SCIM admin settings UI
+app.route("/", orgSsoSettingsRoutes);
 app.route("/", githubOauthRoutes);
 app.route("/", googleOauthRoutes);
 app.route("/", symbolsRoutes);

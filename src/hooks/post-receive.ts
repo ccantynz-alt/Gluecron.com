@@ -223,6 +223,15 @@ export async function onPostReceive(
     console.warn("[server-targets] dispatch error:", err)
   );
 
+  // 5c. Cloud deploy integrations (migration 0077). Fire push-triggered
+  //     deploys to Fly.io, Railway, Render, Vercel, Netlify, or a generic
+  //     webhook for any cloud_deploy_configs rows matching the pushed branch.
+  //     Fire-and-forget; all failures are swallowed so the push path is
+  //     never blocked.
+  void fireCloudDeploys(owner, repo, refs).catch((err) =>
+    console.warn("[cloud-deploy] dispatch error:", err)
+  );
+
   // 6. BLOCK W — Self-host. When Gluecron.com itself receives a push to
   // main, fire the local deploy via scripts/self-deploy.sh. The script
   // forks into the background, so this call returns immediately (git

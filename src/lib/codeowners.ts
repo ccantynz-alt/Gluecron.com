@@ -24,6 +24,7 @@ import {
   teamMembers,
   users,
 } from "../db/schema";
+import { getBlob } from "../git/repository";
 
 export interface OwnerRule {
   pattern: string;
@@ -34,6 +35,9 @@ export interface OwnerRule {
    */
   owners: string[];
 }
+
+/** Public alias used by new callers (matches task spec interface). */
+export type CodeOwnerRule = OwnerRule;
 
 export function isTeamToken(token: string): boolean {
   return token.includes("/");
@@ -190,4 +194,46 @@ export async function reviewersForChangedFiles(
   } catch {
     return [];
   }
+}
+
+/**
+ * matchOwners — public alias for `reviewersForChangedFiles` using in-memory
+ * rules instead of DB. Accepts the pre-parsed rules array directly.
+ * Deduplicated; team tokens are NOT expanded here (use expandOwnerTokens).
+ */
+export function matchOwners(filePaths: string[], rules: OwnerRule[]): string[] {
+  const out = new Set<string>();
+  for (const p of filePaths) {
+    for (const u of ownersForPath(p, rules)) out.add(u);
+  }
+  return Array.from(out);
+}
+
+/**
+ * Fetch and parse the CODEOWNERS file for a repo from git.
+ * Checks three canonical locations in order:
+ *   1. `CODEOWNERS`
+ *   2. `.github/CODEOWNERS`
+ *   3. `docs/CODEOWNERS`
+ * Returns [] if none found.
+ */
+export async function getCodeownersForRepo(
+  owner: string,
+  repo: string,
+  branch: string
+): Promise<OwnerRule[]> {
+  const candidates = ["CODEOWNERS", ".github/CODEOWNERS", "docs/CODEOWNERS"];
+
+  for (const path of candidates) {
+    try {
+      const blob = await getBlob(owner, repo, branch, path);
+      if (blob && !blob.isBinary && blob.content) {
+        return parseCodeowners(blob.content);
+      }
+    } catch {
+      // file not found — try next candidate
+    }
+  }
+
+  return [];
 }

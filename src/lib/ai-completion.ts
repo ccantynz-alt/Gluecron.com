@@ -7,7 +7,7 @@
  * JetBrains) call on every keystroke.
  *
  * Design notes:
- *   - Uses Haiku because latency matters more than depth for inline suggestions.
+ *   - Uses Sonnet 4.6 for quality inline suggestions.
  *   - Input is clipped aggressively (8k chars before, 2k chars after) so a huge
  *     file doesn't blow the token budget.
  *   - Never throws. On any error (bad key, timeout, rate limit) we return an
@@ -120,13 +120,13 @@ export async function completeCode(
   const key = cacheKey(prefix, suffix, language);
   const hit = cacheGet(key);
   if (hit !== undefined) {
-    return { completion: hit, model: MODEL_HAIKU, cached: true };
+    return { completion: hit, model: MODEL_SONNET, cached: true };
   }
 
   try {
     const client = getAnthropic();
     const response = await client.messages.create({
-      model: MODEL_HAIKU,
+      model: MODEL_SONNET,
       max_tokens: maxTokens,
       system:
         "You are a code completion engine. Given a prefix and optional suffix, output ONLY the characters that should be inserted at the cursor. No explanations. No markdown fences. No commentary.",
@@ -145,7 +145,7 @@ export async function completeCode(
     const raw = extractText(response);
     const completion = stripCodeFences(raw);
     cacheSet(key, completion);
-    return { completion, model: MODEL_HAIKU, cached: false };
+    return { completion, model: MODEL_SONNET, cached: false };
   } catch (err) {
     // Never throw — the editor should degrade silently. Log length only, not
     // the prefix itself, which can contain secrets.

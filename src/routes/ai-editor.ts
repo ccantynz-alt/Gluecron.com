@@ -90,7 +90,7 @@ aiEditor.post("/api/ai/suggest", requireAuth, async (c) => {
   try {
     const anthropic = getAnthropic();
     const message = await anthropic.messages.create({
-      model: MODEL_HAIKU,
+      model: MODEL_SONNET,
       max_tokens: 256,
       system:
         "You are a code completion AI. Complete the code snippet at the cursor. " +

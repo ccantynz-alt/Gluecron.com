@@ -12,6 +12,7 @@ import {
   jsonb,
   numeric,
   customType,
+  primaryKey,
 } from "drizzle-orm/pg-core";
 
 // Postgres `bytea` — drizzle-orm doesn't ship a first-class bytea column, so
@@ -131,6 +132,12 @@ export const users = pgTable("users", {
   // drip schedule and sends any outstanding emails. Never null — defaults to
   // an empty array at insert time.
   onboardingEmailsSent: jsonb("onboarding_emails_sent").$type<string[]>().default([]).notNull(),
+  // Migration 0089 — Smart morning digest (AI-curated daily notification queue).
+  // When true, the autopilot `smart-digest` task delivers one AI-curated
+  // digest notification per day at 07:00 UTC. Independent cooldown via
+  // `lastSmartDigestSentAt` so it doesn't interact with weekly email digest.
+  notifySmartDigest: boolean("notify_smart_digest").default(true).notNull(),
+  lastSmartDigestSentAt: timestamp("last_smart_digest_sent_at", { withTimezone: true }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -493,6 +500,30 @@ export const codeOwners = pgTable(
 );
 
 /**
+ * PR review requests — tracks reviewers auto-assigned via CODEOWNERS
+ * or manually requested. The UNIQUE constraint prevents duplicate requests.
+ * Migration 0077.
+ */
+export const prReviewRequests = pgTable(
+  "pr_review_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    prId: uuid("pr_id")
+      .notNull()
+      .references(() => pullRequests.id, { onDelete: "cascade" }),
+    reviewerId: uuid("reviewer_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    requestedBy: uuid("requested_by").references(() => users.id),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("pr_review_requests_pr").on(table.prId),
+    index("pr_review_requests_reviewer").on(table.reviewerId),
+  ]
+);
+
+/**
  * Per-repo AI chat sessions — conversational repo assistant.
  */
 export const aiChats = pgTable(
@@ -621,6 +652,11 @@ export const issues = pgTable(
     title: text("title").notNull(),
     body: text("body"),
     state: text("state").notNull().default("open"), // open, closed
+    // Migration 0077 — milestone grouping. Optional; ON DELETE SET NULL so
+    // deleting a milestone never removes the issue.
+    milestoneId: uuid("milestone_id").references(() => milestones.id, {
+      onDelete: "set null",
+    }),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
     closedAt: timestamp("closed_at"),
@@ -628,6 +664,7 @@ export const issues = pgTable(
   (table) => [
     index("issues_repo_state").on(table.repositoryId, table.state),
     index("issues_repo_number").on(table.repositoryId, table.number),
+    index("issues_milestone").on(table.milestoneId),
   ]
 );
 
@@ -998,6 +1035,7 @@ export type Milestone = typeof milestones.$inferSelect;
 export type Reaction = typeof reactions.$inferSelect;
 export type PrReview = typeof prReviews.$inferSelect;
 export type CodeOwner = typeof codeOwners.$inferSelect;
+export type PrReviewRequest = typeof prReviewRequests.$inferSelect;
 export type AiChat = typeof aiChats.$inferSelect;
 export type AuditLogEntry = typeof auditLog.$inferSelect;
 export type Deployment = typeof deployments.$inferSelect;

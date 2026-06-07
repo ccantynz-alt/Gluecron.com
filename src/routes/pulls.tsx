@@ -20,6 +20,7 @@ import {
   pullRequests,
   prComments,
   prReviews,
+  prReviewRequests,
   repositories,
   users,
   issues,
@@ -66,6 +67,7 @@ import {
 import { triggerPrTriage } from "../lib/pr-triage";
 import { generatePrSummary } from "../lib/ai-generators";
 import { isAiAvailable } from "../lib/ai-client";
+import { getReviewContext, recordPrVisit, type ReviewContext } from "../lib/review-context";
 import {
   computePrRiskForPullRequest,
   getCachedPrRisk,
@@ -123,6 +125,8 @@ import {
 import { suggestReviewers, type ReviewerCandidate } from "../lib/reviewer-suggest";
 import { computePrSize, type PrSizeInfo } from "../lib/pr-size";
 import { BOT_USERNAME } from "../lib/bot-user";
+import { analyzeImpact, type ImpactAnalysis } from "../lib/pr-impact";
+import { getPreviewDir, isPreviewExpired } from "../lib/pr-stage";
 
 const pulls = new Hono<AuthEnv>();
 
@@ -1108,6 +1112,7 @@ const PRS_DETAIL_STYLES = `
   .slash-pill.slash-cmd-rebase { border-left-color: #f0883e; }
   .slash-pill.slash-cmd-needs-work { border-left-color: #f85149; }
   .slash-pill.slash-cmd-lgtm { border-left-color: #56d364; }
+  .slash-pill.slash-cmd-stage { border-left-color: #36c5d6; }
 
   /* ─── Branch-preview pill (migration 0062). Scoped .preview-*. */
   .preview-prpill {
@@ -1469,7 +1474,126 @@ const PRS_DETAIL_STYLES = `
   .trio-pills-wrap {
     display: inline-flex; align-items: center; gap: 4px;
   }
+
+  /* ─── Merge Impact Analysis panel (.impact-*) ─── */
+  .impact-panel {
+    margin-top: 20px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--bg-elevated);
+  }
+  .impact-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    background: var(--bg-elevated);
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    user-select: none;
+  }
+  .impact-header:hover { background: var(--bg-hover); }
+  .impact-score {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 34px;
+    height: 24px;
+    border-radius: 9999px;
+    font-size: 11.5px;
+    font-weight: 800;
+    padding: 0 8px;
+    letter-spacing: 0.01em;
+    border: 1.5px solid transparent;
+  }
+  .impact-score.score-low {
+    color: #34d399;
+    background: rgba(52,211,153,0.12);
+    border-color: rgba(52,211,153,0.35);
+  }
+  .impact-score.score-medium {
+    color: #fbbf24;
+    background: rgba(251,191,36,0.12);
+    border-color: rgba(251,191,36,0.35);
+  }
+  .impact-score.score-high {
+    color: #f87171;
+    background: rgba(248,113,113,0.12);
+    border-color: rgba(248,113,113,0.35);
+  }
+  .impact-header strong {
+    font-size: 13.5px;
+    color: var(--text-strong);
+    font-weight: 700;
+  }
+  .impact-summary {
+    font-size: 12.5px;
+    color: var(--text-muted);
+    flex: 1;
+  }
+  .impact-toggle {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 11px;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+    transition: color 120ms;
+    line-height: 1;
+  }
+  .impact-toggle:hover { color: var(--text); }
+  .impact-toggle.is-open { transform: rotate(180deg); }
+  .impact-body {
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .impact-body[hidden] { display: none; }
+  .impact-section h4 {
+    margin: 0 0 8px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .impact-file-list {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .impact-file-list li {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text);
+    padding: 3px 8px;
+    background: var(--bg-secondary);
+    border-radius: 5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .impact-downstream .impact-file-list li {
+    background: rgba(248,113,113,0.06);
+    border: 1px solid rgba(248,113,113,0.15);
+  }
+  .impact-downstream h4 {
+    color: #f87171;
+  }
+  .impact-empty {
+    font-size: 12.5px;
+    color: var(--text-muted);
+    font-style: italic;
+  }
 `;
+
+
 
 /**
  * Tiny inline JS that drives the "Suggest description with AI" button.
@@ -1528,6 +1652,197 @@ function AI_PR_DESC_SCRIPT(endpointUrl: string): string {
  * All endpoint URLs are JSON-escaped via safe replacements so they
  * can't break out of the <script> tag.
  */
+
+/**
+ * Figma-style collaborative PR presence client (WebSocket).
+ *
+ * Connects to `GET /:owner/:repo/pulls/:number/presence` (WebSocket upgrade).
+ * On connect the server sends `{type:"init", users:[...]}` so the bar renders
+ * immediately. Subsequent messages from the server drive the presence bar and
+ * per-line cursor pills in the diff.
+ *
+ * Outbound messages:
+ *   {type:"cursor", line: N}   — user hovered a diff line
+ *   {type:"typing", line: N, typing: bool}  — textarea focus/blur in diff
+ *   {type:"ping"}              — keep-alive every 10s
+ *
+ * Inbound messages:
+ *   {type:"init",   users:[{sessionId,username,colour,line,typing}]}
+ *   {type:"join",   user:{sessionId,username,colour,line,typing}}
+ *   {type:"leave",  sessionId}
+ *   {type:"cursor", sessionId, username, colour, line}
+ *   {type:"typing", sessionId, username, colour, line, typing}
+ */
+function PR_PRESENCE_SCRIPT(owner: string, repo: string, prNum: number): string {
+  const wsPath = JSON.stringify(`/${owner}/${repo}/pulls/${prNum}/presence`)
+    .split("<").join("\\u003C")
+    .split(">").join("\\u003E")
+    .split("&").join("\\u0026");
+  return `(function(){
+try{
+var wsPath=${wsPath};
+var proto=location.protocol==='https:'?'wss:':'ws:';
+var url=proto+'//'+location.host+wsPath;
+var mySessionId=null;
+// sessionId -> {username, colour, line, typing}
+var peers={};
+var ws=null;
+var pingTimer=null;
+var reconnectDelay=1500;
+var reconnectTimer=null;
+
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+
+// ── Toast ──────────────────────────────────────────────────────────────
+var toastWrap=document.getElementById('presence-toasts');
+function toast(msg){
+  if(!toastWrap)return;
+  var t=document.createElement('div');
+  t.className='presence-toast';
+  t.textContent=msg;
+  toastWrap.appendChild(t);
+  setTimeout(function(){t.classList.add('fading');setTimeout(function(){if(t.parentNode)t.parentNode.removeChild(t);},420);},2500);
+}
+
+// ── Presence bar ───────────────────────────────────────────────────────
+var avEl=document.getElementById('presence-avatars');
+var countEl=document.getElementById('presence-count');
+function renderBar(){
+  if(!avEl)return;
+  var ids=Object.keys(peers);
+  var html='';
+  for(var i=0;i<ids.length&&i<8;i++){
+    var p=peers[ids[i]];
+    var initials=(p.username||'?').slice(0,2).toUpperCase();
+    html+='<span class="presence-avatar" style="background:'+esc(p.colour)+'" title="'+esc(p.username)+'">';
+    html+='<span class="presence-avatar-dot">'+esc(initials)+'</span>';
+    html+=esc(p.username);
+    html+='</span>';
+  }
+  avEl.innerHTML=html;
+  if(countEl){
+    var n=ids.length;
+    countEl.textContent=n===0?'No other reviewers':n===1?'1 reviewer online':n+' reviewers online';
+  }
+}
+
+// ── Diff cursor pills ──────────────────────────────────────────────────
+// data-line value is like "12:x:5" or "12:5:x" — pull numeric line only
+function lineNumFromKey(key){var m=String(key).match(/(\d+)/);return m?parseInt(m[1],10):null;}
+function findDiffRow(line){return document.querySelector('[data-line]') &&
+  (function(){var rows=document.querySelectorAll('[data-line]');
+    for(var i=0;i<rows.length;i++){var n=lineNumFromKey(rows[i].getAttribute('data-line')||'');if(n===line)return rows[i];}
+    return null;
+  })();}
+function removePill(sessionId){var old=document.querySelector('[data-presence-sid="'+sessionId+'"]');if(old&&old.parentNode)old.parentNode.removeChild(old);}
+function placePill(sessionId,username,colour,line,typing){
+  removePill(sessionId);
+  if(line==null)return;
+  var row=findDiffRow(line);if(!row)return;
+  var pill=document.createElement('span');
+  pill.className='presence-line-pill'+(typing?' is-typing':'');
+  pill.setAttribute('data-presence-sid',sessionId);
+  pill.style.background=colour||'#8c6dff';
+  pill.textContent=(username||'?').slice(0,12)+(typing?' typing':'');
+  row.appendChild(pill);
+}
+function clearPeer(sessionId){removePill(sessionId);delete peers[sessionId];}
+
+// ── Inbound message handler ────────────────────────────────────────────
+function onMsg(raw){
+  var d;try{d=JSON.parse(raw);}catch(e){return;}
+  if(!d||!d.type)return;
+  if(d.type==='init'){
+    mySessionId=d.sessionId||null;
+    peers={};
+    (d.users||[]).forEach(function(u){
+      if(u.sessionId===mySessionId)return;
+      peers[u.sessionId]={username:u.username,colour:u.colour,line:u.line,typing:u.typing};
+      placePill(u.sessionId,u.username,u.colour,u.line,u.typing);
+    });
+    renderBar();
+  } else if(d.type==='join'){
+    if(d.user&&d.user.sessionId!==mySessionId){
+      peers[d.user.sessionId]={username:d.user.username,colour:d.user.colour,line:d.user.line,typing:d.user.typing};
+      renderBar();
+      toast(esc(d.user.username)+' joined the review');
+    }
+  } else if(d.type==='leave'){
+    if(d.sessionId&&d.sessionId!==mySessionId){
+      var name=peers[d.sessionId]&&peers[d.sessionId].username;
+      clearPeer(d.sessionId);
+      renderBar();
+      if(name)toast(esc(name)+' left the review');
+    }
+  } else if(d.type==='cursor'){
+    if(d.sessionId&&d.sessionId!==mySessionId){
+      if(peers[d.sessionId]){peers[d.sessionId].line=d.line;peers[d.sessionId].typing=false;}
+      placePill(d.sessionId,d.username,d.colour,d.line,false);
+    }
+  } else if(d.type==='typing'){
+    if(d.sessionId&&d.sessionId!==mySessionId){
+      if(peers[d.sessionId]){peers[d.sessionId].line=d.line;peers[d.sessionId].typing=d.typing;}
+      placePill(d.sessionId,d.username,d.colour,d.line,d.typing);
+    }
+  }
+}
+
+// ── Outbound helpers ───────────────────────────────────────────────────
+function send(obj){try{if(ws&&ws.readyState===1)ws.send(JSON.stringify(obj));}catch(e){}}
+
+// ── Mouse hover on diff rows ───────────────────────────────────────────
+var hoverTimer=null;
+document.addEventListener('mouseover',function(ev){
+  var row=ev.target&&ev.target.closest&&ev.target.closest('[data-line]');
+  if(!row)return;
+  if(hoverTimer)clearTimeout(hoverTimer);
+  hoverTimer=setTimeout(function(){
+    var key=row.getAttribute('data-line')||'';
+    var line=lineNumFromKey(key);
+    if(line!=null)send({type:'cursor',line:line});
+  },80);
+});
+
+// ── Typing detection in diff comment textareas ─────────────────────────
+document.addEventListener('focusin',function(ev){
+  var ta=ev.target;
+  if(!ta||ta.tagName!=='TEXTAREA')return;
+  var row=ta.closest&&ta.closest('[data-line]');if(!row)return;
+  var line=lineNumFromKey(row.getAttribute('data-line')||'');
+  if(line!=null)send({type:'typing',line:line,typing:true});
+});
+document.addEventListener('focusout',function(ev){
+  var ta=ev.target;
+  if(!ta||ta.tagName!=='TEXTAREA')return;
+  var row=ta.closest&&ta.closest('[data-line]');if(!row)return;
+  var line=lineNumFromKey(row.getAttribute('data-line')||'');
+  if(line!=null)send({type:'typing',line:line,typing:false});
+});
+
+// ── WebSocket lifecycle ────────────────────────────────────────────────
+function connect(){
+  if(reconnectTimer){clearTimeout(reconnectTimer);reconnectTimer=null;}
+  try{ws=new WebSocket(url);}catch(e){scheduleReconnect();return;}
+  ws.onopen=function(){
+    reconnectDelay=1500;
+    pingTimer=setInterval(function(){send({type:'ping'});},10000);
+  };
+  ws.onmessage=function(ev){onMsg(ev.data);};
+  ws.onclose=function(){
+    if(pingTimer){clearInterval(pingTimer);pingTimer=null;}
+    scheduleReconnect();
+  };
+  ws.onerror=function(){try{ws.close();}catch(e){}};
+}
+function scheduleReconnect(){
+  reconnectTimer=setTimeout(function(){connect();},reconnectDelay);
+  reconnectDelay=Math.min(reconnectDelay*2,30000);
+}
+
+connect();
+}catch(e){}})();`;
+}
+
 function LIVE_COEDIT_SCRIPT(prId: string): string {
   const idJson = JSON.stringify(prId)
     .split("<").join("\\u003C")
@@ -1775,6 +2090,83 @@ function riskBandLabel(band: PrRiskScore["band"]): string {
     case "critical":
       return "CRITICAL";
   }
+}
+
+// ---------------------------------------------------------------------------
+// Merge Impact Analysis — collapsible panel showing affected files and
+// downstream repos. Shown on open PRs for users with write access.
+// ---------------------------------------------------------------------------
+
+function ImpactPanel({ analysis, owner }: { analysis: ImpactAnalysis; owner: string }) {
+  const score = analysis.riskScore;
+  const band = score <= 30 ? "low" : score <= 60 ? "medium" : "high";
+  const hasAny =
+    analysis.affectedTestFiles.length > 0 ||
+    analysis.affectedFiles.length > 0 ||
+    analysis.downstreamRepos.length > 0;
+
+  return (
+    <div class="impact-panel">
+      <div
+        class="impact-header"
+        onclick="(function(h){var b=h.parentElement.querySelector('.impact-body');var t=h.querySelector('.impact-toggle');if(!b)return;var hidden=b.hasAttribute('hidden');if(hidden){b.removeAttribute('hidden');t&&t.classList.add('is-open');}else{b.setAttribute('hidden','');t&&t.classList.remove('is-open');}})(this)"
+      >
+        <span class={`impact-score score-${band}`}>{score}</span>
+        <strong>Merge Impact</strong>
+        <span class="impact-summary">{analysis.riskSummary}</span>
+        <button class="impact-toggle" type="button" aria-label="Toggle impact panel">
+          ▼
+        </button>
+      </div>
+      <div class="impact-body" hidden>
+        <div class="impact-section">
+          <h4>Affected test files ({analysis.affectedTestFiles.length})</h4>
+          {analysis.affectedTestFiles.length === 0 ? (
+            <span class="impact-empty">No test files reference the changed files.</span>
+          ) : (
+            <ul class="impact-file-list">
+              {analysis.affectedTestFiles.map((f) => (
+                <li title={f}>{f}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <div class="impact-section">
+          <h4>Affected source files ({analysis.affectedFiles.length})</h4>
+          {analysis.affectedFiles.length === 0 ? (
+            <span class="impact-empty">No other source files import the changed files.</span>
+          ) : (
+            <ul class="impact-file-list">
+              {analysis.affectedFiles.map((f) => (
+                <li title={f}>{f}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+        {analysis.downstreamRepos.length > 0 && (
+          <div class="impact-section impact-downstream">
+            <h4>Downstream repos ({analysis.downstreamRepos.length})</h4>
+            <ul class="impact-file-list">
+              {analysis.downstreamRepos.map((r) => (
+                <li>
+                  <a
+                    href={`/${r.owner}/${r.repo}`}
+                    style="color:var(--text-link);text-decoration:none"
+                  >
+                    {r.owner}/{r.repo}
+                  </a>
+                  {" "}
+                  <span style="color:var(--text-muted);font-size:11px">
+                    via {r.matchedDependency}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -3183,6 +3575,81 @@ pulls.post(
       })
       .returning();
 
+    // CODEOWNERS — auto-request reviewers based on changed files.
+    // Fire-and-forget; errors never block PR creation.
+    (async () => {
+      try {
+        const repoDir = getRepoPath(ownerName, repoName);
+        // Get list of changed files between base and head
+        const diffProc = Bun.spawn(
+          ["git", "diff", "--name-only", `${baseBranch}...${headBranch}`],
+          { cwd: repoDir, stdout: "pipe", stderr: "pipe" }
+        );
+        const rawDiff = await new Response(diffProc.stdout).text();
+        await diffProc.exited;
+        const changedFiles = rawDiff.trim().split("\n").filter(Boolean);
+
+        if (changedFiles.length > 0) {
+          // Get CODEOWNERS from the default branch of the repo
+          const rules = await getCodeownersForRepo(
+            ownerName,
+            repoName,
+            resolved.repo.defaultBranch
+          );
+          if (rules.length > 0) {
+            const ownerUsernames = await reviewersForChangedFiles(
+              resolved.repo.id,
+              changedFiles
+            );
+            // Filter out the PR author
+            const filteredOwners = ownerUsernames.filter(
+              (u) => u !== resolved.owner.username
+            );
+
+            if (filteredOwners.length > 0) {
+              // Look up user IDs for the owner usernames
+              const reviewerUsers = await db
+                .select({ id: users.id, username: users.username })
+                .from(users)
+                .where(
+                  inArray(
+                    users.username,
+                    filteredOwners
+                  )
+                );
+
+              // Create review request rows (UNIQUE constraint prevents dupes)
+              if (reviewerUsers.length > 0) {
+                await db
+                  .insert(prReviewRequests)
+                  .values(
+                    reviewerUsers.map((u) => ({
+                      prId: pr.id,
+                      reviewerId: u.id,
+                      requestedBy: null as string | null,
+                    }))
+                  )
+                  .onConflictDoNothing();
+
+                // Add a PR comment announcing the auto-assigned reviewers
+                const mentionList = reviewerUsers
+                  .map((u) => `@${u.username}`)
+                  .join(", ");
+                await db.insert(prComments).values({
+                  pullRequestId: pr.id,
+                  authorId: user.id,
+                  body: `AI: Requested review from ${mentionList} based on CODEOWNERS`,
+                  isAiReview: true,
+                });
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("[codeowners] auto-assign failed:", err instanceof Error ? err.message : err);
+      }
+    })();
+
     // Skip AI review on drafts — it runs again when the PR is marked ready.
     if (!isDraft && isAiReviewEnabled()) {
       triggerAiReview(ownerName, repoName, pr.id, title, prBody, baseBranch, headBranch).catch(
@@ -3340,6 +3807,19 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
   const changesRequested = [...latestReviewByReviewer.values()].filter(r => r.state === "changes_requested");
   const viewerHasReviewed = user ? latestReviewByReviewer.has(user.id) : false;
 
+  // Requested reviewers from CODEOWNERS auto-assign (migration 0077).
+  const requestedReviewerRows = await db
+    .select({
+      reviewerUsername: users.username,
+      reviewerId: prReviewRequests.reviewerId,
+      createdAt: prReviewRequests.createdAt,
+    })
+    .from(prReviewRequests)
+    .innerJoin(users, eq(prReviewRequests.reviewerId, users.id))
+    .where(eq(prReviewRequests.prId, pr.id))
+    .orderBy(asc(prReviewRequests.createdAt))
+    .catch(() => [] as { reviewerUsername: string; reviewerId: string; createdAt: Date }[]);
+
   // Suggested reviewers — best-effort, never throws
   let reviewerSuggestions: ReviewerCandidate[] = [];
   try {
@@ -3473,6 +3953,14 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
     prSizeInfo = await computePrSize(ownerName, repoName, pr.baseBranch, pr.headBranch);
   } catch { /* swallow — purely cosmetic */ }
 
+  // Merge impact analysis — only for open PRs with write access (cached, fast)
+  let impactAnalysis: ImpactAnalysis | null = null;
+  if (pr.state === "open" && canManage) {
+    try {
+      impactAnalysis = await analyzeImpact(resolved.repo.id, pr.id);
+    } catch { /* non-blocking */ }
+  }
+
   // Get diff for "Files changed" tab + load inline comments for that tab
   let diffRaw = "";
   let diffFiles: GitDiffFile[] = [];
@@ -3556,6 +4044,25 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
       }));
   }
 
+  // Proactive pattern warning — get changed file paths and check for recurring
+  // bug patterns. Fire-and-forget safe; returns null on any error or cache miss.
+  let patternWarning: Pattern | null = null;
+  try {
+    const repoDir = getRepoPath(ownerName, repoName);
+    const nameOnlyProc = Bun.spawn(
+      ["git", "diff", "--name-only", `${pr.baseBranch}...${pr.headBranch}`],
+      { cwd: repoDir, stdout: "pipe", stderr: "pipe" }
+    );
+    const nameOnlyRaw = await new Response(nameOnlyProc.stdout).text();
+    await nameOnlyProc.exited;
+    const prChangedFiles = nameOnlyRaw.trim().split("\n").filter(Boolean);
+    if (prChangedFiles.length > 0) {
+      patternWarning = await getPatternWarning(resolved.repo.id, prChangedFiles);
+    }
+  } catch {
+    // Non-blocking — swallow
+  }
+
   // ─── Derived visual state ───
   const stateKey =
     pr.state === "open"
@@ -3594,6 +4101,20 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
     prCommits = await commitsBetween(ownerName, repoName, pr.baseBranch, pr.headBranch).catch(() => []);
   }
 
+  // Review context restore — compute BEFORE recording the visit so the
+  // previous timestamp is available for the delta calculation.
+  let reviewCtx: ReviewContext | null = null;
+  if (user) {
+    reviewCtx = await getReviewContext(pr.id, user.id, {
+      ownerName,
+      repoName,
+      baseBranch: pr.baseBranch,
+      headBranch: pr.headBranch,
+    });
+    // Fire-and-forget: record the visit AFTER computing context
+    void recordPrVisit(pr.id, user.id);
+  }
+
   return c.html(
     <Layout
       title={`${pr.title} #${pr.number} — ${ownerName}/${repoName}`}
@@ -3625,6 +4146,39 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
           }),
         }}
       />
+
+      {/* Review context restore banner — shown when returning after changes */}
+      {reviewCtx && (
+        <div
+          class="context-restore-banner"
+          id="review-context"
+          style="display:flex;align-items:flex-start;gap:12px;padding:12px 16px;margin:0 0 12px;background:var(--bg-elevated,#f8f9fa);border:1px solid var(--border,#e1e4e8);border-left:3px solid var(--accent,#0070f3);border-radius:10px"
+        >
+          <span class="context-icon" style="font-size:18px;flex-shrink:0;margin-top:2px" aria-hidden="true">{"↩"}</span>
+          <div style="flex:1;min-width:0">
+            <strong style="font-size:13.5px;color:var(--text-strong,#111)">Welcome back</strong>
+            <p style="margin:4px 0 0;font-size:13px;color:var(--text,#333);line-height:1.5">{reviewCtx.summary}</p>
+            <small style="font-size:11.5px;color:var(--text-muted,#777)">
+              Last visited {formatRelative(new Date(reviewCtx.lastVisitedAt))}
+              {reviewCtx.commitsSince > 0 && ` · ${reviewCtx.commitsSince} new commit${reviewCtx.commitsSince === 1 ? "" : "s"}`}
+              {reviewCtx.newComments > 0 && ` · ${reviewCtx.newComments} new comment${reviewCtx.newComments === 1 ? "" : "s"}`}
+            </small>
+            {reviewCtx.suggestedStartLine && (
+              <p style="margin:6px 0 0;font-size:12px;color:var(--accent,#0070f3)">
+                Start at: <code style="font-size:11px">{reviewCtx.suggestedStartLine}</code>
+              </p>
+            )}
+          </div>
+          <button
+            type="button"
+            onclick="this.closest('.context-restore-banner').remove()"
+            style="flex-shrink:0;background:none;border:none;cursor:pointer;font-size:18px;color:var(--text-muted,#777);padding:0;line-height:1"
+            aria-label="Dismiss"
+          >
+            {"×"}
+          </button>
+        </div>
+      )}
 
       <div class="prs-detail-hero">
         <div class="prs-edit-title-wrap">
@@ -3798,6 +4352,25 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
       <script dangerouslySetInnerHTML={{ __html: markdownPreviewScript() }} />
       <script dangerouslySetInnerHTML={{ __html: ctrlEnterSubmitScript() + codeBlockCopyScript() }} />
 
+      {/* Presence styles + bar (shown only on the files tab so cursor pills work) */}
+      <style dangerouslySetInnerHTML={{ __html: PRESENCE_STYLES }} />
+      {/* Toast container — always present for join/leave toasts */}
+      <div id="presence-toasts" class="presence-toast-wrap" aria-live="polite" />
+      {user && (
+        <>
+          <div class="presence-bar" id="presence-bar">
+            <span class="presence-bar-label">Live reviewers</span>
+            <div class="presence-avatars" id="presence-avatars" />
+            <span class="presence-count" id="presence-count">Loading…</span>
+          </div>
+          <script
+            dangerouslySetInnerHTML={{
+              __html: PR_PRESENCE_SCRIPT(ownerName, repoName, pr.number),
+            }}
+          />
+        </>
+      )}
+
       <nav class="prs-detail-tabs" aria-label="Pull request sections">
         <a
           class={`prs-detail-tab${tab === "conversation" ? " is-active" : ""}`}
@@ -3826,6 +4399,23 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
         </a>
       </nav>
 
+      {/* Proactive pattern warning — shown when a known recurring bug pattern
+          overlaps with the files changed in this PR. */}
+      {patternWarning && (
+        <div class="pattern-warning" style="margin:0 0 16px;padding:12px 16px;border-radius:8px;background:var(--bg-elevated);border:1px solid #f59e0b;border-left:4px solid #f59e0b;font-size:13px;line-height:1.5">
+          <span style="font-size:15px;margin-right:6px" aria-hidden="true">⚠️</span>
+          <strong>Recurring pattern detected: {patternWarning.title}</strong>
+          <span style="color:var(--fg-muted)">
+            {" — "}
+            This area has had {patternWarning.occurrences} similar fix
+            {patternWarning.occurrences === 1 ? "" : "es"}.
+            {patternWarning.rootCauseHypothesis && (
+              <> Root cause may be in <code style="font-size:12px">{patternWarning.suggestedFile}</code>.</>
+            )}
+          </span>
+        </div>
+      )}
+
       {tab === "commits" ? (
         <div class="prs-commits-list">
           {prCommits.length === 0 ? (
@@ -3853,14 +4443,88 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
           )}
         </div>
       ) : tab === "files" ? (
-        <DiffView
-          raw={diffRaw}
-          files={diffFiles}
-          viewFileBase={`/${ownerName}/${repoName}/blob/${pr.headBranch}`}
-          inlineComments={diffInlineComments}
-          commentActionUrl={user ? `/${ownerName}/${repoName}/pulls/${pr.number}/comment` : undefined}
-          applySuggestionUrl={user ? `/${ownerName}/${repoName}/pulls/${pr.number}/apply-suggestion` : undefined}
-        />
+        <>
+          {/* PR Split Suggestion — shown when PR has >400 changed lines */}
+          {splitSuggestion && (
+            <div class="split-suggestion" id="pr-split-banner">
+              <div class="split-header">
+                <span class="split-icon" aria-hidden="true">✂️</span>
+                <strong>This PR may be too large to review effectively</strong>
+                <span class="split-stat">
+                  {splitSuggestion.totalLines} lines · {splitSuggestion.totalFiles} files
+                </span>
+                <button
+                  class="split-toggle"
+                  type="button"
+                  onclick="const b=document.getElementById('pr-split-body');const hidden=b.hasAttribute('hidden');b.toggleAttribute('hidden');this.textContent=hidden?'Hide split suggestion':'Show split suggestion';"
+                >
+                  Show split suggestion
+                </button>
+              </div>
+              <div class="split-body" id="pr-split-body" hidden>
+                <p class="split-intro">
+                  AI suggests splitting into {splitSuggestion.suggestedPrs.length} PRs:
+                </p>
+                {splitSuggestion.suggestedPrs.map((sp, i) => (
+                  <div class="split-pr">
+                    <div class="split-pr-num">{i + 1}</div>
+                    <div class="split-pr-body">
+                      <strong>{sp.title}</strong>
+                      <p>{sp.rationale}</p>
+                      <code>{sp.files.join(", ")}</code>
+                      <span class="split-lines">~{sp.estimatedLines} lines</span>
+                    </div>
+                  </div>
+                ))}
+                {splitSuggestion.mergeOrder.length > 0 && (
+                  <p class="split-order">
+                    Suggested merge order:{" "}
+                    <strong>{splitSuggestion.mergeOrder.join(" → ")}</strong>
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Bus Factor Warning — shown when changed files overlap at-risk files */}
+          {busRiskFiles.length > 0 && (() => {
+            const topRisk = busRiskFiles.some((f) => f.risk === "critical")
+              ? "critical"
+              : busRiskFiles.some((f) => f.risk === "high")
+                ? "high"
+                : "medium";
+            return (
+              <div class={`busfactor-panel busfactor-${topRisk}`}>
+                <span class="busfactor-icon" aria-hidden="true">⚠️</span>
+                <div class="busfactor-body">
+                  <strong>Knowledge concentration warning</strong>
+                  <p>
+                    {busRiskFiles.length} file{busRiskFiles.length !== 1 ? "s" : ""} in
+                    this PR {busRiskFiles.length !== 1 ? "are" : "is"} primarily
+                    maintained by one person. Consider pairing on this review.
+                  </p>
+                  <ul>
+                    {busRiskFiles.map((f) => (
+                      <li>
+                        <code>{f.path}</code> —{" "}
+                        <strong>{f.primaryAuthorPct}%</strong> by {f.primaryAuthor}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            );
+          })()}
+
+          <DiffView
+            raw={diffRaw}
+            files={diffFiles}
+            viewFileBase={`/${ownerName}/${repoName}/blob/${pr.headBranch}`}
+            inlineComments={diffInlineComments}
+            commentActionUrl={user ? `/${ownerName}/${repoName}/pulls/${pr.number}/comment` : undefined}
+            applySuggestionUrl={user ? `/${ownerName}/${repoName}/pulls/${pr.number}/apply-suggestion` : undefined}
+          />
+        </>
       ) : (
         <>
           {pr.body && (
@@ -4001,6 +4665,11 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
 
           {pr.state === "open" && (prRisk || prRiskCalculating) && (
             <PrRiskCard risk={prRisk} calculating={prRiskCalculating} />
+          )}
+
+          {/* ─── Merge Impact Analysis panel ─────────────────────── */}
+          {impactAnalysis && pr.state === "open" && (
+            <ImpactPanel analysis={impactAnalysis} owner={ownerName} />
           )}
 
           {/* ─── Review summary ─────────────────────────────────── */}
@@ -4202,7 +4871,8 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
                   <span class="slash-hint" title="Type a slash-command as the first line">
                     Type <code>/</code> for commands —{" "}
                     <code>/help</code>, <code>/merge</code>, <code>/rebase</code>,{" "}
-                    <code>/explain</code>, <code>/test</code>, <code>/lgtm</code>
+                    <code>/explain</code>, <code>/test</code>, <code>/lgtm</code>,{" "}
+                    <code>/stage</code>
                   </span>
                 </FormGroup>
                 <div class="prs-merge-actions">
@@ -4640,6 +5310,19 @@ pulls.post(
       } catch {
         /* SSE is best-effort */
       }
+      // Notify the PR author — fire-and-forget, never blocks the response.
+      if (pr.authorId && pr.authorId !== user.id) {
+        void import("../lib/notify").then(({ createNotification }) =>
+          createNotification({
+            userId: pr.authorId,
+            type: "pr_comment",
+            title: `New comment on "${pr.title}"`,
+            body: commentBody.length > 200 ? commentBody.slice(0, 200) + "…" : commentBody,
+            url: `/${ownerName}/${repoName}/pulls/${prNum}`,
+            repoId: resolved.repo.id,
+          })
+        ).catch(() => { /* never block the response */ });
+      }
     }
 
     if (decision.status === "pending") {
@@ -4928,6 +5611,17 @@ pulls.post(
           "This PR is a draft. Mark it as ready for review before merging."
         )}`
       );
+    }
+
+    // Required reviews check — branch-protection `required_approvals` gate.
+    // Evaluated before running expensive gate checks so the feedback is fast.
+    {
+      const eligibility = await checkMergeEligible(pr.id, resolved.repo.id, pr.baseBranch);
+      if (!eligibility.eligible && eligibility.reason) {
+        return c.redirect(
+          `/${ownerName}/${repoName}/pulls/${prNum}?error=${encodeURIComponent(eligibility.reason)}`
+        );
+      }
     }
 
     // Resolve head SHA
@@ -5508,6 +6202,154 @@ pulls.post(
       `/${ownerName}/${repoName}/pulls/${prNum}?info=${encodeURIComponent(msg)}`
     );
   }
+);
+
+// ─── WebSocket presence endpoint ─────────────────────────────────────────────
+//
+// GET /:owner/:repo/pulls/:number/presence  (WebSocket upgrade)
+//
+// Unauthenticated connections are rejected with 401. On connect:
+//   → server sends {type:"init", sessionId, users:[...]}
+//   → server broadcasts {type:"join", user} to all other sessions in the room
+//
+// Accepted client messages:
+//   {type:"cursor",  line: number}             — user hovering a diff line
+//   {type:"typing",  line: number, typing: bool} — textarea focus/blur
+//   {type:"ping"}                              — keep-alive (updates lastSeen)
+//
+// The WS `data` payload we store on each socket carries everything needed in
+// the event handlers so no closure tricks are required.
+
+pulls.get(
+  "/:owner/:repo/pulls/:number/presence",
+  softAuth,
+  upgradeWebSocket(async (c) => {
+    const { owner: ownerName, repo: repoName, number: prNumStr } = c.req.param();
+    const prNum = parseInt(prNumStr ?? "0", 10);
+    const user = c.get("user");
+
+    // Auth check — no anonymous presence
+    if (!user) {
+      // upgradeWebSocket doesn't support returning a non-101 directly;
+      // we return a dummy handler that immediately closes with 4001.
+      return {
+        onOpen(_evt: Event, ws: import("hono/ws").WSContext) {
+          ws.close(4001, "Unauthorized");
+        },
+        onMessage() {},
+        onClose() {},
+      };
+    }
+
+    // Resolve repo to get its numeric id for the room key
+    const resolved = await resolveRepo(ownerName, repoName);
+    if (!resolved || isNaN(prNum)) {
+      return {
+        onOpen(_evt: Event, ws: import("hono/ws").WSContext) {
+          ws.close(4004, "Not found");
+        },
+        onMessage() {},
+        onClose() {},
+      };
+    }
+
+    const prId = `${resolved.repo.id}:${prNum}`;
+    const sessionId = `${user.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
+    return {
+      onOpen(_evt: Event, ws: import("hono/ws").WSContext) {
+        // Register and join room
+        registerSocket(prId, sessionId, {
+          send: (data: string) => ws.send(data),
+          readyState: ws.readyState,
+        });
+        const presenceUser = joinRoom(prId, sessionId, {
+          userId: user.id,
+          username: user.username,
+        });
+
+        // Send init snapshot to the new joiner
+        const currentUsers = getRoomUsers(prId);
+        ws.send(
+          JSON.stringify({
+            type: "init",
+            sessionId,
+            users: currentUsers,
+          })
+        );
+
+        // Broadcast join to all OTHER sessions
+        broadcastToRoom(
+          prId,
+          {
+            type: "join",
+            user: { ...presenceUser, sessionId },
+          },
+          sessionId
+        );
+      },
+
+      onMessage(evt: MessageEvent, _ws: import("hono/ws").WSContext) {
+        let msg: { type: string; line?: number; typing?: boolean };
+        try {
+          msg = JSON.parse(typeof evt.data === "string" ? evt.data : String(evt.data));
+        } catch {
+          return;
+        }
+
+        if (msg.type === "ping") {
+          pingSession(prId, sessionId);
+          return;
+        }
+
+        if (msg.type === "cursor") {
+          const line = typeof msg.line === "number" ? msg.line : null;
+          const updated = updatePresence(prId, sessionId, line, false);
+          if (updated) {
+            broadcastToRoom(
+              prId,
+              {
+                type: "cursor",
+                sessionId,
+                username: updated.username,
+                colour: updated.colour,
+                line,
+              },
+              sessionId
+            );
+          }
+          return;
+        }
+
+        if (msg.type === "typing") {
+          const line = typeof msg.line === "number" ? msg.line : null;
+          const typing = !!msg.typing;
+          const updated = updatePresence(prId, sessionId, line, typing);
+          if (updated) {
+            broadcastToRoom(
+              prId,
+              {
+                type: "typing",
+                sessionId,
+                username: updated.username,
+                colour: updated.colour,
+                line,
+                typing,
+              },
+              sessionId
+            );
+          }
+          return;
+        }
+      },
+
+      onClose() {
+        leaveRoom(prId, sessionId);
+        unregisterSocket(prId, sessionId);
+        broadcastToRoom(prId, { type: "leave", sessionId });
+      },
+    };
+  })
 );
 
 export default pulls;

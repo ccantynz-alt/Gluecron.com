@@ -5,14 +5,14 @@
  * the reviewer can see at a glance before clicking Merge. The score is a
  * pure function over a small set of signals (file count, line count,
  * teams affected, schema migrations touched, dependency churn, test
- * ratio). The LLM (Haiku — fast + cheap) only writes the one-paragraph
+ * ratio). The LLM (Sonnet 4.6) only writes the one-paragraph
  * prose summary; it never influences the numeric score.
  *
  * Architecture:
  *
  *   1. `computePrRiskScore(signals)` — pure helper. Same input always
  *      yields the same score. Documented inline; auditable.
- *   2. `generatePrRiskSummary(args)` — calls Haiku for prose. Never
+ *   2. `generatePrRiskSummary(args)` — calls Sonnet for prose. Never
  *      throws — falls back to a deterministic sentence when no API key
  *      is set or the call fails.
  *   3. `computePrRiskForPullRequest(prId)` — DB-backed orchestrator.
@@ -174,7 +174,7 @@ export async function generatePrRiskSummary(args: {
   try {
     const client = getAnthropic();
     const message = await client.messages.create({
-      model: MODEL_HAIKU,
+      model: MODEL_SONNET,
       max_tokens: 200,
       messages: [
         {

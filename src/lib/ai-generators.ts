@@ -18,7 +18,7 @@ export async function generateCommitMessage(diff: string): Promise<string> {
   }
   const client = getAnthropic();
   const message = await client.messages.create({
-    model: MODEL_HAIKU,
+    model: MODEL_SONNET,
     max_tokens: 512,
     messages: [
       {
@@ -124,7 +124,7 @@ export async function triageIssue(
   if (!isAiAvailable()) return fallback;
   const client = getAnthropic();
   const message = await client.messages.create({
-    model: MODEL_HAIKU,
+    model: MODEL_SONNET,
     max_tokens: 512,
     messages: [
       {
@@ -200,7 +200,7 @@ export async function triagePullRequest(
   try {
     const client = getAnthropic();
     const message = await client.messages.create({
-      model: MODEL_HAIKU,
+      model: MODEL_SONNET,
       max_tokens: 512,
       messages: [
         {

@@ -24,12 +24,13 @@
 import { Hono } from "hono";
 import { desc, eq, and } from "drizzle-orm";
 import { db } from "../db";
-import { deployments, repositories, users } from "../db/schema";
+import { deployments, repositories, users, cloudDeployConfigs, cloudDeployments } from "../db/schema";
 import type { AuthEnv } from "../middleware/auth";
 import { softAuth, requireAuth } from "../middleware/auth";
 import { Layout } from "../views/layout";
 import { RepoHeader } from "../views/components";
 import { onDeployFailure } from "../lib/ai-incident";
+import { encryptValue } from "../lib/server-targets-crypto";
 
 const dep = new Hono<AuthEnv>();
 
@@ -794,6 +795,599 @@ dep.post(
     } catch (err) {
       console.error("[deployments] retry-incident:", err);
     }
+    return c.redirect(back);
+  }
+);
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * Cloud deploy integration routes (migration 0077)
+ * ───────────────────────────────────────────────────────────────────────── */
+
+const PROVIDER_LABELS: Record<string, string> = {
+  fly: "Fly.io",
+  railway: "Railway",
+  render: "Render",
+  vercel: "Vercel",
+  netlify: "Netlify",
+  webhook: "Generic Webhook",
+};
+
+const cloudDeploySettingsStyles = `
+  .cds-wrap { max-width: 900px; margin: 0 auto; padding: var(--space-6) var(--space-4); }
+  .cds-head { margin-bottom: var(--space-5); }
+  .cds-title {
+    font-size: clamp(20px,2.8vw,28px); font-family: var(--font-display); font-weight: 800;
+    letter-spacing: -0.022em; margin: 0 0 var(--space-2); color: var(--text-strong);
+  }
+  .cds-sub { font-size: 14px; color: var(--text-muted); margin: 0; line-height: 1.55; }
+  .cds-card {
+    background: var(--bg-elevated); border: 1px solid var(--border);
+    border-radius: 14px; overflow: hidden; margin-bottom: var(--space-4);
+  }
+  .cds-card-head {
+    padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+    background: rgba(255,255,255,0.012);
+  }
+  .cds-card-title { margin: 0; font-size: 14px; font-weight: 700; color: var(--text-strong); }
+  .cds-config-row {
+    display: grid; grid-template-columns: 120px 1fr 120px 80px auto;
+    align-items: center; gap: 12px; padding: 10px var(--space-4);
+    border-top: 1px solid rgba(255,255,255,0.04); font-size: 13px;
+  }
+  .cds-config-row:first-child { border-top: none; }
+  .cds-badge {
+    display: inline-flex; align-items: center; padding: 2px 8px;
+    border-radius: 6px; font-size: 11px; font-weight: 700;
+    background: rgba(140,109,255,0.14); color: #b69dff;
+    box-shadow: inset 0 0 0 1px rgba(140,109,255,0.3);
+  }
+  .cds-mono { font-family: var(--font-mono); font-size: 12px; }
+  .cds-form label { display: block; font-size: 12.5px; font-weight: 600; color: var(--text-muted); margin-bottom: 4px; }
+  .cds-form input, .cds-form select {
+    width: 100%; padding: 8px 10px; background: var(--bg-tertiary);
+    border: 1px solid var(--border); border-radius: 8px; color: var(--text);
+    font-family: inherit; font-size: 13px;
+  }
+  .cds-form input:focus, .cds-form select:focus { outline: 2px solid var(--accent); border-color: var(--accent); }
+  .cds-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: var(--space-3); }
+  .cds-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 8px 16px; font-size: 13px; font-weight: 600;
+    border-radius: 8px; cursor: pointer; font-family: inherit;
+    border: 1px solid transparent;
+    transition: background 120ms ease, border-color 120ms ease;
+  }
+  .cds-btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .cds-btn-primary:hover { filter: brightness(1.1); }
+  .cds-btn-ghost { background: rgba(255,255,255,0.03); border-color: var(--border); color: var(--text); }
+  .cds-btn-ghost:hover { background: rgba(255,255,255,0.06); border-color: var(--border-strong); }
+  .cds-btn-danger { background: rgba(239,68,68,0.12); border-color: rgba(239,68,68,0.35); color: #fca5a5; }
+  .cds-btn-danger:hover { background: rgba(239,68,68,0.2); }
+  .cds-footer { margin-top: var(--space-4); display: flex; justify-content: flex-end; }
+  .cds-empty { padding: var(--space-5); text-align: center; color: var(--text-muted); font-size: 13px; }
+  .cds-status { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 700;
+    padding: 2px 8px; border-radius: 9999px; }
+  .cds-status.is-success { background: rgba(52,211,153,0.14); color: #6ee7b7; box-shadow: inset 0 0 0 1px rgba(52,211,153,0.32); }
+  .cds-status.is-failed { background: rgba(248,113,113,0.14); color: #fca5a5; box-shadow: inset 0 0 0 1px rgba(248,113,113,0.32); }
+  .cds-status.is-running, .cds-status.is-pending { background: rgba(96,165,250,0.14); color: #bfdbfe; box-shadow: inset 0 0 0 1px rgba(96,165,250,0.32); }
+  .cds-status.is-cancelled { background: rgba(107,114,128,0.16); color: #d1d5db; box-shadow: inset 0 0 0 1px rgba(107,114,128,0.32); }
+  .cds-runs { display: flex; flex-direction: column; gap: 0; }
+  .cds-run-row {
+    display: grid; grid-template-columns: 80px 90px 1fr auto auto;
+    align-items: center; gap: 12px; padding: 10px var(--space-4);
+    border-top: 1px solid rgba(255,255,255,0.04); font-size: 13px;
+  }
+  .cds-run-row:first-child { border-top: none; }
+  .cds-run-row:hover { background: rgba(255,255,255,0.02); }
+  .cds-sha { font-family: var(--font-mono); font-size: 12px; background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border); padding: 2px 7px; border-radius: 6px; }
+  .cds-link { color: var(--accent); text-decoration: none; font-size: 12px; }
+  .cds-link:hover { text-decoration: underline; }
+  @keyframes cds-spin { to { transform: rotate(360deg); } }
+  .cds-spinner { display: inline-block; width: 10px; height: 10px; border: 2px solid rgba(96,165,250,0.3);
+    border-top-color: #93c5fd; border-radius: 50%; animation: cds-spin 0.8s linear infinite; }
+`;
+
+function cdStatusClass(status: string): string {
+  switch (status) {
+    case "success":
+      return "cds-status is-success";
+    case "failed":
+      return "cds-status is-failed";
+    case "running":
+      return "cds-status is-running";
+    case "pending":
+      return "cds-status is-pending";
+    case "cancelled":
+      return "cds-status is-cancelled";
+    default:
+      return "cds-status is-cancelled";
+  }
+}
+
+/** GET /:owner/:repo/settings/deployments — cloud deploy config page */
+dep.get("/:owner/:repo/settings/deployments", requireAuth, async (c) => {
+  const { owner, repo } = c.req.param();
+  const user = c.get("user")!;
+  const repoRow = await resolveRepo(owner, repo);
+  if (!repoRow) return c.notFound();
+  if (repoRow.ownerId !== user.id) return c.redirect(`/${owner}/${repo}`);
+
+  let configs: Array<typeof cloudDeployConfigs.$inferSelect> = [];
+  try {
+    configs = await db
+      .select()
+      .from(cloudDeployConfigs)
+      .where(eq(cloudDeployConfigs.repoId, repoRow.id))
+      .orderBy(desc(cloudDeployConfigs.createdAt));
+  } catch {
+    /* ignore */
+  }
+
+  const flash = c.req.query("flash");
+
+  return c.html(
+    <Layout title={`${owner}/${repo} — cloud deploy settings`} user={user}>
+      <RepoHeader owner={owner} repo={repo} />
+      <div class="cds-wrap">
+        <header class="cds-head">
+          <h2 class="cds-title">Cloud Deploy Integrations</h2>
+          <p class="cds-sub">
+            Push to a branch and Gluecron automatically deploys to your cloud
+            provider. Supports Fly.io, Railway, Render, Vercel, Netlify, and any
+            webhook-based platform.
+          </p>
+        </header>
+
+        {flash === "added" && (
+          <div style="background:rgba(52,211,153,0.1);border:1px solid rgba(52,211,153,0.3);border-radius:8px;padding:10px 14px;font-size:13px;color:#6ee7b7;margin-bottom:var(--space-4);">
+            Integration added successfully.
+          </div>
+        )}
+        {flash === "deleted" && (
+          <div style="background:rgba(248,113,113,0.1);border:1px solid rgba(248,113,113,0.3);border-radius:8px;padding:10px 14px;font-size:13px;color:#fca5a5;margin-bottom:var(--space-4);">
+            Integration removed.
+          </div>
+        )}
+        {flash === "error" && (
+          <div style="background:rgba(248,113,113,0.1);border:1px solid rgba(248,113,113,0.3);border-radius:8px;padding:10px 14px;font-size:13px;color:#fca5a5;margin-bottom:var(--space-4);">
+            Error: SERVER_TARGETS_KEY env var is not set. Cloud deploy tokens cannot
+            be encrypted.
+          </div>
+        )}
+
+        <div class="cds-card">
+          <div class="cds-card-head">
+            <h3 class="cds-card-title">Active integrations</h3>
+          </div>
+          {configs.length === 0 ? (
+            <div class="cds-empty">
+              No integrations configured yet. Add one below.
+            </div>
+          ) : (
+            <div style="padding:0;">
+              {configs.map((cfg) => (
+                <div class="cds-config-row">
+                  <span class="cds-badge">
+                    {PROVIDER_LABELS[cfg.provider] ?? cfg.provider}
+                  </span>
+                  <span class="cds-mono">{cfg.providerAppId}</span>
+                  <span style="font-size:12px;color:var(--text-muted);">
+                    branch:{" "}
+                    <code class="cds-mono">{cfg.triggerBranch}</code>
+                  </span>
+                  <span style="font-size:12px;color:var(--text-muted);">
+                    {cfg.enabled ? "enabled" : "disabled"}
+                  </span>
+                  <form
+                    method="post"
+                    action={`/${owner}/${repo}/settings/deployments/${cfg.id}/delete`}
+                  >
+                    <button
+                      type="submit"
+                      class="cds-btn cds-btn-danger"
+                      style="padding:4px 10px;font-size:12px;"
+                    >
+                      Remove
+                    </button>
+                  </form>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div class="cds-card">
+          <div class="cds-card-head">
+            <h3 class="cds-card-title">Add integration</h3>
+          </div>
+          <div style="padding:var(--space-4);">
+            <form
+              method="post"
+              action={`/${owner}/${repo}/settings/deployments`}
+              class="cds-form"
+            >
+              <div
+                class="cds-grid-3"
+                style="margin-bottom:var(--space-3);"
+              >
+                <div>
+                  <label for="provider">Provider</label>
+                  <select id="provider" name="provider" required>
+                    <option value="fly">Fly.io</option>
+                    <option value="railway">Railway</option>
+                    <option value="render">Render</option>
+                    <option value="vercel">Vercel</option>
+                    <option value="netlify">Netlify</option>
+                    <option value="webhook">Generic Webhook</option>
+                  </select>
+                </div>
+                <div>
+                  <label for="provider_app_id">
+                    App / Service ID (or webhook URL)
+                  </label>
+                  <input
+                    type="text"
+                    id="provider_app_id"
+                    name="provider_app_id"
+                    placeholder="e.g. my-app, srv-xxx, webhook URL"
+                    required
+                  />
+                </div>
+                <div>
+                  <label for="trigger_branch">Trigger branch</label>
+                  <input
+                    type="text"
+                    id="trigger_branch"
+                    name="trigger_branch"
+                    placeholder="main"
+                    value="main"
+                    required
+                  />
+                </div>
+              </div>
+              <div style="margin-bottom:var(--space-4);">
+                <label for="api_token">API token (stored encrypted)</label>
+                <input
+                  type="password"
+                  id="api_token"
+                  name="api_token"
+                  placeholder="Paste your provider API token"
+                  required
+                />
+                <p style="font-size:11.5px;color:var(--text-muted);margin:4px 0 0;">
+                  Token is encrypted with AES-256-GCM before storing. Never
+                  logged.
+                </p>
+              </div>
+              <div class="cds-footer">
+                <button type="submit" class="cds-btn cds-btn-primary">
+                  Add integration
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <div style="text-align:center;margin-top:var(--space-3);">
+          <a
+            href={`/${owner}/${repo}/cloud-deployments`}
+            class="cds-link"
+          >
+            View deployment history &rarr;
+          </a>
+        </div>
+      </div>
+      <style dangerouslySetInnerHTML={{ __html: cloudDeploySettingsStyles }} />
+    </Layout>
+  );
+});
+
+/** POST /:owner/:repo/settings/deployments — add new cloud deploy config */
+dep.post(
+  "/:owner/:repo/settings/deployments",
+  requireAuth,
+  async (c) => {
+    const { owner, repo } = c.req.param();
+    const user = c.get("user")!;
+    const repoRow = await resolveRepo(owner, repo);
+    const back = `/${owner}/${repo}/settings/deployments`;
+    if (!repoRow) return c.notFound();
+    if (repoRow.ownerId !== user.id) return c.redirect(back);
+
+    const form = await c.req.formData();
+    const provider = String(form.get("provider") || "").trim();
+    const providerAppId = String(form.get("provider_app_id") || "").trim();
+    const triggerBranch = String(
+      form.get("trigger_branch") || "main"
+    ).trim();
+    const apiToken = String(form.get("api_token") || "").trim();
+
+    const validProviders = [
+      "fly",
+      "railway",
+      "render",
+      "vercel",
+      "netlify",
+      "webhook",
+    ];
+    if (
+      !validProviders.includes(provider) ||
+      !providerAppId ||
+      !triggerBranch ||
+      !apiToken
+    ) {
+      return c.redirect(`${back}?flash=error`);
+    }
+
+    const encResult = encryptValue(apiToken);
+    if (!encResult.ok) {
+      return c.redirect(`${back}?flash=error`);
+    }
+
+    try {
+      await db.insert(cloudDeployConfigs).values({
+        repoId: repoRow.id,
+        provider,
+        providerAppId,
+        apiTokenEncrypted: encResult.ciphertext,
+        triggerBranch,
+        enabled: true,
+      });
+    } catch (err) {
+      console.error("[cloud-deploy] insert config:", err);
+      return c.redirect(`${back}?flash=error`);
+    }
+
+    return c.redirect(`${back}?flash=added`);
+  }
+);
+
+/** POST /:owner/:repo/settings/deployments/:configId/delete */
+dep.post(
+  "/:owner/:repo/settings/deployments/:configId/delete",
+  requireAuth,
+  async (c) => {
+    const { owner, repo, configId } = c.req.param();
+    const user = c.get("user")!;
+    const repoRow = await resolveRepo(owner, repo);
+    const back = `/${owner}/${repo}/settings/deployments`;
+    if (!repoRow) return c.notFound();
+    if (repoRow.ownerId !== user.id) return c.redirect(back);
+
+    try {
+      await db
+        .delete(cloudDeployConfigs)
+        .where(
+          and(
+            eq(cloudDeployConfigs.id, configId),
+            eq(cloudDeployConfigs.repoId, repoRow.id)
+          )
+        );
+    } catch (err) {
+      console.error("[cloud-deploy] delete config:", err);
+    }
+
+    return c.redirect(`${back}?flash=deleted`);
+  }
+);
+
+/** GET /:owner/:repo/cloud-deployments — list recent cloud deploy runs */
+dep.get("/:owner/:repo/cloud-deployments", softAuth, async (c) => {
+  const { owner, repo } = c.req.param();
+  const user = c.get("user");
+  const repoRow = await resolveRepo(owner, repo);
+  if (!repoRow) return c.notFound();
+
+  let runs: Array<{
+    id: string;
+    configId: string;
+    commitSha: string;
+    status: string;
+    providerDeployId: string | null;
+    logUrl: string | null;
+    deployUrl: string | null;
+    errorMessage: string | null;
+    startedAt: Date | null;
+    completedAt: Date | null;
+    durationMs: number | null;
+    provider: string;
+    providerAppId: string;
+    triggerBranch: string;
+  }> = [];
+  try {
+    runs = await db
+      .select({
+        id: cloudDeployments.id,
+        configId: cloudDeployments.configId,
+        commitSha: cloudDeployments.commitSha,
+        status: cloudDeployments.status,
+        providerDeployId: cloudDeployments.providerDeployId,
+        logUrl: cloudDeployments.logUrl,
+        deployUrl: cloudDeployments.deployUrl,
+        errorMessage: cloudDeployments.errorMessage,
+        startedAt: cloudDeployments.startedAt,
+        completedAt: cloudDeployments.completedAt,
+        durationMs: cloudDeployments.durationMs,
+        provider: cloudDeployConfigs.provider,
+        providerAppId: cloudDeployConfigs.providerAppId,
+        triggerBranch: cloudDeployConfigs.triggerBranch,
+      })
+      .from(cloudDeployments)
+      .innerJoin(
+        cloudDeployConfigs,
+        eq(cloudDeployments.configId, cloudDeployConfigs.id)
+      )
+      .where(eq(cloudDeployments.repoId, repoRow.id))
+      .orderBy(desc(cloudDeployments.startedAt))
+      .limit(100);
+  } catch (err) {
+    console.error("[cloud-deployments] list:", err);
+  }
+
+  return c.html(
+    <Layout title={`${owner}/${repo} — cloud deployments`} user={user}>
+      <RepoHeader owner={owner} repo={repo} />
+      <div class="cds-wrap">
+        <header
+          class="cds-head"
+          style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;"
+        >
+          <div>
+            <h2 class="cds-title">Cloud Deployments</h2>
+            <p class="cds-sub">
+              Recent push-triggered deploys across all configured integrations.
+            </p>
+          </div>
+          {user?.id === repoRow.ownerId && (
+            <a
+              href={`/${owner}/${repo}/settings/deployments`}
+              class="cds-btn cds-btn-ghost"
+              style="text-decoration:none;"
+            >
+              Configure integrations
+            </a>
+          )}
+        </header>
+
+        <div class="cds-card">
+          {runs.length === 0 ? (
+            <div class="cds-empty">
+              No cloud deployments yet.{" "}
+              {user?.id === repoRow.ownerId ? (
+                <a
+                  href={`/${owner}/${repo}/settings/deployments`}
+                  class="cds-link"
+                >
+                  Add an integration
+                </a>
+              ) : (
+                "Ask the repo owner to configure a cloud deploy integration."
+              )}
+            </div>
+          ) : (
+            <div class="cds-runs">
+              {runs.map((run) => {
+                const durMs = run.durationMs;
+                const dur =
+                  durMs != null
+                    ? durMs >= 60_000
+                      ? `${Math.round(durMs / 60_000)}m ${Math.round((durMs % 60_000) / 1000)}s`
+                      : `${Math.round(durMs / 1000)}s`
+                    : null;
+                const isRunning =
+                  run.status === "running" || run.status === "pending";
+                return (
+                  <div class="cds-run-row">
+                    <span class={cdStatusClass(run.status)}>
+                      {isRunning ? (
+                        <span
+                          class="cds-spinner"
+                          aria-label="deploying"
+                        />
+                      ) : null}
+                      {run.status}
+                    </span>
+                    <code class="cds-sha">
+                      {run.commitSha.slice(0, 7)}
+                    </code>
+                    <div
+                      style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0;"
+                    >
+                      <span class="cds-badge">
+                        {PROVIDER_LABELS[run.provider] ?? run.provider}
+                      </span>
+                      <span
+                        class="cds-mono"
+                        style="font-size:12px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
+                      >
+                        {run.providerAppId}
+                      </span>
+                      {run.deployUrl && run.status === "success" && (
+                        <a
+                          href={run.deployUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          class="cds-link"
+                        >
+                          {run.deployUrl
+                            .replace(/^https?:\/\//, "")
+                            .slice(0, 40)}
+                        </a>
+                      )}
+                      {run.status === "failed" && run.errorMessage && (
+                        <span
+                          style="font-size:11.5px;color:#fca5a5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
+                          title={run.errorMessage}
+                        >
+                          {run.errorMessage.slice(0, 60)}
+                        </span>
+                      )}
+                    </div>
+                    <span
+                      style="font-size:12px;color:var(--text-muted);white-space:nowrap;font-variant-numeric:tabular-nums;"
+                    >
+                      {dur
+                        ? run.status === "success"
+                          ? `Deployed in ${dur}`
+                          : run.status === "failed"
+                            ? `Failed after ${dur}`
+                            : dur
+                        : dkRelativeTime(run.startedAt)}
+                    </span>
+                    <div style="display:flex;gap:6px;align-items:center;">
+                      {run.logUrl && (
+                        <a
+                          href={run.logUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          class="cds-link"
+                        >
+                          Logs
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+      <style
+        dangerouslySetInnerHTML={{ __html: cloudDeploySettingsStyles }}
+      />
+    </Layout>
+  );
+});
+
+/** POST /:owner/:repo/deployments/:deployId/cancel — cancel a running cloud deployment */
+dep.post(
+  "/:owner/:repo/deployments/:deployId/cancel",
+  requireAuth,
+  async (c) => {
+    const { owner, repo, deployId } = c.req.param();
+    const user = c.get("user")!;
+    const repoRow = await resolveRepo(owner, repo);
+    const back = `/${owner}/${repo}/cloud-deployments`;
+    if (!repoRow) return c.notFound();
+    if (repoRow.ownerId !== user.id) return c.redirect(back);
+
+    try {
+      await db
+        .update(cloudDeployments)
+        .set({ status: "cancelled", completedAt: new Date() })
+        .where(
+          and(
+            eq(cloudDeployments.id, deployId),
+            eq(cloudDeployments.repoId, repoRow.id)
+          )
+        );
+    } catch (err) {
+      console.error("[cloud-deploy] cancel:", err);
+    }
+
     return c.redirect(back);
   }
 );

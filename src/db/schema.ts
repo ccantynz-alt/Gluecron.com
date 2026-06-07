@@ -146,8 +146,37 @@ export const sessions = pgTable("sessions", {
   // code. softAuth/requireAuth treat such sessions as anonymous; only
   // /login/2fa can consume them. Flips to false on successful 2FA.
   requires2fa: boolean("requires_2fa").default(false).notNull(),
+  // Migration 0077 — SOC 2 session visibility. Populated at login and
+  // refreshed on each authenticated request (best-effort, non-blocking).
+  ip: text("ip"),
+  userAgent: text("user_agent"),
+  lastSeenAt: timestamp("last_seen_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
+
+/**
+ * Login attempt log — SOC 2 CC6.1 account-lockout evidence.
+ * Records every login attempt (success or failure) per email + IP.
+ * After 10 failures within 1 hour the login handler blocks the email
+ * for 15 minutes and emits `auth.login.locked` to the audit log.
+ * Migration 0078.
+ */
+export const loginAttempts = pgTable(
+  "login_attempts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    email: text("email").notNull(),
+    ip: text("ip").notNull(),
+    success: boolean("success").notNull().default(false),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("login_attempts_email_created").on(table.email, table.createdAt),
+    index("login_attempts_ip_created").on(table.ip, table.createdAt),
+  ]
+);
+
+export type LoginAttempt = typeof loginAttempts.$inferSelect;
 
 // @ts-ignore — self-referential FK on forkedFromId causes circular inference
 export const repositories = pgTable(

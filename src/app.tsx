@@ -105,6 +105,8 @@ import adminSelfHostRoutes from "./routes/admin-self-host";
 import adminDiagnoseRoutes from "./routes/admin-diagnose";
 import adminIntegrationsRoutes from "./routes/admin-integrations";
 import adminAdvancementRoutes from "./routes/admin-advancement";
+import adminSecurityRoutes from "./routes/admin-security";
+import settingsSessionsRoutes from "./routes/settings-sessions";
 import advisoriesRoutes from "./routes/advisories";
 import aiChangelogRoutes from "./routes/ai-changelog";
 import aiExplainRoutes from "./routes/ai-explain";
@@ -423,6 +425,9 @@ app.route("/", magicLinkRoutes);
 // Settings routes (profile, SSH keys)
 app.route("/", settingsRoutes);
 
+// Session management (SOC 2 CC6.1 — /settings/sessions)
+app.route("/", settingsSessionsRoutes);
+
 // 2FA / TOTP settings (Block B4)
 app.route("/", settings2faRoutes);
 
@@ -624,6 +629,9 @@ app.route("/", onboardingRoutes);
 app.route("/", adminRoutes);
 app.route("/", adminDeletionsRoutes);
 app.route("/", adminStripeRoutes);
+
+// SOC 2 security dashboard + readiness checklist (/admin/security, /admin/soc2)
+app.route("/", adminSecurityRoutes);
 app.route("/", adminIntegrationsRoutes);
 app.route("/", adminAdvancementRoutes);
 app.route("/", adminDeploysRoutes);

@@ -81,6 +81,7 @@ import migrationRoutes from "./routes/migrations";
 import migrateRoutes from "./routes/migrate";
 import specsRoutes from "./routes/specs";
 import refactorRoutes from "./routes/refactors";
+import codebaseMigratorRoutes from "./routes/codebase-migrator";
 import webRoutes from "./routes/web";
 import hookRoutes from "./routes/hooks";
 import eventsRoutes from "./routes/events";
@@ -638,6 +639,7 @@ app.route("/", migrateRoutes);
 // Spec-to-PR (experimental AI-generated draft PRs)
 app.route("/", specsRoutes);
 app.route("/", refactorRoutes);
+app.route("/", codebaseMigratorRoutes);
 
 // Explore page
 app.route("/", exploreRoutes);

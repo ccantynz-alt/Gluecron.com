@@ -1067,7 +1067,7 @@ function AutoImportNote() {
 function ImporterForm() {
   return (
     <div class="ai-form-card" id="converter-form">
-      <form method="POST" action="/import/actions" enctype="multipart/form-data">
+      <form method="post" action="/import/actions" enctype="multipart/form-data">
         <label class="ai-form-label" for="yaml-input">
           Paste your GitHub Actions workflow YAML
         </label>

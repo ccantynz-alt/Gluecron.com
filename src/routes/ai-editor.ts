@@ -23,9 +23,9 @@ const aiEditor = new Hono<AuthEnv>();
 const QUOTA_WINDOW_MS = 60 * 60 * 1_000; // 1 hour
 const QUOTA_MAX = 30;
 
-const suggestQuota = new Map<number, number[]>();
+const suggestQuota = new Map<string, number[]>();
 
-function checkQuota(userId: number): { allowed: boolean; resetInMinutes: number } {
+function checkQuota(userId: string): { allowed: boolean; resetInMinutes: number } {
   const now = Date.now();
   const cutoff = now - QUOTA_WINDOW_MS;
   let timestamps = suggestQuota.get(userId) ?? [];

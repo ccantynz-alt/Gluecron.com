@@ -22,6 +22,7 @@
 import {
   getAnthropic,
   MODEL_HAIKU,
+  MODEL_SONNET,
   extractText,
   isAiAvailable,
 } from "./ai-client";

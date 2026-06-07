@@ -702,6 +702,10 @@ export function defaultTasks(): AutopilotTask[] {
           );
         } catch (err) {
           console.error("[autopilot] dep-update-sweep: threw:", err);
+        }
+      },
+    },
+    {
       // Smart morning digest — AI-curated daily developer queue.
       // Fires once per day at 07:00 UTC (or whenever the 22h outer gate
       // next opens after 07:00). Per-user 20h cooldown in sendSmartDigest

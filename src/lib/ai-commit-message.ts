@@ -21,6 +21,7 @@
 import {
   getAnthropic,
   MODEL_HAIKU,
+  MODEL_SONNET,
   extractText,
   parseJsonResponse,
   isAiAvailable,

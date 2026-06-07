@@ -1706,6 +1706,8 @@ const PRESENCE_STYLES = `
   }
   .presence-toast.fading { opacity: 0; }
 `;
+
+const IMPACT_STYLES = `
   /* ─── Merge Impact Analysis panel (.impact-*) ─── */
   .impact-panel {
     margin-top: 20px;
@@ -4615,7 +4617,7 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
       <script dangerouslySetInnerHTML={{ __html: ctrlEnterSubmitScript() + codeBlockCopyScript() }} />
 
       {/* Presence styles + bar (shown only on the files tab so cursor pills work) */}
-      <style dangerouslySetInnerHTML={{ __html: PRESENCE_STYLES }} />
+      <style dangerouslySetInnerHTML={{ __html: PRESENCE_STYLES + IMPACT_STYLES }} />
       {/* Toast container — always present for join/leave toasts */}
       <div id="presence-toasts" class="presence-toast-wrap" aria-live="polite" />
       {user && (
@@ -4960,6 +4962,7 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
                 );
               })}
             </div>
+          )}
           {/* ─── Merge Impact Analysis panel ─────────────────────── */}
           {impactAnalysis && pr.state === "open" && (
             <ImpactPanel analysis={impactAnalysis} owner={ownerName} />

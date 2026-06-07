@@ -127,6 +127,7 @@ import codeScanningRoutes from "./routes/code-scanning";
 import securityRoutes from "./routes/security";
 import commitStatusesRoutes from "./routes/commit-statuses";
 import copilotRoutes from "./routes/copilot";
+import { pairProgrammerRoutes } from "./routes/pair-programmer";
 import depUpdaterRoutes from "./routes/dep-updater";
 import depsRoutes from "./routes/deps";
 import discussionsRoutes from "./routes/discussions";
@@ -193,6 +194,7 @@ import healthScoreRoutes from "./routes/health-score";
 import hotFilesRoutes from "./routes/hot-files";
 import debtMapRoutes from "./routes/debt-map";
 import busFactorRoutes from "./routes/bus-factor";
+import crossRepoImpactRoutes from "./routes/cross-repo-impact";
 import developerProgramRoutes from "./routes/developer-program";
 import shareRoutes from "./routes/share";
 import incidentHookRoutes from "./routes/incident-hooks";
@@ -752,6 +754,7 @@ app.route("/", codeScanningRoutes);
 app.route("/", securityRoutes);
 app.route("/", commitStatusesRoutes);
 app.route("/", copilotRoutes);
+app.route("/", pairProgrammerRoutes);
 app.route("/", depUpdaterRoutes);
 app.route("/", depsRoutes);
 app.route("/", discussionsRoutes);
@@ -808,6 +811,8 @@ app.route("/", hotFilesRoutes);
 app.route("/", debtMapRoutes);
 // Bus Factor Analysis — /:owner/:repo/insights/bus-factor
 app.route("/", busFactorRoutes);
+// Cross-Repo Dependency Impact Detection — /:owner/:repo/pulls/:number/cross-repo-impact
+app.route("/", crossRepoImpactRoutes);
 // Hosted Claude tool-use loops — paste loop, get endpoint, billing meter.
 // See src/routes/claude-deploy.tsx + src/lib/hosted-claude-loop.ts.
 app.route("/", claudeDeployRoutes);

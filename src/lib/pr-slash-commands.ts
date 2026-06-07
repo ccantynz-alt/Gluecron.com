@@ -71,6 +71,7 @@ export const SLASH_COMMANDS = [
   "lgtm",
   "needs-work",
   "cc",
+  "stage",
   "help",
 ] as const;
 export type SlashCommand = (typeof SLASH_COMMANDS)[number];
@@ -201,6 +202,8 @@ export async function executeSlashCommand(
         return { ...(await runRebase(args)), marker };
       case "test":
         return { ...(await runTest(args)), marker };
+      case "stage":
+        return { ...(await runStage(args)), marker };
       default:
         return {
           ok: false,
@@ -238,6 +241,7 @@ function renderHelp(marker: string): string {
     "- `/lgtm` — approve the PR (adds an approval comment)",
     "- `/needs-work` — request changes",
     "- `/cc @user1 @user2` — request reviewers",
+    "- `/stage` — deploy a preview environment and reply with the live URL",
     "- `/help` — show this list",
   ];
   return lines.join("\n");
@@ -584,6 +588,29 @@ async function runTest(args: ExecuteSlashArgs): Promise<Omit<SlashResult, "marke
     ok: !!runId,
     body: `${marker}\n\n**Tests dispatched** — workflow \`${wf.name}\` queued${runId ? ` (run id \`${runId.slice(0, 8)}\`).` : "."}`,
   };
+}
+
+async function runStage(
+  args: ExecuteSlashArgs
+): Promise<Omit<SlashResult, "marker">> {
+  const marker = slashCmdMarker("stage");
+  try {
+    // Lazy import to avoid circular dependency at module load time
+    const { triggerStage } = await import("./pr-stage");
+    // Fire-and-forget — the stage pipeline posts its own reply comment
+    // with the preview URL once live. We immediately return a "queued"
+    // acknowledgement so the user knows the command was accepted.
+    triggerStage(args.prId, args.userId).catch(() => {});
+    return {
+      ok: true,
+      body: `${marker}\n\n**Preview queued** — detecting framework and deploying. A follow-up comment will appear with the live URL in a few seconds.`,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      body: `${marker}\n\n\`/stage\` failed to queue: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -123,6 +123,8 @@ import {
 import { suggestReviewers, type ReviewerCandidate } from "../lib/reviewer-suggest";
 import { computePrSize, type PrSizeInfo } from "../lib/pr-size";
 import { BOT_USERNAME } from "../lib/bot-user";
+import { analyzeImpact, type ImpactAnalysis } from "../lib/pr-impact";
+import { getPreviewDir, isPreviewExpired } from "../lib/pr-stage";
 
 const pulls = new Hono<AuthEnv>();
 
@@ -1108,6 +1110,7 @@ const PRS_DETAIL_STYLES = `
   .slash-pill.slash-cmd-rebase { border-left-color: #f0883e; }
   .slash-pill.slash-cmd-needs-work { border-left-color: #f85149; }
   .slash-pill.slash-cmd-lgtm { border-left-color: #56d364; }
+  .slash-pill.slash-cmd-stage { border-left-color: #36c5d6; }
 
   /* ─── Branch-preview pill (migration 0062). Scoped .preview-*. */
   .preview-prpill {
@@ -1469,7 +1472,126 @@ const PRS_DETAIL_STYLES = `
   .trio-pills-wrap {
     display: inline-flex; align-items: center; gap: 4px;
   }
+
+  /* ─── Merge Impact Analysis panel (.impact-*) ─── */
+  .impact-panel {
+    margin-top: 20px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--bg-elevated);
+  }
+  .impact-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    background: var(--bg-elevated);
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    user-select: none;
+  }
+  .impact-header:hover { background: var(--bg-hover); }
+  .impact-score {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 34px;
+    height: 24px;
+    border-radius: 9999px;
+    font-size: 11.5px;
+    font-weight: 800;
+    padding: 0 8px;
+    letter-spacing: 0.01em;
+    border: 1.5px solid transparent;
+  }
+  .impact-score.score-low {
+    color: #34d399;
+    background: rgba(52,211,153,0.12);
+    border-color: rgba(52,211,153,0.35);
+  }
+  .impact-score.score-medium {
+    color: #fbbf24;
+    background: rgba(251,191,36,0.12);
+    border-color: rgba(251,191,36,0.35);
+  }
+  .impact-score.score-high {
+    color: #f87171;
+    background: rgba(248,113,113,0.12);
+    border-color: rgba(248,113,113,0.35);
+  }
+  .impact-header strong {
+    font-size: 13.5px;
+    color: var(--text-strong);
+    font-weight: 700;
+  }
+  .impact-summary {
+    font-size: 12.5px;
+    color: var(--text-muted);
+    flex: 1;
+  }
+  .impact-toggle {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 11px;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+    transition: color 120ms;
+    line-height: 1;
+  }
+  .impact-toggle:hover { color: var(--text); }
+  .impact-toggle.is-open { transform: rotate(180deg); }
+  .impact-body {
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .impact-body[hidden] { display: none; }
+  .impact-section h4 {
+    margin: 0 0 8px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .impact-file-list {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .impact-file-list li {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text);
+    padding: 3px 8px;
+    background: var(--bg-secondary);
+    border-radius: 5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .impact-downstream .impact-file-list li {
+    background: rgba(248,113,113,0.06);
+    border: 1px solid rgba(248,113,113,0.15);
+  }
+  .impact-downstream h4 {
+    color: #f87171;
+  }
+  .impact-empty {
+    font-size: 12.5px;
+    color: var(--text-muted);
+    font-style: italic;
+  }
 `;
+
+
 
 /**
  * Tiny inline JS that drives the "Suggest description with AI" button.
@@ -1775,6 +1897,83 @@ function riskBandLabel(band: PrRiskScore["band"]): string {
     case "critical":
       return "CRITICAL";
   }
+}
+
+// ---------------------------------------------------------------------------
+// Merge Impact Analysis — collapsible panel showing affected files and
+// downstream repos. Shown on open PRs for users with write access.
+// ---------------------------------------------------------------------------
+
+function ImpactPanel({ analysis, owner }: { analysis: ImpactAnalysis; owner: string }) {
+  const score = analysis.riskScore;
+  const band = score <= 30 ? "low" : score <= 60 ? "medium" : "high";
+  const hasAny =
+    analysis.affectedTestFiles.length > 0 ||
+    analysis.affectedFiles.length > 0 ||
+    analysis.downstreamRepos.length > 0;
+
+  return (
+    <div class="impact-panel">
+      <div
+        class="impact-header"
+        onclick="(function(h){var b=h.parentElement.querySelector('.impact-body');var t=h.querySelector('.impact-toggle');if(!b)return;var hidden=b.hasAttribute('hidden');if(hidden){b.removeAttribute('hidden');t&&t.classList.add('is-open');}else{b.setAttribute('hidden','');t&&t.classList.remove('is-open');}})(this)"
+      >
+        <span class={`impact-score score-${band}`}>{score}</span>
+        <strong>Merge Impact</strong>
+        <span class="impact-summary">{analysis.riskSummary}</span>
+        <button class="impact-toggle" type="button" aria-label="Toggle impact panel">
+          ▼
+        </button>
+      </div>
+      <div class="impact-body" hidden>
+        <div class="impact-section">
+          <h4>Affected test files ({analysis.affectedTestFiles.length})</h4>
+          {analysis.affectedTestFiles.length === 0 ? (
+            <span class="impact-empty">No test files reference the changed files.</span>
+          ) : (
+            <ul class="impact-file-list">
+              {analysis.affectedTestFiles.map((f) => (
+                <li title={f}>{f}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <div class="impact-section">
+          <h4>Affected source files ({analysis.affectedFiles.length})</h4>
+          {analysis.affectedFiles.length === 0 ? (
+            <span class="impact-empty">No other source files import the changed files.</span>
+          ) : (
+            <ul class="impact-file-list">
+              {analysis.affectedFiles.map((f) => (
+                <li title={f}>{f}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+        {analysis.downstreamRepos.length > 0 && (
+          <div class="impact-section impact-downstream">
+            <h4>Downstream repos ({analysis.downstreamRepos.length})</h4>
+            <ul class="impact-file-list">
+              {analysis.downstreamRepos.map((r) => (
+                <li>
+                  <a
+                    href={`/${r.owner}/${r.repo}`}
+                    style="color:var(--text-link);text-decoration:none"
+                  >
+                    {r.owner}/{r.repo}
+                  </a>
+                  {" "}
+                  <span style="color:var(--text-muted);font-size:11px">
+                    via {r.matchedDependency}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -3473,6 +3672,14 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
     prSizeInfo = await computePrSize(ownerName, repoName, pr.baseBranch, pr.headBranch);
   } catch { /* swallow — purely cosmetic */ }
 
+  // Merge impact analysis — only for open PRs with write access (cached, fast)
+  let impactAnalysis: ImpactAnalysis | null = null;
+  if (pr.state === "open" && canManage) {
+    try {
+      impactAnalysis = await analyzeImpact(resolved.repo.id, pr.id);
+    } catch { /* non-blocking */ }
+  }
+
   // Get diff for "Files changed" tab + load inline comments for that tab
   let diffRaw = "";
   let diffFiles: GitDiffFile[] = [];
@@ -4003,6 +4210,11 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
             <PrRiskCard risk={prRisk} calculating={prRiskCalculating} />
           )}
 
+          {/* ─── Merge Impact Analysis panel ─────────────────────── */}
+          {impactAnalysis && pr.state === "open" && (
+            <ImpactPanel analysis={impactAnalysis} owner={ownerName} />
+          )}
+
           {/* ─── Review summary ─────────────────────────────────── */}
           {(approvals.length > 0 || changesRequested.length > 0) && (
             <div class="prs-review-summary">
@@ -4202,7 +4414,8 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
                   <span class="slash-hint" title="Type a slash-command as the first line">
                     Type <code>/</code> for commands —{" "}
                     <code>/help</code>, <code>/merge</code>, <code>/rebase</code>,{" "}
-                    <code>/explain</code>, <code>/test</code>, <code>/lgtm</code>
+                    <code>/explain</code>, <code>/test</code>, <code>/lgtm</code>,{" "}
+                    <code>/stage</code>
                   </span>
                 </FormGroup>
                 <div class="prs-merge-actions">

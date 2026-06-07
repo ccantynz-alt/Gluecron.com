@@ -278,6 +278,7 @@ export const Layout: FC<
                       <a href="/pulls" role="menuitem" class="nav-user-item">Pull requests</a>
                       <a href="/issues" role="menuitem" class="nav-user-item">Issues</a>
                       <a href="/activity" role="menuitem" class="nav-user-item">Activity</a>
+                      <a href="/insights" role="menuitem" class="nav-user-item">Insights</a>
                       <a href="/import" role="menuitem" class="nav-user-item">Import from GitHub</a>
                       <a href="/import/actions" role="menuitem" class="nav-user-item">Actions importer</a>
                       <div class="nav-user-menu-sep" />

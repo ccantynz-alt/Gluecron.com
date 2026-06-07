@@ -65,6 +65,7 @@ import { platformStatus } from "./routes/platform-status";
 import publicStatsRoutes from "./routes/public-stats";
 import demoRoutes from "./routes/demo";
 import insightRoutes from "./routes/insights";
+import engineeringInsightsRoutes from "./routes/engineering-insights";
 import doraRoutes from "./routes/dora";
 import dashboardRoutes from "./routes/dashboard";
 import legalRoutes from "./routes/legal";
@@ -598,6 +599,9 @@ app.route("/", adminDiagnoseRoutes);
 
 // Insights (time-travel, dependencies, rollback)
 app.route("/", insightRoutes);
+
+// Engineering Intelligence Dashboard — /insights + /:owner/:repo/insights/engineering
+app.route("/", engineeringInsightsRoutes);
 
 // DORA metrics page (/:owner/:repo/insights/dora)
 app.route("/", doraRoutes);

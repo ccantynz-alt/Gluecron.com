@@ -4471,3 +4471,31 @@ export type NewCloudDeployConfig = typeof cloudDeployConfigs.$inferInsert;
 export type CloudDeployment = typeof cloudDeployments.$inferSelect;
 export type NewCloudDeployment = typeof cloudDeployments.$inferInsert;
 >>>>>>> b11ffa9 (feat: multi-cloud deploy integration — push to main deploys to Fly/Railway/Render/Vercel)
+// ---------------------------------------------------------------------------
+// Recurring pattern detection (migration 0088)
+// ---------------------------------------------------------------------------
+
+export const recurringPatterns = pgTable(
+  "recurring_patterns",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    occurrences: integer("occurrences").notNull().default(1),
+    commitShas: jsonb("commit_shas").$type<string[]>().notNull().default([]),
+    rootCauseHypothesis: text("root_cause_hypothesis"),
+    suggestedFile: text("suggested_file"),
+    severity: text("severity").notNull().default("medium"),
+    detectedAt: timestamp("detected_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    index("idx_recurring_patterns_repo").on(table.repositoryId),
+    index("idx_recurring_patterns_expires").on(table.expiresAt),
+  ]
+);
+
+export type RecurringPattern = typeof recurringPatterns.$inferSelect;
+export type NewRecurringPattern = typeof recurringPatterns.$inferInsert;

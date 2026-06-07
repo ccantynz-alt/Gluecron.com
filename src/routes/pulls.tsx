@@ -67,6 +67,7 @@ import {
 import { triggerPrTriage } from "../lib/pr-triage";
 import { generatePrSummary } from "../lib/ai-generators";
 import { isAiAvailable } from "../lib/ai-client";
+import { getPatternWarning, type Pattern } from "../lib/pattern-detector";
 import {
   computePrRiskForPullRequest,
   getCachedPrRisk,
@@ -3969,6 +3970,25 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
       }));
   }
 
+  // Proactive pattern warning — get changed file paths and check for recurring
+  // bug patterns. Fire-and-forget safe; returns null on any error or cache miss.
+  let patternWarning: Pattern | null = null;
+  try {
+    const repoDir = getRepoPath(ownerName, repoName);
+    const nameOnlyProc = Bun.spawn(
+      ["git", "diff", "--name-only", `${pr.baseBranch}...${pr.headBranch}`],
+      { cwd: repoDir, stdout: "pipe", stderr: "pipe" }
+    );
+    const nameOnlyRaw = await new Response(nameOnlyProc.stdout).text();
+    await nameOnlyProc.exited;
+    const prChangedFiles = nameOnlyRaw.trim().split("\n").filter(Boolean);
+    if (prChangedFiles.length > 0) {
+      patternWarning = await getPatternWarning(resolved.repo.id, prChangedFiles);
+    }
+  } catch {
+    // Non-blocking — swallow
+  }
+
   // ─── Derived visual state ───
   const stateKey =
     pr.state === "open"
@@ -4257,6 +4277,23 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
           )}
         </a>
       </nav>
+
+      {/* Proactive pattern warning — shown when a known recurring bug pattern
+          overlaps with the files changed in this PR. */}
+      {patternWarning && (
+        <div class="pattern-warning" style="margin:0 0 16px;padding:12px 16px;border-radius:8px;background:var(--bg-elevated);border:1px solid #f59e0b;border-left:4px solid #f59e0b;font-size:13px;line-height:1.5">
+          <span style="font-size:15px;margin-right:6px" aria-hidden="true">⚠️</span>
+          <strong>Recurring pattern detected: {patternWarning.title}</strong>
+          <span style="color:var(--fg-muted)">
+            {" — "}
+            This area has had {patternWarning.occurrences} similar fix
+            {patternWarning.occurrences === 1 ? "" : "es"}.
+            {patternWarning.rootCauseHypothesis && (
+              <> Root cause may be in <code style="font-size:12px">{patternWarning.suggestedFile}</code>.</>
+            )}
+          </span>
+        </div>
+      )}
 
       {tab === "commits" ? (
         <div class="prs-commits-list">

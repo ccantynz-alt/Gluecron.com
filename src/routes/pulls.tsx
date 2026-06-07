@@ -127,6 +127,28 @@ import { computePrSize, type PrSizeInfo } from "../lib/pr-size";
 import { BOT_USERNAME } from "../lib/bot-user";
 import { analyzeImpact, type ImpactAnalysis } from "../lib/pr-impact";
 import { getPreviewDir, isPreviewExpired } from "../lib/pr-stage";
+import {
+  getCodeownersForRepo,
+  reviewersForChangedFiles,
+} from "../lib/codeowners";
+import { getPatternWarning, type Pattern } from "../lib/pattern-detector";
+import { suggestPrSplit, type SplitSuggestion } from "../lib/pr-splitter";
+import {
+  joinRoom,
+  leaveRoom,
+  broadcastToRoom,
+  registerSocket,
+  unregisterSocket,
+  getRoomUsers,
+  pingSession,
+  updatePresence,
+} from "../lib/pr-presence";
+import { getBusFactorWarning, type BusFactorFile } from "../lib/bus-factor";
+import { checkMergeEligible } from "../lib/branch-rules";
+import { createBunWebSocket } from "hono/bun";
+
+const { upgradeWebSocket, websocket: presenceWebsocket } = createBunWebSocket();
+export { presenceWebsocket };
 
 const pulls = new Hono<AuthEnv>();
 
@@ -4273,6 +4295,39 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
     }
   } catch {
     // Non-blocking — swallow
+  }
+
+  // Bus factor warning — flag files dominated by a single author.
+  let busRiskFiles: BusFactorFile[] = [];
+  try {
+    const repoDir2 = getRepoPath(ownerName, repoName);
+    const bf2Proc = Bun.spawn(
+      ["git", "diff", "--name-only", `${pr.baseBranch}...${pr.headBranch}`],
+      { cwd: repoDir2, stdout: "pipe", stderr: "pipe" }
+    );
+    const bf2Raw = await new Response(bf2Proc.stdout).text();
+    await bf2Proc.exited;
+    const bf2Files = bf2Raw.trim().split("\n").filter(Boolean);
+    if (bf2Files.length > 0) {
+      busRiskFiles = await getBusFactorWarning(resolved.repo.id, ownerName, repoName, bf2Files);
+    }
+  } catch {
+    // Non-blocking
+  }
+
+  // PR split suggestion — AI recommends sub-PR decomposition for large PRs.
+  let splitSuggestion: SplitSuggestion | null = null;
+  try {
+    splitSuggestion = await suggestPrSplit(
+      pr.id,
+      pr.title,
+      ownerName,
+      repoName,
+      pr.baseBranch,
+      pr.headBranch
+    );
+  } catch {
+    // Non-blocking
   }
 
   // ─── Derived visual state ───

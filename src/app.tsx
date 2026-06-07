@@ -127,6 +127,7 @@ import codeScanningRoutes from "./routes/code-scanning";
 import securityRoutes from "./routes/security";
 import commitStatusesRoutes from "./routes/commit-statuses";
 import copilotRoutes from "./routes/copilot";
+import { pairProgrammerRoutes } from "./routes/pair-programmer";
 import depUpdaterRoutes from "./routes/dep-updater";
 import depsRoutes from "./routes/deps";
 import discussionsRoutes from "./routes/discussions";
@@ -163,6 +164,7 @@ import requiredChecksRoutes from "./routes/required-checks";
 import rulesetsRoutes from "./routes/rulesets";
 import searchRoutes from "./routes/search";
 import semanticSearchRoutes from "./routes/semantic-search";
+import nlSearchRoutes from "./routes/nl-search";
 import signingKeysRoutes from "./routes/signing-keys";
 import sponsorsRoutes from "./routes/sponsors";
 import ssoRoutes from "./routes/sso";
@@ -190,12 +192,15 @@ import velocityRoutes from "./routes/velocity";
 import { staleBranchRoutes } from "./routes/stale-branches";
 import pulseRoutes from "./routes/pulse";
 import healthScoreRoutes from "./routes/health-score";
+import repoHealthRoutes from "./routes/repo-health";
 import hotFilesRoutes from "./routes/hot-files";
 import debtMapRoutes from "./routes/debt-map";
 import busFactorRoutes from "./routes/bus-factor";
+import crossRepoImpactRoutes from "./routes/cross-repo-impact";
 import developerProgramRoutes from "./routes/developer-program";
 import shareRoutes from "./routes/share";
 import incidentHookRoutes from "./routes/incident-hooks";
+import workspaceRoutes from "./routes/ai-workspace";
 import { authRateLimit, gitRateLimit, searchRateLimit } from "./middleware/rate-limit";
 import { csrfToken, csrfProtect } from "./middleware/csrf";
 import { noCache } from "./middleware/no-cache";
@@ -519,6 +524,9 @@ app.route("/", milestonesRoutes);
 // Ship Agent — autonomous AI feature implementation
 app.route("/", shipAgentRoutes);
 
+// AI Copilot Workspace — issue-to-PR autonomous agent
+app.route("/", workspaceRoutes);
+
 // Comment moderation queue — owner-only `/:owner/:repo/comments/pending`
 // + per-row approve/reject/spam actions. Mounted before `pullRoutes` so
 // the `/:owner/:repo/comments/*` paths resolve before the broader PR
@@ -752,6 +760,7 @@ app.route("/", codeScanningRoutes);
 app.route("/", securityRoutes);
 app.route("/", commitStatusesRoutes);
 app.route("/", copilotRoutes);
+app.route("/", pairProgrammerRoutes);
 app.route("/", depUpdaterRoutes);
 app.route("/", depsRoutes);
 app.route("/", discussionsRoutes);
@@ -802,12 +811,16 @@ app.route("/", staleBranchRoutes);
 app.route("/", pulseRoutes);
 // Repository Health Score — BLOCK M14 — /:owner/:repo/insights/health
 app.route("/", healthScoreRoutes);
+// Repository Health Score breakdown page — /:owner/:repo/health
+app.route("/", repoHealthRoutes);
 // Hot Files Heatmap — BLOCK M16 — /:owner/:repo/insights/hotfiles
 app.route("/", hotFilesRoutes);
 // AI Technical Debt Map — /:owner/:repo/debt-map (visual debt graph + Claude analysis)
 app.route("/", debtMapRoutes);
 // Bus Factor Analysis — /:owner/:repo/insights/bus-factor
 app.route("/", busFactorRoutes);
+// Cross-Repo Dependency Impact Detection — /:owner/:repo/pulls/:number/cross-repo-impact
+app.route("/", crossRepoImpactRoutes);
 // Hosted Claude tool-use loops — paste loop, get endpoint, billing meter.
 // See src/routes/claude-deploy.tsx + src/lib/hosted-claude-loop.ts.
 app.route("/", claudeDeployRoutes);
@@ -816,6 +829,7 @@ app.route("/", requiredChecksRoutes);
 app.route("/", rulesetsRoutes);
 app.route("/", searchRoutes);
 app.route("/", semanticSearchRoutes);
+app.route("/", nlSearchRoutes);
 app.route("/", signingKeysRoutes);
 app.route("/", sponsorsRoutes);
 app.route("/", ssoRoutes);

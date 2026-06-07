@@ -12,6 +12,8 @@
  * misbehaving client can otherwise exhaust the shared Anthropic quota fast.
  */
 
+// For proactive, context-aware suggestions see POST /api/pair/suggest (src/routes/pair-programmer.ts)
+
 import { Hono } from "hono";
 import { requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";

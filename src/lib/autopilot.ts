@@ -72,6 +72,8 @@ import { expireOldPreviews } from "./branch-previews";
 import { getBotUserIdOrFallback } from "./bot-user";
 import { runOnboardingDripTaskOnce } from "./onboarding-drip";
 import { sendSmartDigestsToAll } from "./smart-digest";
+import { runAiLoopSweepOnce } from "./ai-loop";
+import { runDepUpdateSweepOnce } from "./dep-updater-sweep";
 
 export interface AutopilotTaskResult {
   name: string;
@@ -167,6 +169,14 @@ let _lastDevEnvIdleSweepAt = 0;
  */
 const DEP_UPDATE_SWEEP_INTERVAL_MS = 24 * 60 * 60 * 1000;
 let _lastDepUpdateSweepAt = 0;
+/**
+ * AI loop sweep cadence. Scans for ai-build PRs that haven't started the
+ * autonomous loop yet. 10-minute cadence — fast enough to pick up a freshly
+ * created spec-to-pr PR without saturating the DB with GateTest queries.
+ * Only fires when AI_LOOP_ENABLED=1 and ANTHROPIC_API_KEY are set.
+ */
+const AI_LOOP_SWEEP_INTERVAL_MS = 10 * 60 * 1000;
+let _lastAiLoopSweepAt = 0;
 /**
  * Advancement scanner cadence. Designed to run weekly on Mondays at
  * 08:00 UTC. The task itself is the cheap gate (checks both day-of-week
@@ -725,6 +735,31 @@ export function defaultTasks(): AutopilotTask[] {
           console.log("[autopilot] smart-digest: completed");
         } catch (err) {
           console.error("[autopilot] smart-digest: threw:", err);
+        }
+      },
+    },
+    {
+      // AI loop sweep — scans for open PRs created by the ai-build flow
+      // (body contains <!-- gluecron:ai-build:v1 -->) that haven't yet had
+      // the autonomous loop started (no <!-- gluecron:ai-loop:v1 --> marker).
+      // Fires every 10 minutes; caps at 5 PRs per tick. Safe-default off:
+      // only fires when AI_LOOP_ENABLED=1 AND ANTHROPIC_API_KEY are set.
+      name: "ai-loop-sweep",
+      run: async () => {
+        if (process.env.AI_LOOP_ENABLED !== "1") return;
+        if (!process.env.ANTHROPIC_API_KEY) return;
+        const now = Date.now();
+        if (now - _lastAiLoopSweepAt < AI_LOOP_SWEEP_INTERVAL_MS) return;
+        _lastAiLoopSweepAt = now;
+        try {
+          const summary = await runAiLoopSweepOnce(5);
+          if (summary.considered > 0) {
+            console.log(
+              `[autopilot] ai-loop-sweep: considered=${summary.considered} started=${summary.started} skipped=${summary.skipped}`
+            );
+          }
+        } catch (err) {
+          console.error("[autopilot] ai-loop-sweep: threw:", err);
         }
       },
     },

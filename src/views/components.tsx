@@ -28,6 +28,8 @@ export const RepoHeader: FC<{
   isTemplate?: boolean;
   /** Most recent push info for Push Watch discoverability indicator. */
   recentPush?: RecentPush | null;
+  /** 0-100 health score badge rendered after the repo name. Optional — omit to hide. */
+  healthScore?: number;
 }> = ({
   owner,
   repo,
@@ -39,11 +41,18 @@ export const RepoHeader: FC<{
   archived,
   isTemplate,
   recentPush,
+  healthScore,
 }) => {
   const FIVE_MIN = 5 * 60 * 1000;
   const TWENTY_FOUR_HR = 24 * 60 * 60 * 1000;
   const isLive = recentPush != null && recentPush.ageMs < FIVE_MIN;
   const isRecent = recentPush != null && recentPush.ageMs < TWENTY_FOUR_HR;
+
+  const healthColor =
+    healthScore === undefined ? null :
+    healthScore >= 80 ? "#34d399" :
+    healthScore >= 50 ? "#facc15" :
+    "#f87171";
 
   return (
     <div class="repo-header">
@@ -71,6 +80,15 @@ export const RepoHeader: FC<{
             >
               Template
             </span>
+          )}
+          {healthScore !== undefined && healthColor && (
+            <a
+              href={`/${owner}/${repo}/health`}
+              title={`Repository health score: ${healthScore}/100 — click for breakdown`}
+              style={`display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:9999px;font-size:11px;font-weight:700;text-decoration:none;color:${healthColor};background:${healthColor}22;border:1px solid ${healthColor}44;`}
+            >
+              &#x2665; Health {healthScore}
+            </a>
           )}
           {isLive && recentPush && (
             <a
@@ -151,7 +169,10 @@ export const RepoNav: FC<{
     | "discussions"
     | "security"
     | "settings"
-    | "debt-map";
+    | "debt-map"
+    | "migrate"
+    | "deployments"
+    | "nl-search";
 }> = ({ owner, repo, active }) => (
   <div class="repo-nav">
     <a href={`/${owner}/${repo}`} class={active === "code" ? "active" : ""}>
@@ -265,6 +286,13 @@ export const RepoNav: FC<{
       title="AI Debt Map \u2014 visual technical debt graph with Claude analysis"
     >
       {"\u2593"} Debt Map
+    </a>
+    <a
+      href={`/${owner}/${repo}/search/nl`}
+      class={`repo-nav-ai${active === "nl-search" ? " active" : ""}`}
+      title="Natural Language Search \u2014 search by intent, not keywords"
+    >
+      {"\u2728"} NL Search
     </a>
   </div>
 );

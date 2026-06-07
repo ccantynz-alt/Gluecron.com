@@ -246,6 +246,7 @@ export const repositories = pgTable(
     // Migration 0088 — smart empty states. Set to true once the onboarding
     // card has been dismissed by the repo owner. Generated on first push.
     onboardingShown: boolean("onboarding_shown").default(false).notNull(),
+    depUpdaterEnabled: boolean("dep_updater_enabled").default(false).notNull(),
   },
   (table) => [
     // Partial: uniqueness only in the user namespace (org-owned rows exempt).
@@ -750,6 +751,12 @@ export const pullRequests = pgTable(
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
     closedAt: timestamp("closed_at"),
+    // AI loop columns (migration 0101). Track the autonomous issue→PR→merge loop.
+    // aiLoopAttempts: how many fix-and-retry cycles have run so far (0 = not started).
+    // aiLoopStatus: null = not started, 'running' = loop active, 'merged' = success,
+    //               'failed' = exhausted attempts or unrecoverable error.
+    aiLoopAttempts: integer("ai_loop_attempts").notNull().default(0),
+    aiLoopStatus: text("ai_loop_status"), // null | 'running' | 'merged' | 'failed'
   },
   (table) => [
     index("prs_repo_state").on(table.repositoryId, table.state),
@@ -4567,3 +4574,78 @@ export const repoOnboardingData = pgTable("repo_onboarding_data", {
 
 export type RepoOnboardingData = typeof repoOnboardingData.$inferSelect;
 export type NewRepoOnboardingData = typeof repoOnboardingData.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Migration 0102 — Cross-repo impact cache (15-min TTL, keyed on PR id)
+// ---------------------------------------------------------------------------
+export const crossRepoImpactCache = pgTable(
+  "cross_repo_impact_cache",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    prId: uuid("pr_id")
+      .notNull()
+      .references(() => pullRequests.id, { onDelete: "cascade" }),
+    report: jsonb("report").notNull(),
+    analyzedAt: timestamp("analyzed_at").defaultNow(),
+    cachedUntil: timestamp("cached_until").notNull(),
+  },
+  (table) => [
+    index("idx_cross_repo_impact_pr").on(table.prId),
+  ]
+);
+
+export type CrossRepoImpactCache = typeof crossRepoImpactCache.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Migration 0104 — Repository health score cache (6h TTL, in-memory + DB)
+// ---------------------------------------------------------------------------
+export const repoHealthCache = pgTable(
+  "repo_health_cache",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repoId: uuid("repo_id")
+      .notNull()
+      .unique()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    score: integer("score").notNull(),
+    breakdown: jsonb("breakdown").notNull(),
+    computedAt: timestamp("computed_at").defaultNow(),
+    expiresAt: timestamp("expires_at").notNull(),
+  },
+  (table) => [
+    index("idx_repo_health_cache_repo").on(table.repoId),
+  ]
+);
+
+export type RepoHealthCache = typeof repoHealthCache.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Migration 0103 — Workspace jobs (AI Copilot Workspace: issue → PR agent)
+// Hot path is in-memory; this table is for auditability + restart recovery.
+// ---------------------------------------------------------------------------
+export const workspaceJobs = pgTable(
+  "workspace_jobs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repoId: uuid("repo_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    issueId: uuid("issue_id")
+      .notNull()
+      .references(() => issues.id, { onDelete: "cascade" }),
+    triggeredBy: uuid("triggered_by").references(() => users.id),
+    status: text("status").notNull().default("pending"),
+    planComment: text("plan_comment"),
+    branchName: text("branch_name"),
+    prNumber: integer("pr_number"),
+    errorMessage: text("error_message"),
+    startedAt: timestamp("started_at").defaultNow(),
+    updatedAt: timestamp("updated_at").defaultNow(),
+  },
+  (table) => [
+    index("idx_workspace_jobs_repo").on(table.repoId),
+    index("idx_workspace_jobs_issue").on(table.issueId),
+  ]
+);
+
+export type WorkspaceJob = typeof workspaceJobs.$inferSelect;

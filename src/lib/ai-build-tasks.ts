@@ -31,6 +31,7 @@ import {
 } from "../db/schema";
 import { extractClosingRefsMulti } from "./close-keywords";
 import { buildSpecFromIssue } from "../routes/specs";
+import { runAutonomousLoop } from "./ai-loop";
 
 /**
  * Stable marker baked into the issue comment so subsequent ticks can detect
@@ -333,6 +334,39 @@ export async function runAiBuildTaskOnce(
           console.error(
             `[autopilot] ai-build: dispatcher failed for issue=${cand.issueId}: ${res.error}`
           );
+        } else if (process.env.AI_LOOP_ENABLED === "1") {
+          // Fire-and-forget: resolve the PR UUID from prNumber + repoId, then
+          // start the autonomous loop. Errors are swallowed.
+          const prNumber = res.prNumber;
+          const repoId = cand.repositoryId;
+          Promise.resolve().then(async () => {
+            try {
+              const rows = await db
+                .select({ id: pullRequests.id })
+                .from(pullRequests)
+                .where(
+                  and(
+                    eq(pullRequests.repositoryId, repoId),
+                    eq(pullRequests.number, prNumber)
+                  )
+                )
+                .limit(1);
+              const prId = rows[0]?.id;
+              if (prId) {
+                await runAutonomousLoop(prId, repoId);
+              }
+            } catch (loopErr) {
+              console.error(
+                `[autopilot] ai-build: ai-loop fire-and-forget failed for issue=${cand.issueId}:`,
+                loopErr
+              );
+            }
+          }).catch((err) => {
+            console.error(
+              `[autopilot] ai-build: ai-loop promise rejected for issue=${cand.issueId}:`,
+              err
+            );
+          });
         }
       } catch (err) {
         console.error(

@@ -1,0 +1,6 @@
+CREATE TABLE IF NOT EXISTS pr_visits (
+  pr_id UUID NOT NULL REFERENCES pull_requests(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  visited_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (pr_id, user_id)
+);

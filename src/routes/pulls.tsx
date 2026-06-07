@@ -67,7 +67,6 @@ import {
 import { triggerPrTriage } from "../lib/pr-triage";
 import { generatePrSummary } from "../lib/ai-generators";
 import { isAiAvailable } from "../lib/ai-client";
-import { getPatternWarning, type Pattern } from "../lib/pattern-detector";
 import { getReviewContext, recordPrVisit, type ReviewContext } from "../lib/review-context";
 import {
   computePrRiskForPullRequest,

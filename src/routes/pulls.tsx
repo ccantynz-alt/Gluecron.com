@@ -143,6 +143,8 @@ import {
 import { upgradeWebSocket, websocket as presenceWebsocket } from "hono/bun";
 
 export { presenceWebsocket };
+import { getBusFactorWarning, type BusFactorFile } from "../lib/bus-factor";
+import { suggestPrSplit, type SplitSuggestion } from "../lib/pr-splitter";
 
 const pulls = new Hono<AuthEnv>();
 
@@ -1489,6 +1491,102 @@ const PRS_DETAIL_STYLES = `
   .trio-pills-wrap {
     display: inline-flex; align-items: center; gap: 4px;
   }
+
+  /* ─── Bus Factor Warning Panel ─── */
+  .busfactor-panel {
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+    padding: 14px 18px;
+    margin-bottom: 16px;
+    border-radius: 12px;
+    border: 1px solid rgba(245,158,11,0.35);
+    background: rgba(245,158,11,0.06);
+  }
+  .busfactor-critical {
+    border-color: rgba(239,68,68,0.4);
+    background: rgba(239,68,68,0.06);
+  }
+  .busfactor-high {
+    border-color: rgba(249,115,22,0.4);
+    background: rgba(249,115,22,0.06);
+  }
+  .busfactor-medium {
+    border-color: rgba(245,158,11,0.35);
+    background: rgba(245,158,11,0.06);
+  }
+  .busfactor-icon { font-size: 20px; flex-shrink: 0; margin-top: 2px; }
+  .busfactor-body { flex: 1; min-width: 0; }
+  .busfactor-body strong { font-size: 14px; font-weight: 700; color: var(--text-strong); display: block; margin-bottom: 4px; }
+  .busfactor-body p { font-size: 13px; color: var(--text-muted); margin: 0 0 8px; }
+  .busfactor-body ul { margin: 0; padding-left: 18px; }
+  .busfactor-body li { font-size: 12.5px; color: var(--text-muted); margin-bottom: 3px; font-family: var(--font-mono); }
+  .busfactor-body li strong { font-size: 12.5px; color: var(--text); display: inline; }
+
+  /* ─── PR Split Suggestion Panel ─── */
+  .split-suggestion {
+    margin-bottom: 16px;
+    border: 1px solid rgba(140,109,255,0.35);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .split-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 18px;
+    background: rgba(140,109,255,0.06);
+    flex-wrap: wrap;
+  }
+  .split-icon { font-size: 18px; flex-shrink: 0; }
+  .split-header strong { font-size: 14px; font-weight: 700; color: var(--text-strong); flex: 1; min-width: 200px; }
+  .split-stat { font-size: 12px; color: var(--text-muted); background: var(--bg-elevated); padding: 2px 9px; border-radius: 9999px; border: 1px solid var(--border); white-space: nowrap; }
+  .split-toggle {
+    background: none;
+    border: 1px solid rgba(140,109,255,0.45);
+    color: rgba(140,109,255,0.9);
+    font-size: 12.5px;
+    font-weight: 600;
+    padding: 4px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 120ms ease;
+  }
+  .split-toggle:hover { background: rgba(140,109,255,0.1); }
+  .split-body {
+    padding: 16px 18px;
+    border-top: 1px solid rgba(140,109,255,0.2);
+  }
+  .split-intro { font-size: 13.5px; color: var(--text-muted); margin: 0 0 14px; }
+  .split-pr {
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .split-pr:last-of-type { border-bottom: none; }
+  .split-pr-num {
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #8c6dff 0%, #36c5d6 130%);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 800;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+  .split-pr-body { flex: 1; min-width: 0; }
+  .split-pr-body strong { font-size: 13.5px; font-weight: 700; color: var(--text-strong); display: block; margin-bottom: 4px; }
+  .split-pr-body p { font-size: 12.5px; color: var(--text-muted); margin: 0 0 6px; }
+  .split-pr-body code { font-size: 12px; color: var(--text-muted); font-family: var(--font-mono); word-break: break-all; }
+  .split-lines { display: inline-block; margin-left: 10px; font-size: 11.5px; color: var(--text-muted); background: var(--bg-tertiary); padding: 1px 7px; border-radius: 9999px; }
+  .split-order { font-size: 13px; color: var(--text-muted); margin: 14px 0 0; }
+  .split-order strong { color: var(--text); }
 `;
 
 /* ──────────────────────────────────────────────────────────────────────
@@ -3887,6 +3985,38 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
     prSizeInfo = await computePrSize(ownerName, repoName, pr.baseBranch, pr.headBranch);
   } catch { /* swallow — purely cosmetic */ }
 
+  // Bus factor warning — non-blocking. Get changed files list first.
+  let busRiskFiles: BusFactorFile[] = [];
+  let splitSuggestion: SplitSuggestion | null = null;
+  try {
+    // Get names of files changed in this PR
+    const repoDir = getRepoPath(ownerName, repoName);
+    const nameOnlyProc = Bun.spawn(
+      ["git", "diff", "--name-only", `${pr.baseBranch}...${pr.headBranch}`],
+      { cwd: repoDir, stdout: "pipe", stderr: "pipe" }
+    );
+    const nameOnlyRaw = await new Response(nameOnlyProc.stdout).text();
+    await nameOnlyProc.exited;
+    const prChangedFiles = nameOnlyRaw.trim().split("\n").filter(Boolean);
+
+    // Bus factor — check cache for at-risk files that overlap changed files
+    [busRiskFiles] = await Promise.all([
+      getBusFactorWarning(resolved.repo.id, ownerName, repoName, prChangedFiles),
+    ]);
+
+    // PR Split suggestion — only when PR is large (>400 lines)
+    if (prSizeInfo && prSizeInfo.linesChanged > 400) {
+      splitSuggestion = await suggestPrSplit(
+        pr.id,
+        pr.title,
+        ownerName,
+        repoName,
+        pr.baseBranch,
+        pr.headBranch
+      );
+    }
+  } catch { /* always degrade gracefully */ }
+
   // Get diff for "Files changed" tab + load inline comments for that tab
   let diffRaw = "";
   let diffFiles: GitDiffFile[] = [];
@@ -4322,14 +4452,88 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
           )}
         </div>
       ) : tab === "files" ? (
-        <DiffView
-          raw={diffRaw}
-          files={diffFiles}
-          viewFileBase={`/${ownerName}/${repoName}/blob/${pr.headBranch}`}
-          inlineComments={diffInlineComments}
-          commentActionUrl={user ? `/${ownerName}/${repoName}/pulls/${pr.number}/comment` : undefined}
-          applySuggestionUrl={user ? `/${ownerName}/${repoName}/pulls/${pr.number}/apply-suggestion` : undefined}
-        />
+        <>
+          {/* PR Split Suggestion — shown when PR has >400 changed lines */}
+          {splitSuggestion && (
+            <div class="split-suggestion" id="pr-split-banner">
+              <div class="split-header">
+                <span class="split-icon" aria-hidden="true">✂️</span>
+                <strong>This PR may be too large to review effectively</strong>
+                <span class="split-stat">
+                  {splitSuggestion.totalLines} lines · {splitSuggestion.totalFiles} files
+                </span>
+                <button
+                  class="split-toggle"
+                  type="button"
+                  onclick="const b=document.getElementById('pr-split-body');const hidden=b.hasAttribute('hidden');b.toggleAttribute('hidden');this.textContent=hidden?'Hide split suggestion':'Show split suggestion';"
+                >
+                  Show split suggestion
+                </button>
+              </div>
+              <div class="split-body" id="pr-split-body" hidden>
+                <p class="split-intro">
+                  AI suggests splitting into {splitSuggestion.suggestedPrs.length} PRs:
+                </p>
+                {splitSuggestion.suggestedPrs.map((sp, i) => (
+                  <div class="split-pr">
+                    <div class="split-pr-num">{i + 1}</div>
+                    <div class="split-pr-body">
+                      <strong>{sp.title}</strong>
+                      <p>{sp.rationale}</p>
+                      <code>{sp.files.join(", ")}</code>
+                      <span class="split-lines">~{sp.estimatedLines} lines</span>
+                    </div>
+                  </div>
+                ))}
+                {splitSuggestion.mergeOrder.length > 0 && (
+                  <p class="split-order">
+                    Suggested merge order:{" "}
+                    <strong>{splitSuggestion.mergeOrder.join(" → ")}</strong>
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Bus Factor Warning — shown when changed files overlap at-risk files */}
+          {busRiskFiles.length > 0 && (() => {
+            const topRisk = busRiskFiles.some((f) => f.risk === "critical")
+              ? "critical"
+              : busRiskFiles.some((f) => f.risk === "high")
+                ? "high"
+                : "medium";
+            return (
+              <div class={`busfactor-panel busfactor-${topRisk}`}>
+                <span class="busfactor-icon" aria-hidden="true">⚠️</span>
+                <div class="busfactor-body">
+                  <strong>Knowledge concentration warning</strong>
+                  <p>
+                    {busRiskFiles.length} file{busRiskFiles.length !== 1 ? "s" : ""} in
+                    this PR {busRiskFiles.length !== 1 ? "are" : "is"} primarily
+                    maintained by one person. Consider pairing on this review.
+                  </p>
+                  <ul>
+                    {busRiskFiles.map((f) => (
+                      <li>
+                        <code>{f.path}</code> —{" "}
+                        <strong>{f.primaryAuthorPct}%</strong> by {f.primaryAuthor}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            );
+          })()}
+
+          <DiffView
+            raw={diffRaw}
+            files={diffFiles}
+            viewFileBase={`/${ownerName}/${repoName}/blob/${pr.headBranch}`}
+            inlineComments={diffInlineComments}
+            commentActionUrl={user ? `/${ownerName}/${repoName}/pulls/${pr.number}/comment` : undefined}
+            applySuggestionUrl={user ? `/${ownerName}/${repoName}/pulls/${pr.number}/apply-suggestion` : undefined}
+          />
+        </>
       ) : (
         <>
           {pr.body && (

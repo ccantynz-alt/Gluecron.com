@@ -191,6 +191,7 @@ import pulseRoutes from "./routes/pulse";
 import healthScoreRoutes from "./routes/health-score";
 import hotFilesRoutes from "./routes/hot-files";
 import debtMapRoutes from "./routes/debt-map";
+import busFactorRoutes from "./routes/bus-factor";
 import developerProgramRoutes from "./routes/developer-program";
 import shareRoutes from "./routes/share";
 import incidentHookRoutes from "./routes/incident-hooks";
@@ -738,6 +739,8 @@ app.route("/", hotFilesRoutes);
 app.route("/", incidentHookRoutes);
 // AI Technical Debt Map — /:owner/:repo/debt-map (visual debt graph + Claude analysis)
 app.route("/", debtMapRoutes);
+// Bus Factor Analysis — /:owner/:repo/insights/bus-factor
+app.route("/", busFactorRoutes);
 // Hosted Claude tool-use loops — paste loop, get endpoint, billing meter.
 // See src/routes/claude-deploy.tsx + src/lib/hosted-claude-loop.ts.
 app.route("/", claudeDeployRoutes);

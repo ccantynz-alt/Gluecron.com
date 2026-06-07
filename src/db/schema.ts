@@ -4499,3 +4499,20 @@ export const recurringPatterns = pgTable(
 
 export type RecurringPattern = typeof recurringPatterns.$inferSelect;
 export type NewRecurringPattern = typeof recurringPatterns.$inferInsert;
+// ---------------------------------------------------------------------------
+// Bus Factor Cache — migration 0088
+// Stores per-repo knowledge concentration analysis (at-risk files where one
+// author owns >75% of commits). Refreshed on demand; 7-day soft TTL.
+// ---------------------------------------------------------------------------
+export const busFactorCache = pgTable("bus_factor_cache", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  repositoryId: uuid("repository_id")
+    .notNull()
+    .references(() => repositories.id, { onDelete: "cascade" })
+    .unique(),
+  analyzedAt: timestamp("analyzed_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  atRiskFiles: jsonb("at_risk_files").notNull().default([]),
+  totalFilesAnalyzed: integer("total_files_analyzed").notNull().default(0),
+});

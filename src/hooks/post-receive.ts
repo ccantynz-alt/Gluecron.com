@@ -36,7 +36,6 @@ import {
   startDeployRow,
 } from "../lib/server-target-store";
 import { deployToTarget } from "../lib/server-targets";
-import { fireCloudDeploys } from "../lib/cloud-deploy";
 import { ensureRepoOnboarding } from "../lib/repo-onboarding";
 
 interface PushRef {
@@ -847,6 +846,5 @@ export const __test = {
   fireDocDriftCheck,
   fireServerTargetDeploys,
   fireDependencyScan,
-  fireCloudDeploys,
   fireRepoOnboarding,
 };

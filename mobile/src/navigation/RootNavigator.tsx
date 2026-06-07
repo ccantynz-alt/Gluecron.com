@@ -1,4 +1,4 @@
-import React, { createContext, useState, useEffect } from 'react';
+import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { View, ActivityIndicator } from 'react-native';
@@ -6,23 +6,11 @@ import { colors } from '../theme/colors';
 import { AuthScreen } from '../screens/AuthScreen';
 import { MainTabNavigator } from './MainTabNavigator';
 import { useAuth } from '../hooks/useAuth';
-import { type User } from '../api/client';
+import { AuthContext } from './AuthContext';
 
-// ─── Auth context — shared across the whole app ───────────────────────────────
-
-export interface AuthContextValue {
-  user: User | null;
-  token: string | null;
-  login: (tokenOrUsername: string, password?: string, host?: string) => Promise<void>;
-  logout: () => Promise<void>;
-}
-
-export const AuthContext = createContext<AuthContextValue>({
-  user: null,
-  token: null,
-  login: async () => {},
-  logout: async () => {},
-});
+// Re-export AuthContext so callers can do: import { AuthContext } from '../navigation/RootNavigator'
+export { AuthContext };
+export type { AuthContextValue } from './AuthContext';
 
 // ─── Root param list ──────────────────────────────────────────────────────────
 
@@ -38,13 +26,6 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 export function RootNavigator() {
   const auth = useAuth();
 
-  const contextValue: AuthContextValue = {
-    user: auth.user,
-    token: auth.token,
-    login: auth.login,
-    logout: auth.logout,
-  };
-
   if (auth.loading) {
     return (
       <View style={{ flex: 1, backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center' }}>
@@ -54,7 +35,14 @@ export function RootNavigator() {
   }
 
   return (
-    <AuthContext.Provider value={contextValue}>
+    <AuthContext.Provider
+      value={{
+        user: auth.user,
+        token: auth.token,
+        login: auth.login,
+        logout: auth.logout,
+      }}
+    >
       <NavigationContainer
         theme={{
           dark: true,

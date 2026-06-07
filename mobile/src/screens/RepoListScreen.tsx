@@ -11,13 +11,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { type NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { colors } from '../theme/colors';
 import { fontSizes, fontWeights } from '../theme/typography';
-import { AuthContext } from '../navigation/RootNavigator';
+import { AuthContext } from '../navigation/AuthContext';
 import { useUserRepos } from '../hooks/useRepo';
 import { RepoCard } from '../components/RepoCard';
 import { LoadingSpinner } from '../components/LoadingSpinner';
 import { ErrorState } from '../components/ErrorState';
 import { EmptyState } from '../components/EmptyState';
-import { type MainStackParamList } from '../navigation/MainTabNavigator';
+import { type MainStackParamList } from '../navigation/types';
 
 interface Props {
   navigation: NativeStackNavigationProp<MainStackParamList>;

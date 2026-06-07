@@ -1,9 +1,13 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { Text, View } from 'react-native';
+import { Text } from 'react-native';
 import { colors } from '../theme/colors';
 import { fontSizes } from '../theme/typography';
+import { type MainStackParamList } from './types';
+
+// Re-export for convenience (navigators that don't import screens can still get the type)
+export type { MainStackParamList };
 
 import { DashboardScreen } from '../screens/DashboardScreen';
 import { RepoListScreen } from '../screens/RepoListScreen';
@@ -15,19 +19,6 @@ import { PullListScreen } from '../screens/PullListScreen';
 import { PullDetailScreen } from '../screens/PullDetailScreen';
 import { NotificationsScreen } from '../screens/NotificationsScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
-
-// ─── Stack param types ───────────────────────────────────────────────────────
-
-export type MainStackParamList = {
-  Dashboard: undefined;
-  RepoList: undefined;
-  RepoDetail: { owner: string; repo: string };
-  FileViewer: { owner: string; repo: string; path: string; ref: string };
-  IssueList: { owner: string; repo: string };
-  IssueDetail: { owner: string; repo: string; number: number };
-  PullList: { owner: string; repo: string };
-  PullDetail: { owner: string; repo: string; number: number };
-};
 
 const Stack = createNativeStackNavigator<MainStackParamList>();
 const Tab = createBottomTabNavigator();

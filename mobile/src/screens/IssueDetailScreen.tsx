@@ -18,7 +18,7 @@ import { fontSizes, fontWeights } from '../theme/typography';
 import { useIssue } from '../hooks/useIssues';
 import { LoadingSpinner } from '../components/LoadingSpinner';
 import { ErrorState } from '../components/ErrorState';
-import { type MainStackParamList } from '../navigation/MainTabNavigator';
+import { type MainStackParamList } from '../navigation/types';
 
 type Props = {
   route: RouteProp<MainStackParamList, 'IssueDetail'>;

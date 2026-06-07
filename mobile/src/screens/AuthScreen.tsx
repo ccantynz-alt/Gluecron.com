@@ -14,7 +14,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '../theme/colors';
 import { fontSizes, fontWeights } from '../theme/typography';
-import { AuthContext } from '../navigation/RootNavigator';
+import { AuthContext } from '../navigation/AuthContext';
 
 export function AuthScreen() {
   const { login } = useContext(AuthContext);

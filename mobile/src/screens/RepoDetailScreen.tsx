@@ -20,7 +20,7 @@ import { ErrorState } from '../components/ErrorState';
 import { CommitRow } from '../components/CommitRow';
 import { IssueRow } from '../components/IssueRow';
 import { PullRow } from '../components/PullRow';
-import { type MainStackParamList } from '../navigation/MainTabNavigator';
+import { type MainStackParamList } from '../navigation/types';
 
 type Props = {
   navigation: NativeStackNavigationProp<MainStackParamList, 'RepoDetail'>;

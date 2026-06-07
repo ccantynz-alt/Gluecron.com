@@ -12,7 +12,7 @@ import { fontSizes, fontWeights, fonts } from '../theme/typography';
 import { usePull } from '../hooks/usePulls';
 import { LoadingSpinner } from '../components/LoadingSpinner';
 import { ErrorState } from '../components/ErrorState';
-import { type MainStackParamList } from '../navigation/MainTabNavigator';
+import { type MainStackParamList } from '../navigation/types';
 
 type Props = {
   route: RouteProp<MainStackParamList, 'PullDetail'>;

@@ -17,7 +17,7 @@ import { IssueRow } from '../components/IssueRow';
 import { LoadingSpinner } from '../components/LoadingSpinner';
 import { ErrorState } from '../components/ErrorState';
 import { EmptyState } from '../components/EmptyState';
-import { type MainStackParamList } from '../navigation/MainTabNavigator';
+import { type MainStackParamList } from '../navigation/types';
 
 type Props = {
   navigation: NativeStackNavigationProp<MainStackParamList, 'IssueList'>;

@@ -36,7 +36,7 @@ import { prSandboxes, pullRequests, repositories, users } from "../db/schema";
 import type { PrSandbox } from "../db/schema";
 import { slugifyForUrl } from "./branch-previews";
 import { getBlob } from "../git/repository";
-import { getAnthropic, isAiAvailable, MODEL_HAIKU, extractText } from "./ai-client";
+import { getAnthropic, isAiAvailable, MODEL_HAIKU, MODEL_SONNET, extractText } from "./ai-client";
 
 // ---------------------------------------------------------------------------
 // Tunables

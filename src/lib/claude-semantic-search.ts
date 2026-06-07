@@ -23,7 +23,7 @@
  * Fallback: if ANTHROPIC_API_KEY is not set, falls back to `git grep`.
  */
 
-import { getAnthropic, MODEL_HAIKU, parseJsonResponse } from "./ai-client";
+import { getAnthropic, MODEL_HAIKU, MODEL_SONNET, parseJsonResponse } from "./ai-client";
 import { config } from "./config";
 import { getRepoPath } from "../git/repository";
 

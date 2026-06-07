@@ -4296,6 +4296,250 @@ export const prPreviews = pgTable(
 export type PrPreview = typeof prPreviews.$inferSelect;
 export type NewPrPreview = typeof prPreviews.$inferInsert;
 
+// ----------------------------------------------------------------------------
+// Migration 0092 — Enterprise SSO (SAML 2.0 + OIDC per-org) + SCIM
+// ----------------------------------------------------------------------------
+
+/**
+ * Per-org SSO configuration. One row per org. Supports both SAML 2.0 and OIDC.
+ * Distinct from the site-wide `sso_config` table (Block I10 / OIDC-only).
+ */
+export const orgSsoConfigs = pgTable("org_sso_configs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  orgId: uuid("org_id")
+    .notNull()
+    .unique()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  provider: text("provider").notNull().default("saml"), // 'saml' | 'oidc'
+  // SAML fields
+  idpEntityId: text("idp_entity_id"),
+  idpSsoUrl: text("idp_sso_url"),
+  idpCertificate: text("idp_certificate"), // PEM cert from IdP
+  spEntityId: text("sp_entity_id"),         // our SP entity ID
+  // OIDC fields
+  oidcClientId: text("oidc_client_id"),
+  oidcClientSecret: text("oidc_client_secret"),
+  oidcDiscoveryUrl: text("oidc_discovery_url"),
+  // Common
+  domainHint: text("domain_hint"), // e.g. "acme.com" — auto-routes users from this domain
+  attributeMapping: jsonb("attribute_mapping")
+    .$type<Record<string, string>>()
+    .default({ email: "email", name: "name", username: "preferred_username" }),
+  enabled: boolean("enabled").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+/**
+ * SCIM provisioning tokens. Hashed SHA-256 bearer tokens issued per-org.
+ * Identity providers (Okta, Azure AD) use these to provision/deprovision users.
+ */
+export const scimTokens = pgTable("scim_tokens", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  orgId: uuid("org_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  tokenHash: text("token_hash").notNull().unique(), // SHA-256 of the token
+  createdBy: uuid("created_by")
+    .notNull()
+    .references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  lastUsedAt: timestamp("last_used_at"),
+});
+
+/**
+ * Tracks active IdP-initiated SSO sessions per org. Allows per-org
+ * SLO (Single Logout) and session audit.
+ */
+export const orgSsoSessions = pgTable(
+  "org_sso_sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    idpSessionId: text("idp_session_id"),
+    createdAt: timestamp("created_at").defaultNow(),
+    expiresAt: timestamp("expires_at").notNull(),
+  },
+  (table) => [
+    index("org_sso_sessions_user").on(table.userId),
+    index("org_sso_sessions_expires").on(table.expiresAt),
+  ]
+);
+
+export type OrgSsoConfig = typeof orgSsoConfigs.$inferSelect;
+export type NewOrgSsoConfig = typeof orgSsoConfigs.$inferInsert;
+export type ScimToken = typeof scimTokens.$inferSelect;
+export type OrgSsoSession = typeof orgSsoSessions.$inferSelect;
+
+// Migration 0077 — Incident hook configs
+// Maps a monitoring provider (PagerDuty / Datadog / Opsgenie / generic) to a
+// specific repo. Inbound webhooks are validated against secret_hash (SHA-256
+// of the user-chosen webhook secret passed in the ?secret= query param).
+// ---------------------------------------------------------------------------
+export const incidentHookConfigs = pgTable(
+  "incident_hook_configs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    repoId: uuid("repo_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    /** 'pagerduty' | 'datadog' | 'opsgenie' | 'generic' */
+    provider: text("provider").notNull(),
+    /** SHA-256 hex of the user's plaintext webhook secret. */
+    secretHash: text("secret_hash").notNull(),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("incident_hook_configs_repo_provider").on(
+      table.repoId,
+      table.provider
+    ),
+  ]
+);
+
+export type IncidentHookConfig = typeof incidentHookConfigs.$inferSelect;
+export type NewIncidentHookConfig = typeof incidentHookConfigs.$inferInsert;
+
+
+
+/**
+ * Cloud deploy configurations — per-repo settings for push-triggered deploys
+ * to Fly.io, Railway, Render, Vercel, Netlify, or a generic webhook URL.
+ * Migration 0077.
+ */
+export const cloudDeployConfigs = pgTable(
+  "cloud_deploy_configs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repoId: uuid("repo_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    // 'fly' | 'railway' | 'render' | 'vercel' | 'netlify' | 'webhook'
+    provider: text("provider").notNull(),
+    // Fly app name, Railway service ID, Render service ID, Vercel project ID, webhook URL
+    providerAppId: text("provider_app_id").notNull(),
+    // AES-256-GCM encrypted via SERVER_TARGETS_KEY
+    apiTokenEncrypted: text("api_token_encrypted").notNull(),
+    triggerBranch: text("trigger_branch").notNull().default("main"),
+    enabled: boolean("enabled").notNull().default(true),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => [index("cloud_deploy_configs_repo").on(table.repoId)]
+);
+
+/**
+ * Cloud deployment runs — one row per triggered deployment attempt.
+ * Status transitions: pending -> running -> success | failed | cancelled.
+ * Migration 0077.
+ */
+export const cloudDeployments = pgTable(
+  "cloud_deployments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    configId: uuid("config_id")
+      .notNull()
+      .references(() => cloudDeployConfigs.id, { onDelete: "cascade" }),
+    repoId: uuid("repo_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    commitSha: text("commit_sha").notNull(),
+    // pending | running | success | failed | cancelled
+    status: text("status").notNull().default("pending"),
+    providerDeployId: text("provider_deploy_id"),
+    logUrl: text("log_url"),
+    deployUrl: text("deploy_url"),
+    errorMessage: text("error_message"),
+    startedAt: timestamp("started_at").defaultNow(),
+    completedAt: timestamp("completed_at"),
+    durationMs: integer("duration_ms"),
+  },
+  (table) => [
+    index("cloud_deployments_repo").on(table.repoId, table.startedAt),
+    index("cloud_deployments_config").on(table.configId, table.startedAt),
+  ]
+);
+
+export type CloudDeployConfig = typeof cloudDeployConfigs.$inferSelect;
+export type NewCloudDeployConfig = typeof cloudDeployConfigs.$inferInsert;
+export type CloudDeployment = typeof cloudDeployments.$inferSelect;
+export type NewCloudDeployment = typeof cloudDeployments.$inferInsert;
+// ---------------------------------------------------------------------------
+// Recurring pattern detection (migration 0088)
+// ---------------------------------------------------------------------------
+
+export const recurringPatterns = pgTable(
+  "recurring_patterns",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    occurrences: integer("occurrences").notNull().default(1),
+    commitShas: jsonb("commit_shas").$type<string[]>().notNull().default([]),
+    rootCauseHypothesis: text("root_cause_hypothesis"),
+    suggestedFile: text("suggested_file"),
+    severity: text("severity").notNull().default("medium"),
+    detectedAt: timestamp("detected_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    index("idx_recurring_patterns_repo").on(table.repositoryId),
+    index("idx_recurring_patterns_expires").on(table.expiresAt),
+  ]
+);
+
+export type RecurringPattern = typeof recurringPatterns.$inferSelect;
+export type NewRecurringPattern = typeof recurringPatterns.$inferInsert;
+// ---------------------------------------------------------------------------
+// Bus Factor Cache — migration 0088
+// Stores per-repo knowledge concentration analysis (at-risk files where one
+// author owns >75% of commits). Refreshed on demand; 7-day soft TTL.
+// ---------------------------------------------------------------------------
+export const busFactorCache = pgTable("bus_factor_cache", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  repositoryId: uuid("repository_id")
+    .notNull()
+    .references(() => repositories.id, { onDelete: "cascade" })
+    .unique(),
+  analyzedAt: timestamp("analyzed_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  atRiskFiles: jsonb("at_risk_files").notNull().default([]),
+  totalFilesAnalyzed: integer("total_files_analyzed").notNull().default(0),
+});
+// ---------------------------------------------------------------------------
+// Migration 0088 — PR visit tracking for context-restore feature
+// ---------------------------------------------------------------------------
+
+/**
+ * pr_visits — lightweight upsert table tracking each user's last visit to a
+ * PR. Used by `src/lib/review-context.ts` to compute what changed since the
+ * reviewer was last here and generate a "Welcome back" context banner.
+ */
+export const prVisits = pgTable(
+  "pr_visits",
+  {
+    prId: uuid("pr_id")
+      .notNull()
+      .references(() => pullRequests.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    visitedAt: timestamp("visited_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.prId, t.userId] })]
+);
+
+export type PrVisit = typeof prVisits.$inferSelect;
 // ---------------------------------------------------------------------------
 // Migration 0088 — Smart empty states: repo onboarding data
 // Generated by generateRepoOnboarding() on first push to a repo.

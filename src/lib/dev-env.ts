@@ -44,6 +44,7 @@ import {
   getAnthropic,
   isAiAvailable,
   MODEL_HAIKU,
+  MODEL_SONNET,
   extractText,
 } from "./ai-client";
 

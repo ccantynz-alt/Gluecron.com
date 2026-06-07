@@ -4408,3 +4408,66 @@ export type NewIncidentHookConfig = typeof incidentHookConfigs.$inferInsert;
 
 
 >>>>>>> 3a845e4 (feat: enterprise SSO (SAML 2.0 + OIDC) and SCIM user provisioning)
+
+/**
+ * Cloud deploy configurations — per-repo settings for push-triggered deploys
+ * to Fly.io, Railway, Render, Vercel, Netlify, or a generic webhook URL.
+ * Migration 0077.
+ */
+export const cloudDeployConfigs = pgTable(
+  "cloud_deploy_configs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repoId: uuid("repo_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    // 'fly' | 'railway' | 'render' | 'vercel' | 'netlify' | 'webhook'
+    provider: text("provider").notNull(),
+    // Fly app name, Railway service ID, Render service ID, Vercel project ID, webhook URL
+    providerAppId: text("provider_app_id").notNull(),
+    // AES-256-GCM encrypted via SERVER_TARGETS_KEY
+    apiTokenEncrypted: text("api_token_encrypted").notNull(),
+    triggerBranch: text("trigger_branch").notNull().default("main"),
+    enabled: boolean("enabled").notNull().default(true),
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => [index("cloud_deploy_configs_repo").on(table.repoId)]
+);
+
+/**
+ * Cloud deployment runs — one row per triggered deployment attempt.
+ * Status transitions: pending -> running -> success | failed | cancelled.
+ * Migration 0077.
+ */
+export const cloudDeployments = pgTable(
+  "cloud_deployments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    configId: uuid("config_id")
+      .notNull()
+      .references(() => cloudDeployConfigs.id, { onDelete: "cascade" }),
+    repoId: uuid("repo_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    commitSha: text("commit_sha").notNull(),
+    // pending | running | success | failed | cancelled
+    status: text("status").notNull().default("pending"),
+    providerDeployId: text("provider_deploy_id"),
+    logUrl: text("log_url"),
+    deployUrl: text("deploy_url"),
+    errorMessage: text("error_message"),
+    startedAt: timestamp("started_at").defaultNow(),
+    completedAt: timestamp("completed_at"),
+    durationMs: integer("duration_ms"),
+  },
+  (table) => [
+    index("cloud_deployments_repo").on(table.repoId, table.startedAt),
+    index("cloud_deployments_config").on(table.configId, table.startedAt),
+  ]
+);
+
+export type CloudDeployConfig = typeof cloudDeployConfigs.$inferSelect;
+export type NewCloudDeployConfig = typeof cloudDeployConfigs.$inferInsert;
+export type CloudDeployment = typeof cloudDeployments.$inferSelect;
+export type NewCloudDeployment = typeof cloudDeployments.$inferInsert;
+>>>>>>> b11ffa9 (feat: multi-cloud deploy integration — push to main deploys to Fly/Railway/Render/Vercel)

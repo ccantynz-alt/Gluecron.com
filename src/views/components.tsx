@@ -150,6 +150,7 @@ export const RepoNav: FC<{
     | "agents"
     | "discussions"
     | "security"
+    | "deployments"
     | "settings";
 }> = ({ owner, repo, active }) => (
   <div class="repo-nav">
@@ -215,6 +216,12 @@ export const RepoNav: FC<{
       class={active === "security" ? "active" : ""}
     >
       Security
+    </a>
+    <a
+      href={`/${owner}/${repo}/cloud-deployments`}
+      class={active === "deployments" ? "active" : ""}
+    >
+      Deployments
     </a>
     <a
       href={`/${owner}/${repo}/insights`}

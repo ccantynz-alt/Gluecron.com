@@ -605,7 +605,56 @@ const ExploreStyle = () => (
     .explore-foot { flex-direction: column; align-items: stretch; padding: 16px 18px; }
     .explore-foot-actions { width: 100%; }
     .explore-foot-actions .btn { flex: 1; min-width: 0; }
+    .explore-gh-callout { flex-direction: column; gap: 12px; }
+    .explore-gh-callout-cta { width: 100%; justify-content: center; }
   }
+
+  /* "Coming from GitHub?" callout — bottom-of-page migration prompt */
+  .explore-gh-callout {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-top: 32px;
+    padding: 20px 24px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    position: relative;
+    overflow: hidden;
+  }
+  .explore-gh-callout::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent 0%, #8c6dff 30%, #36c5d6 70%, transparent 100%);
+    opacity: 0.7;
+    pointer-events: none;
+  }
+  .explore-gh-callout-icon {
+    width: 40px; height: 40px;
+    border-radius: 10px;
+    background: rgba(140,109,255,0.10);
+    border: 1px solid rgba(140,109,255,0.20);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--accent);
+    flex-shrink: 0;
+  }
+  .explore-gh-callout-body { flex: 1; min-width: 0; }
+  .explore-gh-callout-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text-strong);
+    margin: 0 0 3px;
+    letter-spacing: -0.012em;
+  }
+  .explore-gh-callout-sub {
+    font-size: 13.5px;
+    color: var(--text-muted);
+    margin: 0;
+    line-height: 1.5;
+  }
+  .explore-gh-callout-cta { flex-shrink: 0; white-space: nowrap; }
       `,
     }}
   />
@@ -648,7 +697,14 @@ explore.get("/explore", async (c) => {
   // before the real list lands.
   if (c.req.query("skeleton") === "1") {
     return c.html(
-      <Layout title="Explore" user={user}>
+      <Layout
+        title="Explore"
+        user={user}
+        description="Discover open-source projects hosted on Gluecron — the AI-native GitHub alternative."
+        ogTitle="Explore — Gluecron"
+        ogDescription="Discover open-source projects hosted on Gluecron — the AI-native GitHub alternative."
+        twitterCard="summary"
+      >
         <ExploreStyle />
         <div class="explore-wrap">
           <section class="explore-hero" aria-hidden="true">
@@ -794,7 +850,14 @@ explore.get("/explore", async (c) => {
           : `Sorted by repository creation date`;
 
   return c.html(
-    <Layout title="Explore" user={user}>
+    <Layout
+      title="Explore"
+      user={user}
+      description="Discover open-source projects hosted on Gluecron — the AI-native GitHub alternative."
+      ogTitle="Explore — Gluecron"
+      ogDescription="Discover open-source projects hosted on Gluecron — the AI-native GitHub alternative."
+      twitterCard="summary"
+    >
       <ExploreStyle />
       <div class="explore-wrap">
         <section class="explore-hero">
@@ -1156,6 +1219,27 @@ explore.get("/explore", async (c) => {
             )}
           </>
         )}
+        {/* "Coming from GitHub?" callout — shown to all visitors since
+            Explore is the discovery surface most likely visited by evaluators
+            comparing Gluecron to GitHub. Non-intrusive card at the bottom. */}
+        <div class="explore-gh-callout" aria-label="Coming from GitHub?">
+          <div class="explore-gh-callout-icon" aria-hidden="true">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="4 17 10 11 4 5" />
+              <line x1="12" y1="19" x2="20" y2="19" />
+            </svg>
+          </div>
+          <div class="explore-gh-callout-body">
+            <p class="explore-gh-callout-title">Coming from GitHub?</p>
+            <p class="explore-gh-callout-sub">
+              Migrate your repos, issues, and full history in 60 seconds — no
+              manual setup, no SaaS migration project required.
+            </p>
+          </div>
+          <a href="/import" class="btn btn-primary explore-gh-callout-cta">
+            Migrate from GitHub →
+          </a>
+        </div>
       </div>
     </Layout>
   );

@@ -56,6 +56,7 @@ import { isAiReviewEnabled, triggerAiReview } from "../lib/ai-review";
 import {
   TRIO_COMMENT_MARKER,
   TRIO_SUMMARY_MARKER,
+  isTrioReviewEnabled,
   type TrioPersona,
 } from "../lib/ai-review-trio";
 import {
@@ -121,6 +122,7 @@ import {
 
 import { suggestReviewers, type ReviewerCandidate } from "../lib/reviewer-suggest";
 import { computePrSize, type PrSizeInfo } from "../lib/pr-size";
+import { BOT_USERNAME } from "../lib/bot-user";
 
 const pulls = new Hono<AuthEnv>();
 
@@ -694,6 +696,16 @@ const PRS_DETAIL_STYLES = `
     text-transform: uppercase;
     color: #fff;
     background: linear-gradient(135deg, #8c6dff 0%, #36c5d6 130%);
+    border-radius: 9999px;
+  }
+  .prs-bot-badge {
+    display: inline-flex; align-items: center; gap: 3px;
+    padding: 1px 7px;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--fg-muted);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
     border-radius: 9999px;
   }
 
@@ -1423,6 +1435,40 @@ const PRS_DETAIL_STYLES = `
   .prs-ci-pill.is-failure, .prs-ci-pill.is-error { color: #f87171; background: rgba(248,113,113,0.10); }
   .prs-ci-link { font-size: 12px; color: var(--accent); text-decoration: none; }
   .prs-ci-link:hover { text-decoration: underline; }
+
+  /* ─── AI Trio verdict pills (header summary) ─── */
+  .trio-pill {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 700;
+    border-radius: 9999px;
+    border: 1px solid transparent;
+    text-decoration: none;
+    line-height: 1.6;
+    letter-spacing: 0.01em;
+    cursor: pointer;
+    transition: opacity 120ms ease;
+  }
+  .trio-pill:hover { opacity: 0.8; }
+  .trio-pill.is-pass {
+    color: #34d399;
+    background: rgba(52,211,153,0.10);
+    border-color: rgba(52,211,153,0.35);
+  }
+  .trio-pill.is-fail {
+    color: #f87171;
+    background: rgba(248,113,113,0.10);
+    border-color: rgba(248,113,113,0.35);
+  }
+  .trio-pill.is-pending {
+    color: var(--text-muted);
+    background: rgba(255,255,255,0.04);
+    border-color: var(--border-strong);
+  }
+  .trio-pills-wrap {
+    display: inline-flex; align-items: center; gap: 4px;
+  }
 `;
 
 /**
@@ -1821,7 +1867,7 @@ function TrioReviewGrid({ comments }: { comments: TrioCommentLike[] }) {
   const disagreements = summaryBody ? parseDisagreements(summaryBody) : [];
 
   return (
-    <div class="trio-wrap">
+    <div class="trio-wrap" id="trio-review-section">
       <div class="trio-header">
         <span class="trio-header-dot" aria-hidden="true"></span>
         <strong>AI Trio Review</strong>
@@ -1907,6 +1953,71 @@ function stripTrioHeading(body: string): string {
     .replace(/<!--\s*ai-trio:(?:security|correctness|style|summary)\s*-->\s*/g, "")
     .replace(/^##\s+AI\s+\w+\s+Review[^\n]*\n+/m, "")
     .trim();
+}
+
+/**
+ * Three small verdict pills rendered inline in the PR header. Each pill
+ * links to the `#trio-review-section` anchor so clicking scrolls to the
+ * full card grid. Only shown when `AI_TRIO_REVIEW_ENABLED=1` and at
+ * least one persona comment exists.
+ */
+function TrioVerdictPills({
+  comments,
+}: {
+  comments: TrioCommentLike[];
+}) {
+  if (!isTrioReviewEnabled()) return null;
+
+  // Find latest persona verdicts (same logic as TrioReviewGrid).
+  const latest: Partial<Record<TrioPersona, string>> = {};
+  for (let i = comments.length - 1; i >= 0; i--) {
+    const body = comments[i].body || "";
+    if (!isTrioComment(body)) continue;
+    if (body.includes(TRIO_SUMMARY_MARKER)) continue;
+    const persona = trioPersonaOfComment(body);
+    if (persona && !latest[persona]) latest[persona] = body;
+  }
+
+  const anyPersona = TRIO_PERSONAS.some((p) => !!latest[p]);
+  if (!anyPersona) return null;
+
+  const PERSONA_LABEL: Record<TrioPersona, string> = {
+    security: "Security",
+    correctness: "Correctness",
+    style: "Style",
+  };
+  const PERSONA_ICON: Record<TrioPersona, string> = {
+    security: "🛡",
+    correctness: "✓",
+    style: "✎",
+  };
+
+  return (
+    <span class="trio-pills-wrap" aria-label="AI Trio Review verdicts">
+      {TRIO_PERSONAS.map((persona) => {
+        const body = latest[persona];
+        const verdict = body ? trioVerdictOfBody(body) : null;
+        const stateClass =
+          verdict === "pass"
+            ? "is-pass"
+            : verdict === "fail"
+              ? "is-fail"
+              : "is-pending";
+        const glyph =
+          verdict === "pass" ? "✓" : verdict === "fail" ? "✗" : "⟳";
+        return (
+          <a
+            href="#trio-review-section"
+            class={`trio-pill ${stateClass}`}
+            title={`AI ${PERSONA_LABEL[persona]} Review — ${verdict === "pass" ? "Pass" : verdict === "fail" ? "Fail" : "Pending"}`}
+          >
+            <span aria-hidden="true">{PERSONA_ICON[persona]}</span>
+            {PERSONA_LABEL[persona]} {glyph}
+          </a>
+        );
+      })}
+    </span>
+  );
 }
 
 // List PRs
@@ -3122,6 +3233,18 @@ pulls.post(
         );
       });
 
+    // Migration 0077 — PR preview build. Fire-and-forget; skips when
+    // PREVIEW_DOMAIN is unset or the repo has no preview_build_command.
+    // Resolve head SHA asynchronously so we don't block the redirect.
+    resolveRef(ownerName, repoName, headBranch)
+      .then((headSha) => {
+        if (!headSha) return;
+        return import("../lib/preview-builder").then((m) =>
+          m.buildPreview(pr.id, resolved.repo.id, headSha)
+        );
+      })
+      .catch(() => {});
+
     return c.redirect(`/${ownerName}/${repoName}/pulls/${pr.number}`);
   }
 );
@@ -3572,6 +3695,9 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
               {prSizeInfo.label}
             </span>
           )}
+          <TrioVerdictPills
+            comments={comments.map(({ comment }) => comment)}
+          />
           <span>
             <strong>{author?.username}</strong> wants to merge
           </span>
@@ -3784,6 +3910,9 @@ pulls.get("/:owner/:repo/pulls/:number", softAuth, requireRepoAccess("read"), as
               >
                 <div class="prs-comment-head">
                   <strong>{commentAuthor.username}</strong>
+                  {commentAuthor.username === BOT_USERNAME && (
+                    <span class="prs-bot-badge">&#x1F916; bot</span>
+                  )}
                   {comment.isAiReview && (
                     <span class="prs-ai-badge">AI Review</span>
                   )}

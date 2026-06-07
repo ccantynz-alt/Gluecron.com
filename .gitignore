@@ -22,3 +22,10 @@ drizzle/meta/
 
 # standalone box local DB backups
 backups/
+
+# JetBrains plugin build artifacts
+jetbrains-plugin/build/
+jetbrains-plugin/.gradle/
+jetbrains-plugin/.idea/
+jetbrains-plugin/*.iml
+jetbrains-plugin/*.class

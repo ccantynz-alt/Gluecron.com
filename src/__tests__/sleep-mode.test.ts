@@ -234,7 +234,7 @@ describe("sleep-mode — autopilot task (runSleepModeDigestTaskOnce)", () => {
     return {
       userId: "u-1",
       digestHourUtc: 9,
-      lastDigestSentAt: null,
+      lastSleepDigestSentAt: null,
       ...overrides,
     };
   }
@@ -279,9 +279,9 @@ describe("sleep-mode — autopilot task (runSleepModeDigestTaskOnce)", () => {
     const old = new Date(sentinelNow.getTime() - 24 * 60 * 60 * 1000);
     const summary = await runSleepModeDigestTaskOnce({
       findCandidates: async () => [
-        cand({ userId: "recent-user", lastDigestSentAt: recent }),
-        cand({ userId: "old-user", lastDigestSentAt: old }),
-        cand({ userId: "never-user", lastDigestSentAt: null }),
+        cand({ userId: "recent-user", lastSleepDigestSentAt: recent }),
+        cand({ userId: "old-user", lastSleepDigestSentAt: old }),
+        cand({ userId: "never-user", lastSleepDigestSentAt: null }),
       ],
       sendOne: async (id) => {
         sent.push(id);

@@ -32,6 +32,8 @@ import { pullRequests, prComments } from "../db/schema";
 import { getAnthropic, MODEL_SONNET, parseJsonResponse } from "./ai-client";
 import { audit } from "./notify";
 import { recordAiCost, extractUsage } from "./ai-cost-tracker";
+import { assertAiQuota, AiQuotaExceededError } from "./billing";
+import { getBotUserIdOrFallback } from "./bot-user";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -252,6 +254,62 @@ export async function runTrioReview(
     opts.diff.length > DIFF_BYTE_CAP
       ? opts.diff.slice(0, DIFF_BYTE_CAP)
       : opts.diff;
+
+  // 0. Hard quota gate — bail before any API calls if the PR author is over
+  //    budget. Resolve the author from the DB (needed for the comment insert
+  //    in persistTrioComments anyway).
+  let prAuthorId: string | null = null;
+  try {
+    const [pr] = await db
+      .select({ authorId: pullRequests.authorId })
+      .from(pullRequests)
+      .where(eq(pullRequests.id, opts.pullRequestId))
+      .limit(1);
+    if (pr) prAuthorId = pr.authorId;
+  } catch {
+    /* tolerate — quota check will fail open */
+  }
+  if (prAuthorId) {
+    try {
+      await assertAiQuota(prAuthorId);
+    } catch (err) {
+      if (err instanceof AiQuotaExceededError) {
+        // Post a single summary comment so the PR author sees the skip reason.
+        try {
+          await db.insert(prComments).values({
+            pullRequestId: opts.pullRequestId,
+            authorId: prAuthorId,
+            isAiReview: true,
+            body: [
+              TRIO_SUMMARY_MARKER,
+              "## AI Trio Review skipped",
+              "",
+              "Your monthly AI token budget has been reached. Upgrade at [/settings/billing](/settings/billing) to re-enable AI code review.",
+            ].join("\n"),
+          });
+        } catch {
+          /* best-effort */
+        }
+        // Return a neutral fail-closed result so the caller doesn't crash.
+        const skippedVerdict = (persona: TrioPersona): TrioVerdict => ({
+          persona,
+          verdict: "fail",
+          findings: [],
+          rawText: "",
+          latencyMs: 0,
+          failed: true,
+        });
+        return {
+          securityVerdict: skippedVerdict("security"),
+          correctnessVerdict: skippedVerdict("correctness"),
+          styleVerdict: skippedVerdict("style"),
+          disagreements: [],
+        };
+      }
+      // Unexpected error — log and proceed (fail open).
+      console.warn("[ai-review-trio] assertAiQuota failed unexpectedly:", err);
+    }
+  }
 
   // 1. Fan out the three persona calls.
   const personas: TrioPersona[] = ["security", "correctness", "style"];
@@ -507,20 +565,22 @@ async function persistTrioComments(args: {
   pullRequestId: string;
   result: TrioReviewResult;
 }): Promise<void> {
-  // Need the PR's author id to satisfy `prComments.authorId NOT NULL`.
-  // (`ai-review.ts` uses the same pattern.)
-  let authorId: string | null = null;
+  // Need a user id to satisfy `prComments.authorId NOT NULL`.
+  // Prefer the bot user; fall back to the PR author for pre-migration envs.
+  let prAuthorId: string | null = null;
   try {
     const [pr] = await db
       .select({ authorId: pullRequests.authorId })
       .from(pullRequests)
       .where(eq(pullRequests.id, args.pullRequestId))
       .limit(1);
-    if (pr) authorId = pr.authorId;
+    if (pr) prAuthorId = pr.authorId;
   } catch {
     /* tolerate */
   }
-  if (!authorId) return; // can't post comments without an author id
+  if (!prAuthorId) return; // can't post comments without an author id
+
+  const commentAuthorId = await getBotUserIdOrFallback(prAuthorId);
 
   const verdicts: TrioVerdict[] = [
     args.result.securityVerdict,
@@ -533,7 +593,7 @@ async function persistTrioComments(args: {
     try {
       await db.insert(prComments).values({
         pullRequestId: args.pullRequestId,
-        authorId,
+        authorId: commentAuthorId,
         isAiReview: true,
         body,
       });
@@ -549,7 +609,7 @@ async function persistTrioComments(args: {
   try {
     await db.insert(prComments).values({
       pullRequestId: args.pullRequestId,
-      authorId,
+      authorId: commentAuthorId,
       isAiReview: true,
       body: renderSummaryCommentBody(args.result),
     });

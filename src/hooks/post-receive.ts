@@ -25,7 +25,9 @@ import {
   getRepoPath,
 } from "../git/repository";
 import { indexChangedFiles } from "../lib/semantic-index";
+import { scanDiffForIssues } from "../lib/ai-auto-issues";
 import { enqueuePreviewBuild } from "../lib/branch-previews";
+import { scanDependencies } from "../lib/dependency-scanner";
 import { runDocDriftCheckForRepo } from "../lib/ai-doc-updater";
 import {
   findTargetsForPush,
@@ -44,7 +46,8 @@ interface PushRef {
 export async function onPostReceive(
   owner: string,
   repo: string,
-  refs: PushRef[]
+  refs: PushRef[],
+  pusherUserId: string = ""
 ): Promise<void> {
   for (const ref of refs) {
     if (ref.newSha.startsWith("0000")) continue; // Branch deletion
@@ -123,6 +126,29 @@ export async function onPostReceive(
   void firePreviewBuilds(owner, repo, refs).catch((err) =>
     console.warn("[branch-previews] dispatch error:", err)
   );
+
+  // 4e. AI Auto-Issue Opener. Scans the diff for each pushed ref for
+  //     TODO/FIXME/HACK comments, hardcoded secrets, SQL injection patterns,
+  //     and debug console.log calls. Opens one issue per finding type per
+  //     file (capped at MAX_ISSUES_PER_PUSH). Gated on AI_AUTO_ISSUES=1.
+  //     Fire-and-forget; never blocks the push path.
+  for (const ref of refs) {
+    if (ref.newSha.startsWith("0000")) continue;
+    scanDiffForIssues(owner, repo, ref.oldSha, ref.newSha, pusherUserId).catch(
+      (err) => console.warn("[ai-auto-issues] dispatch error:", err)
+    );
+  }
+
+  // 4f. Dependency CVE scanner — when DEPENDENCY_SCAN_ENABLED=1, scan
+  //     every push that touches a recognized manifest file (package.json,
+  //     requirements.txt, Cargo.toml, go.mod, Gemfile). Auto-opens issues
+  //     for critical/high findings and updates a weekly digest for
+  //     medium/low. Fire-and-forget; never blocks the push path.
+  if (config.dependencyScanEnabled) {
+    void fireDependencyScan(owner, repo, refs).catch((err) =>
+      console.warn("[dependency-scanner] dispatch error:", err)
+    );
+  }
 
   // 4d. AI-tracked documentation drift check (migration 0068). Walks the
   //     repo's markdown files for `<!-- gluecron:doc-track ... -->`
@@ -701,6 +727,59 @@ async function fireServerTargetDeploys(
   );
 }
 
+/**
+ * Fire-and-forget wrapper around scanDependencies for each pushed ref.
+ * Resolves the repo DB row once, then runs the scanner on each live push.
+ * Swallows all errors so a scanner failure never affects the push path.
+ */
+async function fireDependencyScan(
+  owner: string,
+  repo: string,
+  refs: PushRef[]
+): Promise<void> {
+  const liveRefs = refs.filter(
+    (r) => r.refName.startsWith("refs/heads/") && !r.newSha.startsWith("0000")
+  );
+  if (liveRefs.length === 0) return;
+
+  let repoRow: { id: string; ownerId: string } | null = null;
+  try {
+    const [row] = await db
+      .select({ id: repositories.id, ownerId: repositories.ownerId })
+      .from(repositories)
+      .innerJoin(users, eq(repositories.ownerId, users.id))
+      .where(and(eq(users.username, owner), eq(repositories.name, repo)))
+      .limit(1);
+    repoRow = row || null;
+  } catch {
+    return;
+  }
+  if (!repoRow) return;
+
+  for (const ref of liveRefs) {
+    try {
+      const findings = await scanDependencies(
+        repoRow.id,
+        owner,
+        repo,
+        ref.newSha,
+        ref.oldSha,
+        repoRow.ownerId
+      );
+      if (findings.length > 0) {
+        console.log(
+          `[dependency-scanner] ${owner}/${repo}@${ref.newSha.slice(0, 7)}: ${findings.length} finding(s)`
+        );
+      }
+    } catch (err) {
+      console.warn(
+        `[dependency-scanner] scan threw for ${owner}/${repo}@${ref.newSha.slice(0, 7)}:`,
+        err instanceof Error ? err.message : err
+      );
+    }
+  }
+}
+
 /** Test-only access to internal helpers. */
 export const __test = {
   triggerCrontechDeploy,
@@ -712,4 +791,5 @@ export const __test = {
   firePreviewBuilds,
   fireDocDriftCheck,
   fireServerTargetDeploys,
+  fireDependencyScan,
 };

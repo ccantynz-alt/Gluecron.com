@@ -42,6 +42,7 @@ import {
   repositories,
 } from "../db/schema";
 import { audit, notify } from "./notify";
+import { getBotUserIdOrFallback } from "./bot-user";
 
 // ---------------------------------------------------------------------------
 // Marker constants — stable HTML comments. Versioned so a v2 contract can
@@ -300,11 +301,13 @@ async function defaultFindStalePrCandidates(
 
 /** Default poke side-effect: comment + notify + audit. */
 async function defaultPokePr(cand: StalePrCandidate): Promise<void> {
-  // 1. Post the marker comment as the PR author (avoids needing a system user).
+  // 1. Post the marker comment as the bot user (falls back to PR author if
+  //    the bot row has not been seeded yet).
+  const commentAuthorId = await getBotUserIdOrFallback(cand.authorUserId);
   try {
     await db.insert(prComments).values({
       pullRequestId: cand.prId,
-      authorId: cand.authorUserId,
+      authorId: commentAuthorId,
       body: PR_POKE_BODY,
       isAiReview: false,
     });
@@ -340,11 +343,12 @@ async function defaultPokePr(cand: StalePrCandidate): Promise<void> {
 
 /** Default close side-effect: comment + state→closed + audit. */
 async function defaultClosePr(cand: StalePrCandidate): Promise<void> {
-  // 1. Post the final close comment.
+  // 1. Post the final close comment as the bot user.
+  const commentAuthorId = await getBotUserIdOrFallback(cand.authorUserId);
   try {
     await db.insert(prComments).values({
       pullRequestId: cand.prId,
-      authorId: cand.authorUserId,
+      authorId: commentAuthorId,
       body: PR_CLOSE_BODY,
       isAiReview: false,
     });
@@ -448,10 +452,11 @@ async function defaultFindStaleIssueCandidates(
 
 /** Default issue poke. */
 async function defaultPokeIssue(cand: StaleIssueCandidate): Promise<void> {
+  const commentAuthorId = await getBotUserIdOrFallback(cand.authorUserId);
   try {
     await db.insert(issueComments).values({
       issueId: cand.issueId,
-      authorId: cand.authorUserId,
+      authorId: commentAuthorId,
       body: ISSUE_POKE_BODY,
     });
   } catch (err) {
@@ -483,10 +488,11 @@ async function defaultPokeIssue(cand: StaleIssueCandidate): Promise<void> {
 
 /** Default issue close. */
 async function defaultCloseIssue(cand: StaleIssueCandidate): Promise<void> {
+  const commentAuthorId = await getBotUserIdOrFallback(cand.authorUserId);
   try {
     await db.insert(issueComments).values({
       issueId: cand.issueId,
-      authorId: cand.authorUserId,
+      authorId: commentAuthorId,
       body: ISSUE_CLOSE_BODY,
     });
   } catch (err) {

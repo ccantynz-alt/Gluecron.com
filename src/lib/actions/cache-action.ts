@@ -1,21 +1,21 @@
 /**
- * `gluecron/cache@v1` — RESTORE-only cache action (v1 scope).
+ * `gluecron/cache@v1` — cache action with RESTORE (load) and SAVE sides.
  *
- * Looks up `workflow_run_cache` by (repoId, key, scope='repo') and unpacks
- * the stored tar archive into `ctx.workspace/<path>`. If no exact key hit,
- * tries each `restoreKeys` entry as a prefix match ordered by most-recently
- * used. Sets `cache-hit` output to 'true' or 'false'.
+ * RESTORE: looks up `workflow_run_cache` by (repoId, key, scope='repo') and
+ * unpacks the stored tar archive into `ctx.workspace/<path>`. If no exact key
+ * hit, tries each `restoreKeys` entry as a prefix match ordered by
+ * most-recently used. Sets `cache-hit` output to 'true' or 'false'.
  *
- * TODO (v2): cache SAVE on job success. The deferred design is for the
- * runner to honor a `save-cache: true` flag emitted by this action and
- * call a `saveCache(ctx, key, path)` helper at end-of-job. Implementing
- * save inline here is error-prone (we'd need a post-hook) and the spec
- * explicitly endorsed shipping restore-only for v1. Size cap logic is
- * stubbed below so it's trivial to wire up later.
+ * SAVE: called by the workflow runner after a job's steps all succeed.
+ * Tarballs the `path` list relative to `workdir` and upserts the archive into
+ * `workflow_run_cache`. On key conflict the existing row is replaced so the
+ * runner always ends up with the freshest tarball for a given key. Size cap is
+ * enforced before the DB write; oversize payloads are logged and silently
+ * dropped so CI never fails due to cache infrastructure.
  *
  * Failure tolerance: any error — DB miss, tar failure, unknown scope —
- * results in `cache-hit: false` with exitCode 0. Caching is an optimization;
- * losing it must never break a pipeline.
+ * results in `cache-hit: false` (on restore) or a silent no-op (on save).
+ * Caching is an optimization; losing it must never break a pipeline.
  */
 
 import { and, eq, isNull, sql } from "drizzle-orm";
@@ -175,6 +175,111 @@ async function touchLastAccessed(id: string): Promise<void> {
       .where(eq(workflowRunCache.id, id));
   } catch {
     // Non-fatal — LRU accuracy is best-effort.
+  }
+}
+
+/**
+ * Pack `paths` (relative to `workdir`) into a gzip-compressed tar archive and
+ * upsert it into `workflow_run_cache` under `key` for `repoId`.
+ *
+ * On key conflict the existing row is replaced. This mirrors how GitHub Actions
+ * handles re-runs with the same key: the freshest content wins.
+ *
+ * The archive is written to a temp file first (avoids EAGAIN edge cases on
+ * Bun's subprocess stdin pipe) then read back into a Buffer for the DB write.
+ * Callers must treat any thrown error as non-fatal — caching failures must
+ * never abort a pipeline.
+ */
+export async function saveCacheEntry(
+  repoId: string,
+  key: string,
+  paths: string[],
+  workdir: string
+): Promise<void> {
+  const validPaths = paths.filter((p) => typeof p === "string" && p.length > 0);
+  if (!key || validPaths.length === 0) return;
+
+  const tmpPath = join(
+    tmpdir(),
+    `gluecron-cache-save-${Date.now()}-${crypto.randomUUID().replace(/-/g, "").slice(0, 8)}.tar.gz`
+  );
+
+  try {
+    const proc = Bun.spawn(
+      ["tar", "-czf", tmpPath, "--", ...validPaths],
+      {
+        cwd: workdir,
+        stdout: "pipe",
+        stderr: "pipe",
+      }
+    );
+    await proc.exited;
+
+    const file = Bun.file(tmpPath);
+    const exists = await file.exists();
+    if (!exists) return;
+
+    const arrayBuf = await file.arrayBuffer();
+    const content = Buffer.from(arrayBuf);
+
+    // Drop oversized archives silently so a large workspace never blocks CI.
+    if (content.byteLength > MAX_CACHE_BYTES) {
+      console.warn(
+        `[cache-action] save skipped: archive for key=${key} is ${content.byteLength} bytes, exceeds cap ${MAX_CACHE_BYTES}`
+      );
+      return;
+    }
+
+    const contentHash = Buffer.from(
+      await crypto.subtle.digest("SHA-256", content)
+    ).toString("hex");
+
+    // Manual upsert: the unique index includes nullable `scope_ref` so
+    // Postgres `ON CONFLICT (…, scope_ref)` won't fire when scope_ref IS NULL
+    // (each NULL is distinct in a standard B-tree index). We do a targeted
+    // UPDATE first; if zero rows were touched we INSERT instead.
+    const now = new Date();
+    const existing = await db
+      .select({ id: workflowRunCache.id })
+      .from(workflowRunCache)
+      .where(
+        and(
+          eq(workflowRunCache.repositoryId, repoId),
+          eq(workflowRunCache.cacheKey, key),
+          eq(workflowRunCache.scope, "repo"),
+          isNull(workflowRunCache.scopeRef)
+        )
+      )
+      .limit(1);
+
+    if (existing[0]) {
+      await db
+        .update(workflowRunCache)
+        .set({
+          content,
+          contentHash,
+          sizeBytes: content.byteLength,
+          lastAccessedAt: now,
+        })
+        .where(eq(workflowRunCache.id, existing[0].id));
+    } else {
+      await db.insert(workflowRunCache).values({
+        repositoryId: repoId,
+        cacheKey: key,
+        scope: "repo",
+        scopeRef: null,
+        content,
+        contentHash,
+        sizeBytes: content.byteLength,
+        lastAccessedAt: now,
+      });
+    }
+  } finally {
+    await import("fs/promises")
+      .then((fs) => fs.unlink(tmpPath))
+      .catch(() => {
+        // Best-effort cleanup.
+      });
   }
 }
 

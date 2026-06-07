@@ -1,27 +1,22 @@
 /**
- * Per-branch preview URLs — list view (migration 0062).
+ * Per-branch / per-PR preview URLs (migrations 0062, 0077).
  *
- *   GET  /:owner/:repo/previews
- *
- * Lists every live preview row for the repo (one per branch). Status
- * pills, mono branch names, short SHAs, clickable URLs, expires-in
- * countdowns. Empty state when no pushes have been made to a
- * non-default branch yet.
+ *   GET  /:owner/:repo/previews               — list view
+ *   GET  /:owner/:repo/pull/:prNumber/preview — redirect to live preview for this PR
+ *   GET  /previews/:owner/:repo/:prBranch/*   — serve built static files
+ *   POST /api/previews/rebuild/:prId          — trigger a rebuild (webhook)
  *
  * All page-local CSS is scoped under `.preview-*` so it can't bleed
  * into the shared layout (per CLAUDE.md: do NOT modify shared
  * layout/components/ui). Mirrors the gradient hairline + orb pattern
  * used by environments.tsx / admin-integrations.tsx.
- *
- * The corresponding JSON API + force-rebuild endpoints live in
- * src/routes/api-v2.ts.
  */
 
 import { Hono } from "hono";
-import { and, eq } from "drizzle-orm";
+import { and, eq, desc } from "drizzle-orm";
 import { db } from "../db";
-import { repositories, users } from "../db/schema";
-import { softAuth } from "../middleware/auth";
+import { repositories, users, pullRequests, prPreviews } from "../db/schema";
+import { softAuth, requireAuth } from "../middleware/auth";
 import type { AuthEnv } from "../middleware/auth";
 import { Layout } from "../views/layout";
 import { RepoHeader, RepoNav } from "../views/components";
@@ -31,6 +26,40 @@ import {
   listPreviewsForRepo,
   previewStatusLabel,
 } from "../lib/branch-previews";
+import { buildPreview } from "../lib/preview-builder";
+import { join } from "path";
+import { existsSync } from "fs";
+
+/** Minimal MIME type lookup for common web assets. */
+function getMimeType(filePath: string): string {
+  const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
+  const map: Record<string, string> = {
+    html: "text/html; charset=utf-8",
+    htm: "text/html; charset=utf-8",
+    css: "text/css",
+    js: "application/javascript",
+    mjs: "application/javascript",
+    json: "application/json",
+    png: "image/png",
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    gif: "image/gif",
+    svg: "image/svg+xml",
+    ico: "image/x-icon",
+    woff: "font/woff",
+    woff2: "font/woff2",
+    ttf: "font/ttf",
+    txt: "text/plain",
+    xml: "application/xml",
+    webp: "image/webp",
+    avif: "image/avif",
+    mp4: "video/mp4",
+    webm: "video/webm",
+    pdf: "application/pdf",
+    wasm: "application/wasm",
+  };
+  return map[ext] || "application/octet-stream";
+}
 
 const r = new Hono<AuthEnv>();
 r.use("*", softAuth);
@@ -263,9 +292,38 @@ const previewStyles = `
     box-shadow: inset 0 0 0 1px rgba(248,113,113,0.35);
   }
   .preview-pill.is-expired {
-    background: rgba(148,163,184,0.10);
-    color: #cbd5e1;
-    box-shadow: inset 0 0 0 1px rgba(148,163,184,0.30);
+    background: rgba(100,116,139,0.10);
+    color: #94a3b8;
+    box-shadow: inset 0 0 0 1px rgba(100,116,139,0.28);
+  }
+
+  /* ─── expired card treatment ─── */
+  .preview-card.is-expired .preview-card-branch { color: var(--text-muted); }
+  .preview-card.is-expired .preview-card-url-expired {
+    color: var(--text-muted);
+    text-decoration: line-through;
+    text-decoration-color: rgba(148,163,184,0.45);
+  }
+  .preview-rebuild-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin-top: var(--space-2);
+    padding: 4px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    font-family: var(--font-mono);
+    color: #a48bff;
+    background: rgba(140,109,255,0.08);
+    border: 1px solid rgba(140,109,255,0.22);
+    cursor: pointer;
+    text-decoration: none;
+    transition: background 120ms ease, border-color 120ms ease;
+  }
+  .preview-rebuild-btn:hover {
+    background: rgba(140,109,255,0.15);
+    border-color: rgba(140,109,255,0.40);
   }
   .preview-pill-dot {
     width: 6px; height: 6px;
@@ -454,14 +512,20 @@ r.get("/:owner/:repo/previews", async (c) => {
             {previews.map((p) => {
               const shortSha = (p.commitSha || "").slice(0, 7);
               const expiresLabel = formatExpiresIn(p.expiresAt, now);
+              const isExpired = p.status === "expired";
               const statusKey = p.status as
                 | "building"
                 | "ready"
                 | "failed"
                 | "expired";
               const pillClass = `preview-pill is-${statusKey}`;
+              const cardClass = isExpired
+                ? "preview-card is-expired"
+                : "preview-card";
+              // Rebuild pushes a branch-preview re-enqueue via the API.
+              const rebuildHref = `/${owner}/${repo}/previews/rebuild?branch=${encodeURIComponent(p.branchName)}`;
               return (
-                <div class="preview-card">
+                <div class={cardClass}>
                   <div class="preview-card-head">
                     <div class="preview-card-titles">
                       <h3 class="preview-card-branch">{p.branchName}</h3>
@@ -470,6 +534,10 @@ r.get("/:owner/:repo/previews", async (c) => {
                           <a href={p.previewUrl} target="_blank" rel="noopener noreferrer">
                             {p.previewUrl}
                           </a>
+                        ) : isExpired ? (
+                          <span class="preview-card-url-expired">
+                            {p.previewUrl}
+                          </span>
                         ) : (
                           <span style="color: var(--text-muted)">
                             {p.previewUrl}
@@ -481,11 +549,20 @@ r.get("/:owner/:repo/previews", async (c) => {
                           commit <code>{shortSha}</code>
                         </span>
                         <span>
-                          {p.status === "expired"
-                            ? "expired"
+                          {isExpired
+                            ? "preview expired · push to branch to rebuild"
                             : `expires in ${expiresLabel}`}
                         </span>
                       </div>
+                      {isExpired && (
+                        <a
+                          href={rebuildHref}
+                          class="preview-rebuild-btn"
+                          title="Re-enqueue a preview build for this branch"
+                        >
+                          ↺ Rebuild
+                        </a>
+                      )}
                     </div>
                     <div>
                       <span class={pillClass}>
@@ -507,6 +584,200 @@ r.get("/:owner/:repo/previews", async (c) => {
       <style dangerouslySetInnerHTML={{ __html: previewStyles }} />
     </Layout>
   );
+});
+
+// ─── PR preview redirect ────────────────────────────────────────────────────
+// GET /:owner/:repo/pull/:prNumber/preview
+// Redirect to the live preview URL for this PR (from pr_previews table).
+// Falls back to the previews list if no ready build exists.
+r.get("/:owner/:repo/pull/:prNumber/preview", softAuth, async (c) => {
+  const { owner, repo, prNumber } = c.req.param();
+  const num = parseInt(prNumber, 10);
+
+  try {
+    // Resolve repo
+    const [repoRow] = await db
+      .select({ id: repositories.id })
+      .from(repositories)
+      .innerJoin(users, eq(repositories.ownerId, users.id))
+      .where(and(eq(users.username, owner), eq(repositories.name, repo)))
+      .limit(1);
+    if (!repoRow) return c.notFound();
+
+    // Find the PR
+    const [pr] = await db
+      .select({ id: pullRequests.id })
+      .from(pullRequests)
+      .where(and(eq(pullRequests.repositoryId, repoRow.id), eq(pullRequests.number, num)))
+      .limit(1);
+    if (!pr) return c.notFound();
+
+    // Find the most recent ready preview for this PR
+    const [preview] = await db
+      .select({ previewUrl: prPreviews.previewUrl, status: prPreviews.status })
+      .from(prPreviews)
+      .where(and(eq(prPreviews.prId, pr.id), eq(prPreviews.status, "ready")))
+      .orderBy(desc(prPreviews.id))
+      .limit(1);
+
+    if (preview?.previewUrl) {
+      return c.redirect(preview.previewUrl, 302);
+    }
+  } catch (err) {
+    console.warn("[previews] PR preview redirect failed:", err instanceof Error ? err.message : err);
+  }
+
+  // Fall back to the previews list page
+  return c.redirect(`/${owner}/${repo}/previews`, 302);
+});
+
+// ─── Static file serving ────────────────────────────────────────────────────
+// GET /previews/:owner/:repo/:prBranch/*
+// Serves built output from the temp build directory created by preview-builder.
+// Only active when PREVIEW_DOMAIN is set (or when the dev fallback applies).
+r.get("/previews/:owner/:repo/:prBranch/*", async (c) => {
+  const { owner, repo, prBranch } = c.req.param();
+  const wildcard = c.req.param("*") || "";
+
+  // Resolve the most recent ready pr_previews row for this branch
+  try {
+    const [repoRow] = await db
+      .select({ id: repositories.id })
+      .from(repositories)
+      .innerJoin(users, eq(repositories.ownerId, users.id))
+      .where(and(eq(users.username, owner), eq(repositories.name, repo)))
+      .limit(1);
+    if (!repoRow) return c.notFound();
+
+    const [preview] = await db
+      .select({
+        prId: prPreviews.prId,
+        headSha: prPreviews.headSha,
+        outputDir: prPreviews.outputDir,
+        status: prPreviews.status,
+        branchName: prPreviews.branchName,
+      })
+      .from(prPreviews)
+      .where(
+        and(
+          eq(prPreviews.repoId, repoRow.id),
+          eq(prPreviews.status, "ready"),
+          eq(prPreviews.branchName, prBranch)
+        )
+      )
+      .orderBy(desc(prPreviews.id))
+      .limit(1);
+
+    if (!preview || preview.status !== "ready") {
+      return c.text("Preview not ready yet", 404);
+    }
+
+    const outputDir = preview.outputDir || "dist";
+    // The build dir pattern from preview-builder.ts:
+    //   /tmp/previews/<slug(prId)>-<shortSha>/<outputDir>
+    // We stored prId in the row, so read it back and reconstruct.
+    const PREVIEW_BUILD_DIR = process.env.PREVIEW_BUILD_DIR || "/tmp/previews";
+    const shortSha = preview.headSha.slice(0, 8);
+    const prIdSlug = preview.prId.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 60);
+    const buildBase = `${PREVIEW_BUILD_DIR}/${prIdSlug}-${shortSha}/${outputDir}`;
+
+    let filePath = wildcard ? join(buildBase, wildcard) : join(buildBase, "index.html");
+
+    // Prevent directory traversal
+    if (!filePath.startsWith(buildBase)) {
+      return c.text("Forbidden", 403);
+    }
+
+    // Directory → serve index.html
+    if (existsSync(filePath) && !filePath.endsWith("/")) {
+      // Check if it's a directory
+      try {
+        const stat = await Bun.file(filePath).exists();
+        if (!stat && existsSync(join(filePath, "index.html"))) {
+          filePath = join(filePath, "index.html");
+        }
+      } catch {}
+    }
+
+    if (!existsSync(filePath)) {
+      // Try with index.html appended
+      const indexPath = join(filePath, "index.html");
+      if (existsSync(indexPath)) {
+        filePath = indexPath;
+      } else {
+        return c.text("File not found", 404);
+      }
+    }
+
+    const file = Bun.file(filePath);
+    const contentType = getMimeType(filePath);
+
+    return new Response(file, {
+      headers: {
+        "Content-Type": contentType,
+        "Cache-Control": "public, max-age=300",
+        "X-Preview-Sha": preview.headSha.slice(0, 8),
+      },
+    });
+  } catch (err) {
+    console.warn("[previews] static serve failed:", err instanceof Error ? err.message : err);
+    return c.text("Preview unavailable", 500);
+  }
+});
+
+// ─── Rebuild trigger API ─────────────────────────────────────────────────────
+// POST /api/previews/rebuild/:prId
+// Triggers a fresh build for the given PR. Auth required (repo write access).
+r.post("/api/previews/rebuild/:prId", requireAuth, async (c) => {
+  const { prId } = c.req.param();
+  const user = c.get("user");
+
+  try {
+    const [pr] = await db
+      .select({
+        id: pullRequests.id,
+        repositoryId: pullRequests.repositoryId,
+        headBranch: pullRequests.headBranch,
+        authorId: pullRequests.authorId,
+      })
+      .from(pullRequests)
+      .where(eq(pullRequests.id, prId))
+      .limit(1);
+
+    if (!pr) return c.json({ error: "PR not found" }, 404);
+
+    // Only the PR author or repo owner can trigger a rebuild
+    if (user!.id !== pr.authorId) {
+      const [repo] = await db
+        .select({ ownerId: repositories.ownerId })
+        .from(repositories)
+        .where(eq(repositories.id, pr.repositoryId))
+        .limit(1);
+      if (!repo || repo.ownerId !== user!.id) {
+        return c.json({ error: "Unauthorized" }, 403);
+      }
+    }
+
+    // Get the current head SHA from the most recent preview row, or use a sentinel
+    const [existing] = await db
+      .select({ headSha: prPreviews.headSha })
+      .from(prPreviews)
+      .where(eq(prPreviews.prId, prId))
+      .orderBy(desc(prPreviews.id))
+      .limit(1);
+
+    const headSha = existing?.headSha ?? "unknown";
+
+    // Fire-and-forget rebuild
+    buildPreview(prId, pr.repositoryId, headSha).catch((err) =>
+      console.warn("[previews] rebuild failed:", err instanceof Error ? err.message : err)
+    );
+
+    return c.json({ ok: true, message: "Rebuild triggered" });
+  } catch (err) {
+    console.warn("[previews] rebuild endpoint failed:", err instanceof Error ? err.message : err);
+    return c.json({ error: "Internal error" }, 500);
+  }
 });
 
 export default r;

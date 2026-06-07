@@ -32,7 +32,7 @@ import {
   ensureWorkdir,
   getSession,
   listMessages,
-  listSessionsForRepo,
+  listSessionsForUser,
   runTurn,
   touchSession,
 } from "../lib/claude-web-session";
@@ -81,7 +81,25 @@ claudeWeb.get("/:owner/:repo/claude", async (c) => {
   const g = await gate(c);
   if (g instanceof Response) return g;
   const user = c.get("user")!;
-  const sessions = await listSessionsForRepo(g.repoId);
+  // Show only the current user's sessions for this repo (privacy isolation).
+  const sessions = await listSessionsForUser(g.repoId, g.userId);
+
+  const statusBadge = (status: string) => {
+    const colors: Record<string, string> = {
+      cold: "#374151",
+      running: "#1e40af",
+      ready: "#14532d",
+      failed: "#7f1d1d",
+    };
+    const bg = colors[status] ?? "#374151";
+    return (
+      <span
+        style={`background:${bg};color:#e5e7eb;font-size:11px;padding:2px 7px;border-radius:10px;font-family:ui-monospace,monospace;vertical-align:middle`}
+      >
+        {status}
+      </span>
+    );
+  };
 
   return c.html(
     <Layout title={`Claude — ${g.ownerName}/${g.repoName}`} user={user}>
@@ -91,38 +109,55 @@ claudeWeb.get("/:owner/:repo/claude", async (c) => {
             ← {g.ownerName}/{g.repoName}
           </a>
         </p>
-        <h1 style="margin:0 0 6px;font-size:22px">Claude on this repo</h1>
-        <p style="margin:0 0 18px;color:#9ca3af;font-size:14px">
-          iPad-friendly Claude Code sessions on a per-session clone of the repo.
+        <h1 style="margin:0 0 4px;font-size:22px">✨ Claude Code Sessions</h1>
+        <p style="margin:0 0 20px;color:#9ca3af;font-size:14px">
+          Browser-based Claude Code sessions on a live clone of this repo. Each session
+          persists its transcript so you can resume from any device.
         </p>
 
         <form method="post" action={`/${g.ownerName}/${g.repoName}/claude`} style={card}>
-          <label style="display:block;font-size:13px;color:#9ca3af;margin-bottom:6px">
-            New session title
+          <label style="display:block;font-size:13px;color:#9ca3af;margin-bottom:8px;font-weight:600">
+            Start a new session
           </label>
-          <div style="display:flex;gap:8px">
-            <input name="title" placeholder="What you want to work on" style={inputStyle} />
-            <input name="branch" placeholder="main" style={inputStyle + ";max-width:160px"} />
-            <button type="submit" style={btn}>Start</button>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <input
+              name="title"
+              placeholder="What do you want to work on?"
+              style={inputStyle + ";flex:1;min-width:180px"}
+            />
+            <input
+              name="branch"
+              placeholder="branch (default: main)"
+              style={inputStyle + ";max-width:200px"}
+            />
+            <button type="submit" style={btn}>
+              Start session →
+            </button>
           </div>
         </form>
 
         <div style={card}>
-          <h2 style="margin:0 0 10px;font-size:15px;color:#cbd5e1">Sessions</h2>
+          <h2 style="margin:0 0 12px;font-size:15px;color:#cbd5e1">
+            Your sessions{sessions.length > 0 ? ` (${sessions.length})` : ""}
+          </h2>
           {sessions.length === 0 ? (
-            <p style="color:#6b7280;margin:0;font-size:14px">None yet.</p>
+            <p style="color:#6b7280;margin:0;font-size:14px">
+              No sessions yet. Start one above — Claude will clone the repo and
+              open a persistent conversation.
+            </p>
           ) : (
             <ul style="list-style:none;padding:0;margin:0">
-              {sessions.map((s) => (
-                <li style="padding:10px 0;border-top:1px solid #1f2937;display:flex;justify-content:space-between;align-items:center">
+              {[...sessions].reverse().map((s) => (
+                <li style="padding:12px 0;border-top:1px solid #1f2937;display:flex;justify-content:space-between;align-items:center;gap:12px">
                   <a
                     href={`/${g.ownerName}/${g.repoName}/claude/${s.id}`}
-                    style="color:#7aa2f7;text-decoration:none;font-weight:600"
+                    style="color:#7aa2f7;text-decoration:none;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
                   >
                     {s.title}
                   </a>
-                  <span style="color:#6b7280;font-size:12px;font-family:ui-monospace,monospace">
-                    {s.branch} · {s.status}
+                  <span style="display:flex;align-items:center;gap:8px;flex-shrink:0;color:#6b7280;font-size:12px;font-family:ui-monospace,monospace">
+                    {s.branch}
+                    {statusBadge(s.status)}
                   </span>
                 </li>
               ))}

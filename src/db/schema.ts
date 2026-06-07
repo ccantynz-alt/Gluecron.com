@@ -79,9 +79,11 @@ export const users = pgTable("users", {
   lastDigestSentAt: timestamp("last_digest_sent_at"),
   // Block L1 — Sleep Mode. When enabled, the autopilot sleep-mode-digest
   // task delivers a daily "what Claude shipped overnight" report at the
-  // user-configured UTC hour (0-23, default 9). Reuses lastDigestSentAt
-  // as the 23h cooldown anchor — the cooldown is shared with the weekly
-  // digest, so a user cannot receive both on the same day.
+  // user-configured UTC hour (0-23, default 9). Uses its own independent
+  // cooldown anchor (lastSleepDigestSentAt) so the weekly digest timer is
+  // not reset when a sleep-mode digest fires, and vice versa.
+  // Migration 0077 adds the column.
+  lastSleepDigestSentAt: timestamp("last_sleep_digest_sent_at"),
   sleepModeEnabled: boolean("sleep_mode_enabled").default(false).notNull(),
   sleepModeDigestHourUtc: integer("sleep_mode_digest_hour_utc").default(9).notNull(),
   // Block M2 — Web Push per-event preferences. Default on; opt-out via /settings.
@@ -123,6 +125,12 @@ export const users = pgTable("users", {
   personalSemanticIndexEnabled: boolean("personal_semantic_index_enabled")
     .default(false)
     .notNull(),
+  // Onboarding drip sequence (migration 0081). Stores a JSON array of string
+  // keys for emails already delivered, e.g. ["welcome","day1","day3"].
+  // The autopilot `onboarding-drip` task compares this against the canonical
+  // drip schedule and sends any outstanding emails. Never null — defaults to
+  // an empty array at insert time.
+  onboardingEmailsSent: jsonb("onboarding_emails_sent").$type<string[]>().default([]).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -138,8 +146,37 @@ export const sessions = pgTable("sessions", {
   // code. softAuth/requireAuth treat such sessions as anonymous; only
   // /login/2fa can consume them. Flips to false on successful 2FA.
   requires2fa: boolean("requires_2fa").default(false).notNull(),
+  // Migration 0077 — SOC 2 session visibility. Populated at login and
+  // refreshed on each authenticated request (best-effort, non-blocking).
+  ip: text("ip"),
+  userAgent: text("user_agent"),
+  lastSeenAt: timestamp("last_seen_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
+
+/**
+ * Login attempt log — SOC 2 CC6.1 account-lockout evidence.
+ * Records every login attempt (success or failure) per email + IP.
+ * After 10 failures within 1 hour the login handler blocks the email
+ * for 15 minutes and emits `auth.login.locked` to the audit log.
+ * Migration 0078.
+ */
+export const loginAttempts = pgTable(
+  "login_attempts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    email: text("email").notNull(),
+    ip: text("ip").notNull(),
+    success: boolean("success").notNull().default(false),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("login_attempts_email_created").on(table.email, table.createdAt),
+    index("login_attempts_ip_created").on(table.ip, table.createdAt),
+  ]
+);
+
+export type LoginAttempt = typeof loginAttempts.$inferSelect;
 
 // @ts-ignore — self-referential FK on forkedFromId causes circular inference
 export const repositories = pgTable(
@@ -196,6 +233,9 @@ export const repositories = pgTable(
     // env burns a container until the idle sweep tears it down; owners
     // must explicitly enable per-repo via repo-settings.
     devEnvsEnabled: boolean("dev_envs_enabled").default(false).notNull(),
+    dataRegion: text("data_region").default("us").notNull(),
+    previewBuildCommand: text("preview_build_command"),
+    previewOutputDir: text("preview_output_dir").default("dist"),
   },
   (table) => [
     // Partial: uniqueness only in the user namespace (org-owned rows exempt).
@@ -853,6 +893,51 @@ export const sshKeys = pgTable("ssh_keys", {
   lastUsedAt: timestamp("last_used_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
+
+// OCI Container Registry — migration 0083_oci_registry.sql
+// oci_repositories tracks image namespaces (e.g. "alice/myapp").
+// oci_tags maps mutable tag names to a manifest digest for a repository.
+
+export const ociRepositories = pgTable(
+  "oci_repositories",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ownerId: uuid("owner_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** Full image name in "<owner>/<image>" format. */
+    name: text("name").notNull(),
+    visibility: text("visibility").notNull().default("private"), // "public" | "private"
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("oci_repositories_owner_name").on(table.ownerId, table.name),
+    index("idx_oci_repositories_owner").on(table.ownerId),
+  ]
+);
+
+export const ociTags = pgTable(
+  "oci_tags",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => ociRepositories.id, { onDelete: "cascade" }),
+    tag: text("tag").notNull(),
+    manifestDigest: text("manifest_digest").notNull(), // "sha256:<hex64>"
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("oci_tags_repo_tag").on(table.repositoryId, table.tag),
+    index("idx_oci_tags_repo").on(table.repositoryId),
+  ]
+);
+
+export type OciRepository = typeof ociRepositories.$inferSelect;
+export type NewOciRepository = typeof ociRepositories.$inferInsert;
+export type OciTag = typeof ociTags.$inferSelect;
+export type NewOciTag = typeof ociTags.$inferInsert;
 
 // Block M2 — Web Push subscriptions. One row per (user, endpoint).
 // Endpoint is the browser-issued push URL; p256dh + auth are the W3C
@@ -1602,8 +1687,46 @@ export type CodebaseExplanation = typeof codebaseExplanations.$inferSelect;
 export type DepUpdateRun = typeof depUpdateRuns.$inferSelect;
 
 // ---------------------------------------------------------------------------
-// Block E2 — Discussions (migration 0013)
+// Migration 0077 — repo_explain_cache: structured AI analysis per repo
 // ---------------------------------------------------------------------------
+
+export const repoExplainCache = pgTable("repo_explain_cache", {
+  id: serial("id").primaryKey(),
+  repoId: uuid("repo_id")
+    .notNull()
+    .unique()
+    .references(() => repositories.id, { onDelete: "cascade" }),
+  result: jsonb("result").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export type RepoExplainCache = typeof repoExplainCache.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Block E2 — Discussions (migration 0013 + 0077)
+// ---------------------------------------------------------------------------
+
+/**
+ * Per-repo discussion categories (migration 0077).
+ * Seeded lazily on first discussion creation: General, Q&A, Announcements, Ideas.
+ * is_answerable = true surfaces "Mark as answer" on threads in that category.
+ */
+export const discussionCategories = pgTable(
+  "discussion_categories",
+  {
+    id: serial("id").primaryKey(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    emoji: text("emoji").notNull().default("💬"),
+    description: text("description"),
+    isAnswerable: boolean("is_answerable").notNull().default(false),
+  },
+  (table) => [index("discussion_categories_repo").on(table.repositoryId)]
+);
+
+export type DiscussionCategory = typeof discussionCategories.$inferSelect;
 
 /**
  * Discussions — forum-style threaded conversations attached to a repo.
@@ -4017,4 +4140,117 @@ export const claudeWebMessages = pgTable(
 );
 
 export type ClaudeWebMessage = typeof claudeWebMessages.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// 0077 — Status page: incident history + subscriber list.
+//
+// incidents: manually-filed or autopilot-detected outage records shown on
+//   the public /status page. severity: 'minor' | 'major' | 'critical'.
+//   status: 'investigating' | 'identified' | 'monitoring' | 'resolved'.
+//
+// status_subscribers: email addresses that have opted-in to receive alerts
+//   when a new incident is filed.
+// ---------------------------------------------------------------------------
+export const incidents = pgTable(
+  "incidents",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    title: text("title").notNull(),
+    severity: text("severity").notNull().default("minor"),
+    status: text("status").notNull().default("resolved"),
+    startedAt: timestamp("started_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    body: text("body"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("idx_incidents_started_at").on(table.startedAt),
+    index("idx_incidents_status").on(table.status),
+  ]
+);
+
+export type Incident = typeof incidents.$inferSelect;
+export type NewIncident = typeof incidents.$inferInsert;
+
+export const statusSubscribers = pgTable(
+  "status_subscribers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    email: text("email").notNull().unique(),
+    confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+    confirmToken: text("confirm_token").unique(),
+    unsubscribeToken: text("unsubscribe_token").unique(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("idx_status_subscribers_email").on(table.email),
+  ]
+);
+
+export type StatusSubscriber = typeof statusSubscribers.$inferSelect;
+export type NewStatusSubscriber = typeof statusSubscribers.$inferInsert;
 export type NewClaudeWebMessage = typeof claudeWebMessages.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Enterprise leads (contact form submissions from /enterprise)
+// ---------------------------------------------------------------------------
+
+export const enterpriseLeads = pgTable(
+  "enterprise_leads",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    company: text("company").notNull(),
+    email: text("email").notNull(),
+    teamSize: text("team_size").notNull(),
+    message: text("message"),
+    ip: text("ip"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [index("enterprise_leads_created").on(table.createdAt)]
+);
+
+export type EnterpriseLead = typeof enterpriseLeads.$inferSelect;
+export type NewEnterpriseLead = typeof enterpriseLeads.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// PR preview builder — one row per (pr_id, head_sha)
+// ---------------------------------------------------------------------------
+export const prPreviews = pgTable(
+  "pr_previews",
+  {
+    id: serial("id").primaryKey(),
+    repoId: uuid("repo_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    prId: uuid("pr_id")
+      .notNull()
+      .references(() => pullRequests.id, { onDelete: "cascade" }),
+    branchName: text("branch_name").notNull(),
+    headSha: text("head_sha").notNull(),
+    status: text("status").notNull().default("building"),
+    buildLog: text("build_log"),
+    previewUrl: text("preview_url"),
+    buildCommand: text("build_command"),
+    outputDir: text("output_dir").default("dist"),
+    buildDurationMs: integer("build_duration_ms"),
+    createdAt: timestamp("created_at").defaultNow(),
+    updatedAt: timestamp("updated_at").defaultNow(),
+  },
+  (table) => [
+    index("pr_previews_pr_id_idx").on(table.prId),
+    index("pr_previews_repo_id_idx").on(table.repoId),
+  ]
+);
+
+export type PrPreview = typeof prPreviews.$inferSelect;
+export type NewPrPreview = typeof prPreviews.$inferInsert;

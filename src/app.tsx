@@ -27,6 +27,7 @@ import settingsAgentsRoutes from "./routes/settings-agents";
 import settingsIntegrationsRoutes from "./routes/settings-integrations";
 import integrationsChatRoutes from "./routes/integrations-chat";
 import agentsRoutes from "./routes/agents";
+import agentPipelinesRoutes from "./routes/agent-pipelines";
 import issueRoutes from "./routes/issues";
 import commentModerationRoutes from "./routes/comment-moderation";
 import repoSettings from "./routes/repo-settings";
@@ -40,6 +41,7 @@ import pullRoutes from "./routes/pulls";
 import prSandboxRoutes from "./routes/pr-sandbox";
 import devEnvRoutes from "./routes/dev-env";
 import editorRoutes from "./routes/editor";
+import aiEditorRoutes from "./routes/ai-editor";
 import forkRoutes from "./routes/fork";
 import webhookRoutes from "./routes/webhooks";
 import exploreRoutes from "./routes/explore";
@@ -50,8 +52,11 @@ import healthDashboardRoutes from "./routes/health";
 import statusRoutes from "./routes/status";
 import adminStatusRoutes from "./routes/admin-status";
 import helpRoutes from "./routes/help";
+import changelogRoutes from "./routes/changelog";
+import docsRoutes from "./routes/docs";
 import marketingRoutes from "./routes/marketing";
 import pricingRoutes from "./routes/pricing";
+import enterpriseRoutes from "./routes/enterprise";
 import seoRoutes from "./routes/seo";
 import versionRoutes from "./routes/version";
 import { platformStatus } from "./routes/platform-status";
@@ -68,7 +73,9 @@ import legalAcceptableUseRoutes from "./routes/legal/acceptable-use";
 import importRoutes from "./routes/import";
 import importBulkRoutes from "./routes/import-bulk";
 import importSecretsRoutes from "./routes/import-secrets";
+import actionsImporterRoutes from "./routes/actions-importer";
 import migrationRoutes from "./routes/migrations";
+import migrateRoutes from "./routes/migrate";
 import specsRoutes from "./routes/specs";
 import refactorRoutes from "./routes/refactors";
 import webRoutes from "./routes/web";
@@ -86,17 +93,23 @@ import orgRoutes from "./routes/orgs";
 import notificationRoutes from "./routes/notifications";
 import onboardingRoutes from "./routes/onboarding";
 import adminRoutes from "./routes/admin";
+import adminDeletionsRoutes from "./routes/admin-deletions";
+import adminStripeRoutes from "./routes/admin-stripe";
 import adminDeploysRoutes from "./routes/admin-deploys";
 import adminDeploysPageRoutes from "./routes/admin-deploys-page";
 import adminServerTargetsRoutes from "./routes/admin-server-targets";
+import deployTargetsRoutes from "./routes/deploy-targets";
 import claudeWebRoutes from "./routes/claude-web";
 import adminOpsRoutes from "./routes/admin-ops";
 import adminSelfHostRoutes from "./routes/admin-self-host";
 import adminDiagnoseRoutes from "./routes/admin-diagnose";
 import adminIntegrationsRoutes from "./routes/admin-integrations";
 import adminAdvancementRoutes from "./routes/admin-advancement";
+import adminSecurityRoutes from "./routes/admin-security";
+import settingsSessionsRoutes from "./routes/settings-sessions";
 import advisoriesRoutes from "./routes/advisories";
 import aiChangelogRoutes from "./routes/ai-changelog";
+import explainRoutes from "./routes/explain";
 import aiExplainRoutes from "./routes/ai-explain";
 import aiTestsRoutes from "./routes/ai-tests";
 import askRoutes from "./routes/ask";
@@ -106,6 +119,7 @@ import billingRoutes from "./routes/billing";
 import billingUsageRoutes from "./routes/billing-usage";
 import stripeWebhookRoutes from "./routes/stripe-webhook";
 import codeScanningRoutes from "./routes/code-scanning";
+import securityRoutes from "./routes/security";
 import commitStatusesRoutes from "./routes/commit-statuses";
 import copilotRoutes from "./routes/copilot";
 import depUpdaterRoutes from "./routes/dep-updater";
@@ -126,6 +140,7 @@ import mirrorsRoutes from "./routes/mirrors";
 import orgInsightsRoutes from "./routes/org-insights";
 import packagesRoutes from "./routes/packages";
 import packagesApiRoutes from "./routes/packages-api";
+import ociRegistryRoutes from "./routes/oci-registry";
 import pagesRoutes from "./routes/pages";
 import projectsRoutes from "./routes/projects";
 import protectedTagsRoutes from "./routes/protected-tags";
@@ -159,6 +174,7 @@ import sleepModeRoutes from "./routes/sleep-mode";
 import standupRoutes from "./routes/standups";
 import vsGithubRoutes from "./routes/vs-github";
 import voiceRoutes from "./routes/voice-to-pr";
+import blogRoutes from "./routes/blog";
 import playgroundRoutes from "./routes/playground";
 import crossRepoSearchRoutes from "./routes/cross-repo-search";
 import pushNotifRoutes from "./routes/push-notifications";
@@ -167,6 +183,8 @@ import { staleBranchRoutes } from "./routes/stale-branches";
 import pulseRoutes from "./routes/pulse";
 import healthScoreRoutes from "./routes/health-score";
 import hotFilesRoutes from "./routes/hot-files";
+import developerProgramRoutes from "./routes/developer-program";
+import shareRoutes from "./routes/share";
 import { authRateLimit, gitRateLimit, searchRateLimit } from "./middleware/rate-limit";
 import { csrfToken, csrfProtect } from "./middleware/csrf";
 import { noCache } from "./middleware/no-cache";
@@ -243,6 +261,7 @@ app.use("*", async (c, next) => {
     p === "/explore" ||
     p === "/help" ||
     p === "/changelog" ||
+    p === "/enterprise" ||
     p.startsWith("/legal/") ||
     p === "/terms" ||
     p === "/privacy" ||
@@ -369,6 +388,11 @@ app.route("/", apiV2Routes);
 // Mounted alongside apiV2Routes (its own basePath, no path conflict).
 app.route("/", agentsRoutes);
 
+// Multi-agent pipeline UI — /:owner/:repo/agents (list, new, live view).
+// Must be before webRoutes (the catch-all) so the /agents sub-paths are
+// resolved before the generic tree/blob route takes over.
+app.route("/", agentPipelinesRoutes);
+
 // Inbound API hooks (GateTest callback + backup PAT-authed /api/v1/gate-runs)
 app.route("/", hookRoutes);
 app.route("/api/events", eventsRoutes);
@@ -402,6 +426,9 @@ app.route("/", magicLinkRoutes);
 
 // Settings routes (profile, SSH keys)
 app.route("/", settingsRoutes);
+
+// Session management (SOC 2 CC6.1 — /settings/sessions)
+app.route("/", settingsSessionsRoutes);
 
 // 2FA / TOTP settings (Block B4)
 app.route("/", settings2faRoutes);
@@ -492,6 +519,9 @@ app.route("/", forkRoutes);
 // Web file editor
 app.route("/", editorRoutes);
 
+// AI editor API routes (inline suggestions, explain, fix)
+app.route("/", aiEditorRoutes);
+
 // Contributors
 app.route("/", contributorRoutes);
 
@@ -518,13 +548,25 @@ app.route("/", adminStatusRoutes);
 // /help — quickstart + API cheatsheet
 app.route("/", helpRoutes);
 
+// /docs — expanded documentation site (getting started, workflow YAML, MCP, API, agents)
+app.route("/", docsRoutes);
+
 // L8 — public /pricing page (free-tier polish). Mounted BEFORE marketing
 // so the new editorial pricing layout wins the route; the legacy marketing
 // pricing remains as a safety net but is shadowed at the router.
 app.route("/", pricingRoutes);
 
+// /changelog — manually curated platform release history
+app.route("/", changelogRoutes);
+
+// Enterprise sales page + contact form lead capture.
+app.route("/", enterpriseRoutes);
+
 // /pricing, /features, /about — marketing surface
 app.route("/", marketingRoutes);
+
+// /developer-program — partner + marketplace revenue-share page
+app.route("/", developerProgramRoutes);
 
 // SEO: robots.txt + sitemap.xml
 app.route("/", seoRoutes);
@@ -569,7 +611,11 @@ app.route("/", legalDmcaRoutes);
 app.route("/", importRoutes);
 app.route("/", importBulkRoutes);
 app.route("/", importSecretsRoutes);
+// GitHub Actions → Gluecron gates.yml importer (stateless converter)
+app.route("/", actionsImporterRoutes);
 app.route("/", migrationRoutes);
+// GitHub Org Migration Wizard — live progress bulk importer
+app.route("/", migrateRoutes);
 
 // Spec-to-PR (experimental AI-generated draft PRs)
 app.route("/", specsRoutes);
@@ -583,15 +629,24 @@ app.route("/", onboardingRoutes);
 
 // Admin + feature routes
 app.route("/", adminRoutes);
+app.route("/", adminDeletionsRoutes);
+app.route("/", adminStripeRoutes);
+
+// SOC 2 security dashboard + readiness checklist (/admin/security, /admin/soc2)
+app.route("/", adminSecurityRoutes);
 app.route("/", adminIntegrationsRoutes);
 app.route("/", adminAdvancementRoutes);
 app.route("/", adminDeploysRoutes);
 app.route("/", adminDeploysPageRoutes);
 app.route("/", adminServerTargetsRoutes);
+app.route("/", deployTargetsRoutes);
 app.route("/", claudeWebRoutes);
 // Note: adminOpsRoutes is mounted earlier (before insightRoutes) — see comment above.
 app.route("/", advisoriesRoutes);
 app.route("/", aiChangelogRoutes);
+// "Explain This Repo" — rich structured AI analysis dashboard (mounted before
+// the simpler aiExplainRoutes so the new routes win on /:owner/:repo/explain).
+app.route("/", explainRoutes);
 app.route("/", aiExplainRoutes);
 app.route("/", aiTestsRoutes);
 app.route("/", askRoutes);
@@ -603,6 +658,8 @@ app.route("/", billingRoutes);
 app.route("/", billingUsageRoutes);
 app.route("/", stripeWebhookRoutes);
 app.route("/", codeScanningRoutes);
+// Dependency CVE scanner findings page — /:owner/:repo/security/vulnerabilities
+app.route("/", securityRoutes);
 app.route("/", commitStatusesRoutes);
 app.route("/", copilotRoutes);
 app.route("/", depUpdaterRoutes);
@@ -623,6 +680,8 @@ app.route("/", mirrorsRoutes);
 app.route("/", orgInsightsRoutes);
 app.route("/", packagesRoutes);
 app.route("/", packagesApiRoutes);
+// OCI / Docker container registry — /v2/* (OCI Distribution Spec v1.0)
+app.route("/", ociRegistryRoutes);
 app.route("/", pagesRoutes);
 app.route("/", projectsRoutes);
 app.route("/", protectedTagsRoutes);
@@ -681,10 +740,19 @@ app.route("/", vsGithubRoutes);
 // Voice-to-PR — phone-first dictation → spec or issue
 app.route("/", voiceRoutes);
 
+// Blog / Devlog — public posts, no DB
+app.route("/", blogRoutes);
+
 // Block Q3 — Anonymous playground (`/play`, `/play/claim`). Mounted
 // before the web catch-all so the bare `/play` literal wins over the
 // `/:owner` user-profile route.
 app.route("/", playgroundRoutes);
+
+// Shareable AI hours-saved OG image card + landing page.
+// /share/hours-saved?user=:username  → 1200×630 SVG (og:image)
+// /share/:username                   → HTML page with og:image meta + Twitter share
+// Mounted BEFORE webRoutes so /share/* doesn't fall through to the /:owner profile route.
+app.route("/", shareRoutes);
 
 // Web UI (catch-all, must be last)
 app.route("/", webRoutes);

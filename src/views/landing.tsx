@@ -8,12 +8,12 @@
  * Block L10 — hero rewrite. The hero now lands the Block L positioning
  * ("the git host built around Claude"): gradient headline, one-line
  * install snippet w/ copy button, three CTAs (Sign up / Demo / vs-GitHub),
- * and a four-line "what just happened" rail driven off the L4 publicStats
+ * and a four-line activity rail driven off the L4 publicStats
  * payload. The L4 counters tile section and L5 vs-GitHub CTA are both
  * preserved — additive only.
  *
  * Also adds two new editorial sections below the L4 counters:
- *   - "Three reasons to switch" (Sleep Mode / Migrate / Demo)
+ *   - "Three reasons to switch" (Instant Shipping / Migrate / Demo)
  *   - "How is this different from GitHub?" pull-quote → /vs-github
  *
  * Pure presentational. Drops into <Layout user={null}>.
@@ -147,17 +147,28 @@ export const LandingHero: FC<LandingPageProps> = ({
             </div>
 
             <h1 class="landing-hero-title display">
-              <span class="gradient-text">The git host built around Claude.</span>
+              <span class="gradient-text">Write the spec. Gluecron ships it.</span>
             </h1>
 
             <p class="landing-hero-sub">
-              Label an issue. Walk away. Wake up to a merged PR.
+              Spec to PR in 90 seconds. Push to live in 25. AI review, auto-merge, deploy — automatic.
             </p>
 
-            {/* U1 — primary CTA row, demoted to 2 buttons. */}
+            {/* U1 — primary CTA row. "Migrate from GitHub" added as a
+                secondary CTA alongside sign-up to capture visitors who
+                already have GitHub repos and want a one-click move. */}
             <div class="landing-hero-ctas" data-testid="hero-primary-ctas">
               <a href="/register" class="btn btn-primary btn-xl landing-cta-primary">
                 Sign up free
+                <span class="landing-cta-arrow" aria-hidden="true">{"→"}</span>
+              </a>
+              {/* Migrate from GitHub — prominent secondary CTA */}
+              <a
+                href="/import"
+                class="btn btn-xl landing-cta-migrate"
+                data-testid="cta-migrate"
+              >
+                Migrate from GitHub
                 <span class="landing-cta-arrow" aria-hidden="true">{"→"}</span>
               </a>
               {/* BLOCK Q1 — one-click Claude Desktop install. */}
@@ -215,12 +226,12 @@ export const LandingHero: FC<LandingPageProps> = ({
               </div>
             </div>
 
-            {/* U1 — tightened "what just happened" rail.
+            {/* U1 — tightened activity rail.
                 Same data as before, rendered as a single horizontal
                 rule with the gradient accent line on top. Numbers
                 smaller, copy still scannable. */}
             {publicStats && (
-              <ul class="landing-hero-rail" aria-label="What just happened on Gluecron">
+              <ul class="landing-hero-rail" aria-label="Gluecron live this week">
                 <li>
                   <strong>{publicStats.weeklyPrsAutoMerged.toLocaleString()}</strong>
                   <span class="landing-hero-rail-label">PRs auto-merged</span>
@@ -231,7 +242,7 @@ export const LandingHero: FC<LandingPageProps> = ({
                 </li>
                 <li>
                   <strong>{publicStats.weeklyDeploysShipped.toLocaleString()}</strong>
-                  <span class="landing-hero-rail-label">deploys overnight</span>
+                  <span class="landing-hero-rail-label">deploys shipped</span>
                 </li>
                 <li>
                   <strong>{`~${Math.round(publicStats.weeklyHoursSaved).toLocaleString()}`}</strong>
@@ -333,9 +344,9 @@ export const LandingHero: FC<LandingPageProps> = ({
                   <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />
                 </svg>
               }
-              title="Toggle Sleep Mode"
-              body="Claude does the work overnight. You get a 9 AM digest of what shipped — PRs merged, deploys live, incidents triaged."
-              link={{ href: "/sleep-mode", label: "Turn on Sleep Mode" }}
+              title="Ships in seconds, not tabs"
+              body="Spec to draft PR in 90 seconds. AI review posted in under 10. Push to live in 25. Every step streams in real time — no polling, no waiting on a CI tab. Or let Sleep Mode batch it for when you're away."
+              link={{ href: "/sleep-mode", label: "See Sleep Mode" }}
             />
             <ReasonCard
               icon={
@@ -358,7 +369,7 @@ export const LandingHero: FC<LandingPageProps> = ({
                 </svg>
               }
               title="Open the demo, watch it work"
-              body="The demo repo is real. Label an issue, hit refresh, see Claude open the PR. Inspect the diff. Approve the merge. Zero setup, zero credit card."
+              body="The demo repo is real. Label an issue, watch Claude open the PR in seconds. Inspect the diff. Approve the merge. Zero setup, zero credit card."
               link={{ href: "/demo", label: "Open the live demo" }}
             />
           </div>
@@ -645,6 +656,12 @@ export const LandingHero: FC<LandingPageProps> = ({
               </a>
               <a href="/import" class="btn btn-ghost btn-xl">
                 Migrate a repo
+              </a>
+            </div>
+            <div style="margin-top:var(--space-3);font-size:13.5px;color:var(--text-muted)">
+              Migrating from GitHub?{" "}
+              <a href="/migrate" style="color:var(--accent)">
+                Import your entire org in one click &rarr;
               </a>
             </div>
           </div>
@@ -2155,6 +2172,33 @@ const landingCss = `
     }
   }
 
+  /* "Migrate from GitHub" CTA — secondary, but strong enough to stand
+     alongside the primary. Uses a subtle amber/violet mix so it reads as
+     action-oriented without competing with the green primary CTA. */
+  .landing-cta-migrate {
+    position: relative;
+    background: var(--bg-elevated);
+    color: var(--text-strong);
+    border: 1px solid var(--border-strong);
+    transition: border-color var(--t-base, 180ms) var(--ease, ease),
+                transform var(--t-base, 180ms) var(--ease-spring, ease),
+                box-shadow var(--t-base, 180ms) var(--ease, ease);
+  }
+  .landing-cta-migrate:hover {
+    border-color: rgba(140,109,255,0.55);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 22px -8px rgba(140,109,255,0.30);
+    text-decoration: none;
+    color: var(--text-strong);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .landing-cta-migrate,
+    .landing-cta-migrate:hover {
+      transform: none;
+      transition: none;
+    }
+  }
+
   /* L8 — free-tier reassurance link beneath the CTA row.
      U1 — rhythm snapped to var(--space-6). */
   .landing-hero-freenote {
@@ -2829,7 +2873,7 @@ const landingCss = `
     color: var(--green, #34d399);
   }
 
-  /* ---------- L10/U1 hero "what just happened" rail ----------
+  /* ---------- L10/U1 hero activity rail ----------
      U1 — tightened into a single horizontal strip. The 1px gradient
      rule on top is the same accent the headline uses, so the rail
      reads as part of the hero composition rather than a stray list. */

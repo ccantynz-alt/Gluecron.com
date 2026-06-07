@@ -15,13 +15,15 @@
  */
 
 import { Hono } from "hono";
-import { eq, desc, and, inArray, ne, sql } from "drizzle-orm";
+import { eq, desc, and, inArray, ne, sql, gte } from "drizzle-orm";
 import { getCookie, setCookie } from "hono/cookie";
 import { db } from "../db";
 import {
   repositories,
   users,
   activityFeed,
+  auditLog,
+  gateRuns,
   issues,
   pullRequests,
 } from "../db/schema";
@@ -45,6 +47,229 @@ import {
   type AiSavingsReport,
   type AiSavingsLifetimeReport,
 } from "../lib/ai-hours-saved";
+
+// ─── AI Activity — Last Hour ─────────────────────────────────────────────────
+
+const SECRET_GATE_NAMES_DASH = [
+  "Secret scan",
+  "Secret Scan",
+  "Security scan",
+  "Security Scan",
+];
+
+export type AiActivityItem = {
+  kind: "pr_auto_merged" | "spec_shipped" | "ci_healed" | "secret_repaired";
+  repoName: string;
+  repoOwner: string;
+  /** PR or issue number — null when it's a gate repair with no PR */
+  refNumber: number | null;
+  /** Short title for display (PR/issue title or gate name) */
+  label: string;
+  occurredAt: Date;
+};
+
+export type AiActivityReport = {
+  items: AiActivityItem[];
+  prsAutoMerged: number;
+  specsShipped: number;
+  ciHealed: number;
+  secretsRepaired: number;
+};
+
+/**
+ * Fetch autopilot-driven activity from the last 60 minutes for all repos
+ * owned by the given user. Never throws — on any DB error returns an
+ * empty report so the widget always renders.
+ */
+async function fetchAiActivityLastHour(
+  userId: string,
+  repoIds: string[],
+  repoMap: Map<string, { name: string; ownerUsername: string }>,
+): Promise<AiActivityReport> {
+  const empty: AiActivityReport = {
+    items: [],
+    prsAutoMerged: 0,
+    specsShipped: 0,
+    ciHealed: 0,
+    secretsRepaired: 0,
+  };
+  if (repoIds.length === 0) return empty;
+
+  const since = new Date(Date.now() - 60 * 60 * 1000); // 1 hour ago
+
+  try {
+    // ── 1. Auto-merged PRs ─────────────────────────────────────
+    const autoMergeRows = await db
+      .select({
+        repositoryId: auditLog.repositoryId,
+        targetId: auditLog.targetId,
+        createdAt: auditLog.createdAt,
+      })
+      .from(auditLog)
+      .where(
+        and(
+          eq(auditLog.action, "auto_merge.merged"),
+          inArray(auditLog.repositoryId, repoIds as [string, ...string[]]),
+          gte(auditLog.createdAt, since),
+        )
+      )
+      .orderBy(desc(auditLog.createdAt))
+      .limit(20);
+
+    // Fetch PR titles for auto-merged rows
+    const autoMergePrIds = autoMergeRows
+      .map((r) => r.targetId)
+      .filter(Boolean) as string[];
+    const prTitleMap = new Map<string, { number: number; title: string }>();
+    if (autoMergePrIds.length > 0) {
+      const prRows = await db
+        .select({ id: pullRequests.id, number: pullRequests.number, title: pullRequests.title })
+        .from(pullRequests)
+        .where(inArray(pullRequests.id, autoMergePrIds as [string, ...string[]]));
+      for (const r of prRows) prTitleMap.set(r.id, { number: r.number, title: r.title });
+    }
+
+    // ── 2. AI-built specs dispatched ───────────────────────────
+    const specRows = await db
+      .select({
+        repositoryId: auditLog.repositoryId,
+        targetId: auditLog.targetId,
+        createdAt: auditLog.createdAt,
+      })
+      .from(auditLog)
+      .where(
+        and(
+          eq(auditLog.action, "ai_build.dispatched"),
+          inArray(auditLog.repositoryId, repoIds as [string, ...string[]]),
+          gte(auditLog.createdAt, since),
+        )
+      )
+      .orderBy(desc(auditLog.createdAt))
+      .limit(20);
+
+    // Fetch issue numbers/titles for dispatched specs
+    const specIssueIds = specRows
+      .map((r) => r.targetId)
+      .filter(Boolean) as string[];
+    const issueTitleMap = new Map<string, { number: number; title: string }>();
+    if (specIssueIds.length > 0) {
+      const issueRows = await db
+        .select({ id: issues.id, number: issues.number, title: issues.title })
+        .from(issues)
+        .where(inArray(issues.id, specIssueIds as [string, ...string[]]));
+      for (const r of issueRows) issueTitleMap.set(r.id, { number: r.number, title: r.title });
+    }
+
+    // ── 3. Gate auto-repairs (secrets) ─────────────────────────
+    const secretRepairRows = await db
+      .select({
+        repositoryId: gateRuns.repositoryId,
+        gateName: gateRuns.gateName,
+        createdAt: gateRuns.createdAt,
+      })
+      .from(gateRuns)
+      .where(
+        and(
+          eq(gateRuns.status, "repaired"),
+          inArray(gateRuns.repositoryId, repoIds as [string, ...string[]]),
+          gte(gateRuns.createdAt, since),
+          inArray(gateRuns.gateName, SECRET_GATE_NAMES_DASH as [string, ...string[]]),
+        )
+      )
+      .orderBy(desc(gateRuns.createdAt))
+      .limit(20);
+
+    // ── 4. Gate auto-repairs (CI / other) ──────────────────────
+    const ciHealRows = await db
+      .select({
+        repositoryId: gateRuns.repositoryId,
+        gateName: gateRuns.gateName,
+        createdAt: gateRuns.createdAt,
+      })
+      .from(gateRuns)
+      .where(
+        and(
+          eq(gateRuns.status, "repaired"),
+          inArray(gateRuns.repositoryId, repoIds as [string, ...string[]]),
+          gte(gateRuns.createdAt, since),
+          sql`${gateRuns.gateName} NOT IN ('Secret scan','Secret Scan','Security scan','Security Scan')`,
+        )
+      )
+      .orderBy(desc(gateRuns.createdAt))
+      .limit(20);
+
+    // ── Build item list ────────────────────────────────────────
+    const items: AiActivityItem[] = [];
+
+    for (const r of autoMergeRows) {
+      const repo = repoMap.get(r.repositoryId ?? "");
+      if (!repo) continue;
+      const pr = r.targetId ? prTitleMap.get(r.targetId) : undefined;
+      items.push({
+        kind: "pr_auto_merged",
+        repoName: repo.name,
+        repoOwner: repo.ownerUsername,
+        refNumber: pr?.number ?? null,
+        label: pr?.title ?? "Pull request",
+        occurredAt: r.createdAt,
+      });
+    }
+
+    for (const r of specRows) {
+      const repo = repoMap.get(r.repositoryId ?? "");
+      if (!repo) continue;
+      const issue = r.targetId ? issueTitleMap.get(r.targetId) : undefined;
+      items.push({
+        kind: "spec_shipped",
+        repoName: repo.name,
+        repoOwner: repo.ownerUsername,
+        refNumber: issue?.number ?? null,
+        label: issue?.title ?? "Issue",
+        occurredAt: r.createdAt,
+      });
+    }
+
+    for (const r of secretRepairRows) {
+      const repo = repoMap.get(r.repositoryId ?? "");
+      if (!repo) continue;
+      items.push({
+        kind: "secret_repaired",
+        repoName: repo.name,
+        repoOwner: repo.ownerUsername,
+        refNumber: null,
+        label: r.gateName,
+        occurredAt: r.createdAt,
+      });
+    }
+
+    for (const r of ciHealRows) {
+      const repo = repoMap.get(r.repositoryId ?? "");
+      if (!repo) continue;
+      items.push({
+        kind: "ci_healed",
+        repoName: repo.name,
+        repoOwner: repo.ownerUsername,
+        refNumber: null,
+        label: r.gateName,
+        occurredAt: r.createdAt,
+      });
+    }
+
+    // Sort newest first
+    items.sort((a, b) => b.occurredAt.getTime() - a.occurredAt.getTime());
+
+    return {
+      items,
+      prsAutoMerged: autoMergeRows.length,
+      specsShipped: specRows.length,
+      ciHealed: ciHealRows.length,
+      secretsRepaired: secretRepairRows.length,
+    };
+  } catch (err) {
+    console.error("[dashboard] ai-activity-last-hour degraded:", err);
+    return empty;
+  }
+}
 
 const dashboard = new Hono<AuthEnv>();
 
@@ -130,9 +355,15 @@ dashboard.get("/dashboard", requireAuth, async (c) => {
 
   // Block L9 — AI hours-saved counter. Pull both window + lifetime in
   // parallel; both helpers swallow DB errors so the dashboard always renders.
-  const [savingsWeek, savingsLifetime] = await Promise.all([
+  // Also fetch the last-hour autopilot activity for the new widget.
+  const repoIds = repos.map((r) => r.id);
+  const repoMap = new Map(
+    repos.map((r) => [r.id, { name: r.name, ownerUsername: user.username }])
+  );
+  const [savingsWeek, savingsLifetime, aiActivity] = await Promise.all([
     computeAiSavingsForUser(user.id, { windowHours: 168 }),
     computeLifetimeAiSavingsForUser(user.id),
+    fetchAiActivityLastHour(user.id, repoIds, repoMap),
   ]);
 
   // Get recent activity
@@ -459,6 +690,9 @@ dashboard.get("/dashboard", requireAuth, async (c) => {
 
       {/* ─── L9: AI hours-saved hero widget ─── */}
       <AiHoursSavedWidget week={savingsWeek} lifetime={savingsLifetime} />
+
+      {/* ─── AI Activity — Last Hour ─── */}
+      <AiActivityWidget activity={aiActivity} username={user.username} />
 
       {/* ─── Quick actions — surfaces the 5 most-leverage AI features so
           they're discoverable from the dashboard without diving into the
@@ -923,6 +1157,195 @@ dashboard.get("/:owner/:repo/pushes", softAuth, async (c) => {
 });
 
 // ─── COMPONENTS ──────────────────────────────────────────────
+
+// ─── AI Activity — Last Hour widget ─────────────────────────────────────────
+
+const AI_ACTIVITY_ICON: Record<AiActivityItem["kind"], string> = {
+  pr_auto_merged: "⮌", // ⬌ (merged)
+  spec_shipped: "\u{1F4E6}", // 📦
+  ci_healed: "⚡", // ⚡
+  secret_repaired: "\u{1F512}", // 🔒
+};
+
+const AI_ACTIVITY_LABEL: Record<AiActivityItem["kind"], string> = {
+  pr_auto_merged: "PR auto-merged",
+  spec_shipped: "Spec shipped",
+  ci_healed: "CI healed",
+  secret_repaired: "Secret repaired",
+};
+
+const AI_ACTIVITY_COLOR: Record<AiActivityItem["kind"], string> = {
+  pr_auto_merged: "var(--accent)",
+  spec_shipped: "var(--green)",
+  ci_healed: "#58a6ff",
+  secret_repaired: "var(--yellow)",
+};
+
+const AiActivityWidget = ({
+  activity,
+  username,
+}: {
+  activity: AiActivityReport;
+  username: string;
+}) => {
+  const total =
+    activity.prsAutoMerged +
+    activity.specsShipped +
+    activity.ciHealed +
+    activity.secretsRepaired;
+
+  const summaryParts: string[] = [];
+  if (activity.prsAutoMerged > 0)
+    summaryParts.push(
+      `${activity.prsAutoMerged} PR${activity.prsAutoMerged === 1 ? "" : "s"} auto-merged`
+    );
+  if (activity.specsShipped > 0)
+    summaryParts.push(
+      `${activity.specsShipped} spec${activity.specsShipped === 1 ? "" : "s"} shipped`
+    );
+  if (activity.ciHealed > 0)
+    summaryParts.push(
+      `${activity.ciHealed} CI run${activity.ciHealed === 1 ? "" : "s"} healed`
+    );
+  if (activity.secretsRepaired > 0)
+    summaryParts.push(
+      `${activity.secretsRepaired} secret${activity.secretsRepaired === 1 ? "" : "s"} repaired`
+    );
+
+  // Show at most 6 items in the expanded list to keep the card compact.
+  const shownItems = activity.items.slice(0, 6);
+
+  return (
+    <div
+      class="card"
+      style="margin-bottom: var(--space-6); padding: 0; overflow: hidden"
+    >
+      {/* Card header */}
+      <div
+        style="display:flex;align-items:center;justify-content:space-between;padding:var(--space-3) var(--space-4);border-bottom:1px solid var(--border);background:var(--bg-elevated)"
+      >
+        <div style="display:flex;align-items:center;gap:var(--space-2)">
+          <span style="font-size:15px" aria-hidden="true">{"\u{1F916}"}</span>
+          <div>
+            <span style="font-size:14px;font-weight:600;color:var(--text-strong)">
+              AI Activity
+            </span>
+            <span
+              style="margin-left:6px;font-size:11px;color:var(--text-muted);font-weight:400"
+            >
+              last hour
+            </span>
+          </div>
+        </div>
+        {total > 0 && (
+          <span
+            style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:9999px;background:rgba(140,109,255,0.14);color:var(--accent);border:1px solid rgba(140,109,255,0.25)"
+          >
+            {total} action{total === 1 ? "" : "s"}
+          </span>
+        )}
+      </div>
+
+      {total === 0 ? (
+        /* Empty state */
+        <div
+          style="padding:var(--space-5) var(--space-4);text-align:center;color:var(--text-muted);font-size:13px"
+        >
+          <div style="font-size:22px;margin-bottom:6px" aria-hidden="true">
+            {"\u{1F441}"}
+          </div>
+          All quiet — AI is watching.
+        </div>
+      ) : (
+        <>
+          {/* Summary pills */}
+          <div
+            style="display:flex;flex-wrap:wrap;gap:6px;padding:var(--space-3) var(--space-4);border-bottom:1px solid var(--border)"
+          >
+            {summaryParts.map((p) => (
+              <span
+                class="badge"
+                style="font-size:12px;padding:3px 9px;background:rgba(140,109,255,0.08);border-color:rgba(140,109,255,0.22);color:var(--text)"
+              >
+                {p}
+              </span>
+            ))}
+          </div>
+
+          {/* Item list */}
+          <ul style="list-style:none;margin:0;padding:0">
+            {shownItems.map((item) => {
+              // Build a link to the relevant resource if we have a number
+              let href: string | undefined;
+              if (item.refNumber !== null) {
+                const base = `/${item.repoOwner}/${item.repoName}`;
+                if (item.kind === "pr_auto_merged") {
+                  href = `${base}/pulls/${item.refNumber}`;
+                } else if (item.kind === "spec_shipped") {
+                  href = `${base}/issues/${item.refNumber}`;
+                }
+              }
+              const color = AI_ACTIVITY_COLOR[item.kind];
+              const icon = AI_ACTIVITY_ICON[item.kind];
+              const kindLabel = AI_ACTIVITY_LABEL[item.kind];
+              return (
+                <li
+                  style="display:flex;align-items:center;gap:10px;padding:8px var(--space-4);border-bottom:1px solid var(--border);font-size:13px"
+                >
+                  <span
+                    style={`font-size:15px;width:20px;text-align:center;flex-shrink:0;color:${color}`}
+                    aria-label={kindLabel}
+                  >
+                    {icon}
+                  </span>
+                  <span
+                    style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+                    title={item.label}
+                  >
+                    <span style="color:var(--text-muted);font-size:11px;margin-right:4px">
+                      {kindLabel}
+                    </span>
+                    {href ? (
+                      <a
+                        href={href}
+                        style="font-weight:500;color:var(--text)"
+                      >
+                        {item.label}
+                      </a>
+                    ) : (
+                      <span style="font-weight:500">{item.label}</span>
+                    )}
+                  </span>
+                  <span
+                    style="font-size:11px;color:var(--text-muted);flex-shrink:0;white-space:nowrap"
+                  >
+                    <a
+                      href={`/${item.repoOwner}/${item.repoName}`}
+                      style="color:var(--text-muted)"
+                    >
+                      {item.repoName}
+                    </a>
+                    <span style="margin-left:4px">
+                      {formatRelative(item.occurredAt)}
+                    </span>
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+
+          {activity.items.length > 6 && (
+            <div
+              style="padding:8px var(--space-4);font-size:12px;color:var(--text-muted);border-top:1px solid var(--border)"
+            >
+              + {activity.items.length - 6} more action{activity.items.length - 6 === 1 ? "" : "s"} in the last hour
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+};
 
 /**
  * Block L9 — pure formatter used by the dashboard widget AND tests.

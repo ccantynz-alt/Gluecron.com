@@ -44,7 +44,7 @@ import { config } from "./config";
 import { repoExists } from "../git/repository";
 import { invalidateRepoCache } from "./cache";
 import { onPostReceive } from "../hooks/post-receive";
-import { evaluatePushPolicy, formatPolicyError } from "./push-policy";
+import { evaluatePushPolicy, formatPolicyError, installPackInspectionHookForRepo } from "./push-policy";
 import {
   resolveRepoAccess,
   satisfiesAccess,
@@ -256,11 +256,12 @@ async function loadRepoInfo(
 function pipeGitToChannel(
   service: string,
   absRepoPath: string,
-  channel: ServerChannel
+  channel: ServerChannel,
+  extraEnv?: Record<string, string>
 ): Promise<number> {
   return new Promise((resolve) => {
     const gitProc = spawn(service, [absRepoPath], {
-      env: { ...process.env, HOME: process.env.HOME ?? "/tmp" },
+      env: { ...process.env, HOME: process.env.HOME ?? "/tmp", ...extraEnv },
     });
 
     // Client → git stdin
@@ -349,9 +350,9 @@ async function handleGitCommand(
       return;
     }
 
-    // Evaluate ref-name push policies (protected tags + active rulesets).
-    // We can only do name-pattern checks here; pack-content inspection is v2.
-    // We use show-ref diff instead of parsing the pack stream.
+    // Ref-name push policies run before the pack lands (name-only checks).
+    // Pack-content inspection is wired via a pre-receive hook so it runs
+    // inside git's quarantine window — same approach as the HTTP path.
     const refsBefore = await getShowRef(absRepoPath);
 
     audit({
@@ -362,7 +363,24 @@ async function handleGitCommand(
       targetId: repoInfo.id,
     }).catch(() => {});
 
-    const exitCode = await pipeGitToChannel(service, absRepoPath, channel);
+    let hookEnv: Record<string, string> | undefined;
+    let hookCleanup: (() => Promise<void>) | undefined;
+    try {
+      const hook = await installPackInspectionHookForRepo(repoInfo.id);
+      if (hook) {
+        hookEnv = hook.env;
+        hookCleanup = hook.cleanup;
+      }
+    } catch {
+      // fail-open
+    }
+
+    let exitCode: number;
+    try {
+      exitCode = await pipeGitToChannel(service, absRepoPath, channel, hookEnv);
+    } finally {
+      hookCleanup?.().catch(() => {});
+    }
 
     if (exitCode === 0) {
       const refsAfter = await getShowRef(absRepoPath);

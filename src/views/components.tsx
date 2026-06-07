@@ -3,6 +3,19 @@ import { html } from "hono/html";
 import type { GitCommit, GitTreeEntry, GitDiffFile } from "../git/repository";
 import type { Repository } from "../db/schema";
 
+/**
+ * Describes the most recent push to a repo, used by RepoHeader to render
+ * the Push Watch discoverability indicator.
+ *
+ * - ageMs < 5 min  \u2192 pulsing red "\u25cf Live" badge
+ * - ageMs < 24 hr  \u2192 dimmer "\u25cb Watch" link
+ * - otherwise      \u2192 nothing shown
+ */
+export interface RecentPush {
+  sha: string;
+  ageMs: number;
+}
+
 export const RepoHeader: FC<{
   owner: string;
   repo: string;
@@ -13,6 +26,8 @@ export const RepoHeader: FC<{
   forkedFrom?: string | null;
   archived?: boolean;
   isTemplate?: boolean;
+  /** Most recent push info for Push Watch discoverability indicator. */
+  recentPush?: RecentPush | null;
 }> = ({
   owner,
   repo,
@@ -23,67 +38,97 @@ export const RepoHeader: FC<{
   forkedFrom,
   archived,
   isTemplate,
-}) => (
-  <div class="repo-header">
-    <div>
-      <div class="repo-header-title">
-        <a href={`/${owner}`} class="owner">
-          {owner}
-        </a>
-        <span class="separator">/</span>
-        <a href={`/${owner}/${repo}`} class="name">
-          {repo}
-        </a>
-        {archived && (
-          <span
-            class="repo-header-pill repo-header-pill-archived"
-            title="Read-only: pushes and new issues/PRs disabled"
-          >
-            Archived
-          </span>
-        )}
-        {isTemplate && (
-          <span
-            class="repo-header-pill repo-header-pill-template"
-            title="This repository can be used as a template"
-          >
-            Template
-          </span>
+  recentPush,
+}) => {
+  const FIVE_MIN = 5 * 60 * 1000;
+  const TWENTY_FOUR_HR = 24 * 60 * 60 * 1000;
+  const isLive = recentPush != null && recentPush.ageMs < FIVE_MIN;
+  const isRecent = recentPush != null && recentPush.ageMs < TWENTY_FOUR_HR;
+
+  return (
+    <div class="repo-header">
+      <div>
+        <div class="repo-header-title">
+          <a href={`/${owner}`} class="owner">
+            {owner}
+          </a>
+          <span class="separator">/</span>
+          <a href={`/${owner}/${repo}`} class="name">
+            {repo}
+          </a>
+          {archived && (
+            <span
+              class="repo-header-pill repo-header-pill-archived"
+              title="Read-only: pushes and new issues/PRs disabled"
+            >
+              Archived
+            </span>
+          )}
+          {isTemplate && (
+            <span
+              class="repo-header-pill repo-header-pill-template"
+              title="This repository can be used as a template"
+            >
+              Template
+            </span>
+          )}
+          {isLive && recentPush && (
+            <a
+              href={`/${owner}/${repo}/push/${recentPush.sha}`}
+              class="repo-header-live-badge repo-header-live-badge--live"
+              title="Push in progress \u2014 watch live gate + deploy status"
+              aria-label="Live push \u2014 click to watch status"
+            >
+              <span class="repo-header-live-dot" aria-hidden="true">{"\u25cf"}</span>
+              Live
+            </a>
+          )}
+          {!isLive && isRecent && recentPush && (
+            <a
+              href={`/${owner}/${repo}/push/${recentPush.sha}`}
+              class="repo-header-live-badge repo-header-live-badge--recent"
+              title="Watch the most recent push's gate + deploy results"
+              aria-label="Watch most recent push"
+            >
+              <span aria-hidden="true">{"\u25cb"}</span>
+              Watch
+            </a>
+          )}
+        </div>
+        {forkedFrom && (
+          <div class="repo-header-fork">
+            forked from <a href={`/${forkedFrom}`}>{forkedFrom}</a>
+          </div>
         )}
       </div>
-      {forkedFrom && (
-        <div class="repo-header-fork">
-          forked from <a href={`/${forkedFrom}`}>{forkedFrom}</a>
-        </div>
-      )}
-    </div>
-    <div class="repo-header-actions">
-      {currentUser && currentUser !== owner && (
-        <form method="post" action={`/${owner}/${repo}/fork`} style="display:inline">
-          <button type="submit" class="star-btn">
-            {"\u2442"} Fork {forkCount !== undefined && forkCount > 0 ? forkCount : ""}
-          </button>
-        </form>
-      )}
-      {starCount !== undefined && (
-        currentUser ? (
-          <form method="post" action={`/${owner}/${repo}/star`} style="display:inline">
-            <button
-              type="submit"
-              class={`star-btn${starred ? " starred" : ""}`}
-            >
-              {starred ? "\u2605" : "\u2606"} {starCount}
+      <div class="repo-header-actions">
+        {currentUser && currentUser !== owner && (
+          <form method="post" action={`/${owner}/${repo}/fork`} style="display:inline">
+            <button type="submit" class="star-btn">
+              {"\u2442"} Fork {forkCount !== undefined && forkCount > 0 ? forkCount : ""}
             </button>
           </form>
-        ) : (
-          <span class="star-btn">
-            {"\u2606"} {starCount}
-          </span>
-        )
-      )}
+        )}
+        {starCount !== undefined && (
+          currentUser ? (
+            <form method="post" action={`/${owner}/${repo}/star`} style="display:inline">
+              <button
+                type="submit"
+                class={`star-btn${starred ? " starred" : ""}`}
+              >
+                {starred ? "\u2605" : "\u2606"} {starCount}
+              </button>
+            </form>
+          ) : (
+            <span class="star-btn">
+              {"\u2606"} {starCount}
+            </span>
+          )
+        )}
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 export const RepoNav: FC<{
   owner: string;
@@ -102,6 +147,9 @@ export const RepoNav: FC<{
     | "semantic"
     | "wiki"
     | "projects"
+    | "agents"
+    | "discussions"
+    | "security"
     | "settings";
 }> = ({ owner, repo, active }) => (
   <div class="repo-nav">
@@ -113,6 +161,12 @@ export const RepoNav: FC<{
       class={active === "issues" ? "active" : ""}
     >
       Issues
+    </a>
+    <a
+      href={`/${owner}/${repo}/discussions`}
+      class={active === "discussions" ? "active" : ""}
+    >
+      Discussions
     </a>
     <a
       href={`/${owner}/${repo}/wiki`}
@@ -157,10 +211,22 @@ export const RepoNav: FC<{
       {"\u25CF"} Gates
     </a>
     <a
+      href={`/${owner}/${repo}/security/vulnerabilities`}
+      class={active === "security" ? "active" : ""}
+    >
+      Security
+    </a>
+    <a
       href={`/${owner}/${repo}/insights`}
       class={active === "insights" ? "active" : ""}
     >
       Insights
+    </a>
+    <a
+      href={`/${owner}/${repo}/agents`}
+      class={active === "agents" ? "active" : ""}
+    >
+      Agents
     </a>
     <a
       href={`/${owner}/${repo}/explain`}

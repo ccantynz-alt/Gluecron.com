@@ -33,6 +33,7 @@ import {
   createOrUpdateFileOnBranch,
   getTreeRecursive,
 } from "../git/repository";
+import { assertAiQuota, AiQuotaExceededError } from "./billing";
 
 export type SpecPRArgs = {
   repoId: string;
@@ -69,6 +70,22 @@ export async function createSpecPR(args: SpecPRArgs): Promise<SpecPRResult> {
   //    any DB or disk work.
   if (!process.env.ANTHROPIC_API_KEY) {
     return { ok: false, error: "ANTHROPIC_API_KEY required for spec-to-PR" };
+  }
+
+  // 1b. AI quota hard gate. Returns a user-visible error when the budget is
+  //     exhausted so the UI can surface an upgrade prompt.
+  try {
+    await assertAiQuota(args.userId);
+  } catch (err) {
+    if (err instanceof AiQuotaExceededError) {
+      return {
+        ok: false,
+        error:
+          "Monthly AI token budget reached. Upgrade at /settings/billing to continue using spec-to-PR.",
+      };
+    }
+    // Unexpected billing error — fail open so a DB glitch doesn't block users.
+    console.warn("[spec-to-pr] assertAiQuota failed unexpectedly:", err);
   }
 
   const spec = typeof args.spec === "string" ? args.spec.trim() : "";
@@ -449,6 +466,22 @@ export async function runSpecToPr(
   }
   if (!repoRow || !repoRow.ownerName) {
     return { ok: false, error: "repo not found" };
+  }
+
+  // 2b. AI quota hard gate — check against the repo owner's budget.
+  //     runSpecToPr is called from the autopilot so we skip silently (return
+  //     ok:false) rather than throwing; the autopilot loop logs the error.
+  try {
+    await assertAiQuota(repoRow.ownerId);
+  } catch (err) {
+    if (err instanceof AiQuotaExceededError) {
+      return {
+        ok: false,
+        error:
+          "Monthly AI token budget reached. Upgrade at /settings/billing to continue using spec-to-PR.",
+      };
+    }
+    console.warn("[spec-to-pr] assertAiQuota failed unexpectedly:", err);
   }
 
   const ownerName = repoRow.ownerName;

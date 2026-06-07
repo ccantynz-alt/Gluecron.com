@@ -658,6 +658,12 @@ export const LandingHero: FC<LandingPageProps> = ({
                 Migrate a repo
               </a>
             </div>
+            <div style="margin-top:var(--space-3);font-size:13.5px;color:var(--text-muted)">
+              Migrating from GitHub?{" "}
+              <a href="/migrate" style="color:var(--accent)">
+                Import your entire org in one click &rarr;
+              </a>
+            </div>
           </div>
         </section>
 

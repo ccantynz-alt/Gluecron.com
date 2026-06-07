@@ -74,6 +74,7 @@ import importBulkRoutes from "./routes/import-bulk";
 import importSecretsRoutes from "./routes/import-secrets";
 import actionsImporterRoutes from "./routes/actions-importer";
 import migrationRoutes from "./routes/migrations";
+import migrateRoutes from "./routes/migrate";
 import specsRoutes from "./routes/specs";
 import refactorRoutes from "./routes/refactors";
 import webRoutes from "./routes/web";
@@ -602,6 +603,8 @@ app.route("/", importSecretsRoutes);
 // GitHub Actions → Gluecron gates.yml importer (stateless converter)
 app.route("/", actionsImporterRoutes);
 app.route("/", migrationRoutes);
+// GitHub Org Migration Wizard — live progress bulk importer
+app.route("/", migrateRoutes);
 
 // Spec-to-PR (experimental AI-generated draft PRs)
 app.route("/", specsRoutes);

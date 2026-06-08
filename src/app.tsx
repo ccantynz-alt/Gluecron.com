@@ -116,6 +116,7 @@ import advisoriesRoutes from "./routes/advisories";
 import aiChangelogRoutes from "./routes/ai-changelog";
 import explainRoutes from "./routes/explain";
 import aiExplainRoutes from "./routes/ai-explain";
+import archaeologyRoutes from "./routes/ai-archaeology";
 import aiTestsRoutes from "./routes/ai-tests";
 import askRoutes from "./routes/ask";
 import repoChatRoutes from "./routes/repo-chat";
@@ -144,6 +145,7 @@ import marketplaceAgentsRoutes from "./routes/marketplace-agents";
 import mergeQueueRoutes from "./routes/merge-queue";
 import mirrorsRoutes from "./routes/mirrors";
 import orgInsightsRoutes from "./routes/org-insights";
+import orgHealthRoutes from "./routes/org-health";
 import packagesRoutes from "./routes/packages";
 import packagesApiRoutes from "./routes/packages-api";
 import ociRegistryRoutes from "./routes/oci-registry";
@@ -196,6 +198,7 @@ import repoHealthRoutes from "./routes/repo-health";
 import hotFilesRoutes from "./routes/hot-files";
 import debtMapRoutes from "./routes/debt-map";
 import busFactorRoutes from "./routes/bus-factor";
+import testGapsRoutes from "./routes/test-gaps";
 import crossRepoImpactRoutes from "./routes/cross-repo-impact";
 import developerProgramRoutes from "./routes/developer-program";
 import shareRoutes from "./routes/share";
@@ -536,6 +539,12 @@ app.route("/", commentModerationRoutes);
 // Pull requests
 app.route("/", pullRoutes);
 
+// Streaming PR review — SSE stream + embeddable widget
+// Mounted immediately after pullRoutes so /:owner/:repo/pulls/:number/review/*
+// resolves before the webRoutes catch-all takes over.
+import streamingReviewRoutes from "./routes/streaming-review";
+app.route("/", streamingReviewRoutes);
+
 // /stage PR preview — serve built static files from .stage-previews/{jobId}/
 // Registered immediately after pullRoutes so the path `/preview/:id/*` is
 // specific enough to never clash with repo browse routes (`/:owner/:repo/*`).
@@ -746,6 +755,7 @@ app.route("/", aiChangelogRoutes);
 // the simpler aiExplainRoutes so the new routes win on /:owner/:repo/explain).
 app.route("/", explainRoutes);
 app.route("/", aiExplainRoutes);
+app.route("/", archaeologyRoutes);
 app.route("/", aiTestsRoutes);
 app.route("/", askRoutes);
 app.route("/", repoChatRoutes);

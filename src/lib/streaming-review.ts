@@ -192,7 +192,7 @@ export async function* streamPrReview(
     yield { type: "section_start", section: "summary" };
     currentSection = "summary";
 
-    const stream = await anthropic.messages.stream({
+    const stream = anthropic.messages.stream({
       model: MODEL_SONNET,
       max_tokens: 2048,
       system: systemPrompt,

@@ -172,7 +172,8 @@ export const RepoNav: FC<{
     | "debt-map"
     | "migrate"
     | "deployments"
-    | "nl-search";
+    | "nl-search"
+    | "archaeology";
 }> = ({ owner, repo, active }) => (
   <div class="repo-nav">
     <a href={`/${owner}/${repo}`} class={active === "code" ? "active" : ""}>
@@ -293,6 +294,13 @@ export const RepoNav: FC<{
       title="Natural Language Search \u2014 search by intent, not keywords"
     >
       {"\u2728"} NL Search
+    </a>
+    <a
+      href={`/${owner}/${repo}/archaeology`}
+      class={`repo-nav-ai${active === "archaeology" ? " active" : ""}`}
+      title="AI Archaeology \u2014 excavate why any file exists using git history, PRs, and issues"
+    >
+      {"\ud83c\udfdb"} Archaeology
     </a>
   </div>
 );

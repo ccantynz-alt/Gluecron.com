@@ -8,12 +8,11 @@
  * force a fresh computation on the next request.
  */
 
-import { eq } from "drizzle-orm";
+import { eq, and, lt, sql } from "drizzle-orm";
 import { db } from "../db";
 import { repositories, repoHealthCache } from "../db/schema";
 import { getHealthScore, invalidateHealthScore, type HealthScoreBreakdown } from "./repo-health";
 import { getAnthropic, isAiAvailable, extractText, MODEL_SONNET } from "./ai-client";
-import { sql } from "drizzle-orm";
 
 // ---------------------------------------------------------------------------
 // Public interface
@@ -63,22 +62,21 @@ async function getTrendForRepo(
 ): Promise<"up" | "down" | "stable"> {
   try {
     const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-    // Look for a cached entry that was computed more than 7 days ago
+    // Look for a cached entry computed more than 7 days ago as the prior-week baseline
     const rows = await db
       .select({ score: repoHealthCache.score, computedAt: repoHealthCache.computedAt })
       .from(repoHealthCache)
-      .where(eq(repoHealthCache.repoId, repoId))
+      .where(
+        and(
+          eq(repoHealthCache.repoId, repoId),
+          lt(repoHealthCache.computedAt, oneWeekAgo)
+        )
+      )
       .limit(1);
 
     if (rows.length === 0) return "stable";
 
-    const cached = rows[0];
-    // If the cached entry is recent (less than 7 days old), we have no prior-week baseline
-    if (!cached.computedAt || new Date(cached.computedAt) > oneWeekAgo) {
-      return "stable";
-    }
-
-    const priorScore = cached.score;
+    const priorScore = rows[0].score;
     if (currentScore > priorScore + 2) return "up";
     if (currentScore < priorScore - 2) return "down";
     return "stable";
@@ -152,23 +150,15 @@ export async function computeOrgHealth(
   };
 
   try {
-    // 1. Load org name + all active repos
-    const orgRows = await db
-      .select({ name: repositories.orgId })
-      .from(repositories)
-      .where(eq(repositories.orgId, orgId))
-      .limit(1);
-
-    // Load org display name from organizations table — we do this via the
-    // repositories query caller already has the org name from the route handler,
-    // so we accept orgSlug as the display fallback and the caller passes orgName separately.
-    // For now, use orgSlug as name placeholder; the route passes real name.
-
+    // 1. Load all non-archived repos in the org
     const repos = await db
-      .select({ id: repositories.id, name: repositories.name, ownerId: repositories.ownerId })
+      .select({ id: repositories.id, name: repositories.name })
       .from(repositories)
       .where(
-        sql`${repositories.orgId} = ${orgId} AND ${repositories.isArchived} = false`
+        and(
+          eq(repositories.orgId, orgId),
+          eq(repositories.isArchived, false)
+        )
       )
       .orderBy(repositories.name);
 
@@ -244,7 +234,10 @@ export async function invalidateOrgHealthAndRepos(
       .select({ id: repositories.id })
       .from(repositories)
       .where(
-        sql`${repositories.orgId} = ${orgId} AND ${repositories.isArchived} = false`
+        and(
+          eq(repositories.orgId, orgId),
+          eq(repositories.isArchived, false)
+        )
       );
     for (const r of repos) {
       invalidateHealthScore(r.id);

@@ -787,6 +787,7 @@ app.route("/", marketplaceAgentsRoutes);
 app.route("/", mergeQueueRoutes);
 app.route("/", mirrorsRoutes);
 app.route("/", orgInsightsRoutes);
+app.route("/", orgHealthRoutes);
 app.route("/", packagesRoutes);
 app.route("/", packagesApiRoutes);
 // OCI / Docker container registry — /v2/* (OCI Distribution Spec v1.0)
@@ -829,6 +830,8 @@ app.route("/", hotFilesRoutes);
 app.route("/", debtMapRoutes);
 // Bus Factor Analysis — /:owner/:repo/insights/bus-factor
 app.route("/", busFactorRoutes);
+// Test Gap Detector — /:owner/:repo/insights/test-gaps
+app.route("/", testGapsRoutes);
 // Cross-Repo Dependency Impact Detection — /:owner/:repo/pulls/:number/cross-repo-impact
 app.route("/", crossRepoImpactRoutes);
 // Hosted Claude tool-use loops — paste loop, get endpoint, billing meter.

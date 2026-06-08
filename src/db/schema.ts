@@ -4649,3 +4649,26 @@ export const workspaceJobs = pgTable(
 );
 
 export type WorkspaceJob = typeof workspaceJobs.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Migration 0105 — Test gap cache (2h TTL, keyed on repo_id)
+// Stores AI-generated test gap analysis: untested source files ranked by risk.
+// ---------------------------------------------------------------------------
+export const testGapCache = pgTable(
+  "test_gap_cache",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repoId: uuid("repo_id")
+      .notNull()
+      .unique()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    report: jsonb("report").notNull(),
+    analyzedAt: timestamp("analyzed_at").defaultNow(),
+    expiresAt: timestamp("expires_at").notNull(),
+  },
+  (table) => [
+    index("idx_test_gap_cache_repo").on(table.repoId),
+  ]
+);
+
+export type TestGapCache = typeof testGapCache.$inferSelect;

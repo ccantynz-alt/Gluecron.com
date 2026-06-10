@@ -670,7 +670,7 @@ const pricingCss = `
      value proposition unmissable. Same visual rhythm as .pl-host-grid; the
      "us" side wins via accent border + subtle gradient glow. */
   .pl-compare {
-    margin-top: var(--space-7);
+    margin-top: var(--s-14);
   }
   .pl-compare-grid {
     display: grid;

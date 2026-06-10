@@ -17,8 +17,8 @@ ALTER TABLE repositories ADD COLUMN IF NOT EXISTS preview_output_dir text DEFAUL
 -- ── pr_previews ─────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS pr_previews (
   id serial PRIMARY KEY,
-  repo_id text NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
-  pr_id text NOT NULL REFERENCES pull_requests(id) ON DELETE CASCADE,
+  repo_id uuid NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+  pr_id uuid NOT NULL REFERENCES pull_requests(id) ON DELETE CASCADE,
   branch_name text NOT NULL,
   head_sha text NOT NULL,
   status text NOT NULL DEFAULT 'building', -- building | ready | failed

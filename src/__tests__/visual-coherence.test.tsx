@@ -4,6 +4,10 @@
  * Asserts the design-token + component contract introduced by the O3
  * pass.
  *
+ * 2026-06-10: token assertions moved from "/" to "/help" — the home
+ * route now serves the self-contained Landing2030Page without the
+ * master Layout CSS.
+ *
  * NOTE: This test runs WITHOUT mock pollution — no `mock.module()`,
  * no shared global state, no DB. It only hits in-process HTTP routes
  * via `app.request()` and renders the canonical components directly
@@ -25,7 +29,7 @@ async function renderToString(node: any): Promise<string> {
 
 describe("O3 — design token aliases in master CSS", () => {
   it("layout.tsx exposes the --space-* alias scale", async () => {
-    const res = await app.request("/");
+    const res = await app.request("/help");
     const body = await res.text();
     expect(body).toContain("--space-1:");
     expect(body).toContain("--space-2:");
@@ -36,7 +40,7 @@ describe("O3 — design token aliases in master CSS", () => {
   });
 
   it("layout.tsx exposes the --radius-* alias scale", async () => {
-    const res = await app.request("/");
+    const res = await app.request("/help");
     const body = await res.text();
     expect(body).toContain("--radius-sm:");
     expect(body).toContain("--radius-md:");
@@ -45,7 +49,7 @@ describe("O3 — design token aliases in master CSS", () => {
   });
 
   it("layout.tsx exposes the --font-size-* alias scale", async () => {
-    const res = await app.request("/");
+    const res = await app.request("/help");
     const body = await res.text();
     expect(body).toContain("--font-size-xs:");
     expect(body).toContain("--font-size-sm:");
@@ -55,7 +59,7 @@ describe("O3 — design token aliases in master CSS", () => {
   });
 
   it("layout.tsx exposes the --leading-* aliases", async () => {
-    const res = await app.request("/");
+    const res = await app.request("/help");
     const body = await res.text();
     expect(body).toContain("--leading-tight:");
     expect(body).toContain("--leading-normal:");
@@ -63,7 +67,7 @@ describe("O3 — design token aliases in master CSS", () => {
   });
 
   it("layout.tsx exposes the --z-* index scale", async () => {
-    const res = await app.request("/");
+    const res = await app.request("/help");
     const body = await res.text();
     expect(body).toContain("--z-nav:");
     expect(body).toContain("--z-modal:");
@@ -71,7 +75,7 @@ describe("O3 — design token aliases in master CSS", () => {
   });
 
   it("ships the notice / email-preview / code-block utility classes", async () => {
-    const res = await app.request("/");
+    const res = await app.request("/help");
     const body = await res.text();
     expect(body).toContain(".notice");
     expect(body).toContain(".notice-warn");

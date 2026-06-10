@@ -1,0 +1,8 @@
+# Scope `bun test` to the unit/integration suite. The Playwright specs in
+# e2e/ use @playwright/test's runner (`bun run e2e`) and crash with
+# "Playwright Test did not expect test.beforeAll()" when Bun's runner
+# loads them — they were producing 5 phantom fails + 5 errors in every
+# `bun test` run. The VS Code extension suite still runs explicitly via
+# `bun test editor-extensions`.
+[test]
+root = "src"

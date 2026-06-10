@@ -1,3 +1,5 @@
+> **SUPERSEDED (2026-06-10):** historical record only. The current audit is `AUDIT-2026-06-10.md` at the repo root.
+
 # Gluecron Audit — 2026-05-16
 
 Comprehensive end-to-end audit run on branch `claude/fix-aa-loop-issue-PonMQ`

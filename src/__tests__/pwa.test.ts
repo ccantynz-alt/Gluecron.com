@@ -91,20 +91,22 @@ describe("pwa — layout no longer registers a service worker", () => {
   // 2026-05-16 — PWA ripped out. The layout used to inject manifest +
   // SW registration scripts; now it injects a kill-switch that
   // unregisters any pre-existing SW. These tests pin the new contract.
+  // 2026-06-10: asserted on /help — "/" now serves the self-contained
+  // Landing2030Page which carries no Layout scripts at all.
   it("home page does NOT include the manifest link", async () => {
-    const res = await app.request("/");
+    const res = await app.request("/help");
     const body = await res.text();
     expect(body).not.toContain('rel="manifest"');
   });
 
   it("home page does NOT call serviceWorker.register", async () => {
-    const res = await app.request("/");
+    const res = await app.request("/help");
     const body = await res.text();
     expect(body).not.toContain("serviceWorker.register");
   });
 
   it("home page includes the kill-switch (unregisters legacy SWs)", async () => {
-    const res = await app.request("/");
+    const res = await app.request("/help");
     const body = await res.text();
     expect(body).toContain("getRegistrations");
     expect(body).toContain("reg.unregister");

@@ -40,8 +40,8 @@ describe("GET /demo (Block L3 landing page)", () => {
   it("body contains all three tile headings", async () => {
     const res = await app.request("/demo");
     const body = await res.text();
-    expect(body).toContain("Issues queued for AI build");
-    expect(body).toContain("PRs auto-merged in the last 24h");
+    expect(body).toContain("Issues being built by AI right now");
+    expect(body).toContain("PRs auto-merged the instant gates passed");
     expect(body).toContain("AI reviews posted today");
   });
 

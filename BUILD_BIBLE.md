@@ -1,10 +1,19 @@
 # GLUECRON BUILD BIBLE
 
-**Last updated: 2026-05-29T03:00:00Z**
+**Last updated: 2026-06-10T00:00:00Z** (full-platform audit session — see `AUDIT-2026-06-10.md`)
 
 **This file is the single source of truth for the GlueCron build.**
 
 **Every Claude agent MUST read this file in full before touching code. No exceptions.**
+
+> **Living-document rule (owner directive, 2026-06-10):** this Bible describes
+> reality; it does not veto progress. When the Bible and the codebase disagree,
+> the codebase wins and the Bible gets reconciled in the same session. The
+> locked-blocks policy (§4) protects shipped, load-bearing work from being
+> *undone* — it must never be read as a reason to block, delay, or shrink a new
+> advancement. If a new feature needs to touch a locked surface additively,
+> build it; only destructive/semantic changes to locked work need owner
+> sign-off.
 
 GlueCron is a GitHub replacement — AI-native code intelligence, green ecosystem enforcement, git hosting, automated CI. It is production infrastructure for multiple downstream platforms. Production cannot stop.
 
@@ -388,7 +397,7 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 - `src/app.tsx` — route composition, middleware order, error handlers
 - `src/index.ts` — Bun server entry
 - `src/lib/config.ts` — env getters (late-binding)
-- `src/db/schema.ts` — 95 tables. New tables only via new migration.
+- `src/db/schema.ts` — 161 tables (verified 2026-06-10). New tables only via new migration.
 - `src/db/index.ts` — lazy proxy DB connection
 - `src/db/migrate.ts` — migration runner
 - `drizzle/0000_initial.sql`, `drizzle/0001_green_ecosystem.sql` — migrations
@@ -665,7 +674,7 @@ Everything below is committed, tested, and load-bearing. **Do not delete, rename
 ```bash
 bun install
 bun dev          # hot reload
-bun test         # 1491 tests currently pass (0 failed, 2 skipped) as of 2026-05-13 after BLOCK K (3 sub-blocks) + BLOCK L (10 sub-blocks). +218 tests vs the 1273 pre-K baseline. Run `bun install` first.
+bun test         # 2767 pass / 0 fail / 122 skip as of 2026-06-10 (audit session). bunfig.toml scopes bun test to src/ — Playwright e2e specs run via `bun run e2e`; the VS Code extension suite via `bun test editor-extensions`. Run `bun install` first.
 bun run db:migrate
 ```
 
@@ -711,6 +720,47 @@ If a block is too large for a single session, split it into a sub-plan at the to
 ---
 
 ## 7. IN-FLIGHT
+
+**2026-06-10 — Full-platform audit session (branch `claude/site-audit-competitive-pctlwg`):**
+
+Deliverable: `AUDIT-2026-06-10.md` (root) — code, architecture, design, docs,
+wiring, repair-flywheel, and June-2026 competitive market scan. Supersedes
+`AUDIT.md`, `AUDIT-v2.md`, `AUDIT_REPORT.md` (all marked historical).
+
+Shipped this session:
+- **Suite back to green** — 2767 pass / 0 fail / 122 skip (was 28 fail + 5
+  errors). All failures were stale tests asserting on the legacy `LandingPage`
+  / master-CSS contract after `GET /` switched to the self-contained
+  `Landing2030Page`, plus old `/status` degraded-headline copy. Updated:
+  `u-polish`, `visual-coherence`, `demo-page`, `dxt-extension`,
+  `green-ecosystem` (theme), `pwa`, `landing-live-feed`, `status-seo`,
+  `health-score` (2 TS2367 errors). New `bunfig.toml` scopes `bun test` to
+  `src/` so Playwright e2e specs stop producing 5 phantom fails + 5 errors.
+- **Docs reconciled + timestamped** — header date, table count (95→161),
+  test-count claim, living-document rule (§1 preamble), `.env.example` gained
+  6 undocumented vars (AI_AUTO_ISSUES, DEPENDENCY_SCAN_ENABLED, OCI_STORE_PATH,
+  PREVIEW_DOMAIN, REDIS_URL/VALKEY_URL).
+
+Highest-priority findings (full detail + file:line in AUDIT-2026-06-10.md):
+1. **Repair flywheel is built but not closed-loop.** `findCachedRepair()`
+   (src/lib/repair-flywheel.ts:112) has zero callers; `updateOutcome()`
+   (repair-flywheel.ts:252) is never invoked, so every repair stays `pending`
+   and the Tier-0 cache can never learn. `repairGateFailure()`
+   (src/lib/auto-repair.ts:412) — the Tier-1→2 orchestrator — is dead code.
+   ci-autofix calls Sonnet on every failure without consulting the cache.
+   This is THE gap blocking the "10k repos, fix known breakages in seconds
+   without AI" vision. Treat as the next build block.
+2. **SSRF**: webhook delivery (src/lib/webhook-delivery.ts:201) and mirror
+   fetch don't block private-IP ranges. ~2-day fix.
+3. Migration files with duplicate numeric prefixes (0077×3, 0078×2) are SAFE —
+   migrate.ts tracks by full filename — but do not renumber applied files.
+4. Orphans: `src/routes/migration-assistant.tsx` (never mounted),
+   `src/lib/changelog-generator.ts` (zero importers; ai-generators.ts is the
+   live path). Confirm + delete in a cleanup block.
+5. Scale posture is single-node (local-disk repos, in-memory rate limiter,
+   in-process workflow runner). Documented in the audit's due-diligence
+   section with effort estimates.
+
 
 **2026-05-28 — Platform redesign + Claude Code integration session (branch `claude/jolly-heisenberg-2sg1Q`):**
 

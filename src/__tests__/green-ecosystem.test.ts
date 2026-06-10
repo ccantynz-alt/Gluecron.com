@@ -310,8 +310,10 @@ describe("theme toggle", () => {
     expect(res.status).toBe(400);
   });
 
-  it("home page includes the pre-paint theme script + data-theme attribute", async () => {
-    const res = await app.request("/");
+  it("Layout pages include the pre-paint theme script + data-theme attribute", async () => {
+    // 2026-06-10: "/" now serves the self-contained Landing2030Page;
+    // the Layout theme contract is asserted on /help instead.
+    const res = await app.request("/help");
     const html = await res.text();
     expect(html).toContain("data-theme");
     expect(html).toContain("theme-icon-");

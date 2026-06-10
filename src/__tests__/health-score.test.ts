@@ -30,13 +30,13 @@ describe("health-score grading", () => {
 describe("health-score component maxima", () => {
   test("security max is 30", () => {
     // No advisories → full security score
-    const noAdv = 0;
+    const noAdv: number = 0;
     const secScore = noAdv === 0 ? 30 : noAdv === 1 ? 20 : noAdv <= 2 ? 15 : noAdv <= 4 ? 8 : 0;
     expect(secScore).toBe(30);
   });
 
   test("5+ advisories → 0 pts", () => {
-    const many = 5;
+    const many: number = 5;
     const secScore = many === 0 ? 30 : many === 1 ? 20 : many <= 2 ? 15 : many <= 4 ? 8 : 0;
     expect(secScore).toBe(0);
   });

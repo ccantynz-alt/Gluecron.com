@@ -1,3 +1,5 @@
+> **SUPERSEDED (2026-06-10):** historical record only. The current audit is `AUDIT-2026-06-10.md` at the repo root.
+
 # Gluecron Audit v2 — 2026-05-16
 
 Five parallel agents (schema-vs-code drift, route smoke crawl, form

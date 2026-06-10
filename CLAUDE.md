@@ -61,6 +61,10 @@ bun run db:migrate # run database migrations
 
 ## Architecture
 
+> Note (2026-06-10): the tree below is illustrative, not exhaustive — the
+> platform has grown to ~190 route files in `src/routes/` and 161 tables in
+> `src/db/schema.ts`. `BUILD_BIBLE.md` §2 is the authoritative feature map.
+
 ```
 src/
   index.ts                Entry point (Bun server)

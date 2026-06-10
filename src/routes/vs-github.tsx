@@ -1088,7 +1088,7 @@ $ gluecron agents tail
               </div>
             </div>
             <div class="vsg-social-card">
-              <div class="vsg-social-card-name">Crontech</div>
+              <div class="vsg-social-card-name">Vapron</div>
               <div class="vsg-social-card-quote">
                 Production deploy automation. Every push lands here first.
               </div>

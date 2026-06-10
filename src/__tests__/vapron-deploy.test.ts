@@ -1,12 +1,12 @@
 /**
- * BLK-016 — Crontech deploy webhook sender.
+ * BLK-016 — Vapron deploy webhook sender.
  *
- * Asserts that `triggerCrontechDeploy` (in `src/hooks/post-receive.ts`)
+ * Asserts that `triggerVapronDeploy` (in `src/hooks/post-receive.ts`)
  * matches the wire contract documented at the top of that helper, which
- * is the inbound contract for Crontech's
+ * is the inbound contract for Vapron's
  * `apps/api/src/webhooks/gluecron-push.ts` receiver:
  *
- *   POST  https://crontech.ai/api/webhooks/gluecron-push
+ *   POST  https://vapron.ai/api/webhooks/gluecron-push
  *   Content-Type: application/json
  *   X-Gluecron-Signature: sha256=<hex(hmac-sha256(body, secret))>
  *
@@ -27,8 +27,9 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { createHmac } from "crypto";
 import { __test } from "../hooks/post-receive";
+import { config } from "../lib/config";
 
-const { triggerCrontechDeploy, signBody } = __test;
+const { triggerVapronDeploy, signBody } = __test;
 
 interface CapturedCall {
   url: string;
@@ -36,8 +37,8 @@ interface CapturedCall {
 }
 
 const origSecret = process.env.GLUECRON_WEBHOOK_SECRET;
-const origUrl = process.env.CRONTECH_DEPLOY_URL;
-const origRepo = process.env.CRONTECH_REPO;
+const origUrl = process.env.VAPRON_DEPLOY_URL;
+const origRepo = process.env.VAPRON_REPO;
 
 const NULL_REPO_ID = "00000000-0000-0000-0000-000000000000";
 const ZERO_SHA = "0000000000000000000000000000000000000000";
@@ -53,7 +54,7 @@ function makeArgs(overrides: Partial<{
 }> = {}) {
   return {
     owner: "ccantynz-alt",
-    repo: "crontech",
+    repo: "vapron",
     before: ZERO_SHA,
     after: "a".repeat(40),
     ref: "refs/heads/Main",
@@ -110,34 +111,39 @@ describe("hooks/post-receive — signBody", () => {
   });
 });
 
-describe("hooks/post-receive — triggerCrontechDeploy (BLK-016 sender)", () => {
+describe("hooks/post-receive — triggerVapronDeploy (BLK-016 sender)", () => {
   beforeEach(() => {
     delete process.env.GLUECRON_WEBHOOK_SECRET;
+    delete process.env.VAPRON_DEPLOY_URL;
+    delete process.env.VAPRON_REPO;
+    delete process.env.VAPRON_HMAC_SECRET;
+    // legacy names must not leak into the default-URL assertions
     delete process.env.CRONTECH_DEPLOY_URL;
     delete process.env.CRONTECH_REPO;
+    delete process.env.CRONTECH_HMAC_SECRET;
   });
 
   afterEach(() => {
     if (origSecret === undefined) delete process.env.GLUECRON_WEBHOOK_SECRET;
     else process.env.GLUECRON_WEBHOOK_SECRET = origSecret;
-    if (origUrl === undefined) delete process.env.CRONTECH_DEPLOY_URL;
-    else process.env.CRONTECH_DEPLOY_URL = origUrl;
-    if (origRepo === undefined) delete process.env.CRONTECH_REPO;
-    else process.env.CRONTECH_REPO = origRepo;
+    if (origUrl === undefined) delete process.env.VAPRON_DEPLOY_URL;
+    else process.env.VAPRON_DEPLOY_URL = origUrl;
+    if (origRepo === undefined) delete process.env.VAPRON_REPO;
+    else process.env.VAPRON_REPO = origRepo;
   });
 
   it("is exported from __test", () => {
-    expect(typeof triggerCrontechDeploy).toBe("function");
+    expect(typeof triggerVapronDeploy).toBe("function");
   });
 
-  it("POSTs to /api/webhooks/gluecron-push (matches Crontech receiver path)", async () => {
+  it("POSTs to /api/webhooks/gluecron-push (matches Vapron receiver path)", async () => {
     const { calls, fn } = captureFetch();
 
-    await triggerCrontechDeploy(makeArgs(), { fetchImpl: fn, sleep: noSleep });
+    await triggerVapronDeploy(makeArgs(), { fetchImpl: fn, sleep: noSleep });
 
     expect(calls.length).toBe(1);
     expect(calls[0]!.url).toBe(
-      "https://crontech.ai/api/webhooks/gluecron-push"
+      "https://vapron.ai/api/webhooks/gluecron-push"
     );
     expect(calls[0]!.url).not.toContain("/api/hooks/gluecron/push");
     expect(calls[0]!.init.method).toBe("POST");
@@ -148,7 +154,7 @@ describe("hooks/post-receive — triggerCrontechDeploy (BLK-016 sender)", () => 
     const before = "c".repeat(40);
     const { calls, fn } = captureFetch();
 
-    await triggerCrontechDeploy(
+    await triggerVapronDeploy(
       makeArgs({
         owner: "acme",
         repo: "api",
@@ -179,7 +185,7 @@ describe("hooks/post-receive — triggerCrontechDeploy (BLK-016 sender)", () => 
     process.env.GLUECRON_WEBHOOK_SECRET = "shared-vultr-secret";
     const { calls, fn } = captureFetch();
 
-    await triggerCrontechDeploy(makeArgs(), { fetchImpl: fn, sleep: noSleep });
+    await triggerVapronDeploy(makeArgs(), { fetchImpl: fn, sleep: noSleep });
 
     const headers = calls[0]!.init.headers as Record<string, string>;
     const sentBody = String(calls[0]!.init.body);
@@ -195,7 +201,7 @@ describe("hooks/post-receive — triggerCrontechDeploy (BLK-016 sender)", () => 
   it("omits X-Gluecron-Signature when no secret is configured", async () => {
     const { calls, fn } = captureFetch();
 
-    await triggerCrontechDeploy(makeArgs(), { fetchImpl: fn, sleep: noSleep });
+    await triggerVapronDeploy(makeArgs(), { fetchImpl: fn, sleep: noSleep });
 
     const headers = calls[0]!.init.headers as Record<string, string>;
     expect(headers["X-Gluecron-Signature"]).toBeUndefined();
@@ -204,7 +210,7 @@ describe("hooks/post-receive — triggerCrontechDeploy (BLK-016 sender)", () => 
   it("attaches X-Gluecron-Event=push and a non-empty X-Gluecron-Delivery id", async () => {
     const { calls, fn } = captureFetch();
 
-    await triggerCrontechDeploy(makeArgs(), { fetchImpl: fn, sleep: noSleep });
+    await triggerVapronDeploy(makeArgs(), { fetchImpl: fn, sleep: noSleep });
 
     const headers = calls[0]!.init.headers as Record<string, string>;
     expect(headers["X-Gluecron-Event"]).toBe("push");
@@ -215,7 +221,7 @@ describe("hooks/post-receive — triggerCrontechDeploy (BLK-016 sender)", () => 
   it("ref carries the actual case of the branch (Main, not main)", async () => {
     const { calls, fn } = captureFetch();
 
-    await triggerCrontechDeploy(
+    await triggerVapronDeploy(
       makeArgs({ ref: "refs/heads/Main", branch: "Main" }),
       { fetchImpl: fn, sleep: noSleep }
     );
@@ -234,7 +240,7 @@ describe("hooks/post-receive — triggerCrontechDeploy (BLK-016 sender)", () => 
     const { calls, fn } = captureFetch((i) => responses[i]!);
     const sleeps: number[] = [];
 
-    await triggerCrontechDeploy(makeArgs(), {
+    await triggerVapronDeploy(makeArgs(), {
       fetchImpl: fn,
       sleep: async (ms) => { sleeps.push(ms); },
       retryDelaysMs: [10, 20, 30, 40, 50],
@@ -249,7 +255,7 @@ describe("hooks/post-receive — triggerCrontechDeploy (BLK-016 sender)", () => 
     const { calls, fn } = captureFetch(() => new Response("", { status: 500 }));
     const sleeps: number[] = [];
 
-    await triggerCrontechDeploy(makeArgs(), {
+    await triggerVapronDeploy(makeArgs(), {
       fetchImpl: fn,
       sleep: async (ms) => { sleeps.push(ms); },
       retryDelaysMs: [1, 2, 3, 4, 5],
@@ -264,7 +270,7 @@ describe("hooks/post-receive — triggerCrontechDeploy (BLK-016 sender)", () => 
     const { calls, fn } = captureFetch(() => new Response("", { status: 401 }));
     const sleeps: number[] = [];
 
-    await triggerCrontechDeploy(makeArgs(), {
+    await triggerVapronDeploy(makeArgs(), {
       fetchImpl: fn,
       sleep: async (ms) => { sleeps.push(ms); },
       retryDelaysMs: [1, 2, 3, 4, 5],
@@ -282,7 +288,7 @@ describe("hooks/post-receive — triggerCrontechDeploy (BLK-016 sender)", () => 
     ];
     const { calls, fn } = captureFetch((i) => responses[i]!);
 
-    await triggerCrontechDeploy(makeArgs(), {
+    await triggerVapronDeploy(makeArgs(), {
       fetchImpl: fn,
       sleep: noSleep,
       retryDelaysMs: [1, 2, 3, 4, 5],
@@ -299,7 +305,7 @@ describe("hooks/post-receive — triggerCrontechDeploy (BLK-016 sender)", () => 
       return new Response("", { status: 200 });
     }) as unknown as typeof fetch;
 
-    await triggerCrontechDeploy(makeArgs(), {
+    await triggerVapronDeploy(makeArgs(), {
       fetchImpl: fn,
       sleep: noSleep,
       retryDelaysMs: [1, 2, 3, 4, 5],
@@ -311,11 +317,60 @@ describe("hooks/post-receive — triggerCrontechDeploy (BLK-016 sender)", () => 
   it("does not throw when receiver responds 401 (unconfigured-secret path)", async () => {
     const { fn } = captureFetch(() => new Response("", { status: 401 }));
     await expect(
-      triggerCrontechDeploy(makeArgs(), { fetchImpl: fn, sleep: noSleep })
+      triggerVapronDeploy(makeArgs(), { fetchImpl: fn, sleep: noSleep })
     ).resolves.toBeUndefined();
   });
 
   it("uses a default exponential-backoff schedule of 1s/4s/16s/64s/256s", () => {
     expect(__test.RETRY_DELAYS_MS).toEqual([1_000, 4_000, 16_000, 64_000, 256_000]);
+  });
+});
+
+describe("vapron config — legacy CRONTECH_* env fallback", () => {
+  const KEYS = [
+    "VAPRON_DEPLOY_URL", "CRONTECH_DEPLOY_URL",
+    "VAPRON_REPO", "CRONTECH_REPO",
+    "VAPRON_HMAC_SECRET", "CRONTECH_HMAC_SECRET", "GLUECRON_WEBHOOK_SECRET",
+  ] as const;
+  const saved: Record<string, string | undefined> = {};
+  beforeEach(() => {
+    for (const k of KEYS) { saved[k] = process.env[k]; delete process.env[k]; }
+  });
+  afterEach(() => {
+    for (const k of KEYS) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k]!;
+    }
+  });
+
+  it("defaults to the vapron.ai webhook URL and ccantynz-alt/vapron repo", () => {
+    expect(config.vapronDeployUrl).toBe("https://vapron.ai/api/webhooks/gluecron-push");
+    expect(config.vapronRepo).toBe("ccantynz-alt/vapron");
+  });
+
+  it("VAPRON_* wins over legacy CRONTECH_*", () => {
+    process.env.VAPRON_DEPLOY_URL = "https://vapron.ai/hook-a";
+    process.env.CRONTECH_DEPLOY_URL = "https://crontech.ai/hook-b";
+    process.env.VAPRON_REPO = "o/new";
+    process.env.CRONTECH_REPO = "o/old";
+    process.env.VAPRON_HMAC_SECRET = "new-secret";
+    process.env.CRONTECH_HMAC_SECRET = "old-secret";
+    expect(config.vapronDeployUrl).toBe("https://vapron.ai/hook-a");
+    expect(config.vapronRepo).toBe("o/new");
+    expect(config.vapronHmacSecret).toBe("new-secret");
+  });
+
+  it("legacy CRONTECH_* still works when VAPRON_* is unset", () => {
+    process.env.CRONTECH_DEPLOY_URL = "https://crontech.ai/hook-b";
+    process.env.CRONTECH_REPO = "o/old";
+    process.env.CRONTECH_HMAC_SECRET = "old-secret";
+    expect(config.vapronDeployUrl).toBe("https://crontech.ai/hook-b");
+    expect(config.vapronRepo).toBe("o/old");
+    expect(config.vapronHmacSecret).toBe("old-secret");
+  });
+
+  it("HMAC secret falls back to GLUECRON_WEBHOOK_SECRET last", () => {
+    process.env.GLUECRON_WEBHOOK_SECRET = "oldest-secret";
+    expect(config.vapronHmacSecret).toBe("oldest-secret");
   });
 });

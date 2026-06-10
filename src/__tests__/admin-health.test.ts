@@ -10,7 +10,7 @@
  *
  * Added 2026-05-16 as part of the reliability sweep (Level 2 — Self-
  * monitoring). New checks (autopilot, recent deploy, workflow queue,
- * crontech webhook) are exercised by the JSON endpoint.
+ * vapron webhook) are exercised by the JSON endpoint.
  */
 
 import { describe, it, expect } from "bun:test";

@@ -1,13 +1,13 @@
 /**
- * Inbound deploy-event receiver for Crontech (Signal Bus P1 — E3/E4).
+ * Inbound deploy-event receiver for Vapron, formerly Crontech (Signal Bus P1 — E3/E4).
  *
- * Wire contract reference: chat-defined spec for Crontech → Gluecron deploy
+ * Wire contract reference: chat-defined spec for Vapron → Gluecron deploy
  * events. Gluecron's OWN copy per HTTP-only coupling rule — do NOT import any
- * types from Crontech. If the contract is renegotiated, update this comment
+ * types from Vapron. If the contract is renegotiated, update this comment
  * and the validation below in lock-step.
  *
  *   POST  /api/events/deploy
- *   Authorization: Bearer ${CRONTECH_EVENT_TOKEN}
+ *   Authorization: Bearer ${VAPRON_EVENT_TOKEN}   (legacy CRONTECH_EVENT_TOKEN honored)
  *   Content-Type: application/json
  *
  *   {
@@ -16,7 +16,7 @@
  *     "repository":    "owner/name",
  *     "sha":           "<40-hex>",
  *     "environment":   "production",
- *     "deploymentId":  "<crontech-id>",
+ *     "deploymentId":  "<vapron-id>",
  *     "durationMs":    <int>,                 // optional
  *     "errorCategory": "build|runtime|timeout|config",  // required on failed
  *     "errorSummary":  "<string ≤500>",                 // required on failed
@@ -61,7 +61,8 @@ import { publish } from "../lib/sse";
 const events = new Hono();
 
 // ---------------------------------------------------------------------------
-// Bearer auth — timing-safe comparison against CRONTECH_EVENT_TOKEN.
+// Bearer auth — timing-safe comparison against VAPRON_EVENT_TOKEN
+// (legacy CRONTECH_EVENT_TOKEN still honored).
 // ---------------------------------------------------------------------------
 
 function constantTimeEq(a: string, b: string): boolean {
@@ -76,13 +77,14 @@ function constantTimeEq(a: string, b: string): boolean {
 }
 
 function verifyBearer(c: any): { ok: boolean; error?: string } {
-  const expected = process.env.CRONTECH_EVENT_TOKEN || "";
+  const expected =
+    process.env.VAPRON_EVENT_TOKEN || process.env.CRONTECH_EVENT_TOKEN || "";
   if (!expected) {
     // Refuse by default — an unset secret must NOT allow anonymous writes.
     return {
       ok: false,
       error:
-        "Event endpoint not configured: set CRONTECH_EVENT_TOKEN in the environment",
+        "Event endpoint not configured: set VAPRON_EVENT_TOKEN in the environment",
     };
   }
   const auth = c.req.header("authorization") || "";
@@ -303,7 +305,7 @@ events.post("/deploy", async (c) => {
     await db.insert(processedEvents).values({
       eventId: payload.eventId,
       eventType: payload.event,
-      source: "crontech",
+      source: "vapron",
       payload: payload as unknown as Record<string, unknown>,
     });
   } catch (err) {

@@ -46,7 +46,7 @@ Every repository ships with the **full green ecosystem** enabled by default — 
 - **Automated merge conflict resolution** when conflicts arise
 - **AI auto-repair** — failing gates trigger a fix attempt before a human is pinged
 - **Branch protection** on \`main\` — PR required, all gates green, AI approval required
-- **Auto-deploy** to Crontech on every passing push to \`main\`
+- **Auto-deploy** to Vapron on every passing push to \`main\`
 - **AI commit messages, PR summaries, and release changelogs** on demand
 
 You can toggle any of this in **Settings → Gates & Auto-repair**. The safe defaults are on.

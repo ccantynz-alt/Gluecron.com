@@ -23,6 +23,7 @@ const VALID_EVENT_ID_B = "22222222-2222-4222-8222-222222222222";
 const VALID_SHA = "a".repeat(40);
 
 const origToken = process.env.CRONTECH_EVENT_TOKEN;
+const origVapronToken = process.env.VAPRON_EVENT_TOKEN;
 
 function makePayload(
   overrides: Partial<Record<string, unknown>> = {}
@@ -55,11 +56,14 @@ async function post(
 
 beforeAll(() => {
   process.env.CRONTECH_EVENT_TOKEN = "unit-bearer-fixture";
+  delete process.env.VAPRON_EVENT_TOKEN;
 });
 
 afterAll(() => {
   if (origToken === undefined) delete process.env.CRONTECH_EVENT_TOKEN;
   else process.env.CRONTECH_EVENT_TOKEN = origToken;
+  if (origVapronToken === undefined) delete process.env.VAPRON_EVENT_TOKEN;
+  else process.env.VAPRON_EVENT_TOKEN = origVapronToken;
 });
 
 // ---------------------------------------------------------------------------
@@ -84,9 +88,11 @@ describe("events/deploy — bearer auth", () => {
     expect(body.ok).toBe(false);
   });
 
-  it("rejects with 401 when CRONTECH_EVENT_TOKEN is unset (refuse-by-default)", async () => {
+  it("rejects with 401 when no event token is set (refuse-by-default)", async () => {
     const saved = process.env.CRONTECH_EVENT_TOKEN;
+    const savedV = process.env.VAPRON_EVENT_TOKEN;
     delete process.env.CRONTECH_EVENT_TOKEN;
+    delete process.env.VAPRON_EVENT_TOKEN;
     try {
       const res = await post(makePayload(), {
         authorization: "Bearer anything",
@@ -96,6 +102,7 @@ describe("events/deploy — bearer auth", () => {
       expect(String(body.error).toLowerCase()).toContain("not configured");
     } finally {
       if (saved !== undefined) process.env.CRONTECH_EVENT_TOKEN = saved;
+      if (savedV !== undefined) process.env.VAPRON_EVENT_TOKEN = savedV;
     }
   });
 });

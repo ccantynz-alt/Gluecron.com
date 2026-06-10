@@ -3,7 +3,7 @@
  *
  * When a deployment fails, this module automatically opens an issue with an
  * AI-generated root-cause analysis. Invoked by the post-receive hook (from
- * `triggerCrontechDeploy`) whenever the Crontech deploy call returns a non-2xx
+ * `triggerVapronDeploy`) whenever the Vapron deploy call returns a non-2xx
  * response or throws. Also retriggerable via the deployments route.
  *
  * Everything here degrades gracefully:

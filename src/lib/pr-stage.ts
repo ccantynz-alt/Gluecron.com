@@ -448,7 +448,7 @@ async function runStagePipeline(job: StageJob): Promise<void> {
     await postPrComment(
       job.prId,
       "<!-- cmd:stage -->\n\n**Preview not available** — Docker-based projects require a configured deployment provider. " +
-        "Set `CRONTECH_DEPLOY_URL` in repo settings to enable staging."
+        "Set `VAPRON_DEPLOY_URL` in repo settings to enable staging."
     );
     job.status = "failed";
     job.error = "Docker projects require an external deploy provider";

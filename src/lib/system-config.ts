@@ -251,18 +251,29 @@ export const INTEGRATION_FIELDS: IntegrationField[] = [
     group: "observability",
   },
   {
-    key: "CRONTECH_DEPLOY_URL",
-    envFallback: "CRONTECH_DEPLOY_URL",
-    label: "Crontech webhook URL",
-    helper: "Optional: notify Crontech on every push to the canonical repo.",
+    key: "VAPRON_DEPLOY_URL",
+    envFallback: "VAPRON_DEPLOY_URL",
+    label: "Vapron webhook URL",
+    helper:
+      "Optional: notify Vapron (formerly Crontech) on every push to the canonical repo. Default: https://vapron.ai/api/webhooks/gluecron-push",
     isSecret: false,
     group: "webhook",
   },
   {
-    key: "CRONTECH_HMAC_SECRET",
-    envFallback: "CRONTECH_HMAC_SECRET",
-    label: "Crontech HMAC secret",
-    helper: "Used to sign outbound Crontech webhook payloads.",
+    key: "VAPRON_HMAC_SECRET",
+    envFallback: "VAPRON_HMAC_SECRET",
+    label: "Vapron HMAC secret",
+    helper:
+      "Signs outbound Vapron webhook payloads (X-Gluecron-Signature). Must match the secret configured on Vapron's side.",
+    isSecret: true,
+    group: "webhook",
+  },
+  {
+    key: "VAPRON_EVENT_TOKEN",
+    envFallback: "VAPRON_EVENT_TOKEN",
+    label: "Vapron inbound event token",
+    helper:
+      "Bearer token Vapron presents on deploy.succeeded/deploy.failed callbacks to /api/events/deploy.",
     isSecret: true,
     group: "webhook",
   },

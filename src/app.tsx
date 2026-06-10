@@ -234,7 +234,7 @@ app.use("*", async (c, next) => {
 });
 
 // Cache-Control middleware — sets sensible defaults on public, anonymous
-// requests. Crontech (when wired as our edge layer) and downstream
+// requests. Vapron (when wired as our edge layer) and downstream
 // browsers will honor these. Auth'd users get private,no-store
 // automatically — we never cache responses tied to a session.
 app.use("*", async (c, next) => {
@@ -291,7 +291,7 @@ app.use("*", async (c, next) => {
     return;
   }
   // Public repo browse pages — cache aggressively. Edge invalidates
-  // on push via the post-receive hook (future Crontech surge purge).
+  // on push via the post-receive hook (future Vapron surge purge).
   if (/^\/[^/]+\/[^/]+(\/.*)?$/.test(p) && c.req.method === "GET") {
     c.res.headers.set(
       "cache-control",

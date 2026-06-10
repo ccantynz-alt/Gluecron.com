@@ -62,7 +62,7 @@ describe("lib/ai-incident — onDeployFailure", () => {
       deploymentId: "00000000-0000-0000-0000-000000000000",
       ref: "refs/heads/main",
       commitSha: "0".repeat(40),
-      target: "crontech",
+      target: "vapron",
       errorMessage: "HTTP 500",
     });
     expect(result).toBeDefined();

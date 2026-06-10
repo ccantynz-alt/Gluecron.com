@@ -101,4 +101,20 @@ describe("L8 — /pricing public page", () => {
     expect(body).toContain("Bundle math vs GitHub");
     expect(body).toContain("$89");
   });
+
+  it("layout nav styles are scoped to .site-header, never bare <header>", async () => {
+    // Regression — 2026-06-10: layout.tsx styled the bare `header` element
+    // (sticky, height: var(--header-h), blur). Every page that uses a
+    // semantic <header> for a hero or section head (~200 across src/routes)
+    // inherited a 60px sticky bar, which crushed the /pricing hero and
+    // overlaid its title on top of the plan cards. The nav rule must stay
+    // scoped to .site-header.
+    const res = await app.request("/pricing");
+    const body = await res.text();
+    expect(body).toContain('<header class="site-header">');
+    // No CSS rule may target the bare element: `header {` or a
+    // `... header {` descendant/`theme header` selector outside a class.
+    const bareHeaderSelector = /(^|[}\s])header(\s+nav)?\s*\{/m;
+    expect(bareHeaderSelector.test(body)).toBe(false);
+  });
 });

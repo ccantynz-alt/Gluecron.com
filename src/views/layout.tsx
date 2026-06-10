@@ -162,7 +162,7 @@ export const Layout: FC<
             />
           </div>
         )}
-        <header>
+        <header class="site-header">
           <nav>
             <a href="/" class="logo">
               gluecron
@@ -1490,8 +1490,11 @@ const css = `
   }
   .playground-banner-dismiss:hover { color: var(--text-strong, #e6edf3); }
 
-  /* Header — sticky, blurred, hairline border, taller for breathing room */
-  header {
+  /* Site nav header — sticky, blurred, hairline border. Scoped to
+     .site-header: pages use semantic <header> elements for section/hero
+     headings, and a bare element selector here turns every one of them
+     into a 64px sticky bar (the /pricing hero-overlap bug). */
+  .site-header {
     position: sticky;
     top: 0;
     z-index: 100;
@@ -1502,9 +1505,9 @@ const css = `
     backdrop-filter: saturate(180%) blur(18px);
     -webkit-backdrop-filter: saturate(180%) blur(18px);
   }
-  :root[data-theme='light'] header { background: rgba(251,251,252,0.78); }
+  :root[data-theme='light'] .site-header { background: rgba(251,251,252,0.78); }
 
-  header nav {
+  .site-header nav {
     display: flex;
     align-items: center;
     gap: 18px;

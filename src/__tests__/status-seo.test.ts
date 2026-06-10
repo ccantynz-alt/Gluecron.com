@@ -16,7 +16,8 @@ test("/status returns 200 with HTML body", async () => {
   // Either the green or red headline should appear
   expect(
     body.includes("All systems operational") ||
-      body.includes("Service degraded")
+      body.includes("Degraded performance") ||
+      body.includes("Major outage")
   ).toBe(true);
 });
 

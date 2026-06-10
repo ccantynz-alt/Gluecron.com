@@ -157,15 +157,14 @@ describe("Block Q1 — GET /gluecron.dxt", () => {
   });
 });
 
-describe("Block Q1 — landing CTA", () => {
-  it("GET / renders the 'Add to Claude Desktop' CTA pointing at /gluecron.dxt", async () => {
-    const res = await app.request("/");
+describe("Block Q1 — .dxt discoverability", () => {
+  // 2026-06-10: the landing-page CTA was demoted in the 2030 landing
+  // reboot (GET / now serves the self-contained Landing2030Page). The
+  // bundle stays discoverable from the docs surface.
+  it("GET /docs/mcp-server links to /gluecron.dxt", async () => {
+    const res = await app.request("/docs/mcp-server");
     expect(res.status).toBe(200);
     const body = await res.text();
-    expect(body).toContain("Add to Claude Desktop");
     expect(body).toContain('href="/gluecron.dxt"');
-    // The CTA carries the test hook + the download attribute so browsers
-    // know to save rather than navigate.
-    expect(body).toContain('data-testid="cta-dxt"');
   });
 });

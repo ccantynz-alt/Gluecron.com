@@ -1,3 +1,5 @@
+> **SUPERSEDED (2026-06-10):** historical record only. The current audit is `AUDIT-2026-06-10.md` at the repo root.
+
 # AUDIT REPORT — gluecron.com
 
 **Date:** 2026-05-13

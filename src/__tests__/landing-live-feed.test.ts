@@ -319,7 +319,11 @@ describe("Block M1 — relativeTimeFromNow helper edges", () => {
 });
 
 describe("Block M1 — landing route integration", () => {
-  it("GET / renders the Live now block with stubbed demo-activity", async () => {
+  // 2026-06-10: GET / now serves the self-contained Landing2030Page;
+  // the legacy LandingPage (and its Live-now block, covered above at the
+  // component level) no longer renders on the home route. The route
+  // integration contract is therefore: / responds 200 with the 2030 hero.
+  it("GET / renders the 2030 landing page", async () => {
     setLiveFeedStubs({
       queued: [
         {
@@ -338,14 +342,7 @@ describe("Block M1 — landing route integration", () => {
     const res = await app.request("/");
     expect(res.status).toBe(200);
     const body = await res.text();
-    // Section heading + pulse always render. Stubbed row data is
-    // intentionally NOT asserted: the production route may call into
-    // the real listing helpers via cached bindings rather than the
-    // mocked surface, so the universally reliable assertion is that
-    // the block + script are wired in.
-    expect(body).toContain("Live now");
-    expect(body).toContain("landing-livenow-grid");
-    expect(body).toContain("/api/v2/demo/queued");
-    expect(body).toContain("setInterval");
+    expect(body).toContain("hero-actions");
+    expect(body).toContain('href="/register"');
   });
 });

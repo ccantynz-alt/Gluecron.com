@@ -669,17 +669,65 @@ export function githubOauthRedirectUri(): string {
 
 const GOOGLE_OAUTH_CONFIG_ID = "google";
 
+/**
+ * Builds a Google OAuth config from environment variables, or null when the
+ * required pair isn't set. This is the zero-DB bootstrap path: operators set
+ * `GOOGLE_OAUTH_CLIENT_ID` + `GOOGLE_OAUTH_CLIENT_SECRET` (e.g. as Fly
+ * secrets) and "Sign in with Google" turns on without anyone needing to
+ * reach the /admin/google-oauth page first — which matters when the admin
+ * is themselves locked out of password login.
+ *
+ * Optional knobs:
+ *   GOOGLE_OAUTH_AUTO_CREATE=0       — disable auto-creating accounts
+ *   GOOGLE_OAUTH_ALLOWED_DOMAINS=a,b — restrict sign-in to email domains
+ *
+ * Pure (env passed in) so it's unit-testable.
+ */
+export function googleOauthConfigFromEnv(
+  env: Record<string, string | undefined> = process.env
+): SsoConfig | null {
+  const clientId = (env.GOOGLE_OAUTH_CLIENT_ID || "").trim();
+  const clientSecret = (env.GOOGLE_OAUTH_CLIENT_SECRET || "").trim();
+  if (!clientId || !clientSecret) return null;
+  const now = new Date();
+  return {
+    id: GOOGLE_OAUTH_CONFIG_ID,
+    enabled: true,
+    providerName: "Google",
+    issuer: "https://accounts.google.com",
+    authorizationEndpoint: "https://accounts.google.com/o/oauth2/v2/auth",
+    tokenEndpoint: "https://oauth2.googleapis.com/token",
+    userinfoEndpoint: "https://openidconnect.googleapis.com/v1/userinfo",
+    clientId,
+    clientSecret,
+    scopes: "openid email profile",
+    allowedEmailDomains: (env.GOOGLE_OAUTH_ALLOWED_DOMAINS || "").trim() || null,
+    autoCreateUsers: env.GOOGLE_OAUTH_AUTO_CREATE !== "0",
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+/**
+ * Resolution order: a DB row saved via /admin/google-oauth that actually
+ * carries credentials wins (it's the admin's explicit choice, including its
+ * enabled flag); otherwise fall back to env-var configuration; otherwise
+ * whatever partial row exists (or null).
+ */
 export async function getGoogleOauthConfig(): Promise<SsoConfig | null> {
+  let row: SsoConfig | null = null;
   try {
-    const [row] = await db
+    const [r] = await db
       .select()
       .from(ssoConfig)
       .where(eq(ssoConfig.id, GOOGLE_OAUTH_CONFIG_ID))
       .limit(1);
-    return row || null;
+    row = r || null;
   } catch {
-    return null;
+    row = null;
   }
+  if (row?.clientId && row?.clientSecret) return row;
+  return googleOauthConfigFromEnv() ?? row;
 }
 
 export async function upsertGoogleOauthConfig(

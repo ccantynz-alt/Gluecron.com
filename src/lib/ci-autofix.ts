@@ -1,16 +1,25 @@
 /**
- * CI Auto-Fix — when a gate run or workflow run fails on a PR, Claude reads
- * the error logs, the failing test file, and the PR diff, then posts a
- * ready-to-apply patch as a comment on the PR.
+ * CI Auto-Fix — when a gate run or workflow run fails on a PR, the repair
+ * flywheel cache is consulted first (Tier 0); on a miss Claude reads the
+ * error logs, the failing test file, and the PR diff. Either way a
+ * ready-to-apply patch is posted as a comment on the PR.
  *
  * Entry points:
  *   triggerCiAutofix(gateRunId) — fire-and-forget; call after a gate_run
  *     row is written with status="failed".
  *   applyAutofix(prCommentId, userId) — apply the patch from a comment onto
- *     a new branch and return the branch name.
+ *     a new branch and return the branch name. Settles the flywheel entry
+ *     (success/failed) so the cache's confidence accumulates.
  *
  * Route wiring (src/routes/pulls.tsx or src/routes/api.ts):
  *   POST /api/pr-comments/:commentId/apply-autofix → applyAutofix
+ *
+ * Flywheel wiring (BUILD_BIBLE §7 finding 1): every failure is fingerprinted
+ * via repair-flywheel.ts; a previously-successful patch with the same
+ * signature and a good success rate is served WITHOUT an AI call. All served
+ * fixes are recorded as 'pending' flywheel rows and settled on apply.
+ * Flywheel/DB errors never break this path — a broken cache degrades to the
+ * old always-call-AI behaviour.
  */
 
 import { and, eq } from "drizzle-orm";
@@ -18,6 +27,13 @@ import { mkdtemp, rm, writeFile } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 import { db } from "../db";
+import {
+  findCachedRepair,
+  recordRepair,
+  updateOutcome,
+  type CachedRepair,
+  type RecordRepairInput,
+} from "./repair-flywheel";
 import {
   gateRuns,
   pullRequests,
@@ -50,11 +66,33 @@ export interface AutofixResult {
   affectedFiles: string[];
 }
 
-interface ClaudeAutofixResponse {
+export interface ClaudeAutofixResponse {
   patch: string;
   explanation: string;
   confidence: "high" | "medium" | "low";
   affectedFiles: string[];
+}
+
+/**
+ * DI seam for the repair-flywheel wiring. Production callers omit this and
+ * get the real implementations; tests inject fakes so no DB is touched.
+ */
+export interface CiAutofixDeps {
+  findCachedRepair?: typeof findCachedRepair;
+  recordRepair?: typeof recordRepair;
+  updateOutcome?: typeof updateOutcome;
+  aiAvailable?: () => boolean;
+}
+
+/** The fix triggerCiAutofix decided to post, plus its flywheel bookkeeping. */
+export interface AutofixPlan {
+  /** 'cache' = Tier-0 flywheel replay (no AI call); 'ai' = fresh Sonnet patch. */
+  source: "cache" | "ai";
+  fix: ClaudeAutofixResponse;
+  /** Flywheel row recorded as 'pending' for this attempt; null if recording failed. */
+  flywheelEntryId: string | null;
+  /** On a cache hit: the parent pattern that was replayed. */
+  cachedPatternId: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -63,6 +101,19 @@ interface ClaudeAutofixResponse {
 
 /** Idempotency marker embedded in every autofix comment. */
 export const CI_AUTOFIX_MARKER = "<!-- gluecron:ci-autofix:v1 -->";
+
+/**
+ * Marker carrying the pending flywheel entry id, embedded in the autofix
+ * comment so applyAutofix can settle the outcome (success/failed) later.
+ */
+export const FLYWHEEL_MARKER_PREFIX = "<!-- gluecron:ci-autofix:flywheel:";
+
+/**
+ * Minimum settled success rate before a cached pattern is replayed instead
+ * of calling the AI. Below this the cache is considered unreliable for the
+ * signature and we fall through to a fresh Sonnet patch.
+ */
+export const CACHE_MIN_SUCCESS_RATE = 0.5;
 
 /** Max bytes of PR diff sent to Claude. */
 const MAX_DIFF_BYTES = 80 * 1024;
@@ -145,18 +196,184 @@ function parseErrorLog(errorLog: string): {
 }
 
 // ---------------------------------------------------------------------------
+// Repair flywheel wiring (Tier 0)
+// ---------------------------------------------------------------------------
+
+/** Matches the id inside a FLYWHEEL_MARKER_PREFIX comment marker. */
+const FLYWHEEL_MARKER_RE = /<!-- gluecron:ci-autofix:flywheel:([0-9a-fA-F-]{8,64}) -->/;
+
+/** Parse the flywheel entry id out of an autofix comment body, if present. */
+export function extractFlywheelEntryId(commentBody: string): string | null {
+  const m = commentBody.match(FLYWHEEL_MARKER_RE);
+  return m ? m[1] : null;
+}
+
+/**
+ * Record a 'pending' flywheel row for a fix we're about to post. Never
+ * throws — a flywheel write failure must not stop the fix from shipping,
+ * it only means this attempt won't contribute to the cache's learning.
+ */
+async function safeRecordRepair(
+  input: RecordRepairInput,
+  deps: CiAutofixDeps
+): Promise<string | null> {
+  const record = deps.recordRepair ?? recordRepair;
+  try {
+    return await record(input);
+  } catch (err) {
+    console.warn(
+      "[ci-autofix] flywheel record failed (fix still served):",
+      err instanceof Error ? err.message : err
+    );
+    return null;
+  }
+}
+
+/**
+ * Settle the flywheel entry referenced by an autofix comment (if any) so
+ * the pattern's success rate accumulates. Never throws — flywheel
+ * bookkeeping must not break the apply path.
+ */
+export async function recordAutofixOutcome(
+  commentBody: string,
+  outcome: "success" | "failed",
+  deps: CiAutofixDeps = {}
+): Promise<void> {
+  const entryId = extractFlywheelEntryId(commentBody);
+  if (!entryId) return;
+  const settle = deps.updateOutcome ?? updateOutcome;
+  try {
+    await settle(entryId, outcome);
+  } catch (err) {
+    console.warn(
+      "[ci-autofix] flywheel outcome update failed:",
+      err instanceof Error ? err.message : err
+    );
+  }
+}
+
+/**
+ * Tier-0-then-AI resolution for a CI failure (BUILD_BIBLE §7 finding 1).
+ *
+ *   1. Tier 0 — consult the repair flywheel for a previously-successful fix
+ *      with the same failure signature. On a usable hit (success rate ≥
+ *      CACHE_MIN_SUCCESS_RATE and a stored patch) the cached patch is
+ *      served directly: no Anthropic call at all.
+ *   2. Tier 2 — fall through to a fresh Claude Sonnet patch via the
+ *      `generateAiFix` thunk (guarded by isAiAvailable(); the thunk also
+ *      keeps the expensive git context-gathering off the cache-hit path).
+ *
+ * Every served fix is recorded as a 'pending' flywheel row; applyAutofix
+ * settles it via recordAutofixOutcome. Flywheel/DB failures NEVER break
+ * this path — a broken cache degrades to the old always-call-AI behaviour.
+ */
+export async function resolveAutofix(args: {
+  repositoryId: string;
+  failureText: string;
+  generateAiFix: () => Promise<ClaudeAutofixResponse | null>;
+  deps?: CiAutofixDeps;
+}): Promise<AutofixPlan | null> {
+  const deps = args.deps ?? {};
+  const lookup = deps.findCachedRepair ?? findCachedRepair;
+  const aiOk = deps.aiAvailable ?? isAiAvailable;
+
+  // ── Tier 0: flywheel cache. Fail open — any error counts as a miss.
+  let cached: CachedRepair | null = null;
+  if (args.failureText.trim()) {
+    try {
+      cached = await lookup(args.repositoryId, args.failureText);
+    } catch (err) {
+      console.warn(
+        "[ci-autofix] flywheel lookup failed (falling through to AI):",
+        err instanceof Error ? err.message : err
+      );
+    }
+  }
+
+  // A usable hit needs a stored full patch (pre-0105 rows have none) AND a
+  // good settled success rate; anything else falls through to the AI tier.
+  if (
+    cached &&
+    cached.patch?.trim() &&
+    cached.successRate >= CACHE_MIN_SUCCESS_RATE
+  ) {
+    const fix: ClaudeAutofixResponse = {
+      patch: cached.patch,
+      explanation:
+        cached.patchSummary ||
+        "Replayed a previously-successful repair for this failure signature.",
+      // A pattern that keeps working is high confidence; anything that has
+      // failed at least occasionally is medium.
+      confidence: cached.successRate >= 0.9 ? "high" : "medium",
+      affectedFiles: cached.filesChanged,
+    };
+    const entryId = await safeRecordRepair(
+      {
+        repositoryId: args.repositoryId,
+        failureText: args.failureText,
+        classification: cached.classification,
+        tier: "cached",
+        patchSummary: fix.explanation,
+        // Carry the patch onto the new row so it is itself replayable once
+        // it settles (findCachedRepair prefers the most recent success).
+        patch: cached.patch,
+        filesChanged: fix.affectedFiles,
+        commitSha: null,
+        parentPatternId: cached.id,
+      },
+      deps
+    );
+    // Audit the saved AI call — this line is the flywheel's whole point.
+    console.log(
+      `[ci-autofix] flywheel cache HIT — pattern ${cached.id} (success rate ${(cached.successRate * 100).toFixed(0)}%, ${cached.hitCount} prior hits) served without an AI call`
+    );
+    return { source: "cache", fix, flywheelEntryId: entryId, cachedPatternId: cached.id };
+  }
+
+  // ── Tier 2: fresh AI patch. All AI features degrade gracefully when no
+  // API key is configured — cached fixes above still work without one.
+  if (!aiOk()) return null;
+
+  const fix = await args.generateAiFix();
+  if (!fix || !fix.patch || !fix.explanation) return null;
+  if (fix.confidence === "low") return null;
+
+  const entryId = await safeRecordRepair(
+    {
+      repositoryId: args.repositoryId,
+      failureText: args.failureText,
+      classification: null,
+      tier: "ai-sonnet",
+      patchSummary: fix.explanation,
+      // Stored so the entry is replayable by the Tier-0 cache once it
+      // settles to 'success'.
+      patch: fix.patch,
+      filesChanged: fix.affectedFiles,
+      commitSha: null,
+    },
+    deps
+  );
+  return { source: "ai", fix, flywheelEntryId: entryId, cachedPatternId: null };
+}
+
+// ---------------------------------------------------------------------------
 // Main entry point
 // ---------------------------------------------------------------------------
 
 /**
  * Fire-and-forget entry point called after a gate_run row is set to 'failed'.
  * Never throws — all errors are swallowed after logging.
+ *
+ * Note: no isAiAvailable() gate here — the Tier-0 flywheel cache needs no
+ * API key, so cached fixes still flow when AI is unconfigured. The actual
+ * Anthropic call is guarded inside resolveAutofix (graceful degradation).
  */
-export async function triggerCiAutofix(gateRunId: string): Promise<void> {
-  if (!isAiAvailable()) return;
-
+export async function triggerCiAutofix(
+  gateRunId: string,
+  deps: CiAutofixDeps = {}
+): Promise<void> {
   try {
-    await _runAutofix(gateRunId);
+    await _runAutofix(gateRunId, deps);
   } catch (err) {
     console.error(
       "[ci-autofix] crashed:",
@@ -165,7 +382,10 @@ export async function triggerCiAutofix(gateRunId: string): Promise<void> {
   }
 }
 
-async function _runAutofix(gateRunId: string): Promise<void> {
+async function _runAutofix(
+  gateRunId: string,
+  deps: CiAutofixDeps = {}
+): Promise<void> {
   // 1. Load the gate run
   const [gateRun] = await db
     .select()
@@ -229,37 +449,47 @@ async function _runAutofix(gateRunId: string): Promise<void> {
 
   const repoDir = getRepoPath(repoRow.ownerUsername, repoRow.name);
 
-  // 5. Get the PR diff (max 80KB)
-  const diffResult = await spawnGit(
-    ["diff", `${pr.baseBranch}...${pr.headBranch}`],
-    repoDir
-  );
-  const prDiff = truncate(diffResult.stdout, MAX_DIFF_BYTES);
-
-  if (!prDiff.trim()) return; // nothing to work with
-
-  // 6. Parse errorLog to extract test files + error summary
+  // 5. Failure text — drives both the flywheel signature and the AI prompt.
   const errorLog = gateRun.summary || gateRun.details || "";
-  const { testFiles, errorSummary } = parseErrorLog(
-    typeof errorLog === "string" ? errorLog : JSON.stringify(errorLog)
-  );
+  const failureText =
+    typeof errorLog === "string" ? errorLog : JSON.stringify(errorLog);
 
-  // 7. Read failing test files via git show HEAD:path
-  let testFileContent = "";
-  for (const filePath of testFiles) {
-    const showResult = await spawnGit(
-      ["show", `${pr.headBranch}:${filePath}`],
-      repoDir
-    );
-    if (showResult.exitCode === 0 && showResult.stdout) {
-      const content = truncate(showResult.stdout, MAX_FILE_BYTES);
-      testFileContent += `\n\n--- ${filePath} ---\n${content}`;
-    }
-  }
+  // 6. Tier 0 (flywheel cache) first, then the AI fallback. The expensive
+  //    context gathering (PR diff + failing test files + Sonnet call) lives
+  //    inside the thunk so a cache hit never touches git or the API.
+  const plan = await resolveAutofix({
+    repositoryId: repoRow.id,
+    failureText,
+    deps,
+    generateAiFix: async () => {
+      // 6a. Get the PR diff (max 80KB)
+      const diffResult = await spawnGit(
+        ["diff", `${pr.baseBranch}...${pr.headBranch}`],
+        repoDir
+      );
+      const prDiff = truncate(diffResult.stdout, MAX_DIFF_BYTES);
 
-  // 8. Call Claude Sonnet 4.6
-  const client = getAnthropic();
-  const prompt = `You are a senior engineer fixing a CI failure.
+      if (!prDiff.trim()) return null; // nothing to work with
+
+      // 6b. Parse errorLog to extract test files + error summary
+      const { testFiles, errorSummary } = parseErrorLog(failureText);
+
+      // 6c. Read failing test files via git show HEAD:path
+      let testFileContent = "";
+      for (const filePath of testFiles) {
+        const showResult = await spawnGit(
+          ["show", `${pr.headBranch}:${filePath}`],
+          repoDir
+        );
+        if (showResult.exitCode === 0 && showResult.stdout) {
+          const content = truncate(showResult.stdout, MAX_FILE_BYTES);
+          testFileContent += `\n\n--- ${filePath} ---\n${content}`;
+        }
+      }
+
+      // 6d. Call Claude Sonnet 4.6
+      const client = getAnthropic();
+      const prompt = `You are a senior engineer fixing a CI failure.
 
 PR diff (what changed):
 ${prDiff}
@@ -276,26 +506,22 @@ Produce a minimal unified diff patch that fixes the CI failure. The patch must:
 
 Return JSON: {"patch": "...", "explanation": "...", "confidence": "high|medium|low", "affectedFiles": ["..."]}`;
 
-  const message = await client.messages.create({
-    model: MODEL_SONNET,
-    max_tokens: 4096,
-    messages: [{ role: "user", content: prompt }],
+      const message = await client.messages.create({
+        model: MODEL_SONNET,
+        max_tokens: 4096,
+        messages: [{ role: "user", content: prompt }],
+      });
+
+      const rawText = extractText(message);
+      return parseJsonResponse<ClaudeAutofixResponse>(rawText);
+    },
   });
 
-  const rawText = extractText(message);
-  const parsed = parseJsonResponse<ClaudeAutofixResponse>(rawText);
+  // No usable fix (cache miss + AI declined/low-confidence/unavailable).
+  if (!plan) return;
 
-  if (!parsed || !parsed.patch || !parsed.explanation) return;
-
-  // 10. If confidence === 'low' → skip
-  if (parsed.confidence === "low") return;
-
-  // 11. Build and post the comment
-  const commentBody = buildAutofixComment(
-    parsed,
-    idempotencyMarker,
-    gateRunId
-  );
+  // 7. Build and post the comment
+  const commentBody = buildAutofixComment(plan, idempotencyMarker, gateRunId);
 
   const botAuthorId = await getBotUserIdOrFallback(repoRow.id);
   if (!botAuthorId) return;
@@ -309,10 +535,11 @@ Return JSON: {"patch": "...", "explanation": "...", "confidence": "high|medium|l
 }
 
 function buildAutofixComment(
-  result: ClaudeAutofixResponse,
+  plan: AutofixPlan,
   idempotencyMarker: string,
   gateRunId: string
 ): string {
+  const result = plan.fix;
   const confidenceBadge =
     result.confidence === "high"
       ? "🟢 High confidence"
@@ -320,12 +547,23 @@ function buildAutofixComment(
         ? "🟡 Medium confidence"
         : "🔴 Low confidence";
 
+  // Flywheel bookkeeping marker — applyAutofix parses this to settle the
+  // pending entry's outcome. Absent when the flywheel write failed.
+  const flywheelMarker = plan.flywheelEntryId
+    ? `\n${FLYWHEEL_MARKER_PREFIX}${plan.flywheelEntryId} -->`
+    : "";
+
+  const sourceNote =
+    plan.source === "cache"
+      ? `\n\n♻️ **Served from the repair cache** — this failure signature was fixed successfully before; no AI call was made.`
+      : "";
+
   return `${CI_AUTOFIX_MARKER}
-${idempotencyMarker}
+${idempotencyMarker}${flywheelMarker}
 
 ## 🔧 AI Auto-Fix
 
-${result.explanation}
+${result.explanation}${sourceNote}
 
 **Confidence:** ${confidenceBadge}
 
@@ -355,10 +593,15 @@ Copy the patch above or click **Apply Fix** to commit it automatically.
 /**
  * Applies the patch from a PR comment onto a new branch.
  * Returns the new branch name so the caller can redirect to compare view.
+ *
+ * Also settles the comment's pending flywheel entry: a clean apply+commit
+ * records 'success' (the pattern becomes replayable by the Tier-0 cache),
+ * an apply failure records 'failed' so unreliable patterns lose confidence.
  */
 export async function applyAutofix(
   prCommentId: string,
-  userId: string
+  userId: string,
+  deps: CiAutofixDeps = {}
 ): Promise<{ branchName: string }> {
   // 1. Load the comment
   const [comment] = await db
@@ -483,6 +726,16 @@ export async function applyAutofix(
       ["push", repoDir, `HEAD:refs/heads/${branchName}`],
       tmpDir
     );
+
+    // 8. The repair landed — settle the flywheel entry so this pattern's
+    // success rate climbs and future identical failures hit the Tier-0 cache.
+    await recordAutofixOutcome(comment.body, "success", deps);
+  } catch (err) {
+    // The patch failed to apply/commit/push — settle as 'failed' so the
+    // flywheel learns this pattern is unreliable. Best-effort: the original
+    // error is always rethrown for the route to surface.
+    await recordAutofixOutcome(comment.body, "failed", deps);
+    throw err;
   } finally {
     // Cleanup worktree
     await spawnGit(["worktree", "remove", "--force", tmpDir], repoDir).catch(

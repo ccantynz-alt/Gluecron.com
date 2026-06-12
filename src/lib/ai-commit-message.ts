@@ -20,8 +20,7 @@
 
 import {
   getAnthropic,
-  MODEL_HAIKU,
-  MODEL_SONNET,
+  modelForTask,
   extractText,
   parseJsonResponse,
   isAiAvailable,
@@ -273,8 +272,11 @@ export async function generateCommitMessage(
 
   try {
     const client = getAnthropic();
+    // Commit messages are one-line drafts a human always reviews before
+    // committing — safe for Haiku (subject to the AI_FORCE_SONNET kill-switch).
+    const model = modelForTask("commit-message");
     const message = await client.messages.create({
-      model: MODEL_SONNET,
+      model,
       max_tokens: 512,
       messages: [
         {
@@ -287,7 +289,7 @@ export async function generateCommitMessage(
       const { recordAiCost, extractUsage } = await import("./ai-cost-tracker");
       const usage = extractUsage(message);
       await recordAiCost({
-        model: MODEL_SONNET,
+        model,
         inputTokens: usage.input,
         outputTokens: usage.output,
         category: "other",

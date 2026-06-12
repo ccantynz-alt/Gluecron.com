@@ -109,6 +109,7 @@ import adminOpsRoutes from "./routes/admin-ops";
 import adminSelfHostRoutes from "./routes/admin-self-host";
 import adminDiagnoseRoutes from "./routes/admin-diagnose";
 import adminIntegrationsRoutes from "./routes/admin-integrations";
+import adminEnvHealthRoutes from "./routes/admin-env-health";
 import adminAdvancementRoutes from "./routes/admin-advancement";
 import adminSecurityRoutes from "./routes/admin-security";
 import settingsSessionsRoutes from "./routes/settings-sessions";
@@ -733,6 +734,7 @@ app.route("/", adminStripeRoutes);
 // SOC 2 security dashboard + readiness checklist (/admin/security, /admin/soc2)
 app.route("/", adminSecurityRoutes);
 app.route("/", adminIntegrationsRoutes);
+app.route("/", adminEnvHealthRoutes);
 app.route("/", adminAdvancementRoutes);
 app.route("/", adminDeploysRoutes);
 app.route("/", adminDeploysPageRoutes);

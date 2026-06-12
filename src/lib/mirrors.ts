@@ -20,8 +20,12 @@ import {
   users,
 } from "../db/schema";
 import { getRepoPath } from "../git/repository";
+import { assertPublicUrl } from "./ssrf-guard";
 
 const MIRROR_REMOTE_NAME = "gluecron-mirror";
+
+/** Mirror upstreams may use git:// in addition to http(s). */
+const MIRROR_SCHEMES = ["http:", "https:", "git:"];
 const FETCH_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 
 export interface ValidationResult {
@@ -52,6 +56,14 @@ export function validateUpstreamUrl(url: string): ValidationResult {
   const allowed = /^(https?:\/\/|git:\/\/)/i;
   if (!allowed.test(trimmed)) {
     return { ok: false, error: "URL must start with https://, http://, or git://" };
+  }
+  // SSRF guard (BUILD_BIBLE §7): refuse upstreams that point at private/
+  // internal address space (localhost, RFC1918, link-local metadata, etc).
+  // SSRF_ALLOW_PRIVATE=1 opts out for self-hosted setups mirroring
+  // internal git servers.
+  const guard = assertPublicUrl(trimmed, { schemes: MIRROR_SCHEMES });
+  if (!guard.ok) {
+    return { ok: false, error: `blocked: ${guard.reason} (SSRF protection)` };
   }
   return { ok: true };
 }
@@ -201,6 +213,15 @@ export async function runMirrorSync(
   let stderr = "";
 
   try {
+    // SSRF guard — re-check at use time: the stored URL may predate the
+    // guard or have been saved while SSRF_ALLOW_PRIVATE was set. Throwing
+    // here lands in the catch below, which records the run as failed and
+    // never throws out.
+    const guard = assertPublicUrl(url, { schemes: MIRROR_SCHEMES });
+    if (!guard.ok) {
+      throw new Error(`blocked: ${guard.reason} (SSRF protection)`);
+    }
+
     // Ensure the remote exists and points at the current URL.
     await runGit(["git", "remote", "remove", MIRROR_REMOTE_NAME], repoPath);
     const addRes = await runGit(

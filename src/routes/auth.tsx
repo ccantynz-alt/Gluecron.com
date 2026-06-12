@@ -23,6 +23,13 @@ import {
   sessionExpiry,
 } from "../lib/auth";
 import { verifyTotpCode, hashRecoveryCode } from "../lib/totp";
+import {
+  evaluateLockout,
+  retryAfterMinutes,
+  LOGIN_FAIL_WINDOW_MS,
+  LOGIN_FAIL_LIMIT,
+  type LockoutState,
+} from "../lib/login-lockout";
 import { cancelAccountDeletion } from "../lib/account-deletion";
 import { audit } from "../lib/notify";
 import {
@@ -590,28 +597,42 @@ auth.get("/login", softAuth, async (c) => {
   );
 });
 
-// ── Account lockout constants (SOC 2 CC6.1) ─────────────────────────────
-const LOGIN_FAIL_WINDOW_MS = 60 * 60 * 1000; // 1 hour
-const LOGIN_FAIL_LIMIT = 10;
-const LOGIN_LOCKOUT_MS = 15 * 60 * 1000; // 15 minutes
-
 /**
- * Returns the number of failed login attempts for `email` in the last
- * `LOGIN_FAIL_WINDOW_MS` milliseconds.
+ * Loads the failure aggregate for `email` and evaluates the lockout policy
+ * (see src/lib/login-lockout.ts for the semantics).
+ *
+ * Fails OPEN: if the `login_attempts` table is unreachable (missing
+ * migration, transient DB error) login must still work — a broken lockout
+ * ledger must never lock every user out of the site. That failure class
+ * is exactly what the 0087 migration blockade caused in production.
  */
-async function countRecentFailures(email: string): Promise<number> {
-  const since = new Date(Date.now() - LOGIN_FAIL_WINDOW_MS);
-  const [row] = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(loginAttempts)
-    .where(
-      and(
-        eq(loginAttempts.email, email.toLowerCase()),
-        eq(loginAttempts.success, false),
-        gte(loginAttempts.createdAt, since)
-      )
+async function getLockoutState(email: string): Promise<LockoutState> {
+  try {
+    const since = new Date(Date.now() - LOGIN_FAIL_WINDOW_MS);
+    const [row] = await db
+      .select({
+        count: sql<number>`count(*)::int`,
+        newest: sql<string | null>`max(${loginAttempts.createdAt})`,
+      })
+      .from(loginAttempts)
+      .where(
+        and(
+          eq(loginAttempts.email, email.toLowerCase()),
+          eq(loginAttempts.success, false),
+          gte(loginAttempts.createdAt, since)
+        )
+      );
+    return evaluateLockout({
+      failureCount: row?.count ?? 0,
+      newestFailureAt: row?.newest ? new Date(row.newest) : null,
+    });
+  } catch (err) {
+    console.error(
+      "[auth] lockout check failed (failing open):",
+      err instanceof Error ? err.message : err
     );
-  return row?.count ?? 0;
+    return { locked: false, failureCount: 0, retryAfterMs: 0 };
+  }
 }
 
 auth.post("/login", async (c) => {
@@ -679,28 +700,29 @@ auth.post("/login", async (c) => {
   const emailKey = (user?.email ?? identifier).toLowerCase();
 
   // ── Lockout check ───────────────────────────────────────────────────
-  // Check whether this email is currently locked out (≥ LOGIN_FAIL_LIMIT
-  // failures in the last LOGIN_FAIL_WINDOW_MS). We check before password
-  // verification so brute-forcers can't time-diff their way around it.
-  const recentFailures = await countRecentFailures(emailKey);
-  if (recentFailures >= LOGIN_FAIL_LIMIT) {
-    // Record that we blocked this attempt (success=false) so the window
-    // keeps rolling while the attacker keeps trying.
-    await db
-      .insert(loginAttempts)
-      .values({ email: emailKey, ip, success: false })
-      .catch(() => {});
+  // Locked when ≥ LOGIN_FAIL_LIMIT failures in the trailing window AND the
+  // newest failure is younger than LOGIN_LOCKOUT_MS. We check before
+  // password verification so brute-forcers can't time-diff their way
+  // around it. Blocked attempts are deliberately NOT recorded as failures:
+  // recording them rolled the window forward forever, so a user retrying
+  // their correct password stayed locked out permanently.
+  const lockout = await getLockoutState(emailKey);
+  if (lockout.locked) {
     await audit({
       userId: user?.id ?? null,
       action: "auth.login.locked",
       ip,
       userAgent: ua,
-      metadata: { email: emailKey, recentFailures },
+      metadata: { email: emailKey, recentFailures: lockout.failureCount },
     });
+    const mins = retryAfterMinutes(lockout);
     return c.redirect(
-      "/login?error=Account+temporarily+locked+due+to+too+many+failed+login+attempts.+Please+try+again+in+15+minutes."
+      `/login?error=${encodeURIComponent(
+        `Account temporarily locked due to too many failed login attempts. Please try again in ${mins} minute${mins === 1 ? "" : "s"}.`
+      )}`
     );
   }
+  const recentFailures = lockout.failureCount;
 
   if (!user) {
     // Record failed attempt (unknown user) and return generic error.
@@ -741,10 +763,17 @@ auth.post("/login", async (c) => {
     return c.redirect("/login?error=Invalid+credentials");
   }
 
-  // Successful login — record success and clear old failure window.
+  // Successful login — record success and clear the failure history so a
+  // stale window can't combine with one future typo to re-trip the lock.
   await db
     .insert(loginAttempts)
     .values({ email: emailKey, ip, success: true })
+    .catch(() => {});
+  await db
+    .delete(loginAttempts)
+    .where(
+      and(eq(loginAttempts.email, emailKey), eq(loginAttempts.success, false))
+    )
     .catch(() => {});
 
   // B4: if the user has TOTP enabled, issue a pending-2fa session and

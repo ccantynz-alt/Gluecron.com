@@ -126,7 +126,7 @@ src/
 ## Integrations
 
 - **GateTest (optional):** third-party security scanner. When `GATETEST_URL` is set, `git push` POSTs to it; inbound results accepted at `POST /api/hooks/gatetest`.
-- **Outbound deploy webhook (optional):** when `CRONTECH_DEPLOY_URL` is set, pushes to the default branch POST there.
+- **Outbound deploy webhook (optional):** when `VAPRON_DEPLOY_URL` is set (legacy `CRONTECH_DEPLOY_URL` honored), pushes to the default branch POST to Vapron (formerly Crontech).
 - **Webhooks:** POST to user-registered URLs on push/issue/PR/star events with HMAC signatures.
 
 ## Environment Variables

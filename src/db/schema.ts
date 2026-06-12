@@ -575,7 +575,7 @@ export const auditLog = pgTable(
 );
 
 /**
- * Deployments — tracks every deploy to downstream systems (Crontech, etc).
+ * Deployments — tracks every deploy to downstream systems (Vapron, etc).
  * Each deploy is gated on ALL green gates passing.
  */
 export const deployments = pgTable(
@@ -590,7 +590,7 @@ export const deployments = pgTable(
     ref: text("ref").notNull(),
     status: text("status").notNull(), // pending, running, success, failed, blocked, waiting_timer
     blockedReason: text("blocked_reason"),
-    target: text("target"), // e.g. "crontech", "fly.io"
+    target: text("target"), // e.g. "vapron" (legacy rows: "crontech"), "fly.io"
     triggeredBy: uuid("triggered_by").references(() => users.id),
     /**
      * Set when an approved deploy is held by `environments.wait_timer_minutes`.

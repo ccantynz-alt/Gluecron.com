@@ -274,8 +274,9 @@ describe("system-config — INTEGRATION_FIELDS surface", () => {
       "GATETEST_URL",
       "GATETEST_API_KEY",
       "DEPLOY_EVENT_TOKEN",
-      "CRONTECH_DEPLOY_URL",
-      "CRONTECH_HMAC_SECRET",
+      "VAPRON_DEPLOY_URL",
+      "VAPRON_HMAC_SECRET",
+      "VAPRON_EVENT_TOKEN",
     ]) {
       expect(keys).toContain(expected);
     }

@@ -16,25 +16,45 @@ export const config = {
   get gatetestApiKey() {
     return process.env.GATETEST_API_KEY || "";
   },
-  get crontechDeployUrl() {
+  get vapronDeployUrl() {
     return (
-      process.env.CRONTECH_DEPLOY_URL ||
-      "https://crontech.ai/api/webhooks/gluecron-push"
+      process.env.VAPRON_DEPLOY_URL ||
+      process.env.CRONTECH_DEPLOY_URL || // legacy name (pre-rename)
+      "https://vapron.ai/api/webhooks/gluecron-push"
     );
   },
   /**
-   * BLK-016 — only fire the Crontech deploy webhook for pushes to this
+   * BLK-016 — only fire the Vapron deploy webhook for pushes to this
    * `<owner>/<name>`. Every other repo's push is ignored. Override per
-   * environment via `CRONTECH_REPO`.
+   * environment via `VAPRON_REPO` (legacy `CRONTECH_REPO` still honored).
    */
-  get crontechRepo() {
-    return process.env.CRONTECH_REPO || "ccantynz-alt/crontech";
+  get vapronRepo() {
+    return (
+      process.env.VAPRON_REPO ||
+      process.env.CRONTECH_REPO || // legacy name (pre-rename)
+      "ccantynz-alt/vapron"
+    );
   },
   /**
-   * Shared HMAC secret for the outbound deploy webhook to Crontech's
+   * HMAC secret for signing the outbound Vapron deploy webhook
+   * (`X-Gluecron-Signature: sha256=<hex>`). Resolution order: the
+   * VAPRON_HMAC_SECRET set on /admin/integrations (or env), the legacy
+   * CRONTECH_HMAC_SECRET, then GLUECRON_WEBHOOK_SECRET (the original
+   * env-only name the signer used before the admin field existed).
+   */
+  get vapronHmacSecret() {
+    return (
+      process.env.VAPRON_HMAC_SECRET ||
+      process.env.CRONTECH_HMAC_SECRET ||
+      process.env.GLUECRON_WEBHOOK_SECRET ||
+      ""
+    );
+  },
+  /**
+   * Shared HMAC secret for the outbound deploy webhook to Vapron's
    * `POST /api/webhooks/gluecron-push` endpoint. Used to compute the
    * `X-Gluecron-Signature: sha256=<hex>` header on every fire. Default
-   * empty → header is omitted and Crontech will reject with 401 (treated
+   * empty → header is omitted and Vapron will reject with 401 (treated
    * as a failed deploy).
    */
   get gluecronWebhookSecret() {

@@ -375,7 +375,7 @@ export const LandingHero: FC<LandingPageProps> = ({
           </div>
         </section>
 
-        {/* ---------- Capability strip — uppercase tracked grid (crontech-style) ---------- */}
+        {/* ---------- Capability strip — uppercase tracked grid (vapron-style) ---------- */}
         <section class="landing-caps">
           <div class="landing-caps-grid">
             <span class="landing-cap">Claude-powered AI</span>
@@ -393,7 +393,7 @@ export const LandingHero: FC<LandingPageProps> = ({
           </div>
         </section>
 
-        {/* ---------- Big stat row (crontech-style hero closer) ---------- */}
+        {/* ---------- Big stat row (vapron-style hero closer) ---------- */}
         <section class="landing-bigstats">
           <div class="landing-bigstats-grid">
             <div class="landing-bigstat">
@@ -504,7 +504,7 @@ export const LandingHero: FC<LandingPageProps> = ({
             <WalkStep n="01" title="Push" desc="git push to gluecron — Smart-HTTP, SSH, or via the web editor." />
             <WalkStep n="02" title="Gate" desc="GateTest runs. Secret scanner runs. AI security review posts inline comments." />
             <WalkStep n="03" title="Repair" desc="If a gate fails, auto-repair tries to fix it. New commit gets re-gated." />
-            <WalkStep n="04" title="Ship" desc="Green push to default branch fires deploy webhook. Crontech, Fly, your prod." />
+            <WalkStep n="04" title="Ship" desc="Green push to default branch fires deploy webhook. Vapron, Fly, your prod." />
           </div>
         </section>
 
@@ -2272,7 +2272,7 @@ const landingCss = `
   }
   .landing-stats-sep { opacity: 0.4; }
 
-  /* ---------- Capability grid (crontech-style uppercase tracked) ---------- */
+  /* ---------- Capability grid (vapron-style uppercase tracked) ---------- */
   .landing-caps {
     margin: var(--s-12) auto var(--s-16);
     max-width: 1080px;
@@ -2303,7 +2303,7 @@ const landingCss = `
     .landing-caps-grid { grid-template-columns: 1fr; }
   }
 
-  /* ---------- Big stat row (crontech-style hero closer) ---------- */
+  /* ---------- Big stat row (vapron-style hero closer) ---------- */
   .landing-bigstats {
     margin: var(--s-10) auto var(--s-20);
     max-width: 1180px;

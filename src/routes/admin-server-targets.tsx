@@ -200,10 +200,10 @@ admin.get("/admin/servers/new", async (c) => {
         <h1 style="margin:0 0 16px;font-size:22px">New server target</h1>
         <form method="post" action="/admin/servers" style={card}>
           <label style={label}>Name (unique identifier)</label>
-          <input name="name" required pattern="[a-z0-9-]+" placeholder="crontech-prod-1" style={inputStyle} />
+          <input name="name" required pattern="[a-z0-9-]+" placeholder="vapron-prod-1" style={inputStyle} />
 
           <label style={label}>Host</label>
-          <input name="host" required placeholder="1.2.3.4 or box.crontech.ai" style={inputStyle} />
+          <input name="host" required placeholder="1.2.3.4 or box.vapron.ai" style={inputStyle} />
 
           <div style="display:flex;gap:14px">
             <div style="flex:1">

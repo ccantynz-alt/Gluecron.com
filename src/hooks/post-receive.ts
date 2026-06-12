@@ -6,7 +6,7 @@
  * 2. Push analysis — detect breaking changes, security issues
  * 3. Health score — recompute repo health
  * 4. GateTest scan — external security scanning
- * 5. Crontech deploy — auto-deploy on push to main
+ * 5. Vapron deploy — auto-deploy on push to main
  * 6. Webhooks — fire registered webhook URLs
  */
 
@@ -171,11 +171,12 @@ export async function onPostReceive(
     console.warn("[repo-onboarding] dispatch error:", err)
   );
 
-  // 5. Crontech deploy (BLK-016) — only fires for the configured Crontech repo
-  //    (CRONTECH_REPO, default `ccantynz-alt/crontech`) on a push to its
+  // 5. Vapron deploy (BLK-016) — only fires for the configured Vapron repo
+  //    (VAPRON_REPO, default `ccantynz-alt/vapron`; legacy CRONTECH_REPO honored)
+  //    on a push to its
   //    default branch. The branch case (`Main` vs `main`) is determined by
   //    the bare repo's HEAD, not hardcoded.
-  if (`${owner}/${repo}` === config.crontechRepo) {
+  if (`${owner}/${repo}` === config.vapronRepo) {
     let defaultBranch =
       (await getDefaultBranch(owner, repo).catch((err) => {
         console.warn(
@@ -202,7 +203,7 @@ export async function onPostReceive(
         /* ignore */
       }
       if (repositoryId) {
-        triggerCrontechDeploy({
+        triggerVapronDeploy({
           owner,
           repo,
           before: deployPush.oldSha,
@@ -210,7 +211,7 @@ export async function onPostReceive(
           ref: targetRef,
           branch: defaultBranch,
           repositoryId,
-        }).catch((err: unknown) => console.error(`[crontech] error:`, err));
+        }).catch((err: unknown) => console.error(`[vapron] error:`, err));
       }
     }
   }
@@ -283,17 +284,17 @@ export function __setSelfHostSpawnForTests(
 }
 
 /**
- * BLK-016 — outbound deploy webhook for Crontech's deploy-agent.
+ * BLK-016 — outbound deploy webhook for Vapron's deploy-agent (formerly Crontech).
  *
- * Wire contract (matches Crontech's `apps/api/src/webhooks/gluecron-push.ts`):
+ * Wire contract (matches Vapron's `apps/api/src/webhooks/gluecron-push.ts`):
  *
- *   POST  https://crontech.ai/api/webhooks/gluecron-push
+ *   POST  https://vapron.ai/api/webhooks/gluecron-push
  *   Content-Type: application/json
  *   X-Gluecron-Signature: sha256=<hex(hmac-sha256(body, GLUECRON_WEBHOOK_SECRET))>
  *
  *   {
  *     "event": "push",
- *     "repository": { "full_name": "ccantynz-alt/crontech" },
+ *     "repository": { "full_name": "ccantynz-alt/vapron" },
  *     "ref": "refs/heads/Main",
  *     "after":  "<40-hex commit SHA>",
  *     "before": "<40-hex previous SHA>",
@@ -305,7 +306,7 @@ export function __setSelfHostSpawnForTests(
  *
  * Delivery: at-least-once via exponential-backoff retry. Up to 5 attempts at
  * delays 1s / 4s / 16s / 64s / 256s; first 2xx wins. If `GLUECRON_WEBHOOK_SECRET`
- * is unset the signature header is omitted and Crontech is expected to reject —
+ * is unset the signature header is omitted and Vapron is expected to reject —
  * we still record the deploy row as failed.
  */
 const RETRY_DELAYS_MS = [1_000, 4_000, 16_000, 64_000, 256_000];
@@ -376,7 +377,7 @@ async function buildPayload(args: TriggerArgs, now: Date): Promise<{
   };
 }
 
-async function triggerCrontechDeploy(
+async function triggerVapronDeploy(
   args: TriggerArgs,
   opts: TriggerOptions = {}
 ): Promise<void> {
@@ -395,7 +396,7 @@ async function triggerCrontechDeploy(
         commitSha: args.after,
         ref: args.ref,
         status: "pending",
-        target: "crontech",
+        target: "vapron",
       })
       .returning();
     deployId = row?.id || "";
@@ -405,7 +406,7 @@ async function triggerCrontechDeploy(
 
   const { payload } = await buildPayload(args, now());
   const body = JSON.stringify(payload);
-  const signature = signBody(body, config.gluecronWebhookSecret);
+  const signature = signBody(body, config.vapronHmacSecret);
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -423,14 +424,14 @@ async function triggerCrontechDeploy(
   const totalAttempts = delays.length + 1;
   for (let attempt = 0; attempt < totalAttempts; attempt++) {
     try {
-      const response = await fetchImpl(config.crontechDeployUrl, {
+      const response = await fetchImpl(config.vapronDeployUrl, {
         method: "POST",
         headers,
         body,
       });
       lastStatus = response.status;
       console.log(
-        `[crontech] attempt ${attempt + 1}/${totalAttempts} → ${lastStatus} for ${args.owner}/${args.repo}@${args.after.slice(0, 7)}`
+        `[vapron] attempt ${attempt + 1}/${totalAttempts} → ${lastStatus} for ${args.owner}/${args.repo}@${args.after.slice(0, 7)}`
       );
       if (response.ok) {
         success = true;
@@ -444,7 +445,7 @@ async function triggerCrontechDeploy(
     } catch (err) {
       lastError = err instanceof Error ? err.message : String(err);
       console.error(
-        `[crontech] attempt ${attempt + 1}/${totalAttempts} failed: ${lastError}`
+        `[vapron] attempt ${attempt + 1}/${totalAttempts} failed: ${lastError}`
       );
     }
     const nextDelay = delays[attempt];
@@ -476,7 +477,7 @@ async function triggerCrontechDeploy(
       deploymentId: deployId,
       ref: args.ref,
       commitSha: args.after,
-      target: "crontech",
+      target: "vapron",
       errorMessage: lastError || `HTTP ${lastStatus}`,
     }).catch((e) => console.error("[ai-incident]", e));
   }
@@ -837,7 +838,7 @@ async function fireRepoOnboarding(
 
 /** Test-only access to internal helpers. */
 export const __test = {
-  triggerCrontechDeploy,
+  triggerVapronDeploy,
   signBody,
   buildPayload,
   RETRY_DELAYS_MS,

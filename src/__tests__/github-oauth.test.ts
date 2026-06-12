@@ -3,7 +3,7 @@
  *
  * Pure network helpers (`buildGithubAuthorizeUrl`, `exchangeGithubCode`,
  * `fetchGithubUserinfo`, `fetchGithubPrimaryEmail`) drive an injected
- * fetch — see K2's `crontech-deploy.test.ts` for the DI pattern these
+ * fetch — see K2's `vapron-deploy.test.ts` for the DI pattern these
  * mirror — so tests never touch the real GitHub API.
  *
  * `findOrCreateUserFromGithub` is exercised indirectly: we assert the

@@ -847,6 +847,14 @@ What was verified, not changed:
 - `src/lib/demo-seed.ts` + tests — idempotent `ensureDemoContent()` seeds `demo` user + 3 public sample repos + seeded issues/PR. Boot flag `DEMO_SEED_ON_BOOT=1`. Site-admin reseed button on `/admin` (`POST /admin/demo/reseed`). Public `/demo` convenience redirect to `/demo/hello-python`.
 - Doc sync: `README.md`, `DEPLOY.md`, `LAUNCH_TODAY.md` aligned with current reality.
 
+**BLK-016 update (2026-06-10, owner-directed): Crontech renamed to Vapron.**
+- Owner confirmed Vapron (formerly Crontech) is live at `https://vapron.ai` and directed the rename + reconnect in-session (locked-block change authorised).
+- Sender renamed `triggerCrontechDeploy` → `triggerVapronDeploy`; endpoint default is now `https://vapron.ai/api/webhooks/gluecron-push`; trigger repo default `ccantynz-alt/vapron`.
+- Env names renamed to `VAPRON_DEPLOY_URL` / `VAPRON_REPO` / `VAPRON_HMAC_SECRET` / `VAPRON_EVENT_TOKEN`; all legacy `CRONTECH_*` names (and `GLUECRON_WEBHOOK_SECRET` for the HMAC) still honored as fallbacks.
+- Fixed a latent bug: the `/admin/integrations` "HMAC secret" field (stored as `CRONTECH_HMAC_SECRET`) was never read by the signer, which only used `GLUECRON_WEBHOOK_SECRET`. The signer now resolves `VAPRON_HMAC_SECRET → CRONTECH_HMAC_SECRET → GLUECRON_WEBHOOK_SECRET`, so the admin-page value works.
+- New `deployments.target` rows write `"vapron"`; pre-rename rows keep `"crontech"`.
+- Tests live in `src/__tests__/vapron-deploy.test.ts` (renamed; +3 legacy-fallback tests).
+
 **BLK-016 Crontech-Gluecron deploy wire — Gluecron sender rewritten (pending live verification):**
 - `src/hooks/post-receive.ts triggerCrontechDeploy` now matches the Crontech receiver at `apps/api/src/webhooks/gluecron-push.ts`:
   - Endpoint default `POST https://crontech.ai/api/webhooks/gluecron-push` (was `/api/hooks/gluecron/push`).

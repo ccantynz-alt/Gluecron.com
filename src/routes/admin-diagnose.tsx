@@ -623,33 +623,37 @@ async function checkWorkflowQueue(): Promise<CheckResult> {
 }
 
 /**
- * Crontech deploy webhook secret — without it, the webhook POSTs
- * unsigned and Crontech rejects with 401, but our hook side never sees
+ * Vapron deploy webhook secret — without it, the webhook POSTs
+ * unsigned and Vapron rejects with 401, but our hook side never sees
  * the rejection because the request is fire-and-forget.
  */
-function checkCrontechWebhook(): CheckResult {
-  const url = process.env.CRONTECH_DEPLOY_URL;
-  const secret = process.env.CRONTECH_HMAC_SECRET;
+function checkVapronWebhook(): CheckResult {
+  const url =
+    process.env.VAPRON_DEPLOY_URL || process.env.CRONTECH_DEPLOY_URL;
+  const secret =
+    process.env.VAPRON_HMAC_SECRET ||
+    process.env.CRONTECH_HMAC_SECRET ||
+    process.env.GLUECRON_WEBHOOK_SECRET;
   if (!url) {
     return {
-      category: "Crontech",
+      category: "Vapron",
       name: "Deploy webhook",
       status: "yellow",
-      detail: "CRONTECH_DEPLOY_URL unset — pushes to the Crontech repo don't notify the deploy pipeline.",
-      fix: "Optional integration. Set CRONTECH_DEPLOY_URL + CRONTECH_HMAC_SECRET if you want push-triggered Crontech deploys.",
+      detail: "VAPRON_DEPLOY_URL unset — pushes to the Vapron repo don't notify the deploy pipeline.",
+      fix: "Optional integration. Set VAPRON_DEPLOY_URL + VAPRON_HMAC_SECRET (admin → integrations) if you want push-triggered Vapron deploys.",
     };
   }
   if (!secret) {
     return {
-      category: "Crontech",
+      category: "Vapron",
       name: "Deploy webhook",
       status: "red",
-      detail: "CRONTECH_DEPLOY_URL set but CRONTECH_HMAC_SECRET empty — webhook will be rejected as unsigned.",
-      fix: "Add CRONTECH_HMAC_SECRET to /etc/gluecron.env (match the value configured on Crontech's side).",
+      detail: "Webhook URL set but no HMAC secret — webhook will be rejected as unsigned.",
+      fix: "Set VAPRON_HMAC_SECRET on /admin/integrations (match the value configured on Vapron's side).",
     };
   }
   return {
-    category: "Crontech",
+    category: "Vapron",
     name: "Deploy webhook",
     status: "green",
     detail: `Configured (POST to ${url}).`,
@@ -1080,7 +1084,7 @@ async function runAllChecks(c: any): Promise<CheckResult[]> {
     checkAutopilot(),
     await checkRecentDeploy(),
     await checkWorkflowQueue(),
-    checkCrontechWebhook(),
+    checkVapronWebhook(),
   ];
 }
 

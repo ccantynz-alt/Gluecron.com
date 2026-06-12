@@ -195,7 +195,7 @@ afterAll(() => {
 // onPostReceive calls into autoRepair / analyzePush / computeHealthScore
 // which each touch the DB. The mocked DB is intentionally empty, so each
 // helper logs an error and continues. We assert *only* on the self-host
-// spawn — the existing crontech/intelligence behaviour is covered by
+// spawn — the existing vapron/intelligence behaviour is covered by
 // other test files and untouched here.
 // ---------------------------------------------------------------------------
 

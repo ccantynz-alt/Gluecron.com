@@ -31,6 +31,7 @@
 import { and, asc, eq, lte, sql } from "drizzle-orm";
 import { db } from "../db";
 import { webhookDeliveries, webhooks } from "../db/schema";
+import { assertPublicUrl } from "./ssrf-guard";
 
 // ---------------------------------------------------------------------------
 // Tunables
@@ -184,6 +185,36 @@ export async function attemptDelivery(
 
   const d = row.delivery;
   const attemptNumber = d.attemptCount + 1;
+
+  // SSRF guard (BUILD_BIBLE §7): refuse to POST to private/internal
+  // addresses. Permanent condition — retrying won't change the URL — so
+  // the row goes straight to 'dead' with a clear reason. Never throws.
+  const guard = assertPublicUrl(row.url);
+  if (!guard.ok) {
+    const blockedAt = new Date();
+    await db
+      .update(webhookDeliveries)
+      .set({
+        status: "dead",
+        attemptCount: attemptNumber,
+        lastAttemptedAt: blockedAt,
+        lastStatusCode: null,
+        lastError: `blocked: ${guard.reason} (SSRF protection)`,
+        nextAttemptAt: null,
+      })
+      .where(eq(webhookDeliveries.id, deliveryId));
+
+    try {
+      await db
+        .update(webhooks)
+        .set({ lastDeliveredAt: blockedAt, lastStatus: 0 })
+        .where(eq(webhooks.id, d.webhookId));
+    } catch {
+      /* swallow */
+    }
+
+    return "dead";
+  }
 
   // Perform the POST.
   let statusCode: number | null = null;

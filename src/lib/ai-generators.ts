@@ -5,8 +5,7 @@
 
 import {
   getAnthropic,
-  MODEL_HAIKU,
-  MODEL_SONNET,
+  modelForTask,
   extractText,
   parseJsonResponse,
   isAiAvailable,
@@ -18,7 +17,8 @@ export async function generateCommitMessage(diff: string): Promise<string> {
   }
   const client = getAnthropic();
   const message = await client.messages.create({
-    model: MODEL_SONNET,
+    // Human-reviewed one-line draft → Haiku-eligible.
+    model: modelForTask("commit-message"),
     max_tokens: 512,
     messages: [
       {
@@ -42,7 +42,8 @@ export async function generatePrSummary(
   if (!isAiAvailable() || !diff.trim()) return "";
   const client = getAnthropic();
   const message = await client.messages.create({
-    model: MODEL_SONNET,
+    // User-facing PR description → stays on Sonnet (routed for the kill-switch).
+    model: modelForTask("pr-summary"),
     max_tokens: 1024,
     messages: [
       {
@@ -82,7 +83,8 @@ export async function generateChangelog(
     .map((c) => `- ${c.sha.slice(0, 7)} ${c.message.split("\n")[0]} — ${c.author}`)
     .join("\n");
   const message = await client.messages.create({
-    model: MODEL_SONNET,
+    // User-facing release notes → stays on Sonnet (routed for the kill-switch).
+    model: modelForTask("changelog"),
     max_tokens: 2048,
     messages: [
       {
@@ -124,7 +126,9 @@ export async function triageIssue(
   if (!isAiAvailable()) return fallback;
   const client = getAnthropic();
   const message = await client.messages.create({
-    model: MODEL_SONNET,
+    // Label/priority/duplicate suggestions, validated against allowlists and
+    // trivially human-overridden → Haiku-eligible.
+    model: modelForTask("issue-triage"),
     max_tokens: 512,
     messages: [
       {
@@ -200,7 +204,9 @@ export async function triagePullRequest(
   try {
     const client = getAnthropic();
     const message = await client.messages.create({
-      model: MODEL_SONNET,
+      // Label/reviewer/priority suggestions, validated against allowlists and
+      // trivially human-overridden → Haiku-eligible.
+      model: modelForTask("pr-triage"),
       max_tokens: 512,
       messages: [
         {

@@ -32,7 +32,7 @@
  */
 
 import { createHash } from "crypto";
-import { and, desc, eq, sql, isNotNull, or } from "drizzle-orm";
+import { and, desc, eq, ne, sql, isNotNull, or } from "drizzle-orm";
 import { db } from "../db";
 import { repairFlywheel } from "../db/schema";
 
@@ -42,6 +42,9 @@ export type RepairOutcome = "pending" | "success" | "failed" | "reverted";
 export interface CachedRepair {
   id: string;
   patchSummary: string;
+  /** Full unified-diff patch (migration 0105). Null on pre-0105 rows — those
+   * entries can't be replayed and callers must fall through to the AI tier. */
+  patch: string | null;
   filesChanged: string[];
   commitSha: string | null;
   hitCount: number;
@@ -49,6 +52,14 @@ export interface CachedRepair {
   classification: string | null;
   appliedCount: number;
 }
+
+/** Cap on the stored full patch — anything bigger isn't worth replaying. */
+const MAX_PATCH_CHARS = 64 * 1024;
+
+// The full-patch column postdates the locked schema.ts (migration 0105), so
+// it isn't on the drizzle table object — read it with a raw fragment. If the
+// migration hasn't run yet the query throws; callers treat that as a miss.
+const patchColumn = sql<string | null>`${repairFlywheel}."patch"`;
 
 // ─────────────────────────────────────────────────────────────────────────
 // Fingerprinting — turn any failure text into a stable signature.
@@ -117,7 +128,7 @@ export async function findCachedRepair(
 
   // First try: same repo, same signature, prefer the most recent success
   const sameRepo = await db
-    .select()
+    .select({ row: repairFlywheel, patch: patchColumn })
     .from(repairFlywheel)
     .where(
       and(
@@ -130,12 +141,12 @@ export async function findCachedRepair(
     .limit(1);
 
   if (sameRepo.length > 0) {
-    return await hydrate(sameRepo[0]!);
+    return await hydrate(sameRepo[0]!.row, sameRepo[0]!.patch);
   }
 
   // Fallback: any public pattern with this signature
   const cross = await db
-    .select()
+    .select({ row: repairFlywheel, patch: patchColumn })
     .from(repairFlywheel)
     .where(
       and(
@@ -148,7 +159,7 @@ export async function findCachedRepair(
     .limit(1);
 
   if (cross.length > 0) {
-    return await hydrate(cross[0]!);
+    return await hydrate(cross[0]!.row, cross[0]!.patch);
   }
 
   return null;
@@ -156,10 +167,13 @@ export async function findCachedRepair(
 
 async function hydrate(
   row: typeof repairFlywheel.$inferSelect,
+  patch: string | null,
 ): Promise<CachedRepair> {
   // Confidence: count successes vs failures across all entries that share
   // this signature (or its cache lineage). Quick computation, sub-ms in
-  // typical use; we'll cache later if this becomes hot.
+  // typical use; we'll cache later if this becomes hot. Pending rows are
+  // excluded — in-flight repairs haven't settled, and counting them as
+  // non-successes would let queued attempts depress a good pattern's score.
   const stats = await db
     .select({
       total: sql<number>`count(*)::int`,
@@ -167,9 +181,12 @@ async function hydrate(
     })
     .from(repairFlywheel)
     .where(
-      or(
-        eq(repairFlywheel.failureSignature, row.failureSignature),
-        eq(repairFlywheel.parentPatternId, row.id),
+      and(
+        or(
+          eq(repairFlywheel.failureSignature, row.failureSignature),
+          eq(repairFlywheel.parentPatternId, row.id),
+        ),
+        ne(repairFlywheel.outcome, "pending"),
       ),
     );
 
@@ -180,6 +197,7 @@ async function hydrate(
   return {
     id: row.id,
     patchSummary: row.patchSummary,
+    patch,
     filesChanged: (row.filesChanged as string[]) ?? [],
     commitSha: row.commitSha,
     hitCount: row.cacheHitCount,
@@ -199,6 +217,9 @@ export interface RecordRepairInput {
   classification: string | null;
   tier: RepairTier;
   patchSummary: string;
+  /** Full unified-diff patch so Tier-0 cache hits can replay it. Optional —
+   * mechanical repairs have no diff to store. Capped at ~64KB. */
+  patch?: string | null;
   filesChanged: string[];
   commitSha: string | null;
   parentPatternId?: string | null;
@@ -233,6 +254,25 @@ export async function recordRepair(input: RecordRepairInput): Promise<string> {
       isPublicPattern: input.isPublicPattern ?? false,
     })
     .returning({ id: repairFlywheel.id });
+
+  // The full patch goes in via raw UPDATE: the "patch" column (migration
+  // 0105) postdates the locked schema.ts so it can't ride the drizzle
+  // insert above. Best-effort — if it fails (e.g. migration not yet
+  // applied) the audit row is still intact, the entry just can't be
+  // replayed by the Tier-0 cache.
+  if (input.patch) {
+    const patch = input.patch.slice(0, MAX_PATCH_CHARS);
+    try {
+      await db.execute(
+        sql`update "repair_flywheel" set "patch" = ${patch} where "id" = ${row!.id}`,
+      );
+    } catch (err) {
+      console.warn(
+        "[repair-flywheel] patch write failed (is migration 0105 applied?):",
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
 
   // If this was a cache hit (Tier 0), bump the parent pattern's hit count.
   if (input.parentPatternId) {

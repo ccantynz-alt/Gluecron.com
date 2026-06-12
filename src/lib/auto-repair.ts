@@ -408,6 +408,15 @@ ${patches.map((p) => `- ${p.path}: ${p.reason}`).join("\n")}
 /**
  * Given a GateTest failure summary, ask Claude to produce a patch set
  * that should make the failing check pass.
+ *
+ * NOTE (2026-06-12, BUILD_BIBLE §7 finding 1): the LIVE gate/CI repair path
+ * is `triggerCiAutofix()` in src/lib/ci-autofix.ts, which consults the
+ * repair-flywheel Tier-0 cache (`findCachedRepair`) before any AI call and
+ * settles outcomes via `updateOutcome()`. This function currently has no
+ * route/hook callers but is retained per the do-not-undo rule (§4.4 locked):
+ * it remains the worktree-backed Tier-1→2 orchestrator should a direct
+ * commit-back repair path be wired again. Do not delete; do not dedupe with
+ * src/lib/autorepair.ts (both are load-bearing per the Bible).
  */
 export async function repairGateFailure(
   owner: string,

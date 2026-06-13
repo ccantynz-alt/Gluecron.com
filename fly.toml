@@ -8,11 +8,6 @@ primary_region = "iad"
   GIT_REPOS_PATH = "/app/repos"
   PORT = "3000"
   NODE_ENV = "production"
-  # Canonical public origin. Without this, config.appBaseUrl falls back to
-  # http://localhost:3000, which breaks every OAuth redirect (Google rejects
-  # the callback with redirect_uri_mismatch) and points email/webhook links
-  # at localhost. A Fly secret of the same name still overrides this default.
-  APP_BASE_URL = "https://gluecron.com"
 
 [http_service]
   internal_port = 3000

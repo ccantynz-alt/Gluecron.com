@@ -23,7 +23,6 @@ import {
   findOrCreateUserFromGoogle,
   getGoogleOauthConfig,
   googleOauthConfigFromEnv,
-  googleOauthRedirectUri,
   issueSsoSession,
   randomToken,
   upsertGoogleOauthConfig,
@@ -33,11 +32,28 @@ import {
   buildGoogleAuthorizeUrl,
   exchangeGoogleCode,
   fetchGoogleUserinfo,
+  resolveGoogleRedirectUri,
 } from "../lib/google-oauth";
+import { config } from "../lib/config";
 import { sessionCookieOptions } from "../lib/auth";
 
 const googleOauth = new Hono<AuthEnv>();
 googleOauth.use("*", softAuth);
+
+/**
+ * The absolute callback URI for the current request. Self-heals from the
+ * proxy's forwarded headers so it stays correct (https + public host) even
+ * when APP_BASE_URL isn't configured — see `resolveGoogleRedirectUri`.
+ */
+function googleRedirectUri(c: { req: { header: (n: string) => string | undefined; url: string } }): string {
+  return resolveGoogleRedirectUri({
+    configuredBaseUrl: config.appBaseUrl,
+    forwardedProto: c.req.header("x-forwarded-proto") ?? null,
+    forwardedHost: c.req.header("x-forwarded-host") ?? null,
+    host: c.req.header("host") ?? null,
+    requestUrl: c.req.url,
+  });
+}
 
 function stateCookieOpts(): {
   httpOnly: boolean;
@@ -84,22 +100,22 @@ googleOauth.get("/admin/google-oauth", requireAuth, async (c) => {
   const cfg = await getGoogleOauthConfig();
   const success = c.req.query("success");
   const error = c.req.query("error");
-  const redirectUri = googleOauthRedirectUri();
+  // Self-healing: derived from this very request, so it matches whatever
+  // public host the admin is viewing on — no APP_BASE_URL required.
+  const redirectUri = googleRedirectUri(c);
 
   // ── Live diagnostic: explain exactly why the /login button is on or off ──
   const envPresent = !!googleOauthConfigFromEnv();
   const liveOn = !!cfg?.enabled && !!cfg.clientId && !!cfg.clientSecret;
   const offReason = !cfg
-    ? "no Client ID / Secret found anywhere. Paste them below, or set the GOOGLE_OAUTH_CLIENT_ID + GOOGLE_OAUTH_CLIENT_SECRET environment variables."
+    ? "no Client ID / Secret found anywhere. Paste them below (they save straight to the database — no redeploy)."
     : !cfg.enabled
       ? "a saved config exists but the “Enable” box is unticked. Tick it and save."
       : "the saved Client ID or Secret is incomplete.";
-  // Google refuses any non-HTTPS or localhost redirect URI for a real client,
-  // so flag it before the operator wastes a round-trip to the consent screen.
+  // In production this resolves to your public https callback; only local dev
+  // lands on localhost, which Google won't accept for a real client.
   const redirectLooksLocal =
-    redirectUri.startsWith("http://") ||
-    redirectUri.includes("localhost") ||
-    redirectUri.includes("127.0.0.1");
+    redirectUri.includes("localhost") || redirectUri.includes("127.0.0.1");
 
   return c.html(
     <Layout title="Google sign-in — Admin" user={user}>
@@ -141,11 +157,10 @@ googleOauth.get("/admin/google-oauth", requireAuth, async (c) => {
           </div>
           {redirectLooksLocal && (
             <div class="auth-error" style="margin-top:8px">
-              ⚠ The redirect URI below points at a non-HTTPS / localhost
-              address. Google rejects sign-in with{" "}
-              <code>redirect_uri_mismatch</code> unless your public HTTPS URL
-              is used. Set <code>APP_BASE_URL=https://gluecron.com</code> (env
-              or Fly secret) and redeploy.
+              ⚠ You're on a localhost origin (local dev). In production this
+              callback auto-resolves to your public HTTPS URL from the request
+              — no <code>APP_BASE_URL</code> needed. Google won't accept a
+              localhost callback for a real client.
             </div>
           )}
         </div>
@@ -312,7 +327,7 @@ googleOauth.get("/login/google", async (c) => {
   }
   const state = randomToken(16);
   const nonce = randomToken(16);
-  const redirectUri = googleOauthRedirectUri();
+  const redirectUri = googleRedirectUri(c);
   let target: string;
   try {
     target = buildGoogleAuthorizeUrl(cfg, state, redirectUri, nonce);
@@ -367,7 +382,7 @@ googleOauth.get("/login/google/callback", async (c) => {
     const { accessToken } = await exchangeGoogleCode(
       cfg,
       code,
-      googleOauthRedirectUri()
+      googleRedirectUri(c)
     );
     const userinfo = await fetchGoogleUserinfo(cfg, accessToken);
 

@@ -154,3 +154,75 @@ export async function fetchGoogleUserinfo(
     picture: raw.picture ?? null,
   };
 }
+
+/**
+ * Resolve the absolute "Sign in with Google" callback URI for a request.
+ *
+ * Reliability is the whole point here. The URI we send at /login/google must
+ * be byte-identical to the one we send at the token exchange AND must match a
+ * URI registered in the Google Cloud Console — and it has to keep working even
+ * when nobody has set APP_BASE_URL. Resolution order:
+ *
+ *   1. If an operator pinned an absolute `https://` base URL (via
+ *      /admin/integrations or an env var), trust it verbatim. It's the
+ *      canonical choice and avoids ambiguity when the app answers on several
+ *      hostnames.
+ *   2. Otherwise derive the origin from the actual request. Behind a TLS-
+ *      terminating proxy (Fly) the internal hop is plain http, so we honour
+ *      `X-Forwarded-Proto` / `X-Forwarded-Host`; any non-localhost host
+ *      defaults to https. This self-heals the classic failure where
+ *      APP_BASE_URL is unset and the callback would otherwise resolve to
+ *      `http://localhost:3000/...` and trip `redirect_uri_mismatch`.
+ *
+ * Pure: every input is passed in, so it is fully unit-testable.
+ */
+export function resolveGoogleRedirectUri(opts: {
+  configuredBaseUrl?: string | null;
+  forwardedProto?: string | null;
+  forwardedHost?: string | null;
+  host?: string | null;
+  requestUrl?: string | null;
+}): string {
+  const PATH = "/login/google/callback";
+  const firstValue = (v: string | null | undefined): string =>
+    (v || "").split(",")[0].trim();
+
+  // 1. Explicit, production-grade base URL wins.
+  const configured = (opts.configuredBaseUrl || "").trim().replace(/\/+$/, "");
+  if (
+    configured.startsWith("https://") &&
+    !configured.includes("localhost") &&
+    !configured.includes("127.0.0.1")
+  ) {
+    return `${configured}${PATH}`;
+  }
+
+  // 2. Derive the origin from the request (forwarded headers → Host → URL).
+  let host = firstValue(opts.forwardedHost) || firstValue(opts.host);
+  let urlProto = "";
+  if (opts.requestUrl) {
+    try {
+      const u = new URL(opts.requestUrl);
+      if (!host) host = u.host;
+      urlProto = u.protocol.replace(":", "");
+    } catch {
+      /* ignore an unparseable request URL */
+    }
+  }
+
+  if (!host) {
+    // Nothing to derive from — last-resort dev fallback.
+    const base = configured || "http://localhost:3000";
+    return `${base.replace(/\/+$/, "")}${PATH}`;
+  }
+
+  const isLocal =
+    host.startsWith("localhost") || host.startsWith("127.0.0.1");
+  // A proxy-supplied scheme always wins; otherwise any public host is https
+  // (Fly terminates TLS) and only loopback stays on its request scheme.
+  let proto = firstValue(opts.forwardedProto);
+  if (!proto) proto = isLocal ? urlProto || "http" : "https";
+
+  return `${proto}://${host}${PATH}`;
+}
+

@@ -44,6 +44,14 @@ services:
       - APP_BASE_URL=https://gluecron.com
       - SSH_PORT=0
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      # "Sign in with Google" — values come from .env (gitignored). Wiring them
+      # here is what makes the env bootstrap reach the container and survive
+      # redeploys; a config saved at /admin/google-oauth (DB) still takes
+      # precedence over these.
+      - GOOGLE_OAUTH_CLIENT_ID=${GOOGLE_OAUTH_CLIENT_ID:-}
+      - GOOGLE_OAUTH_CLIENT_SECRET=${GOOGLE_OAUTH_CLIENT_SECRET:-}
+      - GOOGLE_OAUTH_AUTO_CREATE=${GOOGLE_OAUTH_AUTO_CREATE:-}
+      - GOOGLE_OAUTH_ALLOWED_DOMAINS=${GOOGLE_OAUTH_ALLOWED_DOMAINS:-}
     expose:
       - "3000"
     volumes:

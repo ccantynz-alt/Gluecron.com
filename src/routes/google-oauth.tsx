@@ -22,6 +22,7 @@ import { audit } from "../lib/notify";
 import {
   findOrCreateUserFromGoogle,
   getGoogleOauthConfig,
+  googleOauthConfigFromEnv,
   googleOauthRedirectUri,
   issueSsoSession,
   randomToken,
@@ -85,6 +86,21 @@ googleOauth.get("/admin/google-oauth", requireAuth, async (c) => {
   const error = c.req.query("error");
   const redirectUri = googleOauthRedirectUri();
 
+  // ── Live diagnostic: explain exactly why the /login button is on or off ──
+  const envPresent = !!googleOauthConfigFromEnv();
+  const liveOn = !!cfg?.enabled && !!cfg.clientId && !!cfg.clientSecret;
+  const offReason = !cfg
+    ? "no Client ID / Secret found anywhere. Paste them below, or set the GOOGLE_OAUTH_CLIENT_ID + GOOGLE_OAUTH_CLIENT_SECRET environment variables."
+    : !cfg.enabled
+      ? "a saved config exists but the “Enable” box is unticked. Tick it and save."
+      : "the saved Client ID or Secret is incomplete.";
+  // Google refuses any non-HTTPS or localhost redirect URI for a real client,
+  // so flag it before the operator wastes a round-trip to the consent screen.
+  const redirectLooksLocal =
+    redirectUri.startsWith("http://") ||
+    redirectUri.includes("localhost") ||
+    redirectUri.includes("127.0.0.1");
+
   return c.html(
     <Layout title="Google sign-in — Admin" user={user}>
       <div class="settings-container" style="max-width:780px">
@@ -101,6 +117,39 @@ googleOauth.get("/admin/google-oauth", requireAuth, async (c) => {
           </a>{" "}
           (set application type = Web), then paste the Client ID + Secret here.
         </p>
+
+        <div class="panel" style="padding:12px;margin-bottom:16px">
+          <div
+            style="font-size:12px;text-transform:uppercase;color:var(--text-muted)"
+          >
+            Current status
+          </div>
+          {liveOn ? (
+            <div class="auth-success" style="margin:8px 0">
+              ✅ Google sign-in is ON — the button is shown on{" "}
+              <a href="/login">/login</a>.
+            </div>
+          ) : (
+            <div class="auth-error" style="margin:8px 0">
+              ⛔ Google sign-in is OFF — {offReason}
+            </div>
+          )}
+          <div style="font-size:13px;color:var(--text-muted)">
+            Environment bootstrap (<code>GOOGLE_OAUTH_CLIENT_ID</code> +{" "}
+            <code>GOOGLE_OAUTH_CLIENT_SECRET</code>):{" "}
+            <strong>{envPresent ? "detected" : "not set"}</strong>
+          </div>
+          {redirectLooksLocal && (
+            <div class="auth-error" style="margin-top:8px">
+              ⚠ The redirect URI below points at a non-HTTPS / localhost
+              address. Google rejects sign-in with{" "}
+              <code>redirect_uri_mismatch</code> unless your public HTTPS URL
+              is used. Set <code>APP_BASE_URL=https://gluecron.com</code> (env
+              or Fly secret) and redeploy.
+            </div>
+          )}
+        </div>
+
         <div class="panel" style="padding:12px;margin-bottom:16px">
           <div
             style="font-size:12px;text-transform:uppercase;color:var(--text-muted)"
@@ -246,9 +295,14 @@ googleOauth.post("/admin/google-oauth", requireAuth, async (c) => {
 
 googleOauth.get("/login/google", async (c) => {
   const cfg = await getGoogleOauthConfig();
-  if (!cfg || !cfg.enabled) {
+  if (!cfg) {
     return c.redirect(
-      `/login?error=${encodeURIComponent("Google sign-in is not enabled")}`
+      `/login?error=${encodeURIComponent("Google sign-in is not configured")}`
+    );
+  }
+  if (!cfg.enabled) {
+    return c.redirect(
+      `/login?error=${encodeURIComponent("Google sign-in is currently disabled")}`
     );
   }
   if (!cfg.clientId || !cfg.clientSecret) {

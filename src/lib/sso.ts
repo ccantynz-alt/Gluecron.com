@@ -709,10 +709,37 @@ export function googleOauthConfigFromEnv(
 }
 
 /**
- * Resolution order: a DB row saved via /admin/google-oauth that actually
- * carries credentials wins (it's the admin's explicit choice, including its
- * enabled flag); otherwise fall back to env-var configuration; otherwise
- * whatever partial row exists (or null).
+ * Pure precedence resolver between the persisted `id='google'` row and the
+ * env-var bootstrap. Split out from `getGoogleOauthConfig` so the ordering is
+ * unit-testable without a database.
+ *
+ * Order:
+ *   1. An admin row that is BOTH enabled and fully credentialed is the
+ *      explicit operator choice — it wins outright (even over different env
+ *      credentials).
+ *   2. Otherwise a complete env-var bootstrap (always enabled when present)
+ *      is the live config. Critically, it must NOT be shadowed by a
+ *      saved-but-disabled or half-filled DB row. That shadowing was a real
+ *      foot-gun: an earlier half-finished /admin/google-oauth save (e.g.
+ *      credentials entered but the Enable box left unticked) left a disabled
+ *      row behind, which then suppressed a perfectly good GOOGLE_OAUTH_*
+ *      bootstrap — so "Sign in with Google" stayed dark with a misleading
+ *      "not enabled".
+ *   3. Otherwise fall back to whatever row exists (possibly disabled/partial,
+ *      possibly null). Callers still gate on `enabled` + credentials.
+ */
+export function resolveGoogleOauthConfig(
+  row: SsoConfig | null,
+  envCfg: SsoConfig | null
+): SsoConfig | null {
+  if (row?.enabled && row.clientId && row.clientSecret) return row;
+  if (envCfg) return envCfg;
+  return row;
+}
+
+/**
+ * The live "Sign in with Google" config, merging the persisted admin row with
+ * the env-var bootstrap via {@link resolveGoogleOauthConfig}.
  */
 export async function getGoogleOauthConfig(): Promise<SsoConfig | null> {
   let row: SsoConfig | null = null;
@@ -726,8 +753,7 @@ export async function getGoogleOauthConfig(): Promise<SsoConfig | null> {
   } catch {
     row = null;
   }
-  if (row?.clientId && row?.clientSecret) return row;
-  return googleOauthConfigFromEnv() ?? row;
+  return resolveGoogleOauthConfig(row, googleOauthConfigFromEnv());
 }
 
 export async function upsertGoogleOauthConfig(

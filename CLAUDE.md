@@ -10,10 +10,21 @@ fallback mirror only.
 
 **For any AI session working in this repo:**
 
-- Use the Gluecron MCP server (`.claude/settings.json` already points
-  there). Tools: `gluecron_create_pr`, `gluecron_merge_pr`,
+- Use the Gluecron MCP server. It is declared in `.mcp.json` at the
+  repo root (project scope — this is the file Claude Code actually
+  loads MCP servers from, on both web/cloud sessions and the CLI; the
+  old `mcpServers` block in `.claude/settings.json` was never read).
+  Tools: `gluecron_create_pr`, `gluecron_merge_pr`,
   `gluecron_create_issue`, `gluecron_comment_pr`, etc. See
   `src/lib/mcp-tools.ts` for the full 15-tool surface.
+- **Cloud (web) sessions:** the clone comes from the GitHub mirror and
+  `git push` to origin goes through the GitHub proxy. To run a PR
+  through Gluecron: (1) push the feature branch to origin as usual,
+  (2) also push it to the canonical remote —
+  `git push https://x:${GLUECRON_PAT}@gluecron.com/ccantynz/Gluecron.com.git HEAD:<branch>`
+  (requires `gluecron.com` in the environment's network allowlist) —
+  then (3) open the PR with `gluecron_create_pr`. If gluecron.com is
+  unreachable, fall back to GitHub and say so in the session.
 - Do NOT call any `mcp__github__*` write tool. The settings file's
   `permissions.deny` already blocks them; if you encounter a deny
   error, switch to the equivalent `gluecron_*` tool.

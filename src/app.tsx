@@ -34,6 +34,7 @@ import milestonesRoutes from "./routes/milestones";
 import shipAgentRoutes from "./routes/ship-agent";
 import commentModerationRoutes from "./routes/comment-moderation";
 import repoSettings from "./routes/repo-settings";
+import automationSettingsRoutes from "./routes/automation-settings";
 import collaboratorRoutes from "./routes/collaborators";
 import teamCollaboratorRoutes from "./routes/team-collaborators";
 import invitesRoutes from "./routes/invites";
@@ -493,6 +494,8 @@ app.route("/", notificationRoutes);
 
 // Repo settings (description, visibility, delete)
 app.route("/", repoSettings);
+// Per-repo automation settings (off / suggest / auto) — migration 0106
+app.route("/", automationSettingsRoutes);
 
 // Repo collaborators (add/list/remove)
 app.route("/", collaboratorRoutes);

@@ -51,6 +51,10 @@ import {
   extractText,
   parseJsonResponse,
 } from "./ai-client";
+import {
+  getAutomationSettings,
+  type AutomationSettingsLoader,
+} from "./automation-settings";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -82,6 +86,8 @@ export interface CiAutofixDeps {
   recordRepair?: typeof recordRepair;
   updateOutcome?: typeof updateOutcome;
   aiAvailable?: () => boolean;
+  /** Inject the per-repo automation settings loader (tests). */
+  loadAutomationSettings?: AutomationSettingsLoader;
 }
 
 /** The fix triggerCiAutofix decided to post, plus its flywheel bookkeeping. */
@@ -412,6 +418,7 @@ async function _runAutofix(
       id: repositories.id,
       name: repositories.name,
       diskPath: repositories.diskPath,
+      ownerId: repositories.ownerId,
       ownerUsername: users.username,
     })
     .from(repositories)
@@ -420,6 +427,14 @@ async function _runAutofix(
     .limit(1);
 
   if (!repoRow) return;
+
+  // Per-repo automation gate — 'off' skips CI autofix entirely; 'suggest'
+  // (the fail-open default) posts the patch comment as before; 'auto'
+  // additionally applies the patch onto a fix/ branch below.
+  const automation = await (deps.loadAutomationSettings ?? getAutomationSettings)(
+    repoRow.id
+  );
+  if (automation.ciAutofixMode === "off") return;
 
   // 4. Check idempotency — skip if already posted for this gateRunId
   const idempotencyMarker = `<!-- gluecron:ci-autofix:run:${gateRunId} -->`;
@@ -526,12 +541,33 @@ Return JSON: {"patch": "...", "explanation": "...", "confidence": "high|medium|l
   const botAuthorId = await getBotUserIdOrFallback(repoRow.id);
   if (!botAuthorId) return;
 
-  await db.insert(prComments).values({
-    pullRequestId: gateRun.pullRequestId,
-    authorId: botAuthorId,
-    body: commentBody,
-    isAiReview: true,
-  });
+  const [posted] = await db
+    .insert(prComments)
+    .values({
+      pullRequestId: gateRun.pullRequestId,
+      authorId: botAuthorId,
+      body: commentBody,
+      isAiReview: true,
+    })
+    .returning({ id: prComments.id });
+
+  // 'auto' mode — also apply the patch onto a fix/ branch via the same
+  // path the Apply Fix button drives. Best-effort: an apply failure (it
+  // also settles the flywheel entry as 'failed') leaves the suggest-mode
+  // comment in place for a human to act on.
+  if (automation.ciAutofixMode === "auto" && posted) {
+    try {
+      const { branchName } = await applyAutofix(posted.id, repoRow.ownerId, deps);
+      console.log(
+        `[ci-autofix] auto-applied patch from comment ${posted.id} onto ${branchName}`
+      );
+    } catch (err) {
+      console.warn(
+        "[ci-autofix] auto-apply failed (patch comment still posted):",
+        err instanceof Error ? err.message : err
+      );
+    }
+  }
 }
 
 function buildAutofixComment(

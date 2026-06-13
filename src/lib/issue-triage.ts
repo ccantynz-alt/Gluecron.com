@@ -26,6 +26,10 @@ import {
 } from "../db/schema";
 import { triageIssue, type IssueTriage } from "./ai-generators";
 import { isAiAvailable } from "./ai-client";
+import {
+  getAutomationSettings,
+  type AutomationSettingsLoader,
+} from "./automation-settings";
 
 export const ISSUE_TRIAGE_MARKER = "<!-- gluecron-issue-triage:summary -->";
 
@@ -135,7 +139,7 @@ export function renderIssueTriageComment(t: IssueTriage): string {
 
 export async function triggerIssueTriage(
   input: IssueTriageInput,
-  options: { force?: boolean } = {}
+  options: { force?: boolean; loadSettings?: AutomationSettingsLoader } = {}
 ): Promise<void> {
   try {
     if (process.env.DEBUG_ISSUE_TRIAGE === "1") {
@@ -147,6 +151,12 @@ export async function triggerIssueTriage(
       );
     }
     if (!isAiAvailable()) return;
+    // Per-repo automation gate — 'off' skips triage; loader fails open to
+    // the default ('suggest' = current behavior). Env stays supreme above.
+    const automation = await (options.loadSettings ?? getAutomationSettings)(
+      input.repositoryId
+    );
+    if (automation.issueTriageMode === "off") return;
     if (!options.force && (await alreadyTriaged(input.issueId))) return;
 
     const [availableLabels, recent] = await Promise.all([

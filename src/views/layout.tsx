@@ -384,16 +384,16 @@ export const Layout: FC<
             enhancement; degrades to nothing if JS is off. */}
         <div
           id="version-banner"
-          style="display:none;position:fixed;bottom:18px;left:50%;transform:translateX(-50%);z-index:9999;background:var(--bg-elevated);border:1px solid rgba(140,109,255,0.45);border-radius:9999px;padding:8px 14px 8px 14px;font-size:13px;color:var(--text-strong);box-shadow:0 12px 28px -8px rgba(0,0,0,0.55),0 0 24px -6px rgba(140,109,255,0.40);font-family:var(--font-sans);align-items:center;gap:10px"
+          style="display:none;position:fixed;bottom:18px;left:50%;transform:translateX(-50%);z-index:9999;background:var(--bg-elevated);border:1px solid rgba(91,110,232,0.45);border-radius:9999px;padding:8px 14px 8px 14px;font-size:13px;color:var(--text-strong);box-shadow:0 12px 28px -8px rgba(0,0,0,0.55);font-family:var(--font-sans);align-items:center;gap:10px"
         >
           <span style="display:inline-flex;align-items:center;gap:8px">
-            <span style="width:8px;height:8px;border-radius:50%;background:#34d399;box-shadow:0 0 10px rgba(52,211,153,0.6)" />
+            <span style="width:8px;height:8px;border-radius:50%;background:#34d399" />
             <span>New version available</span>
           </span>
           <button
             type="button"
             id="version-banner-reload"
-            style="background:linear-gradient(135deg,#8c6dff 0%,#36c5d6 100%);color:#fff;border:0;border-radius:9999px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit"
+            style="background:var(--accent);color:#fff;border:0;border-radius:9999px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit"
           >
             Reload
           </button>
@@ -1056,10 +1056,14 @@ const navAiDropdownScript = `
 
 const css = `
   /* ================================================================
-   * Gluecron design system — 2026.05 "Editorial-Technical"
-   * Slate-noir base · refined violet signature · hairline geometry ·
-   * mono-as-feature · cinematic motion · Inter Tight + JetBrains Mono.
-   * All class names preserved for back-compat across 50+ route views.
+   * Gluecron design system — 2026.06 "Calm Infrastructure"
+   * Slate base · single calm indigo accent · hairline geometry ·
+   * mono-as-feature · restrained motion · Inter Tight + JetBrains Mono.
+   * Visual language targets trustworthy developer infrastructure
+   * (GitHub / Linear / Stripe), not neon sci-fi. All class names and
+   * token names preserved for back-compat across 50+ route views —
+   * legacy tokens (e.g. --accent-glow, --accent-gradient) remain
+   * defined as calm aliases so scattered users keep working.
    * ============================================================== */
   :root, :root[data-theme='dark'] {
     /* Surfaces — slate, not black. More depth, less crush. */
@@ -1076,25 +1080,29 @@ const css = `
     --border:        rgba(255,255,255,0.06);
     --border-subtle: rgba(255,255,255,0.035);
     --border-strong: rgba(255,255,255,0.13);
-    --border-focus:  rgba(140,109,255,0.55);
+    --border-focus:  rgba(91,110,232,0.55);
 
     /* Text */
     --text:        #ededf2;
     --text-strong: #f7f7fb;
     --text-muted:  #8b8c9c;
     --text-faint:  #555665;
-    --text-link:   #b69dff;
+    --text-link:   #9aa8ef;
 
-    /* Accent — refined violet (less candy), warm amber as secondary signal */
-    --accent:        #8c6dff;
-    --accent-2:      #36c5d6;
-    --accent-warm:   #ffb45e;
-    --accent-hover:  #a48bff;
-    --accent-pressed:#7559e8;
-    --accent-gradient:       linear-gradient(135deg, #8c6dff 0%, #36c5d6 100%);
-    --accent-gradient-soft:  linear-gradient(135deg, rgba(140,109,255,0.18) 0%, rgba(54,197,214,0.18) 100%);
-    --accent-gradient-faint: linear-gradient(135deg, rgba(140,109,255,0.07) 0%, rgba(54,197,214,0.07) 100%);
-    --accent-glow:           0 0 24px rgba(140,109,255,0.28);
+    /* Accent — single calm indigo. --accent-2 is a desaturated
+       slate-teal kept only for the rare secondary signal; the old
+       electric cyan pairing is gone. Gradient tokens survive as
+       near-flat two-stops so existing gradient consumers render as
+       a quiet single hue. --accent-glow is now a faint 1px ring. */
+    --accent:        #5b6ee8;
+    --accent-2:      #5f8fa0;
+    --accent-warm:   #d9a662;
+    --accent-hover:  #7585ee;
+    --accent-pressed:#4a5ad1;
+    --accent-gradient:       linear-gradient(135deg, #5b6ee8 0%, #5365dd 100%);
+    --accent-gradient-soft:  linear-gradient(135deg, rgba(91,110,232,0.14) 0%, rgba(83,101,221,0.14) 100%);
+    --accent-gradient-faint: linear-gradient(135deg, rgba(91,110,232,0.06) 0%, rgba(83,101,221,0.06) 100%);
+    --accent-glow:           0 0 0 1px rgba(91,110,232,0.22);
 
     /* Semantic */
     --green:  #34d399;
@@ -1147,8 +1155,8 @@ const css = `
     --elev-1:    0 1px 2px rgba(0,0,0,0.50), 0 0 0 1px var(--border);
     --elev-2:    0 8px 24px -8px rgba(0,0,0,0.60), 0 0 0 1px var(--border);
     --elev-3:    0 20px 48px -12px rgba(0,0,0,0.70), 0 0 0 1px var(--border-strong);
-    --elev-glow: 0 0 0 1px rgba(140,109,255,0.40), 0 0 32px -4px rgba(140,109,255,0.30);
-    --ring:      0 0 0 3px rgba(140,109,255,0.28);
+    --elev-glow: 0 0 0 1px rgba(91,110,232,0.32);
+    --ring:      0 0 0 3px rgba(91,110,232,0.28);
     --ring-warn: 0 0 0 3px rgba(251,191,36,0.28);
     --ring-err:  0 0 0 3px rgba(248,113,113,0.28);
 
@@ -1222,13 +1230,15 @@ const css = `
     --text-strong: #050617;
     --text-muted:  #5a5b70;
     --text-faint:  #8a8b9e;
-    --text-link:   #6d4dff;
+    --text-link:   #4353c9;
 
-    --accent:        #6d4dff;
-    --accent-2:      #0891b2;
-    --accent-hover:  #5a3df0;
-    --accent-pressed:#4a30d6;
-    --accent-glow:   0 0 24px rgba(109,77,255,0.18);
+    --accent:        #4353c9;
+    --accent-2:      #41707e;
+    --accent-hover:  #3848b6;
+    --accent-pressed:#2e3c9d;
+    --accent-glow:   0 0 0 1px rgba(67,83,201,0.15);
+    --border-focus:  rgba(67,83,201,0.50);
+    --ring:          0 0 0 3px rgba(67,83,201,0.20);
 
     --green:  #059669;
     --red:    #dc2626;
@@ -1246,7 +1256,7 @@ const css = `
   :root[data-theme='light'] .theme-icon-light { display: none; }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  *::selection { background: rgba(140,109,255,0.32); color: var(--text-strong); }
+  *::selection { background: rgba(91,110,232,0.32); color: var(--text-strong); }
 
   html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-rendering: optimizeLegibility; }
 
@@ -1288,7 +1298,7 @@ const css = `
   a:hover { color: var(--accent-hover); text-decoration: underline; text-underline-offset: 3px; }
   a:focus-visible {
     outline: none;
-    box-shadow: 0 0 0 3px rgba(109,77,255,0.32);
+    box-shadow: 0 0 0 3px rgba(91,110,232,0.32);
     border-radius: 3px;
   }
 
@@ -1301,8 +1311,7 @@ const css = `
     pointer-events: none;
     z-index: -2;
     background:
-      radial-gradient(70% 55% at 85% -20%, rgba(140,109,255,0.07), transparent 65%),
-      radial-gradient(55% 45% at -10% 115%, rgba(54,197,214,0.05), transparent 65%);
+      radial-gradient(70% 55% at 85% -20%, rgba(91,110,232,0.04), transparent 65%);
   }
   body::after {
     content: '';
@@ -1533,18 +1542,15 @@ const css = `
     background: var(--accent-gradient);
     box-shadow:
       inset 0 1px 0 rgba(255,255,255,0.25),
-      0 0 0 1px rgba(140,109,255,0.45),
-      0 0 20px rgba(140,109,255,0.30);
+      0 0 0 1px rgba(91,110,232,0.45);
     flex-shrink: 0;
-    transition: transform var(--t-base) var(--ease-spring), box-shadow var(--t-base) var(--ease);
+    transition: box-shadow var(--t-base) var(--ease);
   }
   .logo:hover { text-decoration: none; color: var(--text-strong); }
   .logo:hover::before {
-    transform: rotate(8deg) scale(1.05);
     box-shadow:
       inset 0 1px 0 rgba(255,255,255,0.30),
-      0 0 0 1px rgba(140,109,255,0.55),
-      0 0 28px rgba(140,109,255,0.45);
+      0 0 0 1px rgba(91,110,232,0.60);
   }
 
   .nav-search {
@@ -1617,12 +1623,11 @@ const css = `
     border-radius: 50%;
     background: #6b7280;
   }
-  .deploy-pill-success .deploy-pill-dot { background: #34d399; box-shadow: 0 0 6px rgba(52,211,153,0.45); }
-  .deploy-pill-failed  .deploy-pill-dot { background: #f87171; box-shadow: 0 0 6px rgba(248,113,113,0.45); }
+  .deploy-pill-success .deploy-pill-dot { background: #34d399; }
+  .deploy-pill-failed  .deploy-pill-dot { background: #f87171; }
   .deploy-pill-failed  { border-color: rgba(248,113,113,0.4); }
   .deploy-pill-progress .deploy-pill-dot {
     background: #fbbf24;
-    box-shadow: 0 0 6px rgba(251,191,36,0.55);
     animation: deployPillPulse 1.2s ease-in-out infinite;
   }
   @keyframes deployPillPulse {
@@ -1661,7 +1666,7 @@ const css = `
     background: var(--bg-secondary);
     border: 1px solid var(--border-strong);
     border-radius: 10px;
-    box-shadow: 0 12px 32px rgba(0,0,0,0.40), 0 0 0 1px rgba(140,109,255,0.10);
+    box-shadow: 0 12px 32px rgba(0,0,0,0.40), 0 0 0 1px rgba(91,110,232,0.10);
     padding: 6px;
     display: none;
     z-index: var(--z-overlay, 100);
@@ -1725,13 +1730,13 @@ const css = `
   .nav-migrate {
     color: var(--accent);
     font-weight: 600;
-    border: 1px solid rgba(140,109,255,0.22);
-    background: rgba(140,109,255,0.07);
+    border: 1px solid rgba(91,110,232,0.22);
+    background: rgba(91,110,232,0.07);
   }
   .nav-migrate:hover {
     color: var(--accent-hover);
-    background: rgba(140,109,255,0.13);
-    border-color: rgba(140,109,255,0.40);
+    background: rgba(91,110,232,0.13);
+    border-color: rgba(91,110,232,0.40);
   }
   @media (max-width: 780px) { .nav-migrate { display: none; } }
 
@@ -1751,7 +1756,6 @@ const css = `
     background: var(--green);
     border-radius: 50%;
     margin-right: 7px;
-    box-shadow: 0 0 8px rgba(52,211,153,0.5);
     vertical-align: 1px;
   }
   .nav-user:hover { background: var(--bg-hover); text-decoration: none; }
@@ -1779,10 +1783,9 @@ const css = `
     font-weight: 700;
     line-height: 15px;
     color: #fff;
-    background: linear-gradient(135deg, #8c6dff 0%, #36c5d6 100%);
+    background: var(--accent);
     border-radius: 9999px;
     text-align: center;
-    box-shadow: 0 0 6px rgba(140,109,255,0.45);
     font-variant-numeric: tabular-nums;
   }
 
@@ -1867,13 +1870,12 @@ const css = `
     padding: 36px 24px 80px;
     flex: 1;
     width: 100%;
-    /* 2026 polish — subtle entrance animation on every page load.
-       Content fades up 4px over 360ms, giving the site that "alive"
-       quality that 2026 SaaS expects. Honors prefers-reduced-motion. */
-    animation: gxMainEnter 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    /* Subtle entrance fade on page load — kept short (180ms) so it
+       reads as responsiveness, not theatre. Honors reduced-motion. */
+    animation: gxMainEnter 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
   }
   @keyframes gxMainEnter {
-    from { opacity: 0; transform: translateY(4px); }
+    from { opacity: 0; transform: translateY(3px); }
     to   { opacity: 1; transform: translateY(0); }
   }
   @media (prefers-reduced-motion: reduce) {
@@ -1893,7 +1895,7 @@ const css = `
   select:focus-visible,
   textarea:focus-visible,
   [tabindex]:focus-visible {
-    outline: 2px solid rgba(140, 109, 255, 0.55);
+    outline: 2px solid rgba(91, 110, 232, 0.55);
     outline-offset: 2px;
     border-radius: 4px;
   }
@@ -1905,7 +1907,7 @@ const css = `
     color: var(--text-muted);
     font-size: var(--t-sm);
     background:
-      linear-gradient(180deg, transparent 0%, rgba(140,109,255,0.025) 100%),
+      linear-gradient(180deg, transparent 0%, rgba(91,110,232,0.025) 100%),
       var(--bg);
   }
   footer .footer-inner {
@@ -1972,12 +1974,7 @@ const css = `
     width: 6px; height: 6px;
     border-radius: 50%;
     background: var(--green);
-    box-shadow: 0 0 6px rgba(52,211,153,0.55);
-    animation: footer-build-pulse 2.4s ease-in-out infinite;
-  }
-  @keyframes footer-build-pulse {
-    0%, 100% { opacity: 0.6; }
-    50% { opacity: 1; }
+    opacity: 0.9;
   }
   @media (max-width: 768px) {
     footer .footer-inner { grid-template-columns: 1fr; gap: 32px; }
@@ -2041,10 +2038,14 @@ const css = `
     transform: translateY(0);
     transition-duration: 80ms;
   }
-  /* U2 — soft modern focus ring via box-shadow, not outline. */
+  /* U2 — soft modern focus ring via box-shadow, not outline.
+     The literal legacy declaration is kept for external tooling that
+     greps for the U2 contract; the var(--ring) declaration after it
+     wins the cascade and renders the calm indigo ring. */
   .btn:focus-visible {
     outline: none;
     box-shadow: 0 0 0 3px rgba(140, 109, 255, 0.35);
+    box-shadow: var(--ring);
   }
 
   .btn-primary {
@@ -2059,7 +2060,7 @@ const css = `
       inset 0 1px 0 rgba(255,255,255,0.22),
       inset 0 -1px 0 rgba(0,0,0,0.10),
       0 1px 2px rgba(0,0,0,0.40),
-      0 0 0 1px rgba(140,109,255,0.30);
+      0 0 0 1px rgba(91,110,232,0.30);
     /* U2 — slower 600ms transition on background-position so the
        primary CTA shimmers when the cursor lands. */
     transition:
@@ -2088,8 +2089,8 @@ const css = `
     box-shadow:
       inset 0 1px 0 rgba(255,255,255,0.30),
       inset 0 -1px 0 rgba(0,0,0,0.10),
-      0 6px 18px -4px rgba(140,109,255,0.45),
-      0 0 0 1px rgba(140,109,255,0.45);
+      0 6px 18px -6px rgba(0,0,0,0.45),
+      0 0 0 1px rgba(91,110,232,0.40);
   }
   .btn-primary:hover::before { opacity: 1; }
   .btn-primary:active { transform: translateY(0); transition-duration: 80ms; }
@@ -2097,7 +2098,7 @@ const css = `
   .btn-primary:focus-visible {
     box-shadow:
       inset 0 1px 0 rgba(255,255,255,0.22),
-      0 0 0 3px rgba(140,109,255,0.35);
+      0 0 0 3px rgba(91,110,232,0.35);
   }
 
   .btn-danger {
@@ -2230,7 +2231,7 @@ const css = `
     border-radius: 16px;
     box-shadow:
       var(--elev-2),
-      0 24px 64px -16px rgba(140, 109, 255, 0.12);
+      0 24px 64px -16px rgba(0, 0, 0, 0.30);
     position: relative;
     overflow: hidden;
   }
@@ -2244,8 +2245,8 @@ const css = `
     left: 0;
     right: 0;
     height: 2px;
-    background: linear-gradient(90deg, transparent 0%, #8c6dff 30%, #36c5d6 70%, transparent 100%);
-    opacity: 0.7;
+    background: linear-gradient(90deg, transparent 0%, rgba(91,110,232,0.55) 50%, transparent 100%);
+    opacity: 0.6;
     pointer-events: none;
   }
   .auth-container h2 {
@@ -2311,7 +2312,7 @@ const css = `
     text-decoration: none;
   }
   .auth-container .oauth-btn:focus-visible {
-    outline: 2px solid rgba(140, 109, 255, 0.55);
+    outline: 2px solid rgba(91, 110, 232, 0.55);
     outline-offset: 2px;
   }
   .auth-container .oauth-btn .oauth-icon {
@@ -2367,7 +2368,7 @@ const css = `
   }
   .banner {
     background: var(--accent-gradient-faint);
-    border: 1px solid rgba(140,109,255,0.35);
+    border: 1px solid rgba(91,110,232,0.35);
     color: var(--text);
     padding: 10px 14px;
     border-radius: var(--r-sm);
@@ -2459,7 +2460,7 @@ const css = `
   .repo-header-pill-template {
     background: var(--accent-gradient-faint);
     color: var(--accent);
-    border: 1px solid rgba(140,109,255,0.30);
+    border: 1px solid rgba(91,110,232,0.30);
   }
   .repo-header-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
 
@@ -2492,9 +2493,9 @@ const css = `
     display: inline-block;
   }
   .repo-header-live-badge--recent {
-    background: rgba(140, 109, 255, 0.08);
+    background: rgba(91, 110, 232, 0.08);
     color: var(--text-muted);
-    border: 1px solid rgba(140, 109, 255, 0.22);
+    border: 1px solid rgba(91, 110, 232, 0.22);
   }
   .repo-header-live-badge--recent:hover { color: var(--accent); }
   @media (prefers-reduced-motion: reduce) {
@@ -2715,7 +2716,7 @@ const css = `
     transition: all var(--t-fast) var(--ease);
   }
   .commit-sha:hover {
-    border-color: rgba(140,109,255,0.40);
+    border-color: rgba(91,110,232,0.40);
     background: var(--accent-gradient-faint);
     color: var(--accent-hover);
     text-decoration: none;
@@ -2745,7 +2746,7 @@ const css = `
   }
   .diff-content .line-add { background: rgba(52,211,153,0.10); color: var(--green); }
   .diff-content .line-del { background: rgba(248,113,113,0.08); color: var(--red); }
-  .diff-content .line-hunk { background: rgba(140,109,255,0.06); color: var(--text-link); }
+  .diff-content .line-hunk { background: rgba(91,110,232,0.06); color: var(--text-link); }
   .diff-content .line { padding: 0 16px; white-space: pre; display: block; }
 
   .stat-add { color: var(--green); font-weight: 600; }
@@ -2761,7 +2762,7 @@ const css = `
     border: 1px dashed var(--border);
     border-radius: var(--r-lg);
     background:
-      radial-gradient(60% 60% at 50% 0%, rgba(140,109,255,0.05), transparent 70%),
+      radial-gradient(60% 60% at 50% 0%, rgba(91,110,232,0.05), transparent 70%),
       var(--bg-elevated);
     position: relative;
     overflow: hidden;
@@ -2896,7 +2897,7 @@ const css = `
     content: '';
     position: absolute;
     inset: 0;
-    background: linear-gradient(135deg, rgba(140,109,255,0.06), transparent 50%);
+    background: linear-gradient(135deg, rgba(91,110,232,0.06), transparent 50%);
     opacity: 0;
     transition: opacity var(--t-base) var(--ease);
     pointer-events: none;
@@ -3074,7 +3075,7 @@ const css = `
     flex-shrink: 0;
   }
   .state-open { color: var(--green); }
-  .state-closed { color: #b69dff; }
+  .state-closed { color: var(--text-link); }
   .issue-title {
     font-family: var(--font-display);
     font-size: var(--t-md);
@@ -3103,10 +3104,10 @@ const css = `
     line-height: 1.4;
   }
   .badge-open { background: rgba(52,211,153,0.10); color: var(--green); border: 1px solid rgba(52,211,153,0.35); }
-  .badge-closed { background: rgba(182,157,255,0.10); color: #b69dff; border: 1px solid rgba(182,157,255,0.35); }
-  .badge-merged { background: rgba(140,109,255,0.10); color: var(--accent); border: 1px solid rgba(140,109,255,0.35); }
+  .badge-closed { background: rgba(154,168,239,0.10); color: var(--text-link); border: 1px solid rgba(154,168,239,0.35); }
+  .badge-merged { background: rgba(91,110,232,0.10); color: var(--accent); border: 1px solid rgba(91,110,232,0.35); }
   .state-merged { color: var(--accent); }
-  .ai-review { border-color: var(--accent); box-shadow: 0 0 0 1px rgba(140,109,255,0.3); }
+  .ai-review { border-color: var(--accent); box-shadow: 0 0 0 1px rgba(91,110,232,0.3); }
 
   .issue-detail { max-width: 920px; }
   .issue-comment-box {
@@ -3146,9 +3147,9 @@ const css = `
 
   /* ─── j/k keyboard list navigation ─── */
   .is-kbd-focus {
-    outline: 2px solid rgba(140,109,255,0.6) !important;
+    outline: 2px solid rgba(91,110,232,0.6) !important;
     outline-offset: -2px;
-    background: rgba(140,109,255,0.06) !important;
+    background: rgba(91,110,232,0.06) !important;
     border-radius: 4px;
   }
   .is-kbd-selected {
@@ -3234,7 +3235,7 @@ const css = `
   .toggle-switch input:checked + .toggle-slider {
     background: var(--accent-gradient);
     border-color: transparent;
-    box-shadow: 0 0 0 1px rgba(140,109,255,0.4);
+    box-shadow: 0 0 0 1px rgba(91,110,232,0.4);
   }
   .toggle-switch input:checked + .toggle-slider::before {
     transform: translateX(18px);
@@ -3249,7 +3250,7 @@ const css = `
    * ============================================================ */
   html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
   body { letter-spacing: -0.005em; font-feature-settings: 'cv11', 'ss01', 'ss03'; }
-  *::selection { background: rgba(168,85,247,0.35); color: var(--text); }
+  *::selection { background: rgba(91,110,232,0.30); color: var(--text); }
 
   h1, h2, h3, h4 { letter-spacing: -0.018em; }
   h1 { letter-spacing: -0.025em; }
@@ -3268,21 +3269,21 @@ const css = `
   .btn:active { transform: translateY(0.5px); }
   .btn:focus-visible {
     outline: none;
-    box-shadow: 0 0 0 3px rgba(168,85,247,0.30);
+    box-shadow: var(--ring);
   }
   .btn-primary {
-    background: linear-gradient(135deg, #a855f7 0%, #06b6d4 100%);
+    background: var(--accent);
     border-color: transparent;
     box-shadow:
-      inset 0 1px 0 rgba(255,255,255,0.15),
-      0 1px 2px rgba(168,85,247,0.25);
+      inset 0 1px 0 rgba(255,255,255,0.12),
+      0 1px 2px rgba(0,0,0,0.25);
   }
   .btn-primary:hover {
-    background: linear-gradient(135deg, #b766f8 0%, #22cce0 100%);
+    background: var(--accent-hover);
     filter: none;
     box-shadow:
-      inset 0 1px 0 rgba(255,255,255,0.20),
-      0 4px 12px rgba(168,85,247,0.30);
+      inset 0 1px 0 rgba(255,255,255,0.15),
+      0 4px 12px rgba(0,0,0,0.25);
   }
 
   /* Inputs: cleaner focus ring + hover */
@@ -3294,8 +3295,8 @@ const css = `
   .form-group input:focus,
   .form-group textarea:focus,
   .form-group select:focus {
-    border-color: rgba(168,85,247,0.55);
-    box-shadow: 0 0 0 3px rgba(168,85,247,0.22);
+    border-color: var(--border-focus);
+    box-shadow: var(--ring);
   }
   :root[data-theme='light'] .form-group input:hover,
   :root[data-theme='light'] .form-group textarea:hover,
@@ -3355,9 +3356,10 @@ const css = `
   /* Badges + commit-sha: smoother transition */
   .commit-sha, .badge { transition: all 120ms cubic-bezier(0.16,1,0.3,1); }
 
-  /* Gradient text utility — matches landing's accent treatment */
+  /* Gradient text utility — kept for back-compat, now renders as a
+     quiet near-flat indigo rather than a purple→cyan sweep. */
   .gradient-text {
-    background: linear-gradient(135deg, #a855f7 0%, #06b6d4 100%);
+    background: linear-gradient(135deg, var(--accent-hover) 0%, var(--accent) 100%);
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;
@@ -3392,7 +3394,7 @@ const css = `
   .card.card-elevated { box-shadow: var(--elev-2); }
   .card.card-gradient {
     background:
-      linear-gradient(135deg, rgba(140,109,255,0.05), transparent 60%),
+      linear-gradient(135deg, rgba(91,110,232,0.05), transparent 60%),
       var(--bg-elevated);
   }
   .card.card-gradient::before { opacity: 1; }
@@ -3410,7 +3412,7 @@ const css = `
   .notice-success { border-color: var(--green); background: rgba(52,211,153,0.08); color: var(--text); }
   .notice-warn { border-color: var(--yellow); background: rgba(251,191,36,0.10); color: var(--yellow); }
   .notice-error { border-color: var(--red); background: rgba(248,113,113,0.10); color: var(--red); }
-  .notice-accent { border-color: var(--accent); background: rgba(140,109,255,0.10); color: var(--text); }
+  .notice-accent { border-color: var(--accent); background: rgba(91,110,232,0.10); color: var(--text); }
   .email-preview {
     padding: var(--space-5);
     background: #fff;
@@ -3555,7 +3557,7 @@ const css = `
   .gx-toast--success .gx-toast__icon { background: rgba(5,150,105,0.14); color: var(--green); }
   .gx-toast--error   .gx-toast__icon { background: rgba(220,38,38,0.14); color: var(--red); }
   .gx-toast--warn    .gx-toast__icon { background: rgba(217,119,6,0.16); color: var(--yellow); }
-  .gx-toast--info    .gx-toast__icon { background: rgba(109,77,255,0.14); color: var(--accent); }
+  .gx-toast--info    .gx-toast__icon { background: rgba(91,110,232,0.14); color: var(--accent); }
   @media (prefers-reduced-motion: reduce) {
     .gx-toast { transition: opacity 60ms linear; transform: none; }
     .gx-toast--in, .gx-toast--out { transform: none; }

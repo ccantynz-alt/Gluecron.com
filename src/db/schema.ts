@@ -4649,3 +4649,37 @@ export const workspaceJobs = pgTable(
 );
 
 export type WorkspaceJob = typeof workspaceJobs.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Migration 0106 — Per-repo automation settings (off / suggest / auto).
+// One row per repository; absence of a row means the defaults in
+// src/lib/automation-settings.ts, which match pre-0106 behavior exactly.
+// Env kill-switches stay supreme over anything stored here.
+// ---------------------------------------------------------------------------
+export const repoAutomationSettings = pgTable(
+  "repo_automation_settings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .unique()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    /** 'off' | 'suggest' — AI code review on PR open ('auto' = 'suggest'). */
+    aiReviewMode: text("ai_review_mode").notNull().default("suggest"),
+    /** 'off' | 'suggest' — AI triage comment on PR open. */
+    prTriageMode: text("pr_triage_mode").notNull().default("suggest"),
+    /** 'off' | 'suggest' — AI triage comment on issue create. */
+    issueTriageMode: text("issue_triage_mode").notNull().default("suggest"),
+    /** 'off' | 'suggest' | 'auto' — AI-gated auto-merge evaluation. */
+    autoMergeMode: text("auto_merge_mode").notNull().default("auto"),
+    /** 'off' | 'suggest' | 'auto' — CI auto-fix on failed gate runs. */
+    ciAutofixMode: text("ci_autofix_mode").notNull().default("suggest"),
+    createdAt: timestamp("created_at").defaultNow(),
+    updatedAt: timestamp("updated_at").defaultNow(),
+  },
+  (table) => [
+    index("idx_repo_automation_settings_repo").on(table.repositoryId),
+  ]
+);
+
+export type RepoAutomationSettings = typeof repoAutomationSettings.$inferSelect;

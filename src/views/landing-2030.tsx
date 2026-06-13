@@ -3,10 +3,11 @@
  *
  * A fully self-contained light HTML document (its own <head>, fonts, and CSS)
  * rendered directly from the root route, bypassing the dark app Layout so the
- * marketing surface can be a pristine, Linear/Vercel-grade design without
- * fighting the application chrome. Theme: white, editorial, "site of the
- * future" (2030). Entrance motion is CSS-only and degrades to fully-visible
- * content when JS or animation is unavailable.
+ * marketing surface can be a pristine, Linear/Stripe-grade design without
+ * fighting the application chrome. Theme: white, editorial, calm — the page
+ * should read as trustworthy infrastructure, not sci-fi. Entrance motion is
+ * CSS-only, brief, and degrades to fully-visible content when JS or
+ * animation is unavailable.
  */
 import type { FC } from "hono/jsx";
 
@@ -64,7 +65,7 @@ const FEATURES: { icon: FC; title: string; body: string }[] = [
   { icon: IconMerge, title: "Auto-merge the instant gates pass",
     body: "Gates green and review clean? Gluecron merges autonomously. Label an issue, get a shipped PR — no waiting." },
   { icon: IconGate, title: "Push-time gate enforcement",
-    body: "Security and quality gates run at the moment of push — not minutes later in CI. Bad code never reaches your branch." },
+    body: "Security and quality gates run at the moment of push — not minutes later in CI. Failing changes are stopped before they reach your branch." },
   { icon: IconGit, title: "Git-native hosting",
     body: "Full Smart-HTTP git over the wire. Clone, push, fork, and browse — everything you expect from a host, self-owned." },
   { icon: IconCI, title: "CI that comes built-in",
@@ -77,13 +78,13 @@ const STEPS: { n: string; title: string; body: string }[] = [
   { n: "01", title: "Label an issue", body: "Drop a label on an issue — or just describe what you want. That's the whole input." },
   { n: "02", title: "Agents go to work", body: "Claude opens a branch, writes the change, and submits a pull request against your gates." },
   { n: "03", title: "Reviewed & gated", body: "The PR is reviewed line-by-line and run through push-time security and quality gates." },
-  { n: "04", title: "Merged, autonomously", body: "Green across the board? It merges itself and deploys. Shipped while you were still in the same coding session." },
+  { n: "04", title: "Merged automatically", body: "Green across the board? The PR merges and deploys, with every action attributed and recorded in your history." },
 ];
 
 export const Landing2030Page: FC<Landing2030Props> = () => {
   const title = "Gluecron — The AI-native git host";
   const desc =
-    "The AI-native git host. Spec to PR in 90 seconds. Auto-merge the instant gates pass. Ship faster than any team on GitHub.";
+    "The AI-native git host. Spec to PR in 90 seconds. Automated Claude review, push-time gates, and auto-merge — on infrastructure you can self-host.";
   return (
     <html lang="en">
       <head>
@@ -131,16 +132,16 @@ export const Landing2030Page: FC<Landing2030Props> = () => {
           <div class="hero-glow" aria-hidden="true" />
           <div class="wrap hero-in">
             <a href="#loop" class="eyebrow rise" style="--d:0ms">
-              <span class="eyebrow-dot" /> The AI-native git host · built for 2030
+              <span class="eyebrow-dot" /> The AI-native git host
             </a>
             <h1 class="display rise" style="--d:60ms">
-              The git host built for <span class="grad">2030</span>.
+              The git host built for <span class="grad">AI-assisted teams</span>.
             </h1>
             <p class="lede rise" style="--d:120ms">
               Gluecron hosts your code, reviews every pull request with Claude,
-              enforces gates at push time, and merges clean work the instant
-              gates pass. Spec to PR in 90 seconds — ship faster than any team
-              on GitHub.
+              enforces gates at push time, and merges clean work once every
+              gate passes. Spec to PR in 90 seconds, with a review trail you
+              can audit.
             </p>
             <div class="hero-actions rise" style="--d:180ms">
               <a href="/register" class="btn btn-solid btn-lg">Start building →</a>
@@ -197,8 +198,8 @@ export const Landing2030Page: FC<Landing2030Props> = () => {
           <div class="wrap">
             <div class="sec-head">
               <span class="kicker">The platform</span>
-              <h2 class="h2">Everything GitHub does. Then everything it doesn't.</h2>
-              <p class="sub">A complete git host with code intelligence wired into every step — review, gates, CI, and autonomous merge, native to the platform.</p>
+              <h2 class="h2">Everything you expect from a git host. Plus the parts you automate.</h2>
+              <p class="sub">A complete git host with code intelligence wired into every step — review, gates, CI, and automated merge, native to the platform.</p>
             </div>
             <div class="grid">
               {FEATURES.map((f) => {
@@ -220,8 +221,8 @@ export const Landing2030Page: FC<Landing2030Props> = () => {
           <div class="wrap">
             <div class="sec-head">
               <span class="kicker">The closed loop</span>
-              <h2 class="h2">From a label to a shipped PR — untouched by you.</h2>
-              <p class="sub">Gluecron closes the loop between intent and production. You set direction; the platform does the round-trip.</p>
+              <h2 class="h2">From a label to a merged PR — every step reviewed and logged.</h2>
+              <p class="sub">Gluecron closes the loop between intent and production. You set direction; the platform does the round-trip, with a full audit trail.</p>
             </div>
             <div class="loop">
               {STEPS.map((s, i) => (
@@ -236,21 +237,21 @@ export const Landing2030Page: FC<Landing2030Props> = () => {
           </div>
         </section>
 
-        {/* ---- 2030 vision band ---- */}
+        {/* ---- why-Gluecron band ---- */}
         <section class="vision">
           <div class="vision-grid" aria-hidden="true" />
           <div class="wrap vision-in">
-            <span class="kicker kicker-light">2030</span>
-            <h2 class="vh">By 2030, code reviews itself,<br />gates itself, and ships itself.</h2>
+            <span class="kicker kicker-light">Why Gluecron</span>
+            <h2 class="vh">Review, gates, and merges —<br />automated, with you in control.</h2>
             <p class="vsub">
-              The era of babysitting pipelines is ending. Gluecron is built for the
-              world that's coming — where engineers set intent and an autonomous
-              platform carries it to production, safely, around the clock. We didn't
-              bolt AI onto a git host. We rebuilt the git host around it.
+              Gluecron automates the repetitive parts of shipping — review,
+              gating, merging, deploying — while keeping every action visible,
+              attributable, and reversible. We didn't bolt AI onto a git host.
+              We built the git host around it.
             </p>
             <div class="vstats">
-              <div class="vstat"><b>Autonomous</b><span>review → gate → merge → deploy</span></div>
-              <div class="vstat"><b>Always on</b><span>your repo never sleeps</span></div>
+              <div class="vstat"><b>Automated</b><span>review → gate → merge → deploy</span></div>
+              <div class="vstat"><b>Always on</b><span>works while you're away</span></div>
               <div class="vstat"><b>Self-owned</b><span>your code, your server, your keys</span></div>
             </div>
           </div>
@@ -261,7 +262,7 @@ export const Landing2030Page: FC<Landing2030Props> = () => {
           <div class="wrap quote-wrap">
             <p class="quote">
               “GitHub gives you a place to <em>store</em> code.
-              Gluecron gives you a place where code <em>moves on its own.</em>”
+              Gluecron is where code gets <em>reviewed, gated, and merged.</em>”
             </p>
           </div>
         </section>
@@ -269,7 +270,7 @@ export const Landing2030Page: FC<Landing2030Props> = () => {
         {/* ---- final CTA ---- */}
         <section class="cta">
           <div class="wrap cta-in">
-            <h2 class="cta-h">Start building on the future of git.</h2>
+            <h2 class="cta-h">Start building on Gluecron.</h2>
             <p class="cta-sub">Spin up a repository, push a commit, and watch the loop close.</p>
             <div class="hero-actions">
               <a href="/register" class="btn btn-solid btn-lg">Create your account →</a>
@@ -283,7 +284,7 @@ export const Landing2030Page: FC<Landing2030Props> = () => {
           <div class="wrap ft-in">
             <div class="ft-brand">
               <a href="/" class="nv-logo"><span class="nv-mark" aria-hidden="true" />gluecron</a>
-              <p class="ft-tag">The AI-native git host. Built for 2030.</p>
+              <p class="ft-tag">The AI-native git host. Self-hosted, auditable, git-native.</p>
             </div>
             <div class="ft-cols">
               <div class="ft-col">
@@ -339,8 +340,8 @@ const landing2030Css = `
 :root{
   --bg:#ffffff; --bg-soft:#fafafb; --ink:#0a0b0d; --ink-2:#3a3d45;
   --muted:#676d78; --line:rgba(13,16,23,.08); --line-2:rgba(13,16,23,.12);
-  --brand:#5b5bf6; --brand-2:#7c4dff; --brand-3:#2f6bff;
-  --grad:linear-gradient(100deg,#7c4dff 0%,#5b5bf6 45%,#2f6bff 100%);
+  --brand:#4353c9; --brand-2:#5b6ee8; --brand-3:#3a49b4;
+  --grad:linear-gradient(100deg,#4353c9 0%,#5b6ee8 100%);
   --radius:16px; --shadow:0 1px 2px rgba(13,16,23,.04),0 12px 32px rgba(13,16,23,.06);
   --maxw:1140px;
 }
@@ -360,7 +361,7 @@ a{color:inherit;text-decoration:none}
 .nv-stuck{border-bottom-color:var(--line);box-shadow:0 1px 0 rgba(13,16,23,.02)}
 .nv-in{max-width:var(--maxw);margin:0 auto;padding:14px 24px;display:flex;align-items:center;gap:24px}
 .nv-logo{display:inline-flex;align-items:center;gap:9px;font-family:'Inter Tight',sans-serif;font-weight:700;font-size:19px;letter-spacing:-.02em}
-.nv-mark{width:18px;height:18px;border-radius:6px;background:var(--grad);box-shadow:0 2px 8px rgba(92,91,246,.4);display:inline-block}
+.nv-mark{width:18px;height:18px;border-radius:6px;background:var(--grad);box-shadow:0 1px 3px rgba(13,16,23,.18);display:inline-block}
 .nv-links{display:flex;gap:26px;margin-left:14px}
 .nv-links a{color:var(--ink-2);font-size:15px;font-weight:500;transition:color .15s}
 .nv-links a:hover{color:var(--ink)}
@@ -377,9 +378,7 @@ a{color:inherit;text-decoration:none}
 /* hero */
 .hero{position:relative;overflow:hidden;padding:84px 0 40px;text-align:center}
 .hero-glow{position:absolute;inset:-20% 0 auto 0;height:620px;z-index:0;pointer-events:none;
-  background:radial-gradient(60% 60% at 50% 0%,rgba(124,77,255,.18),transparent 70%),
-             radial-gradient(40% 50% at 75% 10%,rgba(47,107,255,.14),transparent 70%),
-             radial-gradient(40% 50% at 25% 10%,rgba(91,91,246,.12),transparent 70%)}
+  background:radial-gradient(60% 60% at 50% 0%,rgba(91,110,232,.07),transparent 70%)}
 .hero-in{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center}
 .eyebrow{display:inline-flex;align-items:center;gap:8px;font-size:13.5px;font-weight:600;color:var(--ink-2);
   background:#fff;border:1px solid var(--line-2);border-radius:999px;padding:7px 14px;box-shadow:var(--shadow)}
@@ -398,13 +397,13 @@ a{color:inherit;text-decoration:none}
 .hc-body{padding:20px}
 .hc-pr{display:flex;align-items:center;gap:12px}
 .hc-badge{font-size:12.5px;font-weight:700;padding:4px 10px;border-radius:999px}
-.hc-merged{background:rgba(91,91,246,.1);color:#5b5bf6}
+.hc-merged{background:rgba(67,83,201,.08);color:var(--brand)}
 .hc-prtitle{font-weight:600;font-size:15.5px}
 .hc-review{display:flex;gap:12px;margin-top:18px;padding:14px;border:1px solid var(--line);border-radius:12px;background:var(--bg-soft)}
 .hc-ava{flex:none;width:30px;height:30px;border-radius:8px;background:var(--grad);color:#fff;font-weight:700;
   display:grid;place-items:center;font-size:14px}
 .hc-rev-head{font-size:13.5px;font-weight:600;color:var(--ink-2)}
-.hc-rev-head em{color:#5b5bf6;font-style:normal}
+.hc-rev-head em{color:var(--brand);font-style:normal}
 .hc-rev-text{font-size:14px;color:var(--muted);margin-top:3px}
 .hc-checks{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
 .hc-check{font-family:'JetBrains Mono',monospace;font-size:12px;padding:5px 10px;border-radius:8px;border:1px solid var(--line);color:var(--ink-2)}
@@ -422,7 +421,7 @@ a{color:inherit;text-decoration:none}
 .sec-alt{background:var(--bg-soft);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
 .sec-head{max-width:680px;margin:0 auto 52px;text-align:center}
 .kicker{display:inline-block;font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
-  color:#5b5bf6;margin-bottom:14px}
+  color:var(--brand);margin-bottom:14px}
 .h2{font-size:clamp(28px,4.4vw,46px);line-height:1.08;margin:0}
 .sub{color:var(--muted);font-size:18px;margin:16px auto 0;max-width:56ch}
 
@@ -430,8 +429,8 @@ a{color:inherit;text-decoration:none}
 .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
 .card{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:26px;transition:transform .18s,box-shadow .25s,border-color .2s}
 .card:hover{transform:translateY(-3px);box-shadow:var(--shadow);border-color:var(--line-2)}
-.card-ic{width:42px;height:42px;border-radius:11px;display:grid;place-items:center;color:#5b5bf6;
-  background:rgba(91,91,246,.09);border:1px solid rgba(91,91,246,.14);margin-bottom:16px}
+.card-ic{width:42px;height:42px;border-radius:11px;display:grid;place-items:center;color:var(--brand);
+  background:rgba(67,83,201,.07);border:1px solid rgba(67,83,201,.14);margin-bottom:16px}
 .card-ic svg{width:22px;height:22px}
 .card-t{font-size:18px;font-weight:600;margin:0 0 7px;font-family:'Inter Tight',sans-serif;letter-spacing:-.01em}
 .card-b{color:var(--muted);font-size:15px;margin:0;line-height:1.6}
@@ -439,19 +438,19 @@ a{color:inherit;text-decoration:none}
 /* loop */
 .loop{display:grid;grid-template-columns:repeat(4,1fr);gap:18px}
 .step{position:relative;background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:24px}
-.step-n{font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:600;color:#5b5bf6;margin-bottom:12px}
+.step-n{font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:600;color:var(--brand);margin-bottom:12px}
 .step-t{font-size:17px;font-weight:600;margin:0 0 6px;font-family:'Inter Tight',sans-serif}
 .step-b{color:var(--muted);font-size:14.5px;margin:0}
 .step-arrow{position:absolute;right:-13px;top:50%;transform:translateY(-50%);color:var(--line-2);font-size:20px;z-index:2}
 
 /* vision band */
 .vision{position:relative;overflow:hidden;padding:104px 0;color:#fff;text-align:center;
-  background:radial-gradient(120% 120% at 50% -10%,#2a2350 0%,#15122b 45%,#0a0913 100%)}
+  background:radial-gradient(120% 120% at 50% -10%,#1d2335 0%,#11141f 45%,#0a0c12 100%)}
 .vision-grid{position:absolute;inset:0;opacity:.5;
   background-image:linear-gradient(rgba(255,255,255,.06) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.06) 1px,transparent 1px);
   background-size:54px 54px;mask-image:radial-gradient(80% 80% at 50% 0%,#000,transparent 75%)}
 .vision-in{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center}
-.kicker-light{color:#b7a8ff}
+.kicker-light{color:#a9b4ee}
 .vh{font-size:clamp(30px,5vw,54px);line-height:1.08;margin:0;letter-spacing:-.02em}
 .vsub{color:rgba(255,255,255,.74);font-size:18px;max-width:62ch;margin:22px auto 0}
 .vstats{display:flex;gap:40px;flex-wrap:wrap;justify-content:center;margin-top:42px}
@@ -470,7 +469,7 @@ a{color:inherit;text-decoration:none}
 .cta-in{max-width:720px;margin:0 auto;text-align:center;background:#fff;border:1px solid var(--line);
   border-radius:24px;padding:56px 32px;box-shadow:var(--shadow);position:relative;overflow:hidden}
 .cta-in::before{content:"";position:absolute;inset:-40% 0 auto 0;height:260px;
-  background:radial-gradient(50% 60% at 50% 0%,rgba(124,77,255,.16),transparent 70%);pointer-events:none}
+  background:radial-gradient(50% 60% at 50% 0%,rgba(91,110,232,.07),transparent 70%);pointer-events:none}
 .cta-h{font-size:clamp(28px,4.4vw,44px);margin:0;position:relative}
 .cta-sub{color:var(--muted);font-size:18px;margin:14px 0 28px;position:relative}
 .cta .hero-actions{position:relative}
@@ -488,9 +487,9 @@ a{color:inherit;text-decoration:none}
   margin-top:40px;padding-top:22px;border-top:1px solid var(--line);color:var(--muted);font-size:13px}
 
 /* entrance + reveal */
-@keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
-.rise{animation:rise .7s cubic-bezier(.22,.61,.36,1) backwards;animation-delay:var(--d,0ms)}
-.reveal{opacity:0;transform:translateY(16px);transition:opacity .6s ease,transform .6s cubic-bezier(.22,.61,.36,1)}
+@keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.rise{animation:rise .4s cubic-bezier(.22,.61,.36,1) backwards;animation-delay:var(--d,0ms)}
+.reveal{opacity:0;transform:translateY(8px);transition:opacity .35s ease,transform .35s cubic-bezier(.22,.61,.36,1)}
 .reveal.seen{opacity:1;transform:none}
 
 /* responsive */

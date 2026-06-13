@@ -751,6 +751,28 @@ repoSettings.get("/:owner/:repo/settings", requireAuth, requireRepoAccess("admin
           </div>
         </section>
 
+        {/* ─── Automation hub ─── */}
+        <section class="repo-settings-section">
+          <div class="repo-settings-section-head">
+            <div class="repo-settings-section-eyebrow">Automation</div>
+            <h2 class="repo-settings-section-title">Automation settings</h2>
+            <p class="repo-settings-section-desc">
+              Every automation on this repository in one place — AI code
+              review, PR/issue triage, auto-merge, CI auto-fix, test
+              generation, and dependency updates. Flip each between off,
+              suggest (manual), and automatic.
+            </p>
+          </div>
+          <div class="repo-settings-section-body">
+            <a
+              href={`/${ownerName}/${repoName}/settings/automation`}
+              class="repo-settings-cta"
+            >
+              Open Automation settings <span class="arrow">→</span>
+            </a>
+          </div>
+        </section>
+
         {/* ─── Template repository ─── */}
         <section class="repo-settings-section">
           <div class="repo-settings-section-head">

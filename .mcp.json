@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "gluecron": {
+      "type": "http",
+      "url": "https://gluecron.com/mcp",
+      "headers": {
+        "Authorization": "Bearer ${GLUECRON_PAT}"
+      }
+    }
+  }
+}

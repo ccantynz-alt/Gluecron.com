@@ -27,6 +27,10 @@ import {
 import { getRepoPath } from "../git/repository";
 import { triagePullRequest, type PrTriage } from "./ai-generators";
 import { isAiAvailable } from "./ai-client";
+import {
+  getAutomationSettings,
+  type AutomationSettingsLoader,
+} from "./automation-settings";
 
 export const PR_TRIAGE_MARKER = "<!-- gluecron-pr-triage:summary -->";
 
@@ -196,7 +200,10 @@ export function renderTriageComment(t: PrTriage): string {
   ].join("\n");
 }
 
-export async function triggerPrTriage(input: PrTriageInput): Promise<void> {
+export async function triggerPrTriage(
+  input: PrTriageInput,
+  options: { loadSettings?: AutomationSettingsLoader } = {}
+): Promise<void> {
   try {
     if (process.env.DEBUG_PR_TRIAGE === "1") {
       console.log(
@@ -207,6 +214,12 @@ export async function triggerPrTriage(input: PrTriageInput): Promise<void> {
       );
     }
     if (!isAiAvailable()) return;
+    // Per-repo automation gate — 'off' skips triage; loader fails open to
+    // the default ('suggest' = current behavior). Env stays supreme above.
+    const automation = await (options.loadSettings ?? getAutomationSettings)(
+      input.repositoryId
+    );
+    if (automation.prTriageMode === "off") return;
     if (await alreadyTriaged(input.prId)) return;
 
     const [diffSummary, availableLabels, candidateReviewers] = await Promise.all([

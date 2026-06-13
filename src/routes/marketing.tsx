@@ -318,7 +318,8 @@ const FeaturesPage: FC = () => (
             <h3 class="mkt-teaser-title">Green by default</h3>
             <p class="mkt-teaser-desc">
               Branch protection, secret scanning, required checks, merge
-              queue — pre-wired on every new repo. Nothing broken ships.
+              queue — pre-wired on every new repo, so problems are caught
+              before they ship.
             </p>
           </div>
           <div class="mkt-teaser-card">
@@ -377,7 +378,7 @@ const FeaturesPage: FC = () => (
 
       <FeatureCategory
         eyebrow="Quality gate"
-        title="Nothing broken ever reaches production."
+        title="Catch problems before they reach production."
         items={[
           {
             title: "GateTest integration",
@@ -587,13 +588,13 @@ const AboutPage: FC = () => (
             About
           </div>
           <h1 class="display mkt-hero-title">
-            We're building the platform{" "}
-            <span class="mkt-grad">software writes itself on.</span>
+            We're building the git platform{" "}
+            <span class="mkt-grad">for AI-assisted teams.</span>
           </h1>
           <p class="mkt-hero-sub">
-            Most code in 2026 is written by AI. Most reviews are too. The
-            platforms hosting that code were built for a previous era.
-            Gluecron is built for this one.
+            More and more code is written — and reviewed — with AI assistance.
+            The platforms hosting that code were designed for an earlier
+            workflow. Gluecron is built for this one.
           </p>
         </div>
       </header>
@@ -612,8 +613,8 @@ const AboutPage: FC = () => (
             Everything is green by default. Every new repo auto-configures
             gates, branch protection, labels, CODEOWNERS, and a welcome issue.
             Users opt out per feature. Defaults are maximum-green so
-            <strong> nothing broken ever reaches production, the website,
-            or the customer.</strong>
+            <strong> broken changes are caught before they reach production
+            — or your customers.</strong>
           </p>
         </div>
       </section>
@@ -796,8 +797,8 @@ const sharedMktCss = `
     position: absolute;
     top: 0; left: 0; right: 0;
     height: 2px;
-    background: linear-gradient(90deg, transparent 0%, #8c6dff 30%, #36c5d6 70%, transparent 100%);
-    opacity: 0.78;
+    background: linear-gradient(90deg, transparent 0%, rgba(91,110,232,0.55) 50%, transparent 100%);
+    opacity: 0.6;
     pointer-events: none;
     z-index: 2;
   }
@@ -807,9 +808,9 @@ const sharedMktCss = `
     position: absolute;
     inset: -28% -10% auto auto;
     width: 520px; height: 520px;
-    background: radial-gradient(circle, rgba(140,109,255,0.22), rgba(54,197,214,0.10) 45%, transparent 70%);
+    background: radial-gradient(circle, rgba(91,110,232,0.08), transparent 70%);
     filter: blur(80px);
-    opacity: 0.75;
+    opacity: 0.6;
     pointer-events: none;
     z-index: 0;
   }
@@ -839,14 +840,14 @@ const sharedMktCss = `
     justify-content: center;
     width: 18px; height: 18px;
     border-radius: 6px;
-    background: rgba(140,109,255,0.14);
-    color: #b69dff;
-    box-shadow: inset 0 0 0 1px rgba(140,109,255,0.35);
+    background: rgba(91,110,232,0.12);
+    color: var(--text-link);
+    box-shadow: inset 0 0 0 1px rgba(91,110,232,0.30);
   }
   .mkt-page-pricing .mkt-grad,
   .mkt-page-features .mkt-grad,
   .mkt-page-about .mkt-grad {
-    background-image: linear-gradient(135deg, #a48bff 0%, #8c6dff 50%, #36c5d6 100%);
+    background-image: linear-gradient(135deg, var(--accent-hover) 0%, var(--accent) 100%);
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;
@@ -893,8 +894,7 @@ const sharedMktCss = `
     inset: 0;
     z-index: -1;
     background:
-      radial-gradient(60% 100% at 50% 0%, rgba(140,109,255,0.16), transparent 65%),
-      radial-gradient(40% 80% at 80% 100%, rgba(54,197,214,0.10), transparent 65%);
+      radial-gradient(60% 100% at 50% 0%, rgba(91,110,232,0.08), transparent 65%);
   }
   .mkt-cta-card .eyebrow { justify-content: center; }
   .mkt-cta-title {
@@ -941,13 +941,13 @@ const pricingCss = sharedMktCss + `
   }
   .mkt-tier:hover { border-color: var(--border-strong); transform: translateY(-3px); }
   .mkt-tier-hl {
-    border-color: rgba(140,109,255,0.40);
-    box-shadow: var(--elev-2), 0 0 0 1px rgba(140,109,255,0.30);
+    border-color: rgba(91,110,232,0.40);
+    box-shadow: var(--elev-2), 0 0 0 1px rgba(91,110,232,0.30);
     background:
-      linear-gradient(180deg, rgba(140,109,255,0.05), transparent 50%),
+      linear-gradient(180deg, rgba(91,110,232,0.05), transparent 50%),
       var(--bg-elevated);
   }
-  .mkt-tier-hl:hover { border-color: rgba(140,109,255,0.60); }
+  .mkt-tier-hl:hover { border-color: rgba(91,110,232,0.60); }
   .mkt-tier-badge {
     position: absolute;
     top: -10px;
@@ -962,7 +962,7 @@ const pricingCss = sharedMktCss + `
     text-transform: uppercase;
     font-weight: 600;
     border-radius: var(--r-full);
-    box-shadow: 0 4px 14px -2px rgba(140,109,255,0.45);
+    box-shadow: 0 4px 14px -2px rgba(0,0,0,0.40);
     white-space: nowrap;
   }
   .mkt-tier-name {
@@ -1135,13 +1135,13 @@ const featuresCss = sharedMktCss + `
     position: absolute;
     top: 0; left: 0; right: 0;
     height: 1px;
-    background: linear-gradient(90deg, transparent 0%, rgba(140,109,255,0.40) 30%, rgba(54,197,214,0.40) 70%, transparent 100%);
-    opacity: 0.7;
+    background: linear-gradient(90deg, transparent 0%, rgba(91,110,232,0.40) 50%, transparent 100%);
+    opacity: 0.6;
   }
   .mkt-page-features .mkt-teaser-card:hover {
-    border-color: rgba(140,109,255,0.40);
+    border-color: rgba(91,110,232,0.40);
     transform: translateY(-3px);
-    box-shadow: 0 14px 36px -18px rgba(140,109,255,0.30);
+    box-shadow: 0 14px 36px -18px rgba(0,0,0,0.45);
   }
   .mkt-page-features .mkt-teaser-icon {
     display: inline-flex;
@@ -1149,9 +1149,9 @@ const featuresCss = sharedMktCss + `
     justify-content: center;
     width: 40px; height: 40px;
     border-radius: 12px;
-    background: linear-gradient(135deg, rgba(140,109,255,0.18), rgba(54,197,214,0.10));
-    color: #b69dff;
-    box-shadow: inset 0 0 0 1px rgba(140,109,255,0.30);
+    background: rgba(91,110,232,0.12);
+    color: var(--text-link);
+    box-shadow: inset 0 0 0 1px rgba(91,110,232,0.28);
     margin-bottom: var(--s-4);
   }
   .mkt-page-features .mkt-teaser-title {
@@ -1259,7 +1259,7 @@ const aboutCss = sharedMktCss + `
     font-size: 11px;
     color: var(--accent);
     background: var(--accent-gradient-faint);
-    border: 1px solid rgba(140,109,255,0.30);
+    border: 1px solid rgba(91,110,232,0.30);
     padding: 3px 9px;
     border-radius: var(--r-full);
     letter-spacing: 0.06em;
@@ -1299,7 +1299,7 @@ const aboutCss = sharedMktCss + `
     border-radius: var(--r-full);
     transition: border-color var(--t-fast) var(--ease), transform var(--t-fast) var(--ease);
   }
-  .mkt-stack-pill:hover { border-color: rgba(140,109,255,0.4); transform: translateY(-1px); }
+  .mkt-stack-pill:hover { border-color: rgba(91,110,232,0.4); transform: translateY(-1px); }
   .mkt-stack-name {
     font-family: var(--font-display);
     font-weight: 600;
@@ -1331,7 +1331,7 @@ const aboutCss = sharedMktCss + `
     transition: border-color var(--t-base) var(--ease), transform var(--t-base) var(--ease-out-quart);
   }
   .mkt-contact-card:hover {
-    border-color: rgba(140,109,255,0.4);
+    border-color: rgba(91,110,232,0.4);
     transform: translateY(-2px);
     text-decoration: none;
   }

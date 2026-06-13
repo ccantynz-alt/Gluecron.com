@@ -19,6 +19,10 @@ import {
 } from "./ai-review-trio";
 import { assertAiQuota, AiQuotaExceededError } from "./billing";
 import { getBotUserIdOrFallback } from "./bot-user";
+import {
+  getAutomationSettings,
+  type AutomationSettingsLoader,
+} from "./automation-settings";
 
 interface ReviewComment {
   filePath: string;
@@ -282,7 +286,7 @@ export async function triggerAiReview(
   body: string,
   baseBranch: string,
   headBranch: string,
-  options: { force?: boolean } = {}
+  options: { force?: boolean; loadSettings?: AutomationSettingsLoader } = {}
 ): Promise<void> {
   try {
     if (!isAiReviewEnabled()) return;
@@ -305,6 +309,14 @@ export async function triggerAiReview(
       .where(eq(pullRequests.id, prId))
       .limit(1);
     if (!pr) return;
+
+    // Per-repo automation gate — 'off' skips AI review entirely. The loader
+    // fails open to the defaults ('suggest' = current behavior), so a broken
+    // settings lookup can never disable reviews.
+    const automation = await (options.loadSettings ?? getAutomationSettings)(
+      pr.repositoryId
+    );
+    if (automation.aiReviewMode === "off") return;
 
     // Hard quota gate — post a comment and bail if the user's AI budget is
     // exhausted. This runs after loading the PR so we have authorId for the

@@ -51,6 +51,10 @@ import { audit } from "./notify";
 import { getRepoPath } from "../git/repository";
 import { getLatestCachedPrRisk } from "./pr-risk";
 import { performMerge, type PerformMergeResult } from "./pr-merge";
+import {
+  getAutomationSettings,
+  type AutomationSettingsLoader,
+} from "./automation-settings";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -85,6 +89,8 @@ export interface AutoMergeOptions {
   repoName?: string;
   /** Head branch for the diff-size check. Required when caps are set. */
   headBranch?: string;
+  /** Test-only injection of the per-repo automation settings loader. */
+  loadAutomationSettings?: AutomationSettingsLoader;
 }
 
 // ---------------------------------------------------------------------------
@@ -303,6 +309,20 @@ export async function evaluateAutoMerge(
   ctx: AutoMergeContext,
   opts: AutoMergeOptions = {}
 ): Promise<AutoMergeDecision> {
+  // 0. Per-repo automation gate. 'auto' (the fail-open default — matching
+  // pre-0106 behavior) proceeds to the normal K2 evaluation; 'suggest'
+  // records the decision trail but never merges; 'off' skips entirely.
+  const automation = await (opts.loadAutomationSettings ?? getAutomationSettings)(
+    ctx.repositoryId
+  );
+  if (automation.autoMergeMode !== "auto") {
+    const reason =
+      automation.autoMergeMode === "off"
+        ? "Auto-merge is turned off in this repository's automation settings."
+        : "Auto-merge is set to 'suggest' in this repository's automation settings — evaluation recorded, merge left to a human.";
+    return { merge: false, reason, blocking: [reason] };
+  }
+
   // 1. Match the protection rule. matchProtection returns the most
   // specific rule, or null when none configured.
   const rule = await matchProtection(ctx.repositoryId, ctx.baseBranch);

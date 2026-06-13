@@ -19,6 +19,7 @@ import {
   buildGoogleAuthorizeUrl,
   fetchGoogleUserinfo,
   exchangeGoogleCode,
+  resolveGoogleRedirectUri,
 } from "../lib/google-oauth";
 
 describe("google-oauth — route registration", () => {
@@ -102,6 +103,77 @@ describe("google-oauth — buildGoogleAuthorizeUrl", () => {
         "n"
       )
     ).toThrow();
+  });
+});
+
+describe("google-oauth — resolveGoogleRedirectUri (self-healing)", () => {
+  const PATH = "/login/google/callback";
+
+  it("uses an explicit https base URL verbatim (trailing slash trimmed)", () => {
+    expect(
+      resolveGoogleRedirectUri({ configuredBaseUrl: "https://gluecron.com/" })
+    ).toBe(`https://gluecron.com${PATH}`);
+  });
+
+  it("ignores a localhost base URL and derives from the request", () => {
+    // The production failure mode: APP_BASE_URL unset → config.appBaseUrl
+    // defaults to http://localhost:3000. Behind Fly the edge sets
+    // X-Forwarded-Proto:https and forwards the real host, so we must still
+    // produce the public https callback.
+    expect(
+      resolveGoogleRedirectUri({
+        configuredBaseUrl: "http://localhost:3000",
+        forwardedProto: "https",
+        forwardedHost: "gluecron.com",
+        host: "gluecron.com",
+        requestUrl: "http://gluecron.com/login/google",
+      })
+    ).toBe(`https://gluecron.com${PATH}`);
+  });
+
+  it("upgrades a public host to https when no forwarded proto is present", () => {
+    expect(
+      resolveGoogleRedirectUri({
+        host: "gluecron.com",
+        requestUrl: "http://gluecron.com/login/google",
+      })
+    ).toBe(`https://gluecron.com${PATH}`);
+  });
+
+  it("honours X-Forwarded-Host over the raw Host header", () => {
+    expect(
+      resolveGoogleRedirectUri({
+        forwardedProto: "https",
+        forwardedHost: "gluecron.com",
+        host: "internal.fly.dev",
+        requestUrl: "http://internal.fly.dev/login/google",
+      })
+    ).toBe(`https://gluecron.com${PATH}`);
+  });
+
+  it("takes only the first value of a comma-listed forwarded header", () => {
+    expect(
+      resolveGoogleRedirectUri({
+        forwardedProto: "https, http",
+        forwardedHost: "gluecron.com, proxy.internal",
+        requestUrl: "http://x/login/google",
+      })
+    ).toBe(`https://gluecron.com${PATH}`);
+  });
+
+  it("keeps localhost on its request scheme for local dev", () => {
+    expect(
+      resolveGoogleRedirectUri({
+        host: "localhost:3000",
+        requestUrl: "http://localhost:3000/login/google",
+      })
+    ).toBe(`http://localhost:3000${PATH}`);
+  });
+
+  it("falls back to localhost when there is nothing to derive from", () => {
+    expect(resolveGoogleRedirectUri({})).toBe(
+      `http://localhost:3000${PATH}`
+    );
   });
 });
 
